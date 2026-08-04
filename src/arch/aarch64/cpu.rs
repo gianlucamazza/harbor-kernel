@@ -29,13 +29,16 @@ pub fn wait_for_interrupt() {
     }
 }
 
-/// Run `f` with IRQs masked, then **restore** the previous `DAIF`.
+/// Mask IRQs and return the previous `DAIF`, for a later [`irq_restore`].
 ///
-/// Restoring rather than unconditionally unmasking is the whole point: nested
-/// use, or a call from a context that already had IRQs masked (bootstrap, an
-/// exception handler), must not silently enable them on the way out.
+/// The scheduler needs the open and the close of a critical section to be two
+/// separate calls, because a context switch does not return on the stack it was
+/// called from: a closure API cannot express that. Everything else should use
+/// [`without_irqs`], which is written on top of this pair so the mask sequence
+/// has exactly one definition.
 #[inline]
-pub fn without_irqs<R>(f: impl FnOnce() -> R) -> R {
+#[must_use = "the saved DAIF must be handed to irq_restore or the section never closes"]
+pub fn irq_save() -> u64 {
     let daif: u64;
     // SAFETY: reading DAIF and masking IRQs are pure PSTATE operations. Not
     // `nomem`: this opens a critical section around memory the IRQ path shares.
@@ -47,10 +50,22 @@ pub fn without_irqs<R>(f: impl FnOnce() -> R) -> R {
             options(nostack, preserves_flags),
         );
     }
+    daif
+}
 
-    let result = f();
-
-    // SAFETY: restores the exact PSTATE mask bits captured above.
+/// Restore a `DAIF` captured by [`irq_save`].
+///
+/// Restoring rather than unconditionally unmasking is the whole point: nested
+/// use, or a call from a context that already had IRQs masked (bootstrap, an
+/// exception handler), must not silently enable them on the way out.
+///
+/// # Safety
+/// `daif` must come from an [`irq_save`] on this core whose section is being
+/// closed here. Restoring a value from a different section re-opens or re-masks
+/// interrupts against the intent of the code in between.
+#[inline]
+pub unsafe fn irq_restore(daif: u64) {
+    // SAFETY: restores the exact PSTATE mask bits the caller captured.
     unsafe {
         core::arch::asm!(
             "msr daif, {daif}",
@@ -58,7 +73,15 @@ pub fn without_irqs<R>(f: impl FnOnce() -> R) -> R {
             options(nostack, preserves_flags),
         );
     }
+}
 
+/// Run `f` with IRQs masked, then restore the previous `DAIF`.
+#[inline]
+pub fn without_irqs<R>(f: impl FnOnce() -> R) -> R {
+    let daif = irq_save();
+    let result = f();
+    // SAFETY: closes the section opened immediately above.
+    unsafe { irq_restore(daif) };
     result
 }
 

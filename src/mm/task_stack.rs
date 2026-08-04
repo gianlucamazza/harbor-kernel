@@ -7,12 +7,27 @@
 //!            low                     high = initial SP
 //! ```
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use kernel_core::layout::{GuardedStack, LayoutError, validate_guarded_stack};
 use kernel_core::paging::PAGE_SIZE;
 
 use crate::arch::cpu;
 use crate::arch::mmu;
 use crate::mm;
+
+/// Stacks leaked because their guard page could not be remapped. See
+/// [`abandoned_stacks`].
+static ABANDONED: AtomicU32 = AtomicU32::new(0);
+
+/// Task stacks leaked rather than freed with an unmapped guard page.
+///
+/// Non-zero means the heap has permanently lost memory *and* that
+/// [`mmu::map`] refused a page this kernel believed it owned — the second is
+/// the more interesting half.
+pub fn abandoned_stacks() -> u32 {
+    ABANDONED.load(Ordering::Relaxed)
+}
 
 /// Why a task stack could not be built.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,6 +125,14 @@ impl TaskStack {
 
     /// Remap the guard and return the allocation to the heap.
     ///
+    /// If the guard cannot be remapped the allocation is **leaked**, not freed.
+    /// Handing a range with an unmapped page back to the free list does not
+    /// fault here: the allocator addresses by offset and writes only block
+    /// headers, so the damage surfaces later, in an unrelated allocation that
+    /// splits the block and returns a payload inside the hole. Leaking costs
+    /// one stack; freeing costs a fault with no path back to this task. The
+    /// boot-time unmap smoke already refuses the same way.
+    ///
     /// # Safety
     /// No code may still be executing on this stack.
     pub unsafe fn release(self) {
@@ -123,10 +146,19 @@ impl TaskStack {
             perms: Perms::RW,
             name: "task stack guard restore",
         };
-        let _ = cpu::without_irqs(|| {
+        let remapped = cpu::without_irqs(|| {
             // SAFETY: IRQs masked; restoring a page we own before free.
             unsafe { mmu::map(&region) }
         });
+
+        if remapped.is_err() {
+            // Counted rather than silent: a leak nobody counts is a heap that
+            // shrinks for reasons nobody can attribute.
+            ABANDONED.fetch_add(1, Ordering::Relaxed);
+            core::mem::forget(self);
+            return;
+        }
+
         // SAFETY: both pages mapped again; caller guarantees no live SP here.
         unsafe { mm::dealloc(self.base as *mut u8) };
         core::mem::forget(self);

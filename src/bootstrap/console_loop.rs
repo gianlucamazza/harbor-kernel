@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 use core::alloc::Layout;
 
 use kernel_core::layout::Region;
-use kernel_core::paging::{MemKind, Perms};
+use kernel_core::paging::{self, MemKind, Perms};
 
 use crate::arch::cpu;
 use crate::arch::mmu;
@@ -143,6 +143,83 @@ fn unmap_smoke(uart: &mut Pl011) {
         Err(error) => {
             println!(uart, "unmap: remap FAILED {error:?}");
             // Intentionally leak: freeing an unmapped page would corrupt the heap.
+            return;
+        }
+    }
+
+    split_smoke(uart);
+}
+
+/// Unmap a page that is certainly inside a 2 MiB block, so the break-before-make
+/// split runs on every boot.
+///
+/// Without this the split path is dead code in practice: `__heap_start` sits
+/// below the first 2 MiB boundary, and `paging::chunks` degrades to 4 KiB pages
+/// until it reaches one — so the heap head, where every task stack and the
+/// smoke above land, is already page-granular. The guard mechanism therefore
+/// works today by an accident of alignment, and the most delicate code in the
+/// MMU would first execute in production, the day the heap fills past 2 MiB.
+///
+/// Reaching a block means allocating past the boundary rather than trusting one
+/// to be nearby: the target page is computed from the allocation actually
+/// returned, not assumed.
+fn split_smoke(uart: &mut Pl011) {
+    let block = paging::L2_BLOCK_SIZE as usize;
+    // A block's worth plus a page guarantees the span contains a whole 2 MiB
+    // boundary *and* a page above it, whatever the base alignment.
+    let layout = match Layout::from_size_align(block + 0x1000, 0x1000) {
+        Ok(layout) => layout,
+        Err(_) => return,
+    };
+
+    // SAFETY: layout is non-zero and aligned; null means OOM.
+    let ptr = unsafe { alloc(layout) };
+    if ptr.is_null() {
+        println!(uart, "split: SKIPPED (OOM)");
+        return;
+    }
+
+    let base = ptr as u64;
+    let target = base.next_multiple_of(paging::L2_BLOCK_SIZE);
+    let before = mmu::splits();
+
+    let unmapped = cpu::without_irqs(|| {
+        // SAFETY: kernel map active; IRQs masked; page-aligned heap we own.
+        unsafe { mmu::unmap(target, 0x1000) }
+    });
+    if let Err(error) = unmapped {
+        println!(uart, "split: unmap FAILED {error:?}");
+        // SAFETY: still fully mapped — unmap refused before changing anything.
+        unsafe { dealloc(ptr, layout) };
+        return;
+    }
+
+    let region = Region {
+        base: target,
+        len: 0x1000,
+        kind: MemKind::NormalWb,
+        perms: Perms::RW,
+        name: "split smoke",
+    };
+    let remapped = cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; restoring the mapping we just removed.
+        unsafe { mmu::map(&region) }
+    });
+
+    let splits = mmu::splits() - before;
+    match remapped {
+        Ok(()) => {
+            // The page is live again: writing it proves the rebuilt table maps
+            // the same physical memory, which a descriptor read alone cannot.
+            // SAFETY: remapped RW immediately above.
+            unsafe { core::ptr::write_volatile(target as *mut u8, 0xC3) };
+            // SAFETY: fully mapped again; ownership returns to the allocator.
+            unsafe { dealloc(ptr, layout) };
+            println!(uart, "split: page at {target:#x} split {splits}, remapped");
+        }
+        Err(error) => {
+            println!(uart, "split: remap FAILED {error:?}");
+            // Intentionally leak: freeing an unmapped page would corrupt the heap.
         }
     }
 }
@@ -154,6 +231,7 @@ pub fn run() -> ! {
     let mut last_counters = irq::Counters::default();
     let mut last_dropped = 0u32;
     let mut last_missed = 0u64;
+    let mut last_abandoned = 0u32;
 
     loop {
         // 1. Echo all bytes the UART RX IRQ pushed into the ring.
@@ -210,6 +288,17 @@ pub fn run() -> ! {
                         println!(uart, "timer: MISSED {missed} deadlines");
                     });
                     last_missed = missed;
+                }
+
+                // A task stack whose guard could not be remapped is leaked
+                // rather than freed. Reported here because the alternative —
+                // freeing it — corrupts the heap much later and elsewhere.
+                let abandoned = crate::mm::task_stack::abandoned_stacks();
+                if abandoned != last_abandoned {
+                    let _ = console::with_tx(|uart| {
+                        println!(uart, "sched: ABANDONED {abandoned} task stacks");
+                    });
+                    last_abandoned = abandoned;
                 }
             }
         }

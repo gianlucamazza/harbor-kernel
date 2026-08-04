@@ -63,6 +63,22 @@ grep -q 'unmap: remapped and freed' "${log}" ||
 if grep -q 'unmap: FAILED' "${log}"; then
 	fail "mmu::unmap refused a mapped heap page"
 fi
+# The break-before-make block split, exercised deliberately rather than left to
+# an alignment accident. `__heap_start` is below the first 2 MiB boundary, so
+# every task stack lands on pages that were never blocks; without this smoke the
+# split path would first run in production, the day the heap fills past 2 MiB.
+# Asserting `split 1` — not merely that the line appeared — is what proves a
+# block was actually rebuilt as a table.
+grep -qE 'split: page at 0x[0-9a-f]+ split 1, remapped' "${log}" ||
+	fail "block split path did not run: $(grep '^split:' "${log}" || echo '(no split line at all)')"
+if grep -qE 'split: (unmap|remap) FAILED|split: SKIPPED' "${log}"; then
+	fail "block split smoke did not complete"
+fi
+# A task stack leaked because its guard could not be remapped. The heap stays
+# consistent — that is why it leaks — so nothing else here would notice.
+if grep -q 'sched: ABANDONED' "${log}"; then
+	fail "a task stack was abandoned (guard remap refused)"
+fi
 # M3 cooperative demo (ADR-0006): the console must show the two tasks *alternating*.
 #
 # The order is deterministic, not a race: both tasks are on the runqueue before
@@ -71,7 +87,10 @@ fi
 # the difference between proving a switch happened and proving both tasks ran —
 # `task-a 0..3` followed by `task-b 0..3` satisfies the second and means the
 # scheduler never switched until the first task exited.
-observed="$(grep -oE '^task-[ab] [0-9]+' "${log}" | tr '\n' ' ')"
+# `|| true`: no matching lines is the most interesting failure here (the tasks
+# never ran at all), and under `set -e` a failing grep inside a command
+# substitution kills the script before `fail` can report anything.
+observed="$(grep -oE '^task-[ab] [0-9]+' "${log}" | tr '\n' ' ' || true)"
 expected="task-a 0 task-b 0 task-a 1 task-b 1 task-a 2 task-b 2 task-a 3 task-b 3 "
 [[ "${observed}" == "${expected}" ]] ||
 	fail "task output not interleaved: ${observed}"

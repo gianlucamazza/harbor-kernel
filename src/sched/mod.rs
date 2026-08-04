@@ -20,7 +20,13 @@ use crate::mm::{StackError, TaskStack};
 use crate::sync::SyncCell;
 
 /// Maximum concurrent tasks including idle.
-pub const MAX_TASKS: usize = 4;
+///
+/// Eight rather than four: a `--features bringup` image runs idle, both demo
+/// workers and the guard probe, which fills a table of four exactly. A limit
+/// with no margin turns the next spawn into a `Full` that reads as a scheduler
+/// bug rather than a sizing decision. Slots are never reused before a task
+/// exits, so this bounds concurrency, not lifetime spawns.
+pub const MAX_TASKS: usize = 8;
 
 /// Usable stack bytes per spawned task (plus one guard page).
 const TASK_STACK_USABLE: usize = 16 * 1024;
@@ -59,6 +65,13 @@ struct Sched {
     tcbs: [Tcb; MAX_TASKS],
     runqueue: RunQueue<MAX_TASKS>,
     current: TaskId,
+    /// Stack of a task that has exited, awaiting release by the next task to
+    /// run. A task cannot free the stack its own SP points into.
+    ///
+    /// At most one is ever pending: the drain runs immediately after every
+    /// context switch, so a second exit cannot happen before the first is
+    /// collected.
+    pending_free: Option<TaskStack>,
 }
 
 impl Sched {
@@ -67,6 +80,7 @@ impl Sched {
             tcbs: [const { Tcb::empty() }; MAX_TASKS],
             runqueue: RunQueue::new(),
             current: IDLE_ID,
+            pending_free: None,
         }
     }
 }
@@ -192,44 +206,56 @@ impl StackReport {
 /// is that an overflow lands in its own guard *instead of* a peer's stack.
 #[cfg(feature = "bringup")]
 pub fn stack_map(out: &mut [StackReport]) -> usize {
-    cpu::irq_disable();
-    // SAFETY: IRQs masked; single core.
-    let sched = unsafe { &*SCHED.get() };
-    let mut count = 0;
-    for (slot, tcb) in sched.tcbs.iter().enumerate() {
-        if count == out.len() {
-            break;
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; single core.
+        let sched = unsafe { &*SCHED.get() };
+        let mut count = 0;
+        for (slot, tcb) in sched.tcbs.iter().enumerate() {
+            if count == out.len() {
+                break;
+            }
+            if let Some(stack) = tcb.stack.as_ref() {
+                out[count] = StackReport {
+                    id: TaskId(slot as u32),
+                    guard: stack.guard_range(),
+                    stack: stack.stack_range(),
+                };
+                count += 1;
+            }
         }
-        if let Some(stack) = tcb.stack.as_ref() {
-            out[count] = StackReport {
-                id: TaskId(slot as u32),
-                guard: stack.guard_range(),
-                stack: stack.stack_range(),
-            };
-            count += 1;
-        }
-    }
-    cpu::irq_enable();
-    count
+        count
+    })
 }
 
 /// The running task's id.
 #[cfg(feature = "bringup")]
 pub fn current_id() -> TaskId {
-    cpu::irq_disable();
-    // SAFETY: IRQs masked; single core.
-    let id = unsafe { (*SCHED.get()).current };
-    cpu::irq_enable();
-    id
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; single core.
+        unsafe { (*SCHED.get()).current }
+    })
 }
 
 /// True when the ready queue holds at least one task.
 pub fn has_ready() -> bool {
-    cpu::irq_disable();
-    // SAFETY: IRQs masked.
-    let empty = unsafe { (*SCHED.get()).runqueue.is_empty() };
-    cpu::irq_enable();
-    !empty
+    !cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        unsafe { (*SCHED.get()).runqueue.is_empty() }
+    })
+}
+
+/// Return an exited task's stack, now that we are running on a different one.
+///
+/// # Safety
+/// IRQs masked, and the caller is not the task that owned the pending stack.
+unsafe fn drain_pending_free() {
+    // SAFETY: IRQs masked; the borrow ends before this returns and never
+    // crosses a context switch.
+    let pending = unsafe { (*SCHED.get()).pending_free.take() };
+    if let Some(stack) = pending {
+        // SAFETY: its owner has exited and we are on another stack.
+        unsafe { stack.release() };
+    }
 }
 
 fn switch_with(requeue_current: bool) {
@@ -237,7 +263,7 @@ fn switch_with(requeue_current: bool) {
         return;
     }
 
-    cpu::irq_disable();
+    let daif = cpu::irq_save();
 
     // SAFETY: IRQs masked for schedule + switch.
     let sched = unsafe { &mut *SCHED.get() };
@@ -247,14 +273,18 @@ fn switch_with(requeue_current: bool) {
     if !requeue_current {
         if current == IDLE_ID {
             // Idle must not exit.
-            cpu::irq_enable();
+            // SAFETY: closes the section opened above.
+            unsafe { cpu::irq_restore(daif) };
             return;
         }
         sched.tcbs[cur_idx].state = State::Empty;
-        if let Some(stack) = sched.tcbs[cur_idx].stack.take() {
-            // SAFETY: this task will not resume; switch goes elsewhere.
-            unsafe { stack.release() };
-        }
+        // Not released here: this code is still running on that stack, and
+        // `release` hands the pages back to the free list. It happens to be
+        // survivable today — the allocator only writes below the usable
+        // region, and nothing can allocate before the switch — but that is an
+        // argument about free-list internals, not about this function. Park it
+        // instead; the next task frees it from its own stack.
+        sched.pending_free = sched.tcbs[cur_idx].stack.take();
         sched.tcbs[cur_idx].entry = None;
         sched.tcbs[cur_idx].context = Context::zeroed();
     } else if sched.tcbs[cur_idx].state == State::Running {
@@ -270,21 +300,24 @@ fn switch_with(requeue_current: bool) {
                 IDLE_ID
             } else {
                 sched.tcbs[cur_idx].state = State::Running;
-                cpu::irq_enable();
+                // SAFETY: closes the section opened above.
+                unsafe { cpu::irq_restore(daif) };
                 return;
             }
         }
         Err(_) => {
             // Requeue failed (capacity): stay on current.
             sched.tcbs[cur_idx].state = State::Running;
-            cpu::irq_enable();
+            // SAFETY: closes the section opened above.
+            unsafe { cpu::irq_restore(daif) };
             return;
         }
     };
 
     if next == current {
         sched.tcbs[cur_idx].state = State::Running;
-        cpu::irq_enable();
+        // SAFETY: closes the section opened above.
+        unsafe { cpu::irq_restore(daif) };
         return;
     }
 
@@ -298,8 +331,16 @@ fn switch_with(requeue_current: bool) {
     // SAFETY: both contexts in static TCBs; stacks valid; IRQs masked.
     unsafe { context_switch(prev, next_ctx) };
 
-    // Resumed here as whatever task was switched to (or back).
-    cpu::irq_enable();
+    // Resumed as some task that was switched away from earlier, on its own
+    // stack. Anything an exiting task left behind can be freed now.
+    // SAFETY: IRQs still masked; we are not the task that parked it.
+    unsafe { drain_pending_free() };
+
+    // `daif` is this task's own saved mask, restored from its own frame — a
+    // task always resumes at the level it left, and only first entry needs the
+    // unconditional unmask in `task_trampoline`.
+    // SAFETY: closes the section this task opened before it switched away.
+    unsafe { cpu::irq_restore(daif) };
 }
 
 /// First code a spawned task runs: IRQs on, call entry, then exit.
