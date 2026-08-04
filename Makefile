@@ -83,17 +83,13 @@ no-simd: elf
 	  || { echo "error: FP/SIMD registers found in $(ELF)" >&2; exit 1; }
 	@echo "no-simd: clean"
 
-# `early_mmu_enable` runs with translation off, where every access is
-# Device-nGnRnE and the LDXR/STXR pair behind an atomic read-modify-write does
-# not make progress on Cortex-A72 — the board hangs with no output and no
-# fault, and QEMU does not reproduce it because its exclusive monitor ignores
-# memory attributes. The window is one function long; keep it that way.
+# Nothing may use an atomic read-modify-write before the MMU is on: with
+# translation off every access is Device-nGnRnE, where the LDXR/STXR pair makes
+# no forward progress on Cortex-A72 — a silent hang no emulator reproduces.
+# The script checks the whole entry path, not one function, and fails if the
+# path grows.
 no-early-exclusives: elf
-	@! llvm-objdump -d --disassemble-symbols=early_mmu_enable --no-show-raw-insn $(ELF) \
-	  | grep -oE '\b(ld|st)a?xr[bh]?\b|\bcas[ab]*l?[bh]?\b|\bswp[ab]*l?[bh]?\b' \
-	  | head -5 | grep . \
-	  || { echo "error: atomic read-modify-write in the pre-MMU path" >&2; exit 1; }
-	@echo "no-early-exclusives: clean"
+	./scripts/check-pre-mmu-path.sh $(ELF)
 
 fmt:
 	cargo fmt --all

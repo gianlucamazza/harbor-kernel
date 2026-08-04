@@ -18,6 +18,10 @@ __dtb_ptr:
 
 .section .text.boot, "ax"
 .global _start
+// Give the symbol a type and a size: the linker merges `.text.boot` into
+// `.text`, so `scripts/check-pre-mmu-path.sh` can only find the entry code by
+// symbol, and a sizeless NOTYPE symbol leaves it guessing where it ends.
+.type _start, %function
 
 _start:
     // The firmware passes the device-tree blob address in x0. Nothing consumes
@@ -94,3 +98,5 @@ _start:
 
     // kernel_main must not return; park if it does.
     b       .L_park
+
+.size _start, . - _start
