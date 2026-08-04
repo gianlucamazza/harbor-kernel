@@ -93,6 +93,9 @@ pub unsafe fn try_write32(addr: usize, value: u32) -> Result<(), ()> {
             core::arch::asm!("dsb sy", "isb", options(nostack, preserves_flags));
             write_volatile(addr as *mut u32, value);
             core::arch::asm!("dsb sy", "isb", options(nostack, preserves_flags));
+            // MUTATION: an unrelated external abort inside the probe window.
+            write_volatile((addr + 0x1000) as *mut u32, value);
+            core::arch::asm!("dsb sy", "isb", options(nostack, preserves_flags));
         }
         ACTIVE.store(false, Ordering::Release);
 

@@ -138,3 +138,22 @@ where
         self.with_cs(|bus| bus.transfer_in_place(words))
     }
 }
+
+impl<T: SpiDevice + ?Sized> SpiDevice for &mut T {
+    type Error = T::Error;
+
+    #[inline]
+    fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
+        (*self).write(words)
+    }
+
+    #[inline]
+    fn transfer(&mut self, read: &mut [u8], words: &[u8]) -> Result<(), Self::Error> {
+        (*self).transfer(read, words)
+    }
+
+    #[inline]
+    fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error> {
+        (*self).transfer_in_place(words)
+    }
+}

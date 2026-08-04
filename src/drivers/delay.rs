@@ -16,6 +16,18 @@ pub trait DelayNs {
     fn delay_us(&mut self, us: u32) {
         self.delay_ns(us.saturating_mul(1_000));
     }
+
+    /// Wait for at least `ms` milliseconds (panel power sequencing).
+    #[inline]
+    fn delay_ms(&mut self, ms: u32) {
+        // Chunk long waits so a saturating ns multiply cannot collapse them.
+        let mut left = ms;
+        while left > 0 {
+            let step = left.min(4_000);
+            self.delay_ns(step.saturating_mul(1_000_000));
+            left -= step;
+        }
+    }
 }
 
 /// Delay backed by the ARM Generic Timer physical counter.

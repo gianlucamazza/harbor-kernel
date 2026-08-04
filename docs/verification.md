@@ -216,8 +216,10 @@ llvm-objcopy -O binary target/aarch64-unknown-none-softfloat/release/harbor-kern
 | Check | Status | Evidence |
 | --- | --- | --- |
 | RNG200 polled word + soft fail on absence | **closed (HW)** | Pi 4B 2026-08-05 — `rng200: ok word=…`; QEMU — `unavailable (NotPresent)` via `arch::probe` |
-| SPI0 pinmux + FIFO self-test + resident handle | **closed (HW)** | Pi 4B `--features debug-display`, 2026-08-05 — `SPI0 ready  cdiv=32  bit_clk=15625000 Hz` (no HAT) |
-| ILI9486 fill / status surface / HAT glass | open | needs panel + driver (ADR-0009 phase C–D) |
+| SPI0 pinmux + FIFO self-test + resident handle | **closed (HW)** | Pi 4B `--features debug-display`, 2026-08-05 — bus line before panel bring-up |
+| ILI9486 init + full-screen fill | **in tree; re-verify on HAT** | driver + `fill=HARBOR` boot path; white glass = unprogrammed panel (pre-fill) |
+| Status surface / panic banner | open | ADR-0009 phase D |
+
 
 ### Silicon transcript (debug-display, no HAT)
 

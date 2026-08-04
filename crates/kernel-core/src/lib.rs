@@ -16,6 +16,7 @@
 
 pub mod bump;
 pub mod delay;
+pub mod display;
 pub mod gic;
 pub mod heap;
 pub mod layout;

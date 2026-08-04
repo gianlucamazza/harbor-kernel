@@ -9,6 +9,8 @@ pub mod rng200;
 #[cfg(feature = "debug-display")]
 pub mod delay;
 #[cfg(feature = "debug-display")]
+pub mod ili9486;
+#[cfg(feature = "debug-display")]
 pub mod pin;
 #[cfg(feature = "debug-display")]
 pub mod spi;

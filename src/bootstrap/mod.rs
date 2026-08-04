@@ -199,25 +199,23 @@ pub fn run() -> ! {
         Err(error) => println!(uart, "rng200: unavailable ({error:?})"),
     }
 
-    // Optional SPI0 stack for the status TFT (ADR-0009). After MMU so SPI MMIO
-    // is Device-mapped; before IRQs so a wedged controller cannot interrupt.
-    // On success the handle is installed for the panel/status path — not dropped.
+    // Optional SPI TFT (ADR-0009): SPI0 + ILI9486 init + solid fill so the
+    // glass is not left white. After MMU; before IRQs. Handle stays installed.
     #[cfg(feature = "debug-display")]
     {
         // SAFETY: single core; GPIO/SPI0 not otherwise claimed.
-        match unsafe { board::display::init_spi() } {
+        match unsafe { board::display::init_and_panel() } {
             Ok(spi) => {
                 board::display::install(spi);
-                // Report through the installed handle so ownership is live.
                 match board::display::with_display(|d| (d.cdiv(), d.bit_hz())) {
                     Some((cdiv, bit_hz)) => println!(
                         uart,
-                        "SPI0 ready  cdiv={cdiv}  bit_clk={bit_hz} Hz (debug-display)"
+                        "display: ILI9486 up  cdiv={cdiv}  bit_clk={bit_hz} Hz  fill=HARBOR"
                     ),
-                    None => println!(uart, "SPI0 install FAILED: handle missing after install"),
+                    None => println!(uart, "display: install FAILED: handle missing"),
                 }
             }
-            Err(error) => println!(uart, "SPI0 init FAILED: {error:?}"),
+            Err(error) => println!(uart, "display: init FAILED: {error:?}"),
         }
     }
 
