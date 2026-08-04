@@ -133,6 +133,15 @@ attributes. See [`verification.md`](verification.md).
 | [ADR-0001](adr/0001-multi-role-analysis.md) | Multi-role analysis as pre-milestone gate |
 | [`docs/reviews/`](reviews/) | Pass outcomes (findings), not decisions |
 
+## Decisioni registrate
+
+Le scelte che vincolano il codice hanno un ADR in [`adr/`](adr/), ognuno con
+l'alternativa scartata, il gate che intercetterebbe l'inversione, e quando
+rivalutare: softfloat ([0002](adr/0002-softfloat-kernel.md)), MMU precoce
+([0003](adr/0003-early-mmu.md)), GIC Group 0 e il pin del firmware
+([0004](adr/0004-gic-group0-firmware-pin.md)), arena statica per le tabelle
+([0005](adr/0005-static-page-table-arena.md)).
+
 ## Non-goals
 
 - Linux / POSIX compatibility
