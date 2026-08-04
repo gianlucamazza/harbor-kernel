@@ -72,6 +72,7 @@ pub fn heap_check(uart: &mut Pl011) {
 pub fn run(uart: &mut Pl011) -> ! {
     let mut last_printed = 0u64;
     let mut last_counters = irq::Counters::default();
+    let mut last_dropped = 0u32;
 
     loop {
         // 1. Echo all bytes the UART RX IRQ pushed into the ring.
@@ -108,6 +109,18 @@ pub fn run(uart: &mut Pl011) -> ! {
                         counters.loop_exhausted
                     );
                     last_counters = counters;
+                }
+
+                // The RX handler cannot report its own losses: it is forbidden
+                // from transmitting. It counts, and this is where the count is
+                // told. Reported only when it moves, like the counters above.
+                let dropped = console::rx_dropped();
+                if dropped != last_dropped {
+                    println!(
+                        uart,
+                        "console: DROPPED {dropped} received bytes (ring full)"
+                    );
+                    last_dropped = dropped;
                 }
             }
         }

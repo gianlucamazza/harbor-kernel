@@ -24,6 +24,14 @@ GATE='early_mmu_enable'
 
 exclusive_re='\b(ld|st)a?xr[bh]?\b|\bcas[ab]*l?[bh]?\b|\bswp[ab]*l?[bh]?\b'
 
+# An indirect branch — `blr x0`, `br x1` — is a call edge whose target cannot be
+# derived from the image. The guarantee here is not a property of one function;
+# it propagates along call edges, so an edge this script cannot follow is a hole
+# in it, not a detail. Refusing them is the only honest option: "follow `blr`
+# too" is undecidable, and inspecting the reachable set minus the indirect ones
+# would report coverage it does not have.
+indirect_re='\b(blr|br)\s+x[0-9]+\b'
+
 fail() {
 	echo "error: $1" >&2
 	exit 1
@@ -44,6 +52,10 @@ grep -q "<${ENTRY}>:" <<<"${entry_disasm}" ||
 # path, where grep finds nothing and returns 1. Use `if`, not `&&`.
 if grep -qE "${exclusive_re}" <<<"${entry_disasm}"; then
 	fail "atomic read-modify-write in ${ENTRY}, which runs before the MMU"
+fi
+
+if grep -qE "${indirect_re}" <<<"${entry_disasm}"; then
+	fail "indirect branch in ${ENTRY}: its target is not derivable, so the pre-MMU path can no longer be audited. Make the call direct, or move it after ${GATE}."
 fi
 
 # 2. What the entry code calls. A new `bl` here silently extends the pre-MMU
@@ -73,8 +85,12 @@ gate_callees="$(grep -oE '\bbl\b[^<]*<[^>]+>' <<<"${gate_disasm}" |
 	grep -oE '<[^>]+>$' | tr -d '<>' | sed 's/+0x.*//' | sort -u || true)"
 
 for symbol in "${GATE}" ${gate_callees}; do
-	if grep -qE "${exclusive_re}" <<<"$(disasm_symbol "${symbol}")"; then
+	symbol_disasm="$(disasm_symbol "${symbol}")"
+	if grep -qE "${exclusive_re}" <<<"${symbol_disasm}"; then
 		fail "atomic read-modify-write in '${symbol}', reached before the MMU is on"
+	fi
+	if grep -qE "${indirect_re}" <<<"${symbol_disasm}"; then
+		fail "indirect branch in '${symbol}', reached before the MMU is on: its target is not derivable, so what runs there cannot be audited"
 	fi
 done
 

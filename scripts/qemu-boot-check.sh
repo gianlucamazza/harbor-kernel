@@ -68,6 +68,11 @@ fi
 if grep -q 'heap: REFUSED' "${log}"; then
 	fail "the allocator refused an invalid free"
 fi
+# Received bytes lost for want of ring space. Nothing types during this run, so
+# any count here is the RX path losing bytes it was handed.
+if grep -q 'console: DROPPED' "${log}"; then
+	fail "the RX handler dropped received bytes"
+fi
 if grep -qi 'PANIC' "${log}"; then
 	fail "the kernel panicked"
 fi

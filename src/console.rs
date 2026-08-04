@@ -7,7 +7,7 @@
 //! Formatting helpers take the TX handle as the first argument so ownership
 //! stays visible and testable.
 
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use kernel_core::ring::ByteRing;
 
@@ -105,7 +105,36 @@ pub fn on_uart_rx_irq() {
     // path — so this cannot violate the "IRQ handlers do not transmit" rule
     // even by mistake.
     let rx = unsafe { Pl011Rx::from_base(base) };
-    rx.drain(|b| RX_RING.push(b));
+    let mut dropped = 0u32;
+    rx.drain(|b| {
+        let stored = RX_RING.push(b);
+        if !stored {
+            dropped += 1;
+        }
+        // Keep draining either way: a level-triggered RX line that is never
+        // emptied re-fires forever.
+        stored
+    });
+    if dropped != 0 {
+        RX_DROPPED.fetch_add(dropped, Ordering::Relaxed);
+    }
+}
+
+/// Bytes the RX IRQ had to discard because the ring was full.
+///
+/// The handler cannot report this itself — it is forbidden from transmitting,
+/// and formatting in IRQ context is exactly the rule that keeps the console
+/// usable. So it counts, and the console loop tells the story later.
+///
+/// A dropped byte with no counter is indistinguishable from a byte the user
+/// never typed. That is the same defect as an allocator that silently accepts
+/// a double free: the failure is invisible precisely when it matters, under
+/// load.
+static RX_DROPPED: AtomicU32 = AtomicU32::new(0);
+
+/// How many received bytes have been discarded for want of ring space.
+pub fn rx_dropped() -> u32 {
+    RX_DROPPED.load(Ordering::Relaxed)
 }
 
 /// Pop one RX byte from the IRQ-filled ring (`None` if empty).
