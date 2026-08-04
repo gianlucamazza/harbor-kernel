@@ -9,4 +9,5 @@ pub mod cpu;
 pub mod exception;
 pub mod mmio;
 pub mod mmu;
+pub mod switch;
 pub mod timer;

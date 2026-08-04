@@ -82,6 +82,13 @@ than mapping physical memory the caller did not ask for.
 Level 3 leaves use descriptor type `0b11`, which at levels 1 and 2 means
 "table" instead. Writing an L3 leaf as `0b01` leaves the page simply unmapped.
 
+### Task stacks (M3)
+
+Spawned tasks use [`mm::task_stack`](../src/mm/task_stack.rs): heap allocation
+of usable pages plus one guard, then `mmu::unmap` on the guard. Geometry is
+checked with `kernel_core::layout::validate_guarded_stack`. The bootstrap and
+exception stacks in `link.ld` remain separate.
+
 ### Regions
 
 Derived from the linker symbols by `mm::layout::kernel_regions`:

@@ -15,6 +15,7 @@ mod drivers;
 mod irq;
 mod mm;
 mod panic;
+mod sched;
 mod sync;
 mod time;
 

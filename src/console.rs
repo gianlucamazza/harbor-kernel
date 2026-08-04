@@ -7,12 +7,15 @@
 //! Formatting helpers take the TX handle as the first argument so ownership
 //! stays visible and testable.
 
+use core::fmt::Write;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use kernel_core::ring::ByteRing;
 
+use crate::arch::cpu;
 use crate::bsp::board;
 use crate::drivers::pl011::{Pl011, Pl011Rx};
+use crate::sync::SyncCell;
 
 /// RX ring capacity (usable = CAP − 1). Power of two.
 const RX_CAP: usize = 256;
@@ -37,6 +40,11 @@ static RX_MMIO_BASE: AtomicUsize = AtomicUsize::new(0);
 /// the compare-and-set behaves. This stays correct when a second core appears.
 static CLAIMED: AtomicBool = AtomicBool::new(false);
 
+/// Live TX handle after [`install_tx`], shared by cooperative tasks under
+/// [`with_tx`]. Idle and worker tasks serialize here (ADR-0006): one core, IRQ
+/// masked across the write, no second `Pl011` in the wild.
+static TX: SyncCell<Option<Pl011>> = SyncCell::new(None);
+
 /// Bring up the board serial console and take exclusive TX ownership.
 ///
 /// `None` if the console is already owned.
@@ -54,6 +62,34 @@ pub unsafe fn acquire() -> Option<Pl011> {
     unsafe { Some(reprogram()) }
 }
 
+/// Install the exclusive TX handle for [`with_tx`] / [`kprintln`].
+///
+/// Call once after bring-up printing is done, before spawning tasks. Moves the
+/// handle into kernel storage so idle and workers share one path.
+pub fn install_tx(uart: Pl011) {
+    cpu::without_irqs(|| {
+        // SAFETY: single core; IRQs masked; install is once after acquire.
+        unsafe {
+            *TX.get() = Some(uart);
+        }
+    });
+}
+
+/// Run `f` with the installed TX handle, IRQs masked for the duration.
+///
+/// `None` if [`install_tx`] has not run (or after a panic [`steal`]).
+pub fn with_tx<R>(f: impl FnOnce(&mut Pl011) -> R) -> Option<R> {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; only cooperative tasks call this on one core.
+        unsafe { (*TX.get()).as_mut().map(f) }
+    })
+}
+
+/// Write a line on the installed console (cooperative multi-task entry point).
+pub fn kprint_fmt(args: core::fmt::Arguments<'_>) {
+    let _ = with_tx(|uart| uart.write_fmt(args));
+}
+
 /// Take the console away from its current owner.
 ///
 /// # Safety
@@ -62,6 +98,13 @@ pub unsafe fn acquire() -> Option<Pl011> {
 /// path, where an interleaved diagnostic beats a diagnostic nobody can print.
 pub unsafe fn steal() -> Pl011 {
     CLAIMED.store(true, Ordering::Release);
+    // Drop the shared handle first so `with_tx` cannot race the panic writer.
+    cpu::without_irqs(|| {
+        // SAFETY: panic path; cooperative tasks are not running.
+        unsafe {
+            *TX.get() = None;
+        }
+    });
     // SAFETY: forwarded from the caller's obligation.
     unsafe { reprogram() }
 }
@@ -164,5 +207,18 @@ macro_rules! println {
     }};
     ($uart:expr, $($arg:tt)*) => {{
         $crate::print!($uart, "{}\n", format_args!($($arg)*));
+    }};
+}
+
+/// Line on the installed shared console ([`console::install_tx`]).
+///
+/// For cooperative tasks that must not hold a `Pl011` across a yield.
+#[macro_export]
+macro_rules! kprintln {
+    () => {{
+        $crate::console::kprint_fmt(format_args!("\n"));
+    }};
+    ($($arg:tt)*) => {{
+        $crate::console::kprint_fmt(format_args!("{}\n", format_args!($($arg)*)));
     }};
 }

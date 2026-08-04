@@ -10,4 +10,5 @@ pub use aarch64::cpu;
 pub use aarch64::exception;
 pub use aarch64::mmio;
 pub use aarch64::mmu;
+pub use aarch64::switch;
 pub use aarch64::timer;

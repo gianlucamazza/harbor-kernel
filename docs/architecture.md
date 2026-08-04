@@ -118,7 +118,7 @@ are the first two pieces; the third is tasks under that ADR.
 | P2  | Early MMU, softfloat, build-enforced gates               | **done** (HW)               |
 | P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)               |
 | P4  | Exception stack, refused frees, fatal map failure         | **done** (HW, fault-probed) |
-| M3  | Cooperative tasks                                        | planned                     |
+| M3  | Cooperative tasks                                        | **QEMU** (HW overflow probe pending) |
 | M4  | IPC + capabilities                                       | planned                     |
 | M5  | EL0 agents                                               | planned                     |
 | M6  | Driver-as-agent                                          | planned                     |
@@ -148,13 +148,13 @@ applies forwards, or it is not the same standard.
 | M5  | A frame allocator (ADR-0005 is the wrong shape for this); more than one address space; EL0 entry/exit | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
 | M6  | M4 and M5; narrower device windows (F26) — a driver agent must not receive 16 MiB of MMIO             | The PL011 RX path runs as an EL0 agent and the console still echoes; killing that agent leaves the kernel ticking                                                                                                       |
 
-M3 is **planned**. [ADR-0006](adr/0006-cooperative-execution-model.md) is
-**accepted** as the model (cooperative EL1 tasks, idle = today's console loop,
-runqueue in `kernel-core`, voluntary yield only, heap stacks with an unmapped
-guard page). F12 is closed. Pure runqueue arithmetic may exist in
-`kernel-core` before a switch does; inventing preemption or `link.ld` task
-stacks is a reversal of the ADR. Pure cooperative yield does **not** depend on
-F18; any sleep-on-ticks or preemptive quantum does (see open findings).
+M3 is **in progress**. [ADR-0006](adr/0006-cooperative-execution-model.md) is
+**accepted**. Implemented: runqueue in `kernel-core`, `mmu::unmap` with block
+split, heap task stacks with unmapped guards, voluntary context switch, idle =
+console loop, demo tasks with interleaved console output under QEMU (gated by
+`boot-check`). Still required for `done (HW)`: overflow probe on silicon
+(translation fault on a task guard) and a short multi-role pass. Inventing
+preemption or `link.ld` task stacks is a reversal of the ADR.
 
 ### Open findings, against the milestone they block
 

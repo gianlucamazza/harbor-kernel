@@ -16,7 +16,8 @@ cd "$(dirname "$0")/.."
 
 # Modules every layer may use: the macro surface and the shared-state primitive.
 # `println`/`print` are macro paths, not a layer.
-ubiquitous='println print sync'
+# `println` / `print` / `kprintln` are macros, not layers.
+ubiquitous='println print kprintln sync'
 
 # Allowed targets per source layer, deny by default. Anything not listed is a
 # violation, so a new module has to be placed here deliberately.
@@ -28,13 +29,15 @@ allowed_for() {
 	drivers*) echo "arch irq" ;;             # rule 1: never the board
 	irq*) echo "arch irq" ;;
 	time*) echo "arch" ;;
-	console*) echo "bsp drivers" ;;
+	console*) echo "arch bsp drivers" ;;
 	panic*) echo "arch console" ;;
 	mm*) echo "arch bsp" ;;
+	# Cooperative scheduler: TCBs, stacks, switch — not drivers or the board.
+	sched*) echo "arch mm" ;;
 	# The board binds protocols together; that is its job (rule 2).
 	bsp*) echo "arch bsp console drivers irq time" ;;
 	# Policy sits on top of everything and is allowed to.
-	bootstrap* | main) echo "arch bsp console drivers irq mm time" ;;
+	bootstrap* | main) echo "arch bsp console drivers irq mm sched time" ;;
 	*) echo "" ;;
 	esac
 }

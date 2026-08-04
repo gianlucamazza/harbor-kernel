@@ -13,9 +13,10 @@ fault probes on real silicon — with known blind spots documented in
 [`docs/verification.md`](docs/verification.md) (notably: QEMU does not model
 memory attributes the way Cortex-A72 does).
 
-**Status:** bring-up complete through M0–M2 and protection milestones P0–P4
-(EL1, W^X map, heap, timer + UART RX IRQ, exception stack). **Next:** M3
-cooperative tasks — roadmap in [`docs/architecture.md`](docs/architecture.md).
+**Status:** bring-up complete through M0–M2 and P0–P4. **M3 cooperative tasks**
+run under QEMU (idle + two yielding workers, heap stacks with unmapped guards);
+hardware overflow probe still pending for `done (HW)`. Roadmap:
+[`docs/architecture.md`](docs/architecture.md).
 
 ## What exists
 
@@ -29,7 +30,7 @@ interactive serial console.
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
 | Interrupts   | GICv2, arch timer PPI, PL011 RX via SPI, dispatch counters                                                                          |
 | Console      | Polled TX, interrupt-driven RX into a lock-free ring, `WFI` idle                                                                    |
-| Verification | 104 host unit tests, Miri over the `unsafe`, a layout validator, build-enforced invariants, QEMU boot gate, fault-probed on hardware |
+| Verification | 106 host unit tests, Miri over the `unsafe`, a layout validator, build-enforced invariants, QEMU boot gate, fault-probed on hardware |
 
 ## What does not exist yet
 
@@ -52,14 +53,15 @@ words describe is the roadmap in
 crates/kernel-core/  pure logic, unit-tested on the host:
                      paging, allocators, GIC maths, SPSC ring, runqueue (M3)
 src/
-  arch/aarch64/   MMIO, CPU/DAIF, cache maintenance, vectors, MMU, CNTP, bootinfo
+  arch/aarch64/   MMIO, CPU/DAIF, cache, vectors, MMU, unmap, switch, CNTP, bootinfo
   irq/            IrqChip trait, dispatch table, counters
   drivers/        PL011, GICv2
   bsp/rpi4/       memmap, GPIO, console, IRQ bind (static GIC)
-  bootstrap/      mod: boot sequence · console_loop: what the machine does · selftest: gates
-  mm/             heap + GlobalAlloc, layout: regions and permissions
+  bootstrap/      mod: boot sequence · console_loop: idle body · selftest: gates
+  sched/          cooperative TCB, spawn, yield, exit (ADR-0006)
+  mm/             heap + GlobalAlloc, layout, task stacks + guard unmap
   time/           tick counter
-  console.rs      TX claim + RX ring + print macros
+  console.rs      TX claim/install + RX ring + print / kprintln
   sync.rs         SyncCell for globals the IRQ path shares
   panic.rs        mask IRQ → steal console → halt
   boot.s          DTB pointer, EL2→EL1, early MMU, BSS, stack

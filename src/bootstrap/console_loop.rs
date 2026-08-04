@@ -15,7 +15,7 @@ use kernel_core::paging::{MemKind, Perms};
 use crate::arch::cpu;
 use crate::arch::mmu;
 use crate::console;
-use crate::drivers::pl011::Pl011;
+use crate::drivers::pl011::Pl011; // heap_check TX handle
 use crate::irq;
 use crate::mm;
 use crate::println;
@@ -147,8 +147,9 @@ fn unmap_smoke(uart: &mut Pl011) {
     }
 }
 
-/// Event-driven console: drain the RX ring, report ticks, idle with `WFI`.
-pub fn run(uart: &mut Pl011) -> ! {
+/// Idle task body (ADR-0006): drain RX, report ticks, yield when others are
+/// ready, otherwise `WFI`. TX goes through the shared handle from `install_tx`.
+pub fn run() -> ! {
     let mut last_printed = 0u64;
     let mut last_counters = irq::Counters::default();
     let mut last_dropped = 0u32;
@@ -156,70 +157,69 @@ pub fn run(uart: &mut Pl011) -> ! {
 
     loop {
         // 1. Echo all bytes the UART RX IRQ pushed into the ring.
-        while let Some(byte) = console::pop_rx() {
-            let sent = match byte {
-                b'\r' => uart.write_bytes(b"\r\n"),
-                byte => uart.write_byte(byte),
-            };
-            if !sent {
-                // The transmitter stopped draining. Keep draining the ring so
-                // a level-triggered RX line does not re-fire forever, but stop
-                // echoing: there is nowhere for the bytes to go.
-                break;
+        let _ = console::with_tx(|uart| {
+            while let Some(byte) = console::pop_rx() {
+                let sent = match byte {
+                    b'\r' => uart.write_bytes(b"\r\n"),
+                    byte => uart.write_byte(byte),
+                };
+                if !sent {
+                    break;
+                }
             }
-        }
+        });
 
-        // 2. Periodic tick report, plus dispatch anomalies. Reporting the
-        //    counters only when they move keeps a quiet system quiet while
-        //    making an interrupt storm impossible to mistake for idleness.
+        // 2. Periodic tick report, plus dispatch anomalies.
         let ticks = time::ticks();
         if ticks >= last_printed + TICK_PRINT_EVERY {
             let report = ticks - (ticks % TICK_PRINT_EVERY);
             if report > last_printed {
-                println!(uart, "ticks={report}");
+                let _ = console::with_tx(|uart| {
+                    println!(uart, "ticks={report}");
+                });
                 last_printed = report;
 
                 let counters = irq::counters();
                 if counters != last_counters {
-                    println!(
-                        uart,
-                        "irq: unhandled={} out_of_range={} loop_exhausted={}",
-                        counters.unhandled,
-                        counters.out_of_range,
-                        counters.loop_exhausted
-                    );
+                    let _ = console::with_tx(|uart| {
+                        println!(
+                            uart,
+                            "irq: unhandled={} out_of_range={} loop_exhausted={}",
+                            counters.unhandled,
+                            counters.out_of_range,
+                            counters.loop_exhausted
+                        );
+                    });
                     last_counters = counters;
                 }
 
-                // The RX handler cannot report its own losses: it is forbidden
-                // from transmitting. It counts, and this is where the count is
-                // told. Reported only when it moves, like the counters above.
                 let dropped = console::rx_dropped();
                 if dropped != last_dropped {
-                    println!(
-                        uart,
-                        "console: DROPPED {dropped} received bytes (ring full)"
-                    );
+                    let _ = console::with_tx(|uart| {
+                        println!(
+                            uart,
+                            "console: DROPPED {dropped} received bytes (ring full)"
+                        );
+                    });
                     last_dropped = dropped;
                 }
 
-                // Deadlines nobody was there to serve. Zero on a healthy
-                // system; anything else means the handler ran late, which is
-                // what a scheduler on this clock would trip over first.
                 let missed = time::missed_ticks();
                 if missed != last_missed {
-                    println!(uart, "timer: MISSED {missed} deadlines");
+                    let _ = console::with_tx(|uart| {
+                        println!(uart, "timer: MISSED {missed} deadlines");
+                    });
                     last_missed = missed;
                 }
             }
         }
 
-        // 3. Idle when nothing is pending. Timer and UART RX both wake us.
-        //
-        //    The check and the sleep run with IRQs masked so an interrupt
-        //    arriving between them cannot be lost: `WFI` still completes on a
-        //    pending interrupt with `DAIF.I` set, and `without_irqs` restores
-        //    the mask so the handler runs immediately after.
+        // 3. Cooperative idle: run ready workers, else WFI without losing a wakeup.
+        if crate::sched::has_ready() {
+            crate::sched::yield_now();
+            continue;
+        }
+
         cpu::without_irqs(|| {
             if console::rx_is_empty() && time::ticks() < last_printed + TICK_PRINT_EVERY {
                 cpu::wait_for_interrupt();

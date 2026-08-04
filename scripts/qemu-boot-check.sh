@@ -63,6 +63,14 @@ grep -q 'unmap: remapped and freed' "${log}" ||
 if grep -q 'unmap: FAILED' "${log}"; then
 	fail "mmu::unmap refused a mapped heap page"
 fi
+# M3 cooperative demo: two tasks yield; console shows interleaved lines.
+grep -q 'task-a 0' "${log}" || fail "task-a did not run"
+grep -q 'task-b 0' "${log}" || fail "task-b did not run"
+grep -q 'task-a 3' "${log}" || fail "task-a did not finish its yields"
+grep -q 'task-b 3' "${log}" || fail "task-b did not finish its yields"
+if grep -q 'spawn task-a FAILED' "${log}" || grep -q 'spawn task-b FAILED' "${log}"; then
+	fail "cooperative task spawn failed"
+fi
 # Two tick reports mean the timer IRQ fired repeatedly *and* the WFI idle loop
 # kept waking: a stalled idle loop prints the first and then goes quiet.
 grep -q 'ticks=20' "${log}" ||

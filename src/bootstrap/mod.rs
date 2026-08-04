@@ -214,5 +214,34 @@ pub fn run() -> ! {
 
     console_loop::heap_check(&mut uart);
 
-    console_loop::run(&mut uart)
+    // Shared TX for idle + worker tasks (cooperative only; serialized in with_tx).
+    console::install_tx(uart);
+    crate::sched::init();
+
+    match crate::sched::spawn(demo_task_a) {
+        Ok(_) => crate::kprintln!("sched: spawned task-a"),
+        Err(e) => crate::kprintln!("sched: spawn task-a FAILED {e:?}"),
+    }
+    match crate::sched::spawn(demo_task_b) {
+        Ok(_) => crate::kprintln!("sched: spawned task-b"),
+        Err(e) => crate::kprintln!("sched: spawn task-b FAILED {e:?}"),
+    }
+
+    // Idle body — never returns (ADR-0006).
+    console_loop::run()
+}
+
+/// M3 demo: yield so the peer's lines interleave on the console.
+fn demo_task_a() {
+    for i in 0..4 {
+        crate::kprintln!("task-a {i}");
+        crate::sched::yield_now();
+    }
+}
+
+fn demo_task_b() {
+    for i in 0..4 {
+        crate::kprintln!("task-b {i}");
+        crate::sched::yield_now();
+    }
 }

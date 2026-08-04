@@ -14,6 +14,9 @@
 //! conversion between offsets and raw pointers.
 
 pub mod layout;
+pub mod task_stack;
+
+pub use task_stack::{StackError, TaskStack};
 
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicU32, Ordering};

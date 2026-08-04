@@ -186,6 +186,34 @@ pub fn kernel_regions<'a>(
     Ok(filled)
 }
 
+/// Check one stack+guard pair (bootstrap stacks or a heap-allocated task stack).
+///
+/// The guard must be at least one page and end exactly where the stack begins.
+/// Coverage by a mapped region is checked separately by [`validate`] for the
+/// kernel map, or by the caller after [`crate`]-level unmap for task stacks.
+pub const fn validate_guarded_stack(guarded: &GuardedStack) -> Result<(), LayoutError> {
+    if guarded.guard.1 < guarded.guard.0 + PAGE_SIZE || guarded.guard.1 != guarded.stack.0 {
+        return Err(LayoutError::GuardIneffective {
+            guard_start: guarded.guard.0,
+            guard_end: guarded.guard.1,
+            stack_base: guarded.stack.0,
+        });
+    }
+    if guarded.stack.1 <= guarded.stack.0 {
+        return Err(LayoutError::Empty { name: guarded.name });
+    }
+    if guarded.guard.0 % PAGE_SIZE != 0
+        || guarded.stack.0 % PAGE_SIZE != 0
+        || guarded.stack.1 % PAGE_SIZE != 0
+    {
+        return Err(LayoutError::Unaligned {
+            name: guarded.name,
+            addr: guarded.guard.0,
+        });
+    }
+    Ok(())
+}
+
 /// Check the invariants the map depends on but the type system cannot state.
 fn validate(regions: &[Region], bounds: &Boundaries) -> Result<(), LayoutError> {
     // Check each guard exists before checking that nothing covers it: with an
@@ -193,13 +221,7 @@ fn validate(regions: &[Region], bounds: &Boundaries) -> Result<(), LayoutError> 
     // would sail through. It must be at least one page and end exactly where
     // its stack begins, or an overflow lands somewhere real.
     for guarded in bounds.stacks() {
-        if guarded.guard.1 < guarded.guard.0 + PAGE_SIZE || guarded.guard.1 != guarded.stack.0 {
-            return Err(LayoutError::GuardIneffective {
-                guard_start: guarded.guard.0,
-                guard_end: guarded.guard.1,
-                stack_base: guarded.stack.0,
-            });
-        }
+        validate_guarded_stack(guarded)?;
     }
 
     for r in regions.iter() {
@@ -396,6 +418,29 @@ mod tests {
         b.kernel_stack.stack.0 = b.kernel_stack.guard.0;
         assert!(matches!(
             build(&b),
+            Err(LayoutError::GuardIneffective { .. })
+        ));
+    }
+
+    #[test]
+    fn validate_guarded_stack_accepts_a_task_shaped_pair() {
+        let g = GuardedStack {
+            guard: (0x10_0000, 0x10_1000),
+            stack: (0x10_1000, 0x10_5000),
+            name: "task",
+        };
+        assert!(validate_guarded_stack(&g).is_ok());
+    }
+
+    #[test]
+    fn validate_guarded_stack_rejects_a_detached_guard() {
+        let g = GuardedStack {
+            guard: (0x10_0000, 0x10_1000),
+            stack: (0x10_2000, 0x10_5000),
+            name: "task",
+        };
+        assert!(matches!(
+            validate_guarded_stack(&g),
             Err(LayoutError::GuardIneffective { .. })
         ));
     }
