@@ -70,13 +70,13 @@ be cached, so dropping the invalidation would very likely change nothing
 observable. Encoding is covered; necessity is not.
 
 **valid→invalid (`unmap`):** a stale TLB entry keeps the old translation. That
-is the first path where maintenance is load-bearing. It lands with M3 task-stack
-guards (ADR-0006). Production boots exercise unmap+remap in `heap_check` (QEMU
-gated). A deliberate **task-stack guard write** is behind `--features bringup`
-(`selftest::probe_task_stack_guard`): it must panic with a translation fault.
-Record the ESR/FAR line under [M3 hardware evidence](#m3-cooperative-tasks-hardware)
-when silicon is available. Until that row exists, treat TLB *necessity* as
-construction + QEMU smoke, not silicon-closed.
+is the first path where maintenance is load-bearing. Production boots exercise
+unmap+remap and a forced 2 MiB **block split** in `heap_check` (QEMU gated;
+also seen on silicon). Task-stack guards use the same unmap path; a scheduled
+overflow probe on hardware took a translation fault in the guard
+([M3 evidence](#m3-cooperative-tasks-hardware)). That is strong evidence the
+invalidation is *necessary* for guards; a deliberate “strip TLBI and re-run”
+mutation is still optional if you want a pure TLB-only experiment.
 
 ## Protections are only verified when you have seen them fire
 
@@ -148,6 +148,10 @@ ticks=10
 …
 ticks=410
 ```
+
+**Later production boot** (same board, post–block-split smoke, 2026-08-05) also
+shows `split: page at 0x200000 split 1, remapped` and `arena: 1 splits, …`
+before the interleaved tasks — matching the QEMU `boot-check` oracle.
 
 No `irq: unhandled`, no `timer: MISSED`, no panic through several minutes of idle.
 
@@ -307,6 +311,10 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Doc claims (gate list)                                           | drop `bringup-builds` from the README       | printed both lists side by side; this is F27, which had already happened twice for real                                              |
 | TLBI operand shift                                               | drop the `>> 12`                            | three tests red — the operand became the address, invalidating a different page                                                      |
 | Runtime mapping (`mmu::map`)                                     | skip the call, keep the read                | `ESR=0x96000006` level-2 translation fault at the blob address; with the call, `0xd00dfeed`                                          |
+| Cooperative interleaving (M3)                                    | make `sched::yield_now` a no-op             | `task output not interleaved:` with an empty list — idle spun on `has_ready` and no worker ever ran                                   |
+| Block split (M3)                                                 | aim the split smoke at an already-L3 page   | `block split path did not run: split: page at 0xb5000 split 0, remapped` — the line is there, the split is not                        |
+| `Context` / assembly coupling (M3)                                | swap `x30` and `sp` in `Context`            | two `offset_of` asserts red at compile time, naming both offsets; the size assert alone stayed green at 104 bytes                     |
+| Table-arena reserve (M3)                                         | raise `MIN_SPARE_TABLES` to 40              | `BOOT REFUSED: table arena nearly exhausted: 10 tables left, need 40 (raise PAGE_TABLE_ARENA_SIZE in link.ld)` and then nothing       |
 
 ## What Miri adds over the two-thread test
 

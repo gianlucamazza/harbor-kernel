@@ -89,6 +89,10 @@ of usable pages plus one guard, then `mmu::unmap` on the guard. Geometry is
 checked with `kernel_core::layout::validate_guarded_stack`. The bootstrap and
 exception stacks in `link.ld` remain separate.
 
+Every production boot also runs a **block-split smoke** in `heap_check`: unmap a
+page known to sit inside a 2 MiB leaf so break-before-make is not alignment-dead
+at the heap head. QEMU asserts `split … split 1, remapped`.
+
 ### Regions
 
 Derived from the linker symbols by `mm::layout::kernel_regions`:

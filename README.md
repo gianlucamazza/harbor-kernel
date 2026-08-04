@@ -20,24 +20,25 @@ Roadmap: [`docs/architecture.md`](docs/architecture.md).
 
 ## What exists
 
-Boot to EL1, a mapped and protected address space, interrupts, a heap, and an
-interactive serial console.
+Boot to EL1, a mapped and protected address space, interrupts, a heap,
+**cooperative tasks** (M3), and an interactive serial console.
 
 | Area         | State                                                                                                                               |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
 | Boot         | EL2→EL1, softfloat, DTB pointer captured (not parsed)                                                                               |
-| Memory       | Multi-level identity map, **W^X**, a guarded stack for the kernel and another for exceptions, runtime `map` with TLB maintenance                                    |
+| Memory       | Multi-level identity map, **W^X**, guarded kernel + exception stacks, runtime `map`/`unmap` (block split), TLB maintenance                                    |
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
-| Interrupts   | GICv2, arch timer PPI, PL011 RX via SPI, dispatch counters                                                                          |
-| Console      | Polled TX, interrupt-driven RX into a lock-free ring, `WFI` idle                                                                    |
-| Verification | 106 host unit tests, Miri over the `unsafe`, a layout validator, build-enforced invariants, QEMU boot gate, fault-probed on hardware |
+| Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
+| Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters                                                          |
+| Console      | Shared TX (`install_tx` / `kprintln`), interrupt-driven RX ring, idle `WFI` when no ready work                                      |
+| Verification | 106 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware               |
 
 ## What does not exist yet
 
-No scheduler, no tasks, no address-space separation, no user mode, no IPC, no
-capabilities — **none of the agent model is implemented.** Everything runs on
-one core at EL1 in a single identity-mapped address space. The design those
-words describe is the roadmap in
+No preemption, no address-space separation, no user mode (EL0), no IPC, no
+capabilities — **the agent model is not implemented.** Concurrency today is
+cooperative tasks on one core at EL1 in a single identity-mapped address space.
+Agents, mailboxes, and caps are the roadmap in
 [`docs/architecture.md`](docs/architecture.md), not the code.
 
 ## Design

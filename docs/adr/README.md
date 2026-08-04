@@ -30,14 +30,14 @@ Operational reviews (findings, not decisions): [`../reviews/`](../reviews/).
 decided: someone arriving and asking "why softfloat?" had no answer. 0002–0005
 cover the four choices that already constrain the running kernel and are
 **accepted** with the evidence each ADR names (gates seen red, or silicon, or
-both). 0006 records the execution model **before** a full scheduler (finding
-F12): cooperative tasks, heap stacks with unmapped guards, no preemption, no
-IRQ-side switch. The **model** is accepted; M3 `done (HW)` still needs the
-gates that ADR names (interleaved yield, overflow probe). Pure runqueue math
-in `kernel-core` is allowed under 0006; inventing preemption is not.
+both). 0006 records the execution model (finding F12): cooperative tasks, heap stacks
+with unmapped guards, no preemption, no IRQ-side switch. The **model** is
+accepted and M3 is **done (HW)** (interleaved yield + overflow probe on silicon
+— see [`../verification.md`](../verification.md)). Inventing preemption is not
+allowed without a successor ADR.
 
-Each names **the gate that would catch its own reversal**, and for three of them
-that gate has been seen red — see the mutation table in
+Each names **the gate that would catch its own reversal**, and for several of
+them that gate has been seen red — see the mutation table in
 [`../verification.md`](../verification.md). 0005 declares a weak console-only
-remainder signal; 0006 declares process gates until M3 hardware tests exist.
-That honesty is part of the record.
+remainder signal; 0006 is now also covered by QEMU interleave/split gates and
+hardware ESR evidence.

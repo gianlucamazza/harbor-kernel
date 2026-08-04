@@ -4,7 +4,9 @@
 **Tree:** `4b573ba` + follow-ups (sched, task stacks, unmap)  
 **Scope:** R1, R2, R3, R4, R5, R10 only — not a full R1–R12 re-baseline.  
 **Method:** read-only review of `sched/`, `mm/task_stack`, `arch/switch`, `mmu::unmap`, idle/`with_tx`.  
-**Hardware:** **not closed** this pass (no serial capture in the review environment). QEMU boot-check green with interleaved `task-a`/`task-b`.
+**Hardware:** closed **after** this desk pass (2026-08-04 boot + 2026-08-05
+overflow probe — see `verification.md`). This file’s body below is the original
+desk analysis; the checklist at the end is the current status.
 
 Per [ADR-0001](../adr/0001-multi-role-analysis.md): findings that move a boundary become ADRs before code. M3 model already has ADR-0006; F13 → [ADR-0008](../adr/0008-irq-handler-policy.md) (proposed).
 
@@ -14,9 +16,10 @@ Per [ADR-0001](../adr/0001-multi-role-analysis.md): findings that move a boundar
 
 The cooperative path matches ADR-0006 on QEMU: voluntary switch, heap stacks with unmapped guards, idle = console loop, no IRQ-side switch. Layering holds (`sched` → `arch`+`mm` only).
 
-**Blocker for M3 `done (HW)`:** silicon evidence (interleaved boot transcript + task-guard fault ESR). Bring-up probe for the guard write is available under `--features bringup` (intentional panic).
-
-No P0 hang-class bug found in static review of the switch/IRQ-mask protocol. Residual risks are accepted or deferred as below.
+**Update:** M3-H1 closed on silicon (interleave + scheduled overflow ESR). No P0
+hang-class bug found in the desk review. Residual notes below; several (M3-S1
+DAIF, `MAX_TASKS`) were addressed in later commits (`irq_save`/`irq_restore`,
+`MAX_TASKS = 8`).
 
 ---
 
@@ -24,8 +27,8 @@ No P0 hang-class bug found in static review of the switch/IRQ-mask protocol. Res
 
 | Sev | ID | Role | Title | Action | Effort |
 | --- | --- | --- | --- | --- | --- |
-| P1 | M3-H1 | R5/R10 | No HW transcript / overflow ESR for task guards | Lab: deploy + serial; record verification.md | S (lab) |
-| P2 | M3-S1 | R3 | `yield_now` uses hard `irq_disable`/`enable`, not save/restore DAIF | Accept for single-core M3; revisit nested mask | S |
+| P1 | M3-H1 | R5/R10 | No HW transcript / overflow ESR for task guards | **Closed** 2026-08-05 | — |
+| P2 | M3-S1 | R3 | `yield_now` used hard `irq_disable`/`enable` | **Closed** — `irq_save`/`irq_restore` across switch | — |
 | P2 | M3-S2 | R3/R4 | `with_tx` holds IRQs masked for full UART TX | Accept short lines; no TX in IRQ | — |
 | P2 | M3-S3 | R2 | Task stack `Drop` leaks by design if not `release`d | Document; exit path calls `release` | — |
 | P2 | M3-S4 | R10 | Demo tasks only; no stress (many spawn/exit cycles) | Optional soak later | S |
@@ -83,8 +86,8 @@ No P0 hang-class bug found in static review of the switch/IRQ-mask protocol. Res
 | Risk | Why now | Revisit |
 | --- | --- | --- |
 | Runaway task never yields | ADR-0006 | Preemption ADR |
-| `MAX_TASKS = 4` | Demo scale | When spawn demand grows |
-| Switch enables IRQs unconditionally | Single-core, post-boot | Nested DAIF if needed |
+| `MAX_TASKS = 8` | Bringup margin (was 4) | When spawn demand grows |
+| Per-task DAIF restore | After `irq_save` fix | SMP |
 | Bringup probe panics | Intentional; not in production image | After ESR recorded |
 
 ---

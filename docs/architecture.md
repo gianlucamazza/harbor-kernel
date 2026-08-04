@@ -7,9 +7,9 @@ Raspberry Pi 4 Model B, where agents are isolated units interacting only
 through message passing and capabilities.
 
 It is not one yet. What runs today is a single-core kernel at EL1: a protected
-identity map, interrupts, a heap, cooperative tasks (M3 on QEMU; hardware
-evidence still incomplete — see the milestone table), and a serial console. The
-agent model below is the target; the milestone table says which parts exist.
+identity map, interrupts, a heap, **cooperative tasks (M3, done on hardware)**,
+and a serial console. The agent model below (IPC, capabilities, EL0) is still
+the target; the milestone table says which parts exist.
 
 ## Layering
 
@@ -64,8 +64,9 @@ agent model below is the target; the milestone table says which parts exist.
    the window is now that small, `console::acquire` and the panic handler use
    ordinary atomics like everything else.
 
-8. Main idle uses `WFI` when the RX ring is empty and no tick report is due,
-   with IRQs masked across the check so a wakeup cannot be lost.
+8. Idle (console loop) uses `WFI` when the RX ring is empty, no tick report is
+   due, and no task is ready; it **yields** when the runqueue is non-empty. The
+   emptiness check runs with IRQs masked so a wakeup cannot be lost.
 9. Nothing is both writable and executable, and diagnostic scaffolding lives
    behind the `bringup` feature rather than in the production surface.
 
@@ -86,24 +87,22 @@ an agreed register value) is still review-only — see
 | Bind        | `bsp/rpi4/irq`  | TIMER=30, UART=153, static GIC     |
 | Layout      | `mm/layout`     | regions and their permissions      |
 | Allocation  | `mm`            | free list + `GlobalAlloc`          |
+| Scheduler   | `sched`         | cooperative spawn / yield / exit   |
+| Task stacks | `mm/task_stack` | heap stack + unmapped guard        |
 
-## Agent model (target — none of this is implemented)
+## Agent model (target beyond M3)
 
-The kernel today has no scheduler in code, no address-space separation and no
-user mode. What runs is still a single control flow at EL1. The **execution
-model** for the first unit of concurrency is decided in
-[ADR-0006](adr/0006-cooperative-execution-model.md) (cooperative EL1 tasks,
-heap stacks with unmapped guards, no preemption); implementing it is M3.
-Everything below describes where the design goes after that, not what the code
-does yet. `kernel_core::paging` with `arch::mmu`, and the free-list allocator,
-are the first two pieces; the third is tasks under that ADR.
+**Tasks exist** (M3): cooperative EL1 scheduling per
+[ADR-0006](adr/0006-cooperative-execution-model.md). There is still no
+address-space separation and no user mode. The table below marks what is code
+today versus roadmap.
 
-| Concept    | Role                                                  |
-| ---------- | ----------------------------------------------------- |
-| Task (M3)  | Schedulable EL1 entity + private stack; see ADR-0006  |
-| Agent      | Task + mailbox; later own address space (M5)          |
-| Message    | Sole interaction channel (M4)                         |
-| Capability | Unforgeable handle (future: IRQ notification)         |
+| Concept    | Role                                                  | Status        |
+| ---------- | ----------------------------------------------------- | ------------- |
+| Task (M3)  | Schedulable EL1 entity + private stack; see ADR-0006  | **done (HW)** |
+| Agent      | Task + mailbox; later own address space (M5)          | planned       |
+| Message    | Sole interaction channel (M4)                         | planned       |
+| Capability | Unforgeable handle (future: IRQ notification)         | planned       |
 
 `irq::register` is the hook for later capability mediation.
 
