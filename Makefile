@@ -1,4 +1,4 @@
-# rpi_minimal_agentic — build and deploy
+# Harbor (harbor-kernel) — build and deploy
 #
 #   make            release kernel8.img
 #   make debug      debug kernel8.img
@@ -17,7 +17,7 @@
 TARGET      := aarch64-unknown-none-softfloat
 PROFILE     ?= release
 CARGO_OUT   := target/$(TARGET)/$(PROFILE)
-ELF         := $(CARGO_OUT)/rpi_minimal_agentic
+ELF         := $(CARGO_OUT)/harbor-kernel
 IMG         := $(CARGO_OUT)/kernel8.img
 
 SD_MOUNT    ?= /run/media/$(USER)/boot

@@ -1,4 +1,4 @@
-# Raspberry Pi 4 Model B — boot configuration for rpi_minimal_agentic
+# Raspberry Pi 4 Model B — boot configuration for Harbor
 # Documented in docs/boot-chain.md, docs/hardware.md, docs/interrupts.md
 #
 # Pinmux for UART0 is performed by the kernel BSP (not by device tree).

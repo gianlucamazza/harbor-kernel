@@ -49,7 +49,7 @@ fail() {
 }
 
 # Each assertion covers a distinct subsystem, so a failure localises itself.
-grep -q 'rpi_minimal_agentic: hello' "${log}" ||
+grep -q 'Harbor: hello' "${log}" ||
 	fail "no console output: the kernel did not reach bootstrap::run"
 grep -q 'MMU on' "${log}" ||
 	fail "the kernel map did not activate"

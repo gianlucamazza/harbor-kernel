@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`rpi_minimal_agentic` **aims to be** an agent-based microkernel for the
+**Harbor** (package `harbor-kernel`) **aims to be** an agent-based microkernel for the
 Raspberry Pi 4 Model B, where agents are isolated units interacting only
 through message passing and capabilities.
 

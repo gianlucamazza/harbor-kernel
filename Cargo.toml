@@ -2,7 +2,7 @@
 members = ["crates/kernel-core"]
 
 [package]
-name = "rpi_minimal_agentic"
+name = "harbor-kernel"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"

@@ -19,6 +19,7 @@ the code that follows.
 | [0004](0004-gic-group0-firmware-pin.md) | GIC Group 0 with IAR/EOIR, and the firmware pin      | accepted |
 | [0005](0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator | accepted |
 | [0006](0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks)           | proposed |
+| [0007](0007-project-identity-harbor-kernel.md) | Project identity — Harbor and `harbor-kernel` | proposed |
 
 Operational reviews (findings, not decisions): [`../reviews/`](../reviews/).
 

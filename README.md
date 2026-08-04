@@ -1,4 +1,6 @@
-# rpi_minimal_agentic
+# Harbor
+
+**A verified Rust kernel for Raspberry Pi 4** — package `harbor-kernel`.
 
 A bare-metal AArch64 kernel for the **Raspberry Pi 4 Model B**, written in Rust
 (`no_std`), booting under the platform firmware. The long-term target is an
@@ -93,7 +95,7 @@ arena have **moved** since this capture: the live kernel guard is at
 `0x9a000` as the current map.
 
 ```
-rpi_minimal_agentic: hello
+Harbor: hello
 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
 DTB at 0x2eff1f00
 MMU on  (W^X, guard page at 0x9a000, 40960 B of table arena left)

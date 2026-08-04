@@ -58,7 +58,7 @@ pub fn run() -> ! {
         cpu::halt()
     };
 
-    println!(uart, "rpi_minimal_agentic: hello");
+    println!(uart, "Harbor: hello");
     println!(
         uart,
         "EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle"
