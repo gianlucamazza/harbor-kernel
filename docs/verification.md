@@ -151,25 +151,49 @@ ticks=410
 
 No `irq: unhandled`, no `timer: MISSED`, no panic through several minutes of idle.
 
-### Task-stack guard write (open)
+### Task-stack overflow guard (closed)
 
-Lab procedure — image panics by design; re-flash production afterwards:
+Pi 4B, `--features bringup`, CP2104 @ 115200, 2026-08-05. The probe is a
+**scheduled task** that recurses while two peer task stacks are live; it prints
+every range first so `FAR` is checked against peers, not deduced.
+
+```
+sched: spawned task-a
+sched: spawned task-b
+sched: spawned guard probe
+arena: 0 splits, 9 tables free
+task-a 0
+task-b 0
+PROBE: overflowing task 3 of 3 live stacks
+PROBE: peer task 1 guard 0xb6000..0xb7000 stack 0xb7000..0xbb000
+PROBE: peer task 2 guard 0xbc000..0xbd000 stack 0xbd000..0xc1000
+PROBE: self task 3 guard 0xc2000..0xc3000 stack 0xc3000..0xc7000
+PROBE: recursing until the guard faults
+
+*** KERNEL PANIC ***
+  ESR=0x0000000096000047
+  ELR=0x0000000000083f64
+  SPSR=0x0000000080000344
+  FAR=0x00000000000c2ff8
+```
+
+| Field | Value | Meaning |
+| --- | --- | --- |
+| ESR | `0x96000047` | EC 0x25 data abort; DFSC `0b000111` **translation fault L3** |
+| FAR | `0xc2ff8` | top of **self** guard `[0xc2000, 0xc3000)` |
+| Peers | `0xb7…`, `0xbd…` | FAR is **outside** both peer stacks |
+
+Same DFSC class as the bootstrap stack guard probe. Re-flash a production image
+after any bringup run — the probe panics by design.
+
+Lab procedure (re-run after layout changes):
 
 ```bash
 cargo build --release --features bringup
-make img   # or objcopy the bringup ELF to kernel8.img
-make deploy SD_MOUNT=/run/media/$USER/bootfs
-# serial: expect selftest GIC gates, then:
-#   PROBE: writing to task stack guard at 0x…
-#   PANIC: sync exception … ESR=… FAR=…
-# Want DFSC translation fault (0b000111), FAR inside the printed guard page.
-```
-
-Paste ESR/FAR here when captured:
-
-```
-PROBE: writing to task stack guard at 0x________
-  ESR=0x________________   FAR=0x________________
+llvm-objcopy -O binary target/aarch64-unknown-none-softfloat/release/harbor-kernel \
+  target/aarch64-unknown-none-softfloat/release/kernel8-bringup.img
+./scripts/deploy-sd.sh /run/media/$USER/bootfs \
+  target/aarch64-unknown-none-softfloat/release/kernel8-bringup.img
 ```
 
 ## Hardware evidence: stack split (closed)
