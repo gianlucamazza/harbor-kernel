@@ -229,4 +229,49 @@ where
         })
         .map_err(Ili9486Error::Spi)
     }
+
+    /// Blit a pre-rasterised RGB565 glyph buffer (big-endian pairs) into a window.
+    ///
+    /// `pixels` length must be `width * height` pixels (= bytes/2).
+    pub fn blit_rgb565(
+        &mut self,
+        x0: u16,
+        y0: u16,
+        width: u16,
+        height: u16,
+        pixels: &[u8],
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>> {
+        let need = (width as usize).saturating_mul(height as usize).saturating_mul(2);
+        if pixels.len() < need || width == 0 || height == 0 {
+            return Ok(());
+        }
+        let x1 = x0.saturating_add(width - 1);
+        let y1 = y0.saturating_add(height - 1);
+        self.set_window(x0, y0, x1, y1)?;
+
+        let spi = &mut self.spi;
+        let dc = &mut self.dc;
+        let data = &pixels[..need];
+        spi.with_bus(|bus| {
+            match dc.set_low() {
+                Ok(()) => {}
+                Err(e) => match e {},
+            }
+            bus.write(&[cmd::RAMWR])?;
+            match dc.set_high() {
+                Ok(()) => {}
+                Err(e) => match e {},
+            }
+            // Stream in FIFO-sized pieces under the same CS.
+            const CHUNK: usize = 64;
+            let mut off = 0;
+            while off < data.len() {
+                let end = (off + CHUNK).min(data.len());
+                bus.write(&data[off..end])?;
+                off = end;
+            }
+            Ok(())
+        })
+        .map_err(Ili9486Error::Spi)
+    }
 }

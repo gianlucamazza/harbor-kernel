@@ -30,14 +30,17 @@ allowed_for() {
 	irq*) echo "arch irq" ;;
 	time*) echo "arch" ;;
 	console*) echo "arch bsp drivers" ;;
-	panic*) echo "arch console" ;;
+	# panic may paint the TFT status banner when debug-display is on.
+	panic*) echo "arch console status" ;;
 	mm*) echo "arch bsp" ;;
 	# Cooperative scheduler: TCBs, stacks, switch — not drivers or the board.
 	sched*) echo "arch mm" ;;
 	# The board binds protocols together; that is its job (rule 2).
 	bsp*) echo "arch bsp console drivers irq time" ;;
 	# Policy sits on top of everything and is allowed to.
-	bootstrap* | main) echo "arch bsp console drivers irq mm sched time" ;;
+	bootstrap* | main) echo "arch bsp console drivers irq mm sched status time" ;;
+	# TFT status surface: policy only; paints via BSP display handle.
+	status*) echo "arch bsp drivers mm time" ;;
 	*) echo "" ;;
 	esac
 }

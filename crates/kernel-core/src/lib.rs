@@ -17,7 +17,9 @@
 pub mod bump;
 pub mod delay;
 pub mod display;
+pub mod font8x8;
 pub mod gic;
+pub mod textgrid;
 pub mod heap;
 pub mod layout;
 pub mod paging;

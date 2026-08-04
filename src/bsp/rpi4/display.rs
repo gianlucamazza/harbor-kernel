@@ -66,6 +66,37 @@ impl DisplaySpi {
     pub fn bit_hz(&self) -> u32 {
         self.bit_hz
     }
+
+    /// Run `f` with a transient [`Ili9486`] view of the resident bus and DC pin.
+    ///
+    /// Reconstructs the panel driver around the stored `ExclusiveDevice` for the
+    /// duration of `f`, then puts the parts back (ADR-0009 status painting).
+    pub fn with_panel<R>(
+        &mut self,
+        f: impl FnOnce(
+            &mut Ili9486<BcmSpi, gpio::Output, ArchTimerDelay, gpio::Output, ArchTimerDelay>,
+        ) -> R,
+    ) -> R {
+        // Move parts out without leaving an invalid device behind: use ptr::read
+        // + write after, single-core and IRQs masked by the caller.
+        // SAFETY: DisplaySpi is only used on the voluntary path under without_irqs.
+        unsafe {
+            let device = core::ptr::read(&self.device);
+            let dc = core::ptr::read(&self.dc);
+            let mut panel = Ili9486::new(
+                device,
+                dc,
+                ArchTimerDelay,
+                ili9486::WIDTH,
+                ili9486::HEIGHT,
+            );
+            let result = f(&mut panel);
+            let (device, dc, _) = panel.into_parts();
+            core::ptr::write(&mut self.device, device);
+            core::ptr::write(&mut self.dc, dc);
+            result
+        }
+    }
 }
 
 /// Resident handle after a successful [`init_and_panel`].

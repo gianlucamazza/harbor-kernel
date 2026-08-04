@@ -32,7 +32,7 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters                                                          |
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Shared TX (`install_tx` / `kprintln`), interrupt-driven RX ring, idle `WFI` when no ready work                                      |
-| Verification | 136 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware               |
+| Verification | 142 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware               |
 
 ## What does not exist yet
 

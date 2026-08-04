@@ -16,6 +16,8 @@ mod irq;
 mod mm;
 mod panic;
 mod sched;
+#[cfg(feature = "debug-display")]
+mod status;
 mod sync;
 mod time;
 

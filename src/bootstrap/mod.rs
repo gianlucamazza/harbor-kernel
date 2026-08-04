@@ -206,14 +206,15 @@ pub fn run() -> ! {
         // SAFETY: single core; GPIO/SPI0 not otherwise claimed.
         match unsafe { board::display::init_and_panel() } {
             Ok(spi) => {
+                let cdiv = spi.cdiv();
+                let bit_hz = spi.bit_hz();
                 board::display::install(spi);
-                match board::display::with_display(|d| (d.cdiv(), d.bit_hz())) {
-                    Some((cdiv, bit_hz)) => println!(
-                        uart,
-                        "display: ILI9486 up  cdiv={cdiv}  bit_clk={bit_hz} Hz  fill=HARBOR"
-                    ),
-                    None => println!(uart, "display: install FAILED: handle missing"),
-                }
+                println!(
+                    uart,
+                    "display: ILI9486 up  cdiv={cdiv}  bit_clk={bit_hz} Hz  fill=HARBOR"
+                );
+                // Status surface: structured slots (not a serial mirror).
+                crate::status::show_boot_after_display(cdiv, bit_hz, timer::frequency_hz());
             }
             Err(error) => println!(uart, "display: init FAILED: {error:?}"),
         }

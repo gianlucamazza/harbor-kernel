@@ -124,7 +124,8 @@ GPIO claim API, `SpiBus`/`SpiDevice`, polled SPI0 with FIFO chunking, BSP bind,
 resident handle after boot self-test **with the panel held in reset**. **SPI0 + ILI9486 fill** ship behind `debug-display` (solid navy `HARBOR` colour
 so the glass is not left white). Bus path closed on silicon; re-check fill with
 HAT seated — see [`verification.md`](verification.md#rng200-and-spi0-hardware).
-Status text surface still open.
+Status surface (8×8 text slots, idle ticks/heap, panic banner) ships behind
+the same feature; UART remains the full log.
 
 This is **not** HDMI, DSI, or a VideoCore framebuffer. It is a GPIO HAT that
 drives a TFT over **SPI0** with an **ILI9486** controller. Harbor will talk to
