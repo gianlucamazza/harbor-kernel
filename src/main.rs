@@ -3,6 +3,10 @@
 #![no_std]
 #![no_main]
 
+// The kernel heap backs `GlobalAlloc` (see `mm`), so `Box`, `Vec` and the rest
+// of `alloc` are available to the rest of the kernel.
+extern crate alloc;
+
 mod arch;
 mod bootstrap;
 mod bsp;

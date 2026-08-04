@@ -107,19 +107,54 @@ pub fn run() -> ! {
     println!(uart, "IRQs enabled (timer + UART RX)");
     println!(uart, "idle: WFI when no RX/tick work");
 
-    // M2 demo: bump-allocate a small buffer and show its address.
-    if let Some(buf) = mm::alloc_zeroed(64, 16) {
-        // SAFETY: 64-byte zeroed allocation.
-        unsafe {
-            core::ptr::write_bytes(buf, b'M', 4);
-        }
-        println!(uart, "heap demo: alloc 64B at {buf:p}");
-    } else {
-        println!(uart, "heap demo: alloc FAILED");
-    }
-    println!(uart, "heap remaining = {} bytes", mm::heap_remaining());
+    heap_check(&mut uart);
 
     irq_console(&mut uart)
+}
+
+/// Exercise the global allocator and report whether memory comes back.
+///
+/// The interesting number is the one after the drop: a bump allocator prints a
+/// smaller figure there, a real one prints the figure it started with.
+fn heap_check(uart: &mut Pl011) {
+    use alloc::boxed::Box;
+    use alloc::vec::Vec;
+
+    let before = mm::heap_remaining();
+
+    {
+        let boxed = Box::new(0xA5A5_A5A5u32);
+        let mut grown: Vec<u64> = Vec::new();
+        for i in 0..1024 {
+            grown.push(i);
+        }
+        let sum: u64 = grown.iter().sum();
+
+        println!(
+            uart,
+            "heap: Box at {:p}, Vec of {} sums to {sum}",
+            &*boxed,
+            grown.len()
+        );
+        println!(
+            uart,
+            "heap: {} bytes free while held, {} fragments",
+            mm::heap_remaining(),
+            mm::heap_fragments()
+        );
+    }
+
+    let after = mm::heap_remaining();
+    println!(
+        uart,
+        "heap: {after} bytes free after drop ({}), {} fragments",
+        if after == before {
+            "fully reclaimed"
+        } else {
+            "LEAKED"
+        },
+        mm::heap_fragments()
+    );
 }
 
 // ---------------------------------------------------------------------------
