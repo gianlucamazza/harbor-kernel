@@ -86,8 +86,21 @@ _start:
     b       .L_bss
 
 .L_stack:
-    ldr     x0, =__stack_top
+    // Two stacks. Exceptions are taken with PSTATE.SP forced to 1, so SP_EL1 is
+    // the stack the hardware switches to on entry — give it its own, and run
+    // the kernel on SP_EL0 instead. That is what makes a kernel stack overflow
+    // reportable: the handler saves its trap frame somewhere else, instead of
+    // below the overflow, where it would fault again and hang.
+    //
+    // Still EL1h here, so `sp` is SP_EL1.
+    ldr     x0, =__exception_stack_top
     mov     sp, x0
+
+    // Kernel stack on SP_EL0, then switch to it. From here on `sp` is SP_EL0
+    // and exceptions vector through the EL1t entries.
+    ldr     x0, =__stack_top
+    msr     sp_el0, x0
+    msr     spsel, #0
 
     // Enable translation with the compile-time identity map *before* any other
     // Rust runs. Until this point memory has no attributes, and an atomic

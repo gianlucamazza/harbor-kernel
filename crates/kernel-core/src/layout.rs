@@ -43,6 +43,20 @@ pub struct DeviceWindow {
     pub name: &'static str,
 }
 
+/// A stack and the unmapped page immediately below it.
+///
+/// The two belong together: a guard page is only a guard if it sits directly
+/// under the stack it protects and nothing maps it. Keeping them in one type
+/// means a second stack cannot be added while forgetting either half.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GuardedStack {
+    /// Deliberately *not* mapped; present so the builder can check that the
+    /// stack really is fenced off from what precedes it.
+    pub guard: (u64, u64),
+    pub stack: (u64, u64),
+    pub name: &'static str,
+}
+
 /// Linker-provided boundaries. Every address must be page aligned.
 ///
 /// Pairs are `(start, end)`, end exclusive.
@@ -53,11 +67,20 @@ pub struct Boundaries {
     pub rodata: (u64, u64),
     pub data: (u64, u64),
     pub pagetables: (u64, u64),
-    /// Deliberately *not* mapped; present so the builder can check that the
-    /// stack really is fenced off from what precedes it.
-    pub guard: (u64, u64),
-    pub stack: (u64, u64),
+    /// The stack the kernel runs on, via `SP_EL0`.
+    pub kernel_stack: GuardedStack,
+    /// The stack exceptions are taken on, via `SP_EL1`. Separate so that a
+    /// kernel stack overflow can be *reported*: a handler that saved its trap
+    /// frame below the overflow would fault again and hang instead.
+    pub exception_stack: GuardedStack,
     pub heap: (u64, u64),
+}
+
+impl Boundaries {
+    /// Both guarded stacks, so validation is written once.
+    const fn stacks(&self) -> [&GuardedStack; 2] {
+        [&self.kernel_stack, &self.exception_stack]
+    }
 }
 
 /// Why a layout could not be built.
@@ -113,7 +136,7 @@ pub fn kernel_regions<'a>(
     devices: &[DeviceWindow],
     out: &'a mut [Region],
 ) -> Result<&'a mut [Region], LayoutError> {
-    let ram_count = 7;
+    let ram_count = 8;
     if out.len() < ram_count + devices.len() {
         return Err(LayoutError::TooManyRegions);
     }
@@ -133,9 +156,20 @@ pub fn kernel_regions<'a>(
         Perms::RW,
         "page tables",
     );
-    // The guard page sits between the arena and the stack, and is skipped.
-    out[5] = region(bounds.stack, MemKind::NormalWb, Perms::RW, "stack");
-    out[6] = region(bounds.heap, MemKind::NormalWb, Perms::RW, "heap");
+    // Each stack's guard page sits immediately below it, and is skipped.
+    out[5] = region(
+        bounds.exception_stack.stack,
+        MemKind::NormalWb,
+        Perms::RW,
+        bounds.exception_stack.name,
+    );
+    out[6] = region(
+        bounds.kernel_stack.stack,
+        MemKind::NormalWb,
+        Perms::RW,
+        bounds.kernel_stack.name,
+    );
+    out[7] = region(bounds.heap, MemKind::NormalWb, Perms::RW, "heap");
 
     for (slot, window) in out[ram_count..].iter_mut().zip(devices) {
         *slot = Region {
@@ -154,16 +188,18 @@ pub fn kernel_regions<'a>(
 
 /// Check the invariants the map depends on but the type system cannot state.
 fn validate(regions: &[Region], bounds: &Boundaries) -> Result<(), LayoutError> {
-    // Check the guard exists before checking that nothing covers it: with an
+    // Check each guard exists before checking that nothing covers it: with an
     // empty range the second test is vacuously true, so a deleted guard page
     // would sail through. It must be at least one page and end exactly where
-    // the stack begins, or an overflow lands somewhere real.
-    if bounds.guard.1 < bounds.guard.0 + PAGE_SIZE || bounds.guard.1 != bounds.stack.0 {
-        return Err(LayoutError::GuardIneffective {
-            guard_start: bounds.guard.0,
-            guard_end: bounds.guard.1,
-            stack_base: bounds.stack.0,
-        });
+    // its stack begins, or an overflow lands somewhere real.
+    for guarded in bounds.stacks() {
+        if guarded.guard.1 < guarded.guard.0 + PAGE_SIZE || guarded.guard.1 != guarded.stack.0 {
+            return Err(LayoutError::GuardIneffective {
+                guard_start: guarded.guard.0,
+                guard_end: guarded.guard.1,
+                stack_base: guarded.stack.0,
+            });
+        }
     }
 
     for r in regions.iter() {
@@ -179,9 +215,11 @@ fn validate(regions: &[Region], bounds: &Boundaries) -> Result<(), LayoutError> 
         if r.is_write_execute() {
             return Err(LayoutError::WriteExecute { name: r.name });
         }
-        // The guard page must not fall inside anything.
-        if r.base < bounds.guard.1 && bounds.guard.0 < r.end() {
-            return Err(LayoutError::GuardMapped { by: r.name });
+        // No guard page may fall inside anything.
+        for guarded in bounds.stacks() {
+            if r.base < guarded.guard.1 && guarded.guard.0 < r.end() {
+                return Err(LayoutError::GuardMapped { by: r.name });
+            }
         }
     }
 
@@ -211,9 +249,17 @@ mod tests {
             rodata: (0x8_6000, 0x8_7000),
             data: (0x8_7000, 0x8_8000),
             pagetables: (0x8_8000, 0x9_8000),
-            guard: (0x9_8000, 0x9_9000),
-            stack: (0x9_9000, 0xA_9000),
-            heap: (0xA_9000, 0x40A_9000),
+            exception_stack: GuardedStack {
+                guard: (0x9_8000, 0x9_9000),
+                stack: (0x9_9000, 0x9_D000),
+                name: "exception stack",
+            },
+            kernel_stack: GuardedStack {
+                guard: (0x9_D000, 0x9_E000),
+                stack: (0x9_E000, 0xA_E000),
+                name: "stack",
+            },
+            heap: (0xA_E000, 0x40A_E000),
         }
     }
 
@@ -232,14 +278,14 @@ mod tests {
         ]
     }
 
-    fn build(b: &Boundaries) -> Result<[Region; 9], LayoutError> {
+    fn build(b: &Boundaries) -> Result<[Region; 10], LayoutError> {
         let mut out = [Region {
             base: 0,
             len: 0,
             kind: MemKind::NormalWb,
             perms: Perms::RW,
             name: "unused",
-        }; 9];
+        }; 10];
         kernel_regions(b, &devices(), &mut out)?;
         Ok(out)
     }
@@ -255,19 +301,29 @@ mod tests {
             rodata: (0x8_6000, 0x8_7000),
             data: (0x8_7000, 0x8_C000),
             pagetables: (0x8_C000, 0x9_C000),
-            guard: (0x9_C000, 0x9_D000),
-            stack: (0x9_D000, 0xA_D000),
-            heap: (0xA_D000, 0x40A_D000),
+            exception_stack: GuardedStack {
+                guard: (0x9_C000, 0x9_D000),
+                stack: (0x9_D000, 0xA_1000),
+                name: "exception stack",
+            },
+            kernel_stack: GuardedStack {
+                guard: (0xA_1000, 0xA_2000),
+                stack: (0xA_2000, 0xB_2000),
+                name: "stack",
+            },
+            heap: (0xB_2000, 0x40B_2000),
         };
-        assert_eq!(b.guard.1 - b.guard.0, 0x1000, "one page");
-        assert_eq!(b.guard.1, b.stack.0, "guard touches the stack");
+        for guarded in [&b.exception_stack, &b.kernel_stack] {
+            assert_eq!(guarded.guard.1 - guarded.guard.0, 0x1000, "one page");
+            assert_eq!(guarded.guard.1, guarded.stack.0, "guard touches its stack");
+        }
         build(&b).expect("the real layout must validate");
     }
 
     #[test]
     fn the_expected_layout_builds() {
         let regions = build(&bounds()).unwrap();
-        assert_eq!(regions.len(), 9);
+        assert_eq!(regions.len(), 10);
         assert_eq!(regions[1].name, ".text");
         assert_eq!(regions[1].perms, Perms::RX);
     }
@@ -298,14 +354,17 @@ mod tests {
     /// The guard page is the whole point of the stack fence: if any region
     /// covers it, an overflow writes real memory instead of faulting.
     #[test]
-    fn the_guard_page_is_covered_by_nothing() {
+    fn the_guard_pages_are_covered_by_nothing() {
         let b = bounds();
-        for r in build(&b).unwrap() {
-            assert!(
-                r.end() <= b.guard.0 || r.base >= b.guard.1,
-                "{} maps the guard page",
-                r.name
-            );
+        for guarded in [&b.kernel_stack, &b.exception_stack] {
+            for r in build(&b).unwrap() {
+                assert!(
+                    r.end() <= guarded.guard.0 || r.base >= guarded.guard.1,
+                    "{} maps the {} guard page",
+                    r.name,
+                    guarded.name
+                );
+            }
         }
     }
 
@@ -333,8 +392,22 @@ mod tests {
     #[test]
     fn a_zero_length_guard_page_is_rejected() {
         let mut b = bounds();
-        b.guard.1 = b.guard.0;
-        b.stack.0 = b.guard.0;
+        b.kernel_stack.guard.1 = b.kernel_stack.guard.0;
+        b.kernel_stack.stack.0 = b.kernel_stack.guard.0;
+        assert!(matches!(
+            build(&b),
+            Err(LayoutError::GuardIneffective { .. })
+        ));
+    }
+
+    /// The same for the exception stack. Validation is written once over both,
+    /// and this is what keeps that true: a check that only ever looked at the
+    /// kernel stack would pass every other test in this file.
+    #[test]
+    fn a_zero_length_exception_guard_page_is_rejected() {
+        let mut b = bounds();
+        b.exception_stack.guard.1 = b.exception_stack.guard.0;
+        b.exception_stack.stack.0 = b.exception_stack.guard.0;
         assert!(matches!(
             build(&b),
             Err(LayoutError::GuardIneffective { .. })
@@ -346,7 +419,7 @@ mod tests {
     #[test]
     fn a_guard_page_detached_from_the_stack_is_rejected() {
         let mut b = bounds();
-        b.guard.1 -= 0x1000;
+        b.kernel_stack.guard.1 -= 0x1000;
         assert!(matches!(
             build(&b),
             Err(LayoutError::GuardIneffective { .. })
@@ -357,7 +430,7 @@ mod tests {
     fn a_region_covering_the_guard_page_is_rejected() {
         let mut b = bounds();
         // The arena runs past its end, swallowing the guard.
-        b.pagetables.1 = b.guard.1;
+        b.pagetables.1 = b.exception_stack.guard.1;
         assert!(matches!(build(&b), Err(LayoutError::GuardMapped { .. })));
     }
 

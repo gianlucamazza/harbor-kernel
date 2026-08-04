@@ -6,7 +6,7 @@
 //! writable *and* executable, guard page covered by nothing — is arithmetic,
 //! and is checked by tests that need no board.
 
-use kernel_core::layout::{self, Boundaries, DeviceWindow, LayoutError, Region};
+use kernel_core::layout::{self, Boundaries, DeviceWindow, GuardedStack, LayoutError, Region};
 
 use crate::bsp::board::memmap;
 
@@ -20,6 +20,10 @@ unsafe extern "C" {
     static __data_end: u8;
     static __pagetables_start: u8;
     static __pagetables_end: u8;
+    static __exception_guard_start: u8;
+    static __exception_guard_end: u8;
+    static __exception_stack_bottom: u8;
+    static __exception_stack_top: u8;
     static __guard_start: u8;
     static __guard_end: u8;
     static __stack_bottom: u8;
@@ -29,7 +33,7 @@ unsafe extern "C" {
 
 /// Upper bound on the regions the kernel maps: the fixed RAM ones plus the
 /// board's device windows.
-pub const MAX_REGIONS: usize = 7 + memmap::DEVICE_REGIONS.len();
+pub const MAX_REGIONS: usize = 8 + memmap::DEVICE_REGIONS.len();
 
 /// Materialise the address of a linker-provided symbol.
 ///
@@ -75,8 +79,22 @@ fn boundaries(heap_end: u64) -> Boundaries {
             symbol_addr!(__pagetables_start),
             symbol_addr!(__pagetables_end),
         ),
-        guard: (symbol_addr!(__guard_start), symbol_addr!(__guard_end)),
-        stack: (symbol_addr!(__stack_bottom), symbol_addr!(__stack_top)),
+        exception_stack: GuardedStack {
+            guard: (
+                symbol_addr!(__exception_guard_start),
+                symbol_addr!(__exception_guard_end),
+            ),
+            stack: (
+                symbol_addr!(__exception_stack_bottom),
+                symbol_addr!(__exception_stack_top),
+            ),
+            name: "exception stack",
+        },
+        kernel_stack: GuardedStack {
+            guard: (symbol_addr!(__guard_start), symbol_addr!(__guard_end)),
+            stack: (symbol_addr!(__stack_bottom), symbol_addr!(__stack_top)),
+            name: "stack",
+        },
         heap: (symbol_addr!(__heap_start), heap_end),
     }
 }

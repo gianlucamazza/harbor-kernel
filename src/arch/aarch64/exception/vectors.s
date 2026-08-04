@@ -71,15 +71,20 @@
 .align 11
 .global exception_vectors
 exception_vectors:
-    // Current EL, SP_EL0 (EL1t) — unused (we run EL1h).
-    ventry  exc_unexpected
-    ventry  exc_unexpected
+    // Current EL, SP_EL0 (EL1t) — the live kernel paths. The kernel runs on
+    // SP_EL0 (boot.s sets SPSel=0) precisely so that taking an exception
+    // switches to SP_EL1, a stack of its own: a kernel stack overflow can then
+    // be reported instead of faulting again inside the handler.
+    ventry  exc_sync_el1t
+    ventry  exc_irq_el1t
     ventry  exc_unexpected
     ventry  exc_unexpected
 
-    // Current EL, SP_ELx (EL1h) — live kernel paths.
-    ventry  exc_sync_el1h
-    ventry  exc_irq_el1h
+    // Current EL, SP_ELx (EL1h) — reached only from inside a handler, which is
+    // already running on SP_EL1. A fault there is a fault inside a fault; this
+    // kernel reports it and stops rather than pretending to recover.
+    ventry  exc_unexpected
+    ventry  exc_unexpected
     ventry  exc_unexpected
     ventry  exc_unexpected
 
@@ -95,13 +100,13 @@ exception_vectors:
     ventry  exc_unexpected
     ventry  exc_unexpected
 
-exc_sync_el1h:
+exc_sync_el1t:
     kernel_entry
     mov     x0, sp
     bl      exception_sync_el1
     kernel_exit
 
-exc_irq_el1h:
+exc_irq_el1t:
     kernel_entry
     bl      exception_irq_el1
     kernel_exit

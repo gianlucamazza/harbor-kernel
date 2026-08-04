@@ -4,7 +4,7 @@
 
 - Identity-map kernel RAM and device MMIO, **one region at a time**
 - W^X: nothing is both writable and executable
-- An unmapped guard page below the stack
+- An unmapped guard page below each stack, and a separate exception stack
 - Enable stage-1 MMU + I/D caches at EL1
 - Provide a free-list heap behind `GlobalAlloc` (the bump allocator remains for
   early boot, where nothing is ever returned)
@@ -84,7 +84,9 @@ Derived from the linker symbols by `mm::layout::kernel_regions`:
 | `.data` / `.bss`                    | Normal WB     | RW, no execute    |
 | translation table arena             | Normal WB     | RW, no execute    |
 | **guard page**                      | —             | **unmapped**      |
-| stack (64 KiB)                      | Normal WB     | RW, no execute    |
+| exception stack, `SP_EL1` (16 KiB)  | Normal WB     | RW, no execute    |
+| **guard page**                      | —             | **unmapped**      |
+| kernel stack, `SP_EL0` (64 KiB)     | Normal WB     | RW, no execute    |
 | heap                                | Normal WB     | RW, no execute    |
 | peripherals (`0xFE00_0000`, 16 MiB) | Device-nGnRnE | RW, no execute    |
 | GIC (`0xFF84_0000`, 16 KiB)         | Device-nGnRnE | RW, no execute    |
@@ -108,6 +110,34 @@ produced bit for bit:
 The guard page must give a _translation_ fault, not a permission one: a mapped
 page with restrictive permissions would still let a read through, and a stack
 that overflowed by reading would go unnoticed.
+
+## Two stacks, so an overflow can be reported
+
+The kernel runs on `SP_EL0` (`boot.s` sets `SPSel = 0`); `SP_EL1` holds a
+separate 16 KiB exception stack with a guard page of its own. Exception entry
+forces `PSTATE.SP` to 1, so the hardware switches stacks on the way in — no
+juggling in the vector — and the live handlers are therefore the **EL1t**
+vector entries, not EL1h. The EL1h entries are reached only from inside a
+handler, and route to `exc_unexpected`: a fault inside a fault is not something
+this kernel tries to survive.
+
+What this buys is visible in where the report stops. Overflow the kernel stack
+with a small-frame recursion and compare:
+
+| Arrangement              | `FAR` reported | Where that is          |
+| ------------------------ | -------------- | ---------------------- |
+| One stack (before this)  | `0x9c000`      | the guard's **bottom** |
+| Separate exception stack | `0xa1ff8`      | the guard's **top**    |
+
+With one stack the handler saved its trap frame below the faulting `SP`, inside
+the guard page, and faulted again — about fifteen times, walking 272 bytes lower
+each entry, until it landed _below_ the guard in the translation table arena,
+which is mapped RW. That entry could finally save its frame and print. The
+diagnosis arrived, having overwritten page tables to get there. With `SP_EL1`
+elsewhere, the first fault reports and nothing else is touched.
+
+The earlier expectation was that one stack would simply hang; it did not, and
+the probe said so. The defect was quieter than that.
 
 The probes are not in the tree: a deliberate fault is a dead board. Re-run them
 by hand after any change to `link.ld` or to the region list, following
@@ -162,6 +192,7 @@ caller's head.
   interrupted mid-splice corrupts its own free list, and the damage surfaces
   arbitrarily later
 - The bump allocator remains for early boot, where nothing is ever returned
+
 - A free the allocator cannot justify — a double free, or a pointer it never
   handed out — is **refused**, not performed: the list is left untouched, so the
   memory leaks instead of the heap corrupting. Blocks carry an allocated mark in

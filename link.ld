@@ -14,7 +14,9 @@
  *            .data, .bss                                 RW, no execute
  *            translation table arena                     RW, no execute
  *            [guard page — deliberately never mapped]
- *            64 KiB stack, grows down onto the guard     RW, no execute
+ *            16 KiB exception stack (SP_EL1)             RW, no execute
+ *            [guard page — deliberately never mapped]
+ *            64 KiB kernel stack (SP_EL0), grows down    RW, no execute
  *            heap                                        RW, no execute
  */
 
@@ -30,6 +32,12 @@ GUARD_PAGE_SIZE = 0x1000;
 PAGE_TABLE_ARENA_SIZE = 16 * 0x1000;
 
 STACK_SIZE = 0x10000;
+
+/* The exception stack only ever holds trap frames and the handlers above them,
+   never the deep call chains the kernel stack sees. 16 KiB is roughly sixty
+   nested frames of 272 bytes; nesting past that is a fault inside a fault,
+   which this kernel does not try to survive. */
+EXCEPTION_STACK_SIZE = 0x4000;
 
 SECTIONS
 {
@@ -83,12 +91,26 @@ SECTIONS
 
     /* Guard page: left out of every mapping on purpose. */
     . = ALIGN(0x1000);
+    __exception_guard_start = .;
+    . = . + GUARD_PAGE_SIZE;
+    __exception_guard_end = .;
+
+    /* Exception stack: SP_EL1, entered by hardware on every exception. Its own
+       stack, and its own guard, because the overflow it has to survive is the
+       kernel stack's: a handler that saved its trap frame onto the stack that
+       just overflowed would fault again inside the fault. */
+    __exception_stack_bottom = .;
+    . = . + EXCEPTION_STACK_SIZE;
+    __exception_stack_top = .;
+
+    /* Guard page for the kernel stack. */
+    . = ALIGN(0x1000);
     __guard_start = .;
     . = . + GUARD_PAGE_SIZE;
     __guard_end = .;
 
-    /* Kernel stack: full-descending, exclusive to core 0. Overflowing it runs
-       into the guard page above. */
+    /* Kernel stack: SP_EL0, full-descending, exclusive to core 0. Overflowing
+       it runs into the guard page above. */
     __stack_bottom = .;
     . = . + STACK_SIZE;
     __stack_top = .;
