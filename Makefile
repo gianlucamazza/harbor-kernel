@@ -11,6 +11,7 @@
 #   make qemu-gdb   same, halted, waiting for gdb on :1234
 #   make blobs      fetch pinned platform firmware
 #   make deploy     copy image + config + blobs to SD (SD_MOUNT=...)
+#   make restore-rpios  put Pi OS kernel+config back on the SD
 #   make serial     open serial console (SERIAL_DEV=...)
 #   make clean
 
@@ -44,7 +45,7 @@ ifeq ($(PROFILE),release)
   CARGO_FLAGS += --release
 endif
 
-.PHONY: all debug img elf check test miri bringup-builds no-simd no-early-exclusives boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy serial clean
+.PHONY: all debug img elf check test miri bringup-builds no-simd no-early-exclusives boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy restore-rpios serial clean
 
 all: img
 
@@ -149,6 +150,10 @@ blobs:
 
 deploy: img
 	./scripts/deploy-sd.sh "$(SD_MOUNT)" "$(IMG)"
+
+# Same mount-point guard as deploy; needs a prior backup under .sd-backup/.
+restore-rpios:
+	./scripts/restore-rpios-boot.sh "$(SD_MOUNT)"
 
 serial:
 	./scripts/serial.sh "$(SERIAL_DEV)" "$(BAUD)"
