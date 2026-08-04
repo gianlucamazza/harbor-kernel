@@ -27,7 +27,7 @@ which is what lets the failure be reported over a working console.
 
 ## Mapping after boot
 
-`activate` installs *the* map, once, before any address the firmware assigns at
+`activate` installs _the_ map, once, before any address the firmware assigns at
 runtime is known. `mmu::map` adds a region to the live tables afterwards: it
 takes the root from `ROOT`, walks down with the same `map_chunk` the initial
 build uses, then publishes with `dsb ishst` and invalidates.
@@ -98,7 +98,7 @@ produced bit for bit:
 | write to `.text` (`0x80000`) | permission fault  | `ESR=0x9600004F` → DFSC `0b001111` (permission, level 3), WnR=1, `FAR=0x80000` |
 | write to the guard page      | translation fault | `ESR=0x96000047` → DFSC `0b000111` (translation, level 3), `FAR=0x9a000`       |
 
-The guard page must give a *translation* fault, not a permission one: a mapped
+The guard page must give a _translation_ fault, not a permission one: a mapped
 page with restrictive permissions would still let a read through, and a stack
 that overflowed by reading would go unnoticed.
 
@@ -108,16 +108,16 @@ by hand after any change to `link.ld` or to the region list, following
 
 ## Code
 
-| Path                               | Role                                            |
-| ---------------------------------- | ----------------------------------------------- |
+| Path                               | Role                                                             |
+| ---------------------------------- | ---------------------------------------------------------------- |
 | `crates/kernel-core/src/paging.rs` | Descriptor + `TCR_EL1` encodings, region splitting (host-tested) |
-| `crates/kernel-core/src/heap.rs`   | Free-list allocator arithmetic (host-tested)    |
-| `arch/aarch64/mmu.rs`              | `EARLY_L1`, `early_mmu_enable`, `activate`      |
-| `arch/aarch64/cache.rs`            | I-cache / D-cache set-way / TLB invalidation    |
-| `mm/layout.rs`                     | Regions and their permissions, from the linker  |
-| `mm/mod.rs`                        | Kernel heap + `GlobalAlloc`                     |
-| `bsp/rpi4/memmap.rs`               | Device windows                                  |
-| `link.ld`                          | Page-aligned region boundaries, table arena, guard page |
+| `crates/kernel-core/src/heap.rs`   | Free-list allocator arithmetic (host-tested)                     |
+| `arch/aarch64/mmu.rs`              | `EARLY_L1`, `early_mmu_enable`, `activate`                       |
+| `arch/aarch64/cache.rs`            | I-cache / D-cache set-way / TLB invalidation                     |
+| `mm/layout.rs`                     | Regions and their permissions, from the linker                   |
+| `mm/mod.rs`                        | Kernel heap + `GlobalAlloc`                                      |
+| `bsp/rpi4/memmap.rs`               | Device windows                                                   |
+| `link.ld`                          | Page-aligned region boundaries, table arena, guard page          |
 
 `activate` takes the region list from the caller and returns `Result`: which
 physical ranges are RAM is board knowledge, and a failure reports over the
@@ -155,12 +155,21 @@ caller's head.
   interrupted mid-splice corrupts its own free list, and the damage surfaces
   arbitrarily later
 - The bump allocator remains for early boot, where nothing is ever returned
+- A free the allocator cannot justify — a double free, or a pointer it never
+  handed out — is **refused**, not performed: the list is left untouched, so the
+  memory leaks instead of the heap corrupting. Blocks carry an allocated mark in
+  the low bit of their size word (sizes are `GRAIN`-aligned, so those bits are
+  free). Refusals are counted and printed, and the boot check fails on them.
+  Sound in the direction that matters — a legitimate free is never refused — but
+  not the converse: metadata lives in the arena it manages, so a wild pointer
+  into memory that resembles a live header can still be accepted. Catching every
+  bad free needs out-of-band metadata, which is not worth its cost here
 
 ## Out of scope (later)
 
 - **A frame allocator.** The table arena is a fixed pool sized in `link.ld` —
   the right shape for mapping the kernel once, the wrong one for address spaces
   that come and go. Needed for M5, not before.
-- **More than one address space.** `activate` installs *the* map; there is no
+- **More than one address space.** `activate` installs _the_ map; there is no
   per-task `TTBR0`, no ASID, no multi-core TLB maintenance.
 - **EL0 / user maps**, fine-grained device pages, `kfree` of page tables.

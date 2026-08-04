@@ -16,6 +16,7 @@
 pub mod layout;
 
 use core::alloc::{GlobalAlloc, Layout};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use kernel_core::heap::FreeList;
 
@@ -134,19 +135,40 @@ pub fn alloc(size: usize, align: usize) -> Option<*mut u8> {
     })?
 }
 
+/// Frees the allocator refused, since boot.
+///
+/// A double free is a bug in the code that owns the pointer, and the allocator
+/// is the only place that can see it. Refusing keeps the heap intact — the
+/// memory leaks instead — but a refusal nobody counts is a bug nobody learns
+/// about, so the number is reported by the shell and asserted on by the boot
+/// check.
+static REFUSED_FREES: AtomicU32 = AtomicU32::new(0);
+
+/// How many frees have been refused as invalid.
+pub fn refused_frees() -> u32 {
+    REFUSED_FREES.load(Ordering::Relaxed)
+}
+
 /// Return memory from [`alloc`].
 ///
 /// # Safety
 /// `ptr` must have come from [`alloc`] on this heap and not been freed since.
+/// Violating this is detected rather than trusted: see [`refused_frees`].
 pub unsafe fn dealloc(ptr: *mut u8) {
     let addr = ptr as usize;
-    with_heap(|list, arena, base| {
-        // A pointer below the arena is not ours; dropping it silently is the
-        // least bad option, since there is nobody to report it to.
-        if let Some(offset) = addr.checked_sub(base) {
-            list.dealloc(arena, offset);
+    let refused = with_heap(|list, arena, base| {
+        // A pointer below the arena cannot be ours, and neither can one the
+        // allocator refuses. Both are counted: the alternative is a heap that
+        // quietly leaks whenever a caller is wrong about what it owns.
+        match addr.checked_sub(base) {
+            Some(offset) => list.dealloc(arena, offset).is_err(),
+            None => true,
         }
     });
+
+    if refused.unwrap_or(false) {
+        REFUSED_FREES.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 // There is no `alloc_zeroed` helper here on purpose: with a `GlobalAlloc`

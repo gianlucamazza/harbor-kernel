@@ -58,6 +58,14 @@ pub fn heap_check(uart: &mut Pl011) {
         },
         mm::heap_fragments()
     );
+
+    // A refusal here means something freed a pointer it did not own. The heap
+    // survived it — that is what refusing buys — but the caller is wrong, and
+    // silence would let it stay wrong. The boot check fails on this line.
+    let refused = mm::refused_frees();
+    if refused != 0 {
+        println!(uart, "heap: REFUSED {refused} invalid frees");
+    }
 }
 
 /// Event-driven console: drain the RX ring, report ticks, idle with `WFI`.

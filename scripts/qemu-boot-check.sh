@@ -62,6 +62,12 @@ grep -q 'ticks=20' "${log}" ||
 if grep -q 'irq: unhandled' "${log}"; then
 	fail "unhandled interrupts were dispatched"
 fi
+# The allocator refuses frees it cannot justify — a double free, or a pointer it
+# never handed out. Refusing keeps the heap intact, so nothing else here would
+# notice; the count is the only evidence that a caller is wrong about what it owns.
+if grep -q 'heap: REFUSED' "${log}"; then
+	fail "the allocator refused an invalid free"
+fi
 if grep -qi 'PANIC' "${log}"; then
 	fail "the kernel panicked"
 fi
