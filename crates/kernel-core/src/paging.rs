@@ -314,6 +314,55 @@ pub const fn tcr_el1_ttbr0_only(t0sz: u64) -> u64 {
 /// `TCR_EL1.EPD1` — disable translation-table walks via `TTBR1_EL1`.
 pub const TCR_EPD1: u64 = 1 << 23;
 
+/// Pages above which invalidating the whole TLB beats invalidating each entry.
+///
+/// `tlbi vaae1is` is precise but linear in the region: a 16 MiB mapping is 4096
+/// operations, each broadcast to every core. Past some size the single
+/// `tlbi vmalle1` is cheaper even counting the refills it forces. The exact
+/// crossover is microarchitectural; this is a defensible round number, and the
+/// choice is here rather than inline in the driver so it is visible and
+/// testable instead of buried.
+pub const TLBI_PAGE_LIMIT: u64 = 64;
+
+/// How to invalidate the TLB after changing a mapping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TlbiPlan {
+    /// Invalidate each page: `tlbi vaae1is` with these operands.
+    ByPage { first: u64, pages: u64 },
+    /// Invalidate everything: `tlbi vmalle1`.
+    Everything,
+}
+
+/// Decide how to invalidate the TLB for `[va, va + len)`.
+///
+/// `None` if the range is not page aligned — the caller has nothing sensible to
+/// invalidate, and rounding would either miss entries or invalidate a
+/// neighbour's.
+pub const fn tlbi_plan(va: u64, len: u64) -> Option<TlbiPlan> {
+    if va % PAGE_SIZE != 0 || len % PAGE_SIZE != 0 || len == 0 {
+        return None;
+    }
+
+    let pages = len / PAGE_SIZE;
+    if pages > TLBI_PAGE_LIMIT {
+        return Some(TlbiPlan::Everything);
+    }
+
+    // `TLBI VAAE1IS` takes the virtual address shifted right by 12, not the
+    // address itself. Passing the address invalidates a different page and
+    // leaves a stale entry behind — which no boot would reveal, because the
+    // stale entry is usually still correct.
+    Some(TlbiPlan::ByPage {
+        first: va >> 12,
+        pages,
+    })
+}
+
+/// Operand for `tlbi vaae1is` covering the page `index` pages after `first`.
+pub const fn tlbi_operand(first: u64, index: u64) -> u64 {
+    first + index
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,6 +563,63 @@ mod tests {
         assert!(chunks(0x1800, 0x1000, PAGE_SIZE).is_none());
         assert!(chunks(0x1000, 0x1800, PAGE_SIZE).is_none());
         assert!(chunks(0x1000, 0x1000, 0x800).is_none());
+    }
+
+    // --- TLB invalidation planning ------------------------------------------
+
+    /// The operand is the address shifted right by 12, not the address. Getting
+    /// this wrong invalidates some other page and leaves a stale entry that is
+    /// usually still correct — so nothing visibly breaks until it does.
+    #[test]
+    fn by_page_operands_are_the_address_shifted_by_twelve() {
+        let plan = tlbi_plan(0x4_2000, 2 * PAGE_SIZE).unwrap();
+        assert_eq!(
+            plan,
+            TlbiPlan::ByPage {
+                first: 0x4_2000 >> 12,
+                pages: 2
+            }
+        );
+        let TlbiPlan::ByPage { first, .. } = plan else {
+            unreachable!()
+        };
+        assert_eq!(tlbi_operand(first, 0), 0x42);
+        assert_eq!(tlbi_operand(first, 1), 0x43);
+    }
+
+    #[test]
+    fn one_page_is_one_operand() {
+        assert_eq!(
+            tlbi_plan(0x1000, PAGE_SIZE),
+            Some(TlbiPlan::ByPage { first: 1, pages: 1 })
+        );
+    }
+
+    #[test]
+    fn a_large_region_invalidates_everything() {
+        let len = (TLBI_PAGE_LIMIT + 1) * PAGE_SIZE;
+        assert_eq!(tlbi_plan(0x1000, len), Some(TlbiPlan::Everything));
+    }
+
+    /// Exactly at the limit stays precise: the threshold is "more than", so a
+    /// region of exactly the limit does not tip over into a global flush.
+    #[test]
+    fn the_limit_itself_stays_per_page() {
+        let len = TLBI_PAGE_LIMIT * PAGE_SIZE;
+        assert_eq!(
+            tlbi_plan(0x1000, len),
+            Some(TlbiPlan::ByPage {
+                first: 1,
+                pages: TLBI_PAGE_LIMIT
+            })
+        );
+    }
+
+    #[test]
+    fn an_unaligned_or_empty_range_has_no_plan() {
+        assert_eq!(tlbi_plan(0x1800, PAGE_SIZE), None);
+        assert_eq!(tlbi_plan(0x1000, 0x800), None);
+        assert_eq!(tlbi_plan(0x1000, 0), None);
     }
 
     #[test]

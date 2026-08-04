@@ -97,6 +97,8 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Blob integrity                                                   | corrupt an expected hash                | refused to install, exit 1                                     |
 | Miri                                                             | publish `head` before writing the slot  | `Undefined Behavior: Data race detected between (1) non-atomic write and (2) non-atomic read` |
 | Layout validator                                                 | `GUARD_PAGE_SIZE = 0` in `link.ld`      | `LAYOUT INVALID: GuardIneffective` — and the first attempt at that check passed, which is how the linker-symbol fold below was found |
+| TLBI operand shift                                               | drop the `>> 12`                       | three tests red — the operand became the address, invalidating a different page |
+| Runtime mapping (`mmu::map`)                                     | skip the call, keep the read           | `ESR=0x96000006` level-2 translation fault at the blob address; with the call, `0xd00dfeed` |
 
 ## What Miri adds over the two-thread test
 

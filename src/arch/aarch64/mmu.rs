@@ -130,6 +130,8 @@ pub enum MmuError {
     /// Splitting an existing block is possible but never needed here: regions
     /// are mapped once, in address order, at boot.
     BlockAlreadyMapped(u64),
+    /// [`map`] was called before [`activate`] installed the kernel map.
+    NotActivated,
 }
 
 /// Build the kernel map from `regions` and switch `TTBR0_EL1` to it.
@@ -158,6 +160,53 @@ pub unsafe fn activate(regions: &[Region]) -> Result<(), (MmuError, &'static str
         switch_ttbr0(root as u64);
     }
     Ok(())
+}
+
+/// Add `region` to the live kernel map.
+///
+/// The map is built once by [`activate`], before any address the firmware
+/// assigns at runtime is known — a device-tree blob, a framebuffer, later a
+/// task's memory. This is how such a region joins it afterwards.
+///
+/// # Safety
+/// [`activate`] must have succeeded, and `region` must not conflict with an
+/// existing mapping. Called with interrupts masked: it mutates live tables and
+/// the arena, neither of which is protected against a concurrent walker.
+pub unsafe fn map(region: &Region) -> Result<(), MmuError> {
+    unsafe {
+        let root = *ROOT.get();
+        if root == 0 {
+            return Err(MmuError::NotActivated);
+        }
+
+        map_region(root as *mut Table, region)?;
+
+        // Publish the entries before anything can walk them, then drop stale
+        // translations. Going from invalid to valid would not strictly need the
+        // invalidation — the architecture does not permit caching invalid
+        // entries — but doing it makes this correct for *re*mapping too, where
+        // it is mandatory, at the cost of a few cycles on a rare operation.
+        core::arch::asm!("dsb ishst", options(nostack, preserves_flags));
+
+        match paging::tlbi_plan(region.base, region.len) {
+            Some(paging::TlbiPlan::ByPage { first, pages }) => {
+                for index in 0..pages {
+                    let operand = paging::tlbi_operand(first, index);
+                    core::arch::asm!(
+                        "tlbi vaae1is, {op}",
+                        op = in(reg) operand,
+                        options(nostack, preserves_flags),
+                    );
+                }
+            }
+            // A large region, or one the planner cannot express: the whole TLB
+            // is cheaper than thousands of broadcasts, and always sufficient.
+            _ => core::arch::asm!("tlbi vmalle1", options(nostack, preserves_flags)),
+        }
+
+        core::arch::asm!("dsb ish", "isb", options(nostack, preserves_flags));
+        Ok(())
+    }
 }
 
 /// Point `TTBR0_EL1` at a new table and flush the old translations.

@@ -23,6 +23,8 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use kernel_core::paging::PAGE_SIZE;
+
 unsafe extern "C" {
     /// Written by `_start` from `x0`, before BSS is cleared.
     static __dtb_ptr: u64;
@@ -33,6 +35,10 @@ const FDT_MAGIC: u32 = 0xd00d_feed;
 
 /// Validated blob address, or 0 for "no device tree". Set by [`survey`].
 static DEVICE_TREE: AtomicU64 = AtomicU64::new(0);
+
+/// Total size of the blob, from its header. Read during [`survey`], while the
+/// early map still covers wherever the firmware put it.
+static DEVICE_TREE_LEN: AtomicU64 = AtomicU64::new(0);
 
 /// The raw value the firmware left in `x0`, whether or not it is a DTB.
 ///
@@ -58,9 +64,34 @@ pub unsafe fn survey() {
     // SAFETY: a 4-byte read at an 8-aligned address covered by the early map.
     // A wrong guess from the firmware faults visibly rather than corrupting.
     let magic = unsafe { core::ptr::read_volatile(address as *const u32) };
-    if u32::from_be(magic) == FDT_MAGIC {
-        DEVICE_TREE.store(address, Ordering::Release);
+    if u32::from_be(magic) != FDT_MAGIC {
+        return;
     }
+
+    // `totalsize` is the second big-endian word of the header. Read it now,
+    // for the same reason as the magic: after `mmu::activate` the blob is
+    // outside every mapped region, so this is the last chance without a
+    // mapping — and the mapping needs the size.
+    // SAFETY: the header is 8 bytes; the magic just proved this is one.
+    let total = unsafe { core::ptr::read_volatile((address + 4) as *const u32) };
+    let len = u64::from(u32::from_be(total));
+    if len == 0 {
+        return;
+    }
+
+    DEVICE_TREE_LEN.store(len, Ordering::Release);
+    DEVICE_TREE.store(address, Ordering::Release);
+}
+
+/// The blob's address and length, page-aligned outwards so the pair can be
+/// handed straight to [`crate::arch::mmu::map`].
+pub fn device_tree_pages() -> Option<(u64, u64)> {
+    let address = device_tree()?;
+    let len = DEVICE_TREE_LEN.load(Ordering::Acquire);
+
+    let base = address & !(PAGE_SIZE - 1);
+    let end = (address + len).next_multiple_of(PAGE_SIZE);
+    Some((base, end - base))
 }
 
 /// The device-tree address, if the firmware passed something that really is

@@ -11,6 +11,9 @@ mod selftest;
 mod shell;
 
 use crate::arch::{bootinfo, cpu, exception, mmu, timer};
+use kernel_core::layout::Region;
+use kernel_core::paging::{MemKind, Perms};
+
 use crate::bsp::board;
 use crate::console;
 use crate::irq;
@@ -96,6 +99,28 @@ pub fn run() -> ! {
         Err((error, region)) => {
             println!(uart, "MMU FAILED mapping {region}: {error:?}");
             println!(uart, "continuing unmapped — addresses are physical");
+        }
+    }
+
+    // The kernel map deliberately covers far less than the early one, so the
+    // device-tree blob is now outside it. Map it back in: it is the first
+    // region whose address only the firmware knows, which is exactly what
+    // `mmu::map` exists for.
+    if let Some((base, len)) = bootinfo::device_tree_pages() {
+        let region = Region {
+            base,
+            len,
+            kind: MemKind::NormalWb,
+            // Read-only: nothing in this kernel writes the blob, and a device
+            // tree that the kernel can modify is a device tree nobody can trust.
+            perms: Perms::RO,
+            name: "device tree",
+        };
+        // SAFETY: kernel map active, IRQs masked; the range is firmware-owned
+        // RAM outside every other region.
+        match unsafe { mmu::map(&region) } {
+            Ok(()) => println!(uart, "DTB mapped: {len} bytes at {base:#x}"),
+            Err(error) => println!(uart, "DTB map FAILED: {error:?}"),
         }
     }
 

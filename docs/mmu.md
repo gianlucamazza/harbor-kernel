@@ -24,6 +24,26 @@ needs a barrier rather than the invalidate-everything sequence a cold enable
 requires. If it fails, nothing is switched and the early map stays active —
 which is what lets the failure be reported over a working console.
 
+## Mapping after boot
+
+`activate` installs *the* map, once, before any address the firmware assigns at
+runtime is known. `mmu::map` adds a region to the live tables afterwards: it
+takes the root from `ROOT`, walks down with the same `map_chunk` the initial
+build uses, then publishes with `dsb ishst` and invalidates.
+
+Invalidation granularity comes from `kernel_core::paging::tlbi_plan`: per page
+(`tlbi vaae1is`, operand = VA >> 12) up to 64 pages, whole-TLB (`tlbi vmalle1`)
+beyond, where thousands of broadcasts cost more than the refills a global flush
+forces. Going from invalid to valid would not strictly require invalidation —
+the architecture does not permit caching invalid entries — but doing it anyway
+makes the same function correct for *re*mapping, where it is mandatory.
+
+The first user is the device-tree blob: the firmware puts it wherever it likes
+(`0x2eff1f00` on this board), the kernel map covers far less, so it is mapped
+read-only after `activate`. Verified in both directions — without the call, a
+read of the blob takes `ESR=0x96000006`, a level-2 translation fault at exactly
+its address; with it, the magic reads back as `0xd00dfeed`.
+
 ## Translation regime
 
 | Item          | Value                                   |
