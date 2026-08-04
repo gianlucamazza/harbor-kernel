@@ -33,7 +33,10 @@ pub fn run() -> ! {
     };
 
     println!(uart, "rpi_minimal_agentic: hello");
-    println!(uart, "M2+P0: MMU + heap + idle + UART RX IRQ");
+    println!(
+        uart,
+        "EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle"
+    );
 
     exception::init();
 

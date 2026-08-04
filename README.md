@@ -17,7 +17,7 @@ interactive serial console.
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work      |
 | Interrupts   | GICv2, arch timer PPI, PL011 RX via SPI, dispatch counters       |
 | Console      | Polled TX, interrupt-driven RX into a lock-free ring, `WFI` idle |
-| Verification | 54 host unit tests, QEMU boot in CI                              |
+| Verification | 54 host unit tests, build-enforced invariants, QEMU boot gate, fault-probed on hardware |
 
 ## What does not exist yet
 
@@ -88,20 +88,23 @@ Details: [`docs/hardware.md`](docs/hardware.md).
 
 ```
 rpi_minimal_agentic: hello
-M2+P0: MMU + heap + idle + UART RX IRQ
-no DTB (x0 was 0x…); board constants are compiled in
-MMU on  (W^X, guard page at 0x…, 40960 B of table arena left)
+EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+DTB at 0x2eff1f00
+MMU on  (W^X, guard page at 0x9a000, 40960 B of table arena left)
 heap remaining = 67108864 bytes
 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
 IRQs enabled (timer + UART RX)
 idle: WFI when no RX/tick work
-heap: Box at 0x…, Vec of 1024 sums to 523776
-heap: … bytes free while held, 2 fragments
+heap: Box at 0xab010, Vec of 1024 sums to 523776
+heap: 67100624 bytes free while held, 2 fragments
 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
 ticks=10
 ticks=20
 ...
 ```
+
+That transcript is from a Raspberry Pi 4B, not an emulator: `CNTFRQ` is the
+board's real 54 MHz, and the DTB address is the one this firmware passes.
 
 Typed characters are echoed via the RX IRQ ring (main idles with `WFI` between
 events). `fully reclaimed` is the line that distinguishes a real allocator from
@@ -130,7 +133,8 @@ cargo build --release --features bringup
 | Doc                                            | Content                         |
 | ---------------------------------------------- | ------------------------------- |
 | [`docs/architecture.md`](docs/architecture.md) | Layers, agent model, milestones |
-| [`docs/mmu.md`](docs/mmu.md)                   | Regions, W^X, guard page        |
+| [`docs/mmu.md`](docs/mmu.md)                   | Two maps, regions, W^X, guard page |
+| [`docs/verification.md`](docs/verification.md) | What is checked, and what each check is blind to |
 | [`docs/interrupts.md`](docs/interrupts.md)     | VBAR, GIC, timer, HW evidence   |
 | [`docs/boot-chain.md`](docs/boot-chain.md)     | ROM → EEPROM → start4 → kernel  |
 | [`docs/blobs.md`](docs/blobs.md)               | Closed firmware policy          |

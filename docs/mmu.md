@@ -1,4 +1,4 @@
-# MMU and kernel heap (M2)
+# MMU and kernel heap
 
 ## Goals
 
@@ -7,6 +7,22 @@
 - An unmapped guard page below the stack
 - Enable stage-1 MMU + I/D caches at EL1
 - Provide a bump heap for kernel allocations
+
+## Two maps
+
+Translation is enabled **before any Rust runs**, from `boot.s`, using a coarse
+identity map resolved at compile time (`arch::mmu::EARLY_L1`): 1 GiB blocks
+covering 3 GiB of RAM plus the device window. Its purpose is not the mapping —
+it is that no kernel code ever executes without memory attributes, because
+atomic read-modify-write does not work without them. See
+[`verification.md`](verification.md) for the bug that established this.
+
+The real per-region map below is built at runtime and installed by switching
+`TTBR0_EL1` (`arch::mmu::activate`). Because translation is already on, the
+table writes and the walker's reads go through the same caches, so the switch
+needs a barrier rather than the invalidate-everything sequence a cold enable
+requires. If it fails, nothing is switched and the early map stays active —
+which is what lets the failure be reported over a working console.
 
 ## Translation regime
 
@@ -52,57 +68,78 @@ exhaustion is visible before it becomes a mapping failure.
 ### Verifying the protections
 
 A protection nobody has seen fire is an assumption. Both were checked by
-temporarily adding a deliberate fault to `bootstrap::run` and booting under
-QEMU:
+temporarily adding a deliberate fault to `bootstrap::run` and booting **on a
+Raspberry Pi 4B** — the ESR values below are from silicon, and match what QEMU
+produced bit for bit:
 
 | Probe                        | Expected          | Observed                                                                       |
 | ---------------------------- | ----------------- | ------------------------------------------------------------------------------ |
 | write to `.text` (`0x80000`) | permission fault  | `ESR=0x9600004F` → DFSC `0b001111` (permission, level 3), WnR=1, `FAR=0x80000` |
-| write to the guard page      | translation fault | `ESR=0x96000047` → DFSC `0b000111` (translation, level 3), `FAR=0x96000`       |
+| write to the guard page      | translation fault | `ESR=0x96000047` → DFSC `0b000111` (translation, level 3), `FAR=0x9a000`       |
+
+The guard page must give a *translation* fault, not a permission one: a mapped
+page with restrictive permissions would still let a read through, and a stack
+that overflowed by reading would go unnoticed.
 
 The probes are not in the tree: a deliberate fault is a dead board. Re-run them
-by hand after any change to `link.ld` or to the region list.
+by hand after any change to `link.ld` or to the region list, following
+[`verification.md`](verification.md).
 
 ## Code
 
-| Path                               | Role                                           |
-| ---------------------------------- | ---------------------------------------------- |
-| `crates/kernel-core/src/paging.rs` | Descriptor + `TCR_EL1` encodings (host-tested) |
-| `arch/aarch64/mmu.rs`              | Table build + `enable_identity()`              |
-| `arch/aarch64/cache.rs`            | I-cache / D-cache set-way / TLB invalidation   |
-| `mm/mod.rs`                        | Bump allocator from `__heap_start`             |
-| `bsp/rpi4/memmap.rs`               | Which blocks are RAM and which are device      |
-| `link.ld`                          | `__heap_start` after stack                     |
+| Path                               | Role                                            |
+| ---------------------------------- | ----------------------------------------------- |
+| `crates/kernel-core/src/paging.rs` | Descriptor + `TCR_EL1` encodings, region splitting (host-tested) |
+| `crates/kernel-core/src/heap.rs`   | Free-list allocator arithmetic (host-tested)    |
+| `arch/aarch64/mmu.rs`              | `EARLY_L1`, `early_mmu_enable`, `activate`      |
+| `arch/aarch64/cache.rs`            | I-cache / D-cache set-way / TLB invalidation    |
+| `mm/layout.rs`                     | Regions and their permissions, from the linker  |
+| `mm/mod.rs`                        | Kernel heap + `GlobalAlloc`                     |
+| `bsp/rpi4/memmap.rs`               | Device windows                                  |
+| `link.ld`                          | Page-aligned region boundaries, table arena, guard page |
 
-`enable_identity` takes the block list from the caller and returns `Result`:
-which physical ranges are RAM is board knowledge, and a bring-up failure
-reports instead of killing the boot.
-
-Caches are invalidated **before** `SCTLR_EL1.{M,C,I}` are set. The table is
-written with the MMU off so it lands in memory, but the walker then reads it
-through the caches — and the platform firmware left lines of its own behind.
+`activate` takes the region list from the caller and returns `Result`: which
+physical ranges are RAM is board knowledge, and a failure reports over the
+still-working early map instead of killing the boot.
 
 ## Bring-up order
 
 ```
-exception::init
-mmu::enable_identity   // before irq (still fine after UART cold init)
-mm::init_heap
-board::irq::init
-irq_enable
-heap demo + ticks console
+_start          → early_mmu_enable      // translation on, before any Rust
+kernel_main     → bootstrap::run
+  console::acquire                      // atomics work: memory has attributes
+  exception::init
+  bootinfo::survey                      // validate the DTB while 3 GiB is mapped
+  mmu::activate                         // switch TTBR0 to the W^X map
+  mm::init_heap
+  board::irq::init
+  irq::seal
+  irq_enable
+  shell::run
 ```
+
+`survey` must precede `activate`: the firmware places the blob wherever it
+likes (`0x2eff1f00` on this board), which the kernel map does not cover. It
+caches its answer, so `device_tree()` is correct whenever it is called
+afterwards — the ordering constraint lives in one place instead of in every
+caller's head.
 
 ## Heap
 
-- Start: linker `__heap_start` (page-aligned after stack)
+- Start: linker `__heap_start` (page-aligned after the stack)
 - Size: min(64 MiB, remaining to `IDENTITY_RAM_END`)
-- API: `mm::alloc`, `mm::alloc_zeroed`, `mm::heap_remaining`
-- No free (bump only) in M2
+- First-fit free list with splitting and address-ordered coalescing, wired to
+  `GlobalAlloc` — `Box` and `Vec` work
+- Every operation takes the interrupt-masked critical section: an allocator
+  interrupted mid-splice corrupts its own free list, and the damage surfaces
+  arbitrarily later
+- The bump allocator remains for early boot, where nothing is ever returned
 
 ## Out of scope (later)
 
-- EL0 / user maps
-- Fine-grained 4K device pages
-- ASID, multi-core TLB
-- Full `kfree`
+- **A frame allocator.** The table arena is a fixed pool sized in `link.ld` —
+  the right shape for mapping the kernel once, the wrong one for address spaces
+  that come and go. Needed for M5, not before.
+- **More than one address space.** `activate` installs *the* map; there is no
+  per-task `TTBR0`, no ASID, no multi-core TLB maintenance.
+- **EL0 / user maps**, fine-grained device pages, `kfree` of page tables.

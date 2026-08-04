@@ -31,16 +31,25 @@ tag is a pin and not a preference:
 | `CPACR_EL1`                      | Irrelevant by design: the kernel is softfloat and leaves FP trapping.                                                                                                                                                                                                                                                                                                       |
 
 After bumping `firmware_tag`, boot once with `--features bringup` and check the
-gates still pass; that is the cheapest way to catch a GIC regression.
+gates still pass; that is the cheapest way to catch a GIC regression. With tag
+`1.20250430` they pass on a Pi 4B Rev 1.5 — `HPPIR=30`, `IAR=0x1e id=30` — so
+the inherited configuration is confirmed for this pin, not merely assumed.
+
+Integrity, as opposed to provenance, comes from `EXPECTED.sha256`: hashes
+committed to this repository and checked before anything is installed. The
+manifest records what was fetched; it agrees with itself whatever arrives.
 
 ## Operational rules
 
 1. Blobs are **not** committed as opaque binary history without a manifest.
 2. Fetch only via `scripts/fetch-blobs.sh` / `make blobs` at a **pinned tag**.
-3. `third_party/blobs/MANIFEST.txt` records tag, timestamp, and SHA-256.
-4. Bumping the firmware tag is a deliberate change: update the script default,
-   re-fetch, re-flash, and note the reason in the commit message.
-5. Kernel code must not embed or require additional closed binaries for M0–M2.
+3. Integrity is `third_party/blobs/EXPECTED.sha256`, committed and verified
+   before install. `MANIFEST.txt` records provenance — what was fetched, when —
+   and is not a check: it is written from whatever arrived.
+4. Bumping the firmware tag is a deliberate change: `ALLOW_UNVERIFIED=1` to
+   fetch, review the printed sums, commit them to `EXPECTED.sha256` alongside
+   the tag, re-flash, and re-run the bring-up gates.
+5. Kernel code must not embed or require additional closed binaries.
 
 ## Why not “zero blobs”
 

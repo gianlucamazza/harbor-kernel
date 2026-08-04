@@ -2,6 +2,12 @@
 
 ## Hardware evidence (Pi 4B Rev 1.5)
 
+Re-verified after the move to an early MMU, which changed the memory regime the
+polled gates run under — from no attributes to Normal WB with caches on:
+`soft_ticks=3`, `gate: HPPIR=30 ok`, `inject: IAR=0x1e id=30`, `ticks 0 -> 2`,
+`selftest: OK`. Build them with `--features bringup`; see
+[`verification.md`](verification.md).
+
 | Check                              | Result              |
 | ---------------------------------- | ------------------- |
 | PL011 console                      | OK                  |

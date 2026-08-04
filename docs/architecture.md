@@ -100,17 +100,28 @@ does not exist yet.
 | M0  | Hello UART + echo                         | **done**                  |
 | M1  | Exceptions + timer IRQ ticks              | **done** (HW)             |
 | M2  | MMU + kernel heap (+ atomics after attrs) | **done** (HW)             |
-| P0  | Idle (WFI) + UART RX IRQ + ring           | **in tree** — HW validate |
-| P1  | W^X + guard page + free-list `GlobalAlloc` | **in tree** — HW validate |
+| P0  | Idle (WFI) + UART RX IRQ + ring            | **done** (HW)             |
+| P1  | W^X + guard page + free-list `GlobalAlloc`  | **done** (HW, fault-probed) |
+| P2  | Early MMU, softfloat, build-enforced gates  | **done** (HW)             |
 | M3  | Cooperative tasks                         | planned                   |
 | M4  | IPC + capabilities                        | planned                   |
 | M5  | EL0 agents                                | planned                   |
 | M6  | Driver-as-agent                           | planned                   |
 
-M3 is now unblocked: it needs an allocator that frees (P1) and per-region
-permissions (P1). It still needs a frame allocator and per-task `TTBR0` before
-M5 can give agents their own address spaces — `arch::mmu` maps regions but has
-no notion of more than one address space.
+M3 is unblocked: it needs an allocator that frees and per-region permissions,
+both of which exist. What it still lacks is an execution abstraction — there is
+no task, no context switch, no scheduler.
+
+M5 needs two things `arch::mmu` does not have: a frame allocator (the table
+arena is a fixed, build-time pool, which is the right shape for mapping the
+kernel once and the wrong one for address spaces that come and go) and a notion
+of more than one address space at all — `activate` installs *the* map, and
+`TTBR0` is switched once.
+
+"done (HW)" means the deliverable was observed working on a Raspberry Pi 4B,
+not merely in QEMU. The distinction earned its place: emulation booted a kernel
+that hung on silicon, because TCG's exclusive monitor ignores memory
+attributes. See [`verification.md`](verification.md).
 
 ## Non-goals
 
