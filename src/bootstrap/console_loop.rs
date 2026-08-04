@@ -73,6 +73,7 @@ pub fn run(uart: &mut Pl011) -> ! {
     let mut last_printed = 0u64;
     let mut last_counters = irq::Counters::default();
     let mut last_dropped = 0u32;
+    let mut last_missed = 0u64;
 
     loop {
         // 1. Echo all bytes the UART RX IRQ pushed into the ring.
@@ -121,6 +122,15 @@ pub fn run(uart: &mut Pl011) -> ! {
                         "console: DROPPED {dropped} received bytes (ring full)"
                     );
                     last_dropped = dropped;
+                }
+
+                // Deadlines nobody was there to serve. Zero on a healthy
+                // system; anything else means the handler ran late, which is
+                // what a scheduler on this clock would trip over first.
+                let missed = time::missed_ticks();
+                if missed != last_missed {
+                    println!(uart, "timer: MISSED {missed} deadlines");
+                    last_missed = missed;
                 }
             }
         }

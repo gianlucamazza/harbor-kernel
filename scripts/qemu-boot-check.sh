@@ -73,6 +73,12 @@ fi
 if grep -q 'console: DROPPED' "${log}"; then
 	fail "the RX handler dropped received bytes"
 fi
+# A missed deadline means the timer handler did not run in time. Harmless at
+# 10 Hz with nothing else running, which is exactly why it must be loud here:
+# this is the quietest possible conditions.
+if grep -q 'timer: MISSED' "${log}"; then
+	fail "timer deadlines expired unserviced"
+fi
 if grep -qi 'PANIC' "${log}"; then
 	fail "the kernel panicked"
 fi

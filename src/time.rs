@@ -14,21 +14,34 @@ use crate::arch::timer;
 /// Monotonic tick counter. Producer: timer IRQ. Consumer: main loop.
 static TICKS: AtomicU64 = AtomicU64::new(0);
 
+/// Periods that expired without their interrupt being serviced.
+///
+/// The deadline is absolute, so a late handler does not shift the series — but
+/// the ticks it slept through still happened. They are added to the count, so
+/// `ticks()` stays a measure of elapsed time rather than of arrivals, and they
+/// are counted separately, because "this kernel is missing deadlines" is not
+/// something a tick number can express.
+static MISSED: AtomicU64 = AtomicU64::new(0);
+
 /// IRQ handler registered for the platform timer line (BSP supplies the id).
 ///
 /// Re-arms the arch timer and advances the monotonic tick counter.
 /// Must not perform console I/O.
 pub fn on_timer_irq() {
-    timer::on_interrupt();
-    tick();
+    let missed = timer::on_interrupt();
+    if missed != 0 {
+        MISSED.fetch_add(missed, Ordering::Relaxed);
+    }
+    // One for this deadline, plus the ones nobody was there to serve: time
+    // passed for all of them. Release: state the handler updated before this
+    // is visible to a reader that observes the new count.
+    TICKS.fetch_add(missed + 1, Ordering::Release);
 }
 
-/// Advance the tick counter only (no hardware access).
+/// Timer deadlines that expired unserviced since boot.
 #[inline]
-pub fn tick() {
-    // Release: any state the handler updated before this is visible to a
-    // reader that observes the new count.
-    TICKS.fetch_add(1, Ordering::Release);
+pub fn missed_ticks() -> u64 {
+    MISSED.load(Ordering::Relaxed)
 }
 
 /// Monotonic tick count since the timer IRQ path became live.

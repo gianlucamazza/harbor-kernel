@@ -4,11 +4,19 @@
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use kernel_core::timer;
+
 /// Interval between ticks, in timer counts (derived from `CNTFRQ_EL0`).
 ///
 /// Written once by `init` during bootstrap, read from the IRQ path. Relaxed is
 /// enough: the value is published before interrupts are ever unmasked.
 static INTERVAL_COUNTS: AtomicU64 = AtomicU64::new(0);
+
+/// The deadline currently programmed into the comparator.
+///
+/// The series is anchored here, not on the counter at handler time: that is
+/// what keeps the phase from sliding by one interrupt latency per tick.
+static DEADLINE: AtomicU64 = AtomicU64::new(0);
 
 /// Read the timer frequency programmed by platform firmware (Hz).
 #[inline]
@@ -61,17 +69,48 @@ pub fn init(hz: u32) -> Result<(), TimerError> {
     }
 
     INTERVAL_COUNTS.store(interval, Ordering::Relaxed);
-    write_tval(interval);
+    // The series starts here, and every later deadline is derived from this one
+    // rather than from the count at the time the handler runs.
+    let first = physical_count().saturating_add(interval);
+    DEADLINE.store(first, Ordering::Relaxed);
+    write_cval(first);
     // ENABLE=1, IMASK=0.
     write_ctl(0b001);
     Ok(())
 }
 
 /// Re-arm the next deadline. Called from the IRQ path only.
-pub fn on_interrupt() {
-    write_tval(INTERVAL_COUNTS.load(Ordering::Relaxed));
+///
+/// Returns the number of periods that expired unserviced, which is normally
+/// zero. See [`kernel_core::timer`] for why the deadline is absolute.
+pub fn on_interrupt() -> u64 {
+    let interval = INTERVAL_COUNTS.load(Ordering::Relaxed);
+    let previous = DEADLINE.load(Ordering::Relaxed);
+    let next = timer::next_deadline(previous, interval, physical_count());
+
+    DEADLINE.store(next.deadline, Ordering::Relaxed);
+    write_cval(next.deadline);
     // Keep ENABLE=1, IMASK=0 after reprogram.
     write_ctl(0b001);
+    next.missed
+}
+
+/// Current physical counter (`CNTPCT_EL0`).
+#[inline]
+fn physical_count() -> u64 {
+    let count: u64;
+    // SAFETY: CNTPCT_EL0 is readable at EL1. `isb` orders the read against
+    // preceding instructions — without it the counter may be sampled early,
+    // which would put the deadline behind where the caller thinks it is.
+    unsafe {
+        core::arch::asm!(
+            "isb",
+            "mrs {}, cntpct_el0",
+            out(reg) count,
+            options(nomem, nostack, preserves_flags),
+        );
+    }
+    count
 }
 
 /// True if the physical timer condition is asserted (`CNTP_CTL.ISTATUS`).
@@ -108,6 +147,22 @@ fn read_ctl() -> u64 {
     value
 }
 
+/// Program the absolute compare value (`CNTP_CVAL_EL0`).
+#[inline]
+fn write_cval(deadline: u64) {
+    // SAFETY: CNTP_CVAL_EL0 is accessible at EL1 for the physical timer.
+    unsafe {
+        core::arch::asm!(
+            "msr cntp_cval_el0, {v}",
+            v = in(reg) deadline,
+            options(nostack, preserves_flags),
+        );
+    }
+}
+
+/// Program a countdown (`CNTP_TVAL_EL0`). Bring-up only: a relative re-arm
+/// drifts, which is why the periodic path uses [`write_cval`].
+#[cfg(feature = "bringup")]
 #[inline]
 fn write_tval(counts: u64) {
     // SAFETY: CNTP_TVAL_EL0 is accessible at EL1 for the physical timer.

@@ -102,8 +102,10 @@ fn software_inject_timer(uart: &mut Pl011) -> bool {
     // (observed during M1 bring-up), so mask the PPI first.
     irq::disable(board::irq::TIMER_IRQ);
     cpu::sync_pipeline();
-    timer::on_interrupt();
-    time::tick();
+    // The real handler, not a re-implementation of it: this gate exists to
+    // check that the timer path advances the counter, so it must exercise the
+    // path rather than repeat its two steps here.
+    time::on_timer_irq();
 
     irq::enable(board::irq::TIMER_IRQ);
     let counts = (timer::frequency_hz() / 1000).max(1000);
@@ -121,8 +123,7 @@ fn software_inject_timer(uart: &mut Pl011) -> bool {
     println!(uart, "inject: IAR={iar:#x} id={id}");
 
     if id == board::irq::TIMER_IRQ {
-        timer::on_interrupt();
-        time::tick();
+        time::on_timer_irq();
         board::irq::debug_write_eoir(iar);
     } else if id != 1023 {
         board::irq::debug_write_eoir(iar);
