@@ -2,14 +2,17 @@
 #
 #   make            release kernel8.img
 #   make debug      debug kernel8.img
-#   make check      cargo check + clippy (-D warnings)
+#   make check      fmt --check + clippy (-D warnings) + host tests + no-SIMD
+#   make test       host unit tests for the pure-logic crate
 #   make fmt        rustfmt
+#   make qemu       boot the image under QEMU (PL011 on stdio)
+#   make qemu-gdb   same, halted, waiting for gdb on :1234
 #   make blobs      fetch pinned platform firmware
 #   make deploy     copy image + config + blobs to SD (SD_MOUNT=...)
 #   make serial     open serial console (SERIAL_DEV=...)
 #   make clean
 
-TARGET      := aarch64-unknown-none
+TARGET      := aarch64-unknown-none-softfloat
 PROFILE     ?= release
 CARGO_OUT   := target/$(TARGET)/$(PROFILE)
 ELF         := $(CARGO_OUT)/rpi_minimal_agentic
@@ -20,12 +23,23 @@ SERIAL_DEV  ?= /dev/ttyUSB0
 BAUD        ?= 115200
 OBJCOPY     ?= llvm-objcopy
 
+# QEMU models the BCM2711 as `raspi4b`: PL011 UART0 is chardev serial0, so
+# `-serial mon:stdio` lands on the same console the board prints to.
+QEMU        ?= qemu-system-aarch64
+QEMU_MACHINE ?= raspi4b
+QEMU_FLAGS  ?= -M $(QEMU_MACHINE) -kernel $(IMG) -serial mon:stdio -display none
+
+# Host tests cover the pure-logic crate only: the kernel binary carries its own
+# `#[panic_handler]`, which collides with the one the test harness links in.
+TEST_PKG    := kernel-core
+HOST_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
+
 CARGO_FLAGS := --target $(TARGET)
 ifeq ($(PROFILE),release)
   CARGO_FLAGS += --release
 endif
 
-.PHONY: all debug img elf check fmt blobs deploy serial clean
+.PHONY: all debug img elf check test no-simd fmt fmt-check qemu qemu-gdb blobs deploy serial clean
 
 all: img
 
@@ -41,12 +55,40 @@ img: elf
 	@echo "built $(IMG)"
 	@ls -la $(IMG)
 
-check:
-	cargo check --target $(TARGET)
+check: fmt-check test no-simd
 	cargo clippy --target $(TARGET) -- -D warnings
+	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
+
+test:
+	cargo test -p $(TEST_PKG) --target $(HOST_TARGET)
+
+# The kernel is built softfloat: no FP/SIMD register may appear in the image.
+# A silent switch back to a NEON-enabled target would otherwise only show up as
+# a synchronous exception on the board, since CPACR_EL1.FPEN is never set.
+no-simd: elf
+	@! llvm-objdump -d --no-show-raw-insn $(ELF) \
+	  | grep -oE '\b[qv][0-9]+(\.[0-9]+[bhsd])?\b' \
+	  | head -5 | grep . \
+	  || { echo "error: FP/SIMD registers found in $(ELF)" >&2; exit 1; }
+	@echo "no-simd: clean"
 
 fmt:
 	cargo fmt --all
+
+fmt-check:
+	cargo fmt --all --check
+
+# Emulated boot. Exit with Ctrl-A x (the monitor is multiplexed onto stdio).
+qemu: img
+	@command -v $(QEMU) >/dev/null || { \
+	  echo "error: $(QEMU) not found (pacman -S qemu-system-aarch64)" >&2; exit 1; }
+	$(QEMU) $(QEMU_FLAGS)
+
+# Halted at reset, waiting for: gdb -ex 'target remote :1234' $(ELF)
+qemu-gdb: img
+	@command -v $(QEMU) >/dev/null || { \
+	  echo "error: $(QEMU) not found (pacman -S qemu-system-aarch64)" >&2; exit 1; }
+	$(QEMU) $(QEMU_FLAGS) -S -s
 
 blobs:
 	./scripts/fetch-blobs.sh

@@ -17,6 +17,8 @@ const GICD_ISENABLER: usize = 0x100;
 const GICD_ICENABLER: usize = 0x180;
 const GICD_ICPENDR: usize = 0x280;
 const GICD_IPRIORITYR: usize = 0x400;
+const GICD_ITARGETSR: usize = 0x800;
+const GICD_ICFGR: usize = 0xC00;
 
 const GICC_CTLR: usize = 0x000;
 const GICC_PMR: usize = 0x004;
@@ -66,6 +68,11 @@ impl IrqChip for GicV2 {
         self.set_group0(irq);
         // Highest priority (0) so PMR never filters it.
         self.set_priority(irq, 0x00);
+        // SPIs must target a CPU; PPIs are banked per core.
+        if irq >= 32 {
+            self.set_target_cpu0(irq);
+            self.set_level_sensitive(irq);
+        }
         self.clear_pending(irq);
         let reg = (irq / 32) as usize;
         let bit = irq % 32;
@@ -150,5 +157,28 @@ impl GicV2 {
         let reg = (irq / 32) as usize;
         let bit = irq % 32;
         self.dist.write32(GICD_ICPENDR + reg * 4, 1u32 << bit);
+    }
+
+    /// Route SPI `irq` to CPU interface 0 (bit 0 of the target byte).
+    fn set_target_cpu0(&self, irq: u32) {
+        let word = (irq / 4) as usize;
+        let shift = (irq % 4) * 8;
+        let offset = GICD_ITARGETSR + word * 4;
+        let mut value = self.dist.read32(offset);
+        value &= !(0xFF << shift);
+        value |= 0x01 << shift;
+        self.dist.write32(offset, value);
+    }
+
+    /// Level-sensitive configuration (PL011 and most peripherals).
+    ///
+    /// ICFGR: 2 bits per IRQ; `0b00` = level, `0b10` = edge.
+    fn set_level_sensitive(&self, irq: u32) {
+        let word = (irq / 16) as usize;
+        let shift = (irq % 16) * 2;
+        let offset = GICD_ICFGR + word * 4;
+        let mut value = self.dist.read32(offset);
+        value &= !(0b11 << shift);
+        self.dist.write32(offset, value);
     }
 }

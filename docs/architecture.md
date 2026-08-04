@@ -6,8 +6,8 @@
 Model B. Agents will be isolated units that interact only through message
 passing and capabilities.
 
-**M2 in tree:** identity MMU + bump heap on top of M1 (IRQ ticks + UART).
-Validate on hardware after flash.
+**M2 + P0 in tree:** identity MMU + bump heap, timer IRQ ticks, **idle (WFI)**
++ **UART RX IRQ** into a kernel ring. Validate idle/RX on hardware after flash.
 
 ## Layering
 
@@ -43,18 +43,21 @@ Validate on hardware after flash.
 3. Arch never names board peripherals (Generic Timer + CPU only).
 4. `exception` does not import drivers, BSP, or time — only `irq::handle_cpu_irq`.
 5. One irqchip owner via `irq::init(&'static dyn IrqChip)`.
-6. IRQ handlers do not use the console.
+6. IRQ handlers do not **transmit** on the console (`println` / TX). The UART
+   RX handler may only drain the FIFO into the kernel ring.
 7. No hardware atomics until the MMU establishes memory attributes (M2).
+8. Main idle uses `WFI` when the RX ring is empty and no tick report is due.
 
-## Interrupt / timer contract
+## Interrupt / timer / console contract
 
 | Role | Module | Responsibility |
 |------|--------|----------------|
 | Clocksource | `arch/timer` | CNTP deadline, ISTATUS, re-arm |
-| Irqchip | `drivers/gicv2` | enable, claim/EOI |
+| Irqchip | `drivers/gicv2` | enable, claim/EOI, SPI target CPU0 |
 | Dispatch | `irq` | id → handler |
 | Tick policy | `time` | `on_timer_irq`, `ticks()` |
-| Bind | `bsp/rpi4/irq` | TIMER_IRQ = 30, static GIC |
+| Console RX | `console` | ring, `on_uart_rx_irq`, `pop_rx` |
+| Bind | `bsp/rpi4/irq` | TIMER=30, UART=153, static GIC |
 
 ## Agent model (target)
 
@@ -72,7 +75,8 @@ Validate on hardware after flash.
 |----|-------------|--------|
 | M0 | Hello UART + echo | **done** |
 | M1 | Exceptions + timer IRQ ticks | **done** (HW) |
-| M2 | MMU + kernel heap (+ atomics after attrs) | **in tree** — HW validate |
+| M2 | MMU + kernel heap (+ atomics after attrs) | **done** (HW) |
+| P0 | Idle (WFI) + UART RX IRQ + ring | **in tree** — HW validate |
 | M3 | Cooperative tasks | planned |
 | M4 | IPC + capabilities | planned |
 | M5 | EL0 agents | planned |

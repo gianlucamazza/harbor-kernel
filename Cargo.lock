@@ -3,5 +3,12 @@
 version = 3
 
 [[package]]
+name = "kernel-core"
+version = "0.1.0"
+
+[[package]]
 name = "rpi_minimal_agentic"
 version = "0.1.0"
+dependencies = [
+ "kernel-core",
+]

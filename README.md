@@ -3,8 +3,9 @@
 Agent-based microkernel for the **Raspberry Pi 4 Model B**, written in Rust
 (`no_std`), booting bare metal under the platform firmware.
 
-**Milestone 2 (in tree):** M1 + identity **MMU** + **bump heap**.  
-Validate on Pi: look for `MMU on` and `heap demo:` plus continuing `ticks=`.
+**M2 + P0 (in tree):** identity **MMU** + **bump heap** + **idle (WFI)** +
+**UART RX IRQ** (ring).  
+Validate on Pi: `MMU on`, `heap demo:`, `idle: WFI…`, continuing `ticks=`, echo works.
 
 ## Design
 
@@ -23,8 +24,9 @@ src/
   drivers/        PL011, GICv2
   bsp/rpi4/       memmap, GPIO, console, IRQ bind (static GIC)
   bootstrap/      bring-up (production; optional selftest)
-  time/           tick counter (plain u64 until MMU / M2)
-  console.rs      acquire + print macros
+  time/           tick counter
+  console.rs      TX acquire + RX ring + print macros
+  sync.rs         SyncCell for single-core globals
   panic.rs        mask IRQ → UART → halt
   boot.s          EL2→EL1, CNTHCTL, BSS, stack
   main.rs         → bootstrap::run()
@@ -57,18 +59,19 @@ Details: [`docs/hardware.md`](docs/hardware.md).
 
 ```
 rpi_minimal_agentic: hello
-M2: MMU + heap + irq + CNTP
+M2+P0: MMU + heap + idle + UART RX IRQ
 MMU on  (identity 2GiB RAM + device window)
 heap remaining = …
 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
-IRQs enabled
+IRQs enabled (timer + UART RX)
+idle: WFI when no RX/tick work
 heap demo: alloc 64B at 0x…
 ticks=10
 ticks=20
 ...
 ```
 
-Typed characters are echoed.
+Typed characters are echoed via the RX IRQ ring (main idles with `WFI` between events).
 
 ### Bring-up self-test
 

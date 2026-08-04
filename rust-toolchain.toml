@@ -1,4 +1,4 @@
 [toolchain]
 channel = "stable"
 components = ["rustfmt", "clippy"]
-targets = ["aarch64-unknown-none"]
+targets = ["aarch64-unknown-none-softfloat"]

@@ -1,12 +1,23 @@
+# The kernel targets `-softfloat`: that target drops `+neon`/`+fp-armv8`, so the
+# compiler cannot emit FP/SIMD instructions at all. Privileged code that never
+# does floating-point arithmetic has nothing to gain from them and everything to
+# lose: `CPACR_EL1.FPEN` is 0 out of reset (any FP instruction traps), and
+# saving q0–q31 on every IRQ would cost 512 bytes of trap frame per exception.
+# Linux (`-mgeneral-regs-only`), seL4 and Zephyr all compile kernels this way.
+# `make no-simd` enforces the invariant on the built image.
 [build]
-target = "aarch64-unknown-none"
+target = "aarch64-unknown-none-softfloat"
 
-[target.aarch64-unknown-none]
+[target.aarch64-unknown-none-softfloat]
 rustflags = [
-    "-C", "link-arg=--script=link.ld",
-    "-C", "relocation-model=static",
-    "-C", "target-cpu=cortex-a72",
-    "-C", "linker=rust-lld",
+  "-C",
+  "link-arg=--script=link.ld",
+  "-C",
+  "relocation-model=static",
+  "-C",
+  "target-cpu=cortex-a72",
+  "-C",
+  "linker=rust-lld",
 ]
 
 [term]

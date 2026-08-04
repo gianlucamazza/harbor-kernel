@@ -1,0 +1,15 @@
+[package]
+name = "kernel-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Pure, host-testable logic shared by the kernel: register encodings and allocator math"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# No dependencies, no `unsafe`, no MMIO: everything here is a total function
+# over integers so it can be unit-tested on the host.
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"

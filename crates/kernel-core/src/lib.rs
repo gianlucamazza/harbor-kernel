@@ -1,0 +1,17 @@
+//! Pure kernel logic, testable on the host.
+//!
+//! Everything in this crate is a total function over integers: register
+//! encodings, divisor math, allocator bookkeeping. No MMIO, no assembly, no
+//! `unsafe`. The kernel crate owns the hardware; this crate owns the arithmetic
+//! that used to be buried inside it and therefore untestable.
+//!
+//! `no_std` for the kernel build, `std` under `cargo test` so the default test
+//! harness links.
+
+#![cfg_attr(not(test), no_std)]
+
+pub mod bump;
+pub mod gic;
+pub mod paging;
+pub mod ring;
+pub mod uart;

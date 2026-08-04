@@ -1,3 +1,6 @@
+[workspace]
+members = ["crates/kernel-core"]
+
 [package]
 name = "rpi_minimal_agentic"
 version = "0.1.0"
@@ -9,6 +12,10 @@ publish = false
 readme = "README.md"
 categories = ["embedded", "no-std", "os"]
 keywords = ["raspberry-pi", "aarch64", "kernel", "bare-metal"]
+
+[dependencies]
+# Pure register/allocator arithmetic, unit-tested on the host.
+kernel-core = { path = "crates/kernel-core" }
 
 [profile.dev]
 panic = "abort"

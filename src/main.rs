@@ -11,6 +11,7 @@ mod drivers;
 mod irq;
 mod mm;
 mod panic;
+mod sync;
 mod time;
 
 core::arch::global_asm!(include_str!("boot.s"));

@@ -27,7 +27,7 @@
 | Clock (assumed) | 48 MHz with `enable_uart=1` |
 | Baud | 115200 |
 | Frame | 8N1 |
-| Mode | Polling (IRQ-driven UART is post-M1) |
+| Mode | TX polled; RX IRQ → kernel ring + WFI idle (P0) |
 
 Host example:
 

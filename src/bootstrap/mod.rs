@@ -30,34 +30,43 @@ pub fn run() -> ! {
     let mut uart = unsafe { console::acquire() };
 
     println!(uart, "rpi_minimal_agentic: hello");
-    println!(uart, "M2: MMU + heap + irq + CNTP");
+    println!(uart, "M2+P0: MMU + heap + idle + UART RX IRQ");
 
     exception::init();
 
-    // Compiler may emit NEON after MMU/caches; enable before that path runs.
-    cpu::enable_fp_simd();
+    // No `CPACR_EL1.FPEN` here on purpose: the kernel is built for
+    // `aarch64-unknown-none-softfloat`, so it contains no FP/SIMD at all
+    // (enforced by `make no-simd`). Leaving FPEN clear means any future stray
+    // FP instruction traps loudly instead of silently corrupting the IRQ path,
+    // whose trap frame saves no q registers.
 
     // SAFETY: identity map before enabling translation; IRQs still masked.
-    unsafe {
-        mmu::enable_identity();
+    let mmu_result = unsafe {
+        mmu::enable_identity(
+            &board::memmap::IDENTITY_RAM_BLOCKS,
+            &[board::memmap::DEVICE_BLOCK],
+        )
+    };
+    match mmu_result {
+        Ok(()) => println!(
+            uart,
+            "MMU {}  (identity 2GiB RAM + device window)",
+            if mmu::is_enabled() { "on" } else { "OFF?" }
+        ),
+        Err(e) => println!(uart, "MMU FAILED: {e:?}  (continuing unmapped)"),
     }
-    println!(
-        uart,
-        "MMU {}  (identity 2GiB RAM + device window)",
-        if mmu::is_enabled() { "on" } else { "OFF?" }
-    );
 
     // Heap: from linker `__heap_start` for 64 MiB (within identity-mapped RAM).
     // SAFETY: MMU maps this range as Normal memory.
-    unsafe {
-        extern "C" {
-            static __heap_start: u8;
-        }
-        let start = core::ptr::addr_of!(__heap_start) as usize;
-        let end = (start + 64 * 1024 * 1024).min(mmu::IDENTITY_RAM_END);
-        mm::init_heap(end);
+    let heap_ok = unsafe {
+        let end = (mm::heap_start() + 64 * 1024 * 1024).min(board::memmap::IDENTITY_RAM_END);
+        mm::init_heap(end)
+    };
+    if heap_ok {
+        println!(uart, "heap remaining = {} bytes", mm::heap_remaining());
+    } else {
+        println!(uart, "heap UNAVAILABLE (empty region)");
     }
-    println!(uart, "heap remaining = {} bytes", mm::heap_remaining());
 
     // SAFETY: single-core; exclusive GIC ownership.
     unsafe {
@@ -78,12 +87,19 @@ pub fn run() -> ! {
         soft_console(&mut uart);
     }
 
+    // Arm PL011 RX IRQ into the console ring (GIC line already enabled).
+    // SAFETY: exclusive console; IRQs still masked.
+    unsafe {
+        console::enable_rx_irq(&uart);
+    }
+
     // Clean periodic deadline, then unmask IRQs.
     timer::on_interrupt();
     cpu::sync_pipeline();
     cpu::irq_enable();
     cpu::sync_pipeline();
-    println!(uart, "IRQs enabled");
+    println!(uart, "IRQs enabled (timer + UART RX)");
+    println!(uart, "idle: WFI when no RX/tick work");
 
     // M2 demo: bump-allocate a small buffer and show its address.
     if let Some(buf) = mm::alloc_zeroed(64, 16) {
@@ -225,9 +241,19 @@ fn soft_console(uart: &mut Pl011) -> ! {
     }
 }
 
+/// Event-driven console: drain RX ring, report ticks, idle with WFI.
 fn irq_console(uart: &mut Pl011) -> ! {
     let mut last_printed = 0u64;
     loop {
+        // 1. Echo all bytes the UART RX IRQ pushed into the ring.
+        while let Some(b) = console::pop_rx() {
+            match b {
+                b'\r' => uart.write_bytes(b"\r\n"),
+                b => uart.write_byte(b),
+            }
+        }
+
+        // 2. Periodic tick report (~1 Hz).
         let ticks = time::ticks();
         if ticks >= last_printed + TICK_PRINT_EVERY {
             let report = ticks - (ticks % TICK_PRINT_EVERY);
@@ -236,10 +262,19 @@ fn irq_console(uart: &mut Pl011) -> ! {
                 last_printed = report;
             }
         }
-        echo_byte(uart);
+
+        // 3. Idle when nothing is pending. Timer (10 Hz) and UART RX both wake.
+        //    Race (IRQ between empty-check and WFI) is bounded by the next IRQ.
+        if console::rx_is_empty() {
+            let ticks = time::ticks();
+            if ticks < last_printed + TICK_PRINT_EVERY {
+                cpu::wait_for_interrupt();
+            }
+        }
     }
 }
 
+/// Soft-console path (IRQs masked): poll the UART FIFO directly.
 fn echo_byte(uart: &mut Pl011) {
     if let Some(b) = uart.read_byte() {
         match b {

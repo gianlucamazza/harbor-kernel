@@ -1,7 +1,8 @@
-//! Board IRQ bind: GIC-400 instance + timer PPI wiring.
+//! Board IRQ bind: GIC-400 instance + timer PPI + UART0 SPI wiring.
 
 use crate::arch::timer;
-use crate::bsp::rpi4::memmap::{GICC_BASE, GICD_BASE, TIMER_PPI};
+use crate::bsp::rpi4::memmap::{GICC_BASE, GICD_BASE, TIMER_PPI, UART0_SPI};
+use crate::console;
 use crate::drivers::gicv2::GicV2;
 use crate::irq;
 use crate::time;
@@ -12,17 +13,23 @@ static GIC: GicV2 = unsafe { GicV2::new(GICD_BASE, GICC_BASE) };
 /// Arch timer IRQ line on this board (CNTP NS → PPI 30).
 pub const TIMER_IRQ: u32 = TIMER_PPI;
 
-/// Initialise irqchip, register timer handler, program timer, enable PPI.
+/// PL011 UART0 RX (and other UART events) on this board — GIC SPI 153.
+pub const UART_IRQ: u32 = UART0_SPI;
+
+/// Initialise irqchip, register timer + UART handlers, program timer, enable lines.
 ///
-/// IRQs must remain **masked** until bootstrap finishes soft proof.
+/// IRQs must remain **masked** until bootstrap finishes soft proof and arms
+/// PL011 `IMSC` via [`console::enable_rx_irq`].
 ///
 /// # Safety
 /// Single core; exclusive GIC ownership; call once.
 pub unsafe fn init(timer_hz: u32) {
     irq::init(&GIC);
     irq::register(TIMER_IRQ, time::on_timer_irq);
+    irq::register(UART_IRQ, console::on_uart_rx_irq);
     timer::init(timer_hz);
     irq::enable(TIMER_IRQ);
+    irq::enable(UART_IRQ);
 }
 
 /// Raw `GICC_IAR` read (side-effect: claim). Bring-up / selftest only.

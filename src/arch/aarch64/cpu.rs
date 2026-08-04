@@ -9,6 +9,17 @@ pub fn wait_for_event() {
     }
 }
 
+/// Wait for interrupt (idle until an IRQ/FIQ is taken or already pending).
+///
+/// Preferred for the main idle loop when work is purely IRQ-driven.
+#[inline(always)]
+pub fn wait_for_interrupt() {
+    // SAFETY: `wfi` is a pure idle hint.
+    unsafe {
+        core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
+    }
+}
+
 /// Park this core forever.
 #[inline(always)]
 pub fn halt() -> ! {
@@ -44,22 +55,14 @@ pub fn sync_pipeline() {
     }
 }
 
-/// Enable FP/Advanced SIMD at EL1 (and EL0 when used later).
-///
-/// Required once the compiler emits NEON/`fmov` (e.g. after MMU+caches are on).
-/// Without this, ESR EC=0x07 traps on the first SIMD/FP instruction.
-#[inline]
-pub fn enable_fp_simd() {
-    // SAFETY: CPACR_EL1 is EL1-accessible; FPEN=0b11 enables full FP/ASIMD.
-    unsafe {
-        core::arch::asm!(
-            "mrs {tmp}, cpacr_el1",
-            "orr {tmp}, {tmp}, {fpen}",
-            "msr cpacr_el1, {tmp}",
-            "isb",
-            tmp = out(reg) _,
-            fpen = const (0b11u64 << 20),
-            options(nostack),
-        );
-    }
-}
+// FP/Advanced SIMD is deliberately left trapping (`CPACR_EL1.FPEN` = 0).
+//
+// The kernel is built for `aarch64-unknown-none-softfloat`, so it emits no FP
+// or SIMD instructions; `make no-simd` enforces that on the linked image. With
+// FPEN clear, a stray FP instruction raises ESR EC=0x07 and is diagnosed,
+// instead of running against an exception path (`vectors.s`) that saves no
+// q registers and would corrupt the interrupted code's FP state.
+//
+// When EL0 agents need FP (M5), the shape to add here is lazy switching: trap
+// on first use per task, save/restore q0–q31 + FPCR/FPSR only for tasks that
+// actually touched the FPU. The kernel itself stays softfloat.

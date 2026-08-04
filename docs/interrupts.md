@@ -1,4 +1,4 @@
-# Interrupts and exceptions (M1)
+# Interrupts and exceptions (M1 + P0 idle/UART RX)
 
 ## Hardware evidence (Pi 4B Rev 1.5)
 
@@ -9,6 +9,7 @@
 | GIC `HPPIR` = PPI 30 when pending | OK |
 | `GICC_IAR` claim + `EOIR` | OK |
 | Vector IRQ → `ticks=` | **OK** |
+| UART0 SPI 153 + RX ring + WFI idle | P0 (validate on HW) |
 
 ### Gotchas fixed during bring-up
 
@@ -19,6 +20,8 @@
 3. **Group 0 + `IAR`/`EOIR`** works for this firmware/GIC path; relying only on
    Group 1 aliased registers was unreliable during early bring-up.
 4. Prefer **`HPPIR`** over a zero **`AHPPIR`** reading when both are present.
+5. **SPI must set `ITARGETSR` to CPU0** — PPIs are banked; UART SPI 153 will
+   not reach core 0 without a target bit.
 
 ## Layering
 
@@ -27,10 +30,11 @@ exception_irq_el1
     → irq::handle_cpu_irq()
          chip.claim() → handlers[id]() → chip.end()
 
-time::on_timer_irq  ← registered for TIMER_IRQ (PPI 30)
-arch/timer          ← CNTP only (no GIC)
-drivers/gicv2       ← IrqChip
-bsp/rpi4            ← static GIC + bind
+time::on_timer_irq       ← TIMER_IRQ (PPI 30)
+console::on_uart_rx_irq  ← UART_IRQ  (SPI 153) → RX ring only
+arch/timer               ← CNTP only (no GIC)
+drivers/gicv2            ← IrqChip (+ SPI target/level)
+bsp/rpi4                 ← static GIC + bind
 ```
 
 ## GIC-400 (BCM2711)
@@ -47,14 +51,24 @@ Requires `enable_gic=1` in `config.txt`.
 ARM Generic Timer physical: `CNTP_*`, IRQ **PPI 30**, frequency from
 `CNTFRQ_EL0` (~54 MHz on the tested board).
 
+## UART0 (P0)
+
+| Item | Value |
+|------|-------|
+| GIC id | **SPI 153** (VC IRQ 57 + SPI base 96) |
+| PL011 sources | `RXIM` + `RTIM` (single-char with FIFO) |
+| Handler | `console::on_uart_rx_irq` → `ByteRing` |
+| Consumer | main / idle loop (`pop_rx`, TX poll) |
+
 ## Production bring-up
 
 ```
 exception::init
-bsp::irq::init(hz)     // irq::init, register timer, CNTP, enable PPI
-timer::on_interrupt()  // clean deadline
+bsp::irq::init(hz)       // timer + UART handlers, enable both lines
+console::enable_rx_irq   // PL011 IMSC
+timer::on_interrupt()    // clean deadline
 irq_enable
-console (print ticks)
+idle console (drain ring, ticks, WFI)
 ```
 
 Optional full gates: set `BRINGUP_SELFTEST = true` in `bootstrap/mod.rs`.
@@ -63,6 +77,7 @@ Optional full gates: set `BRINGUP_SELFTEST = true` in `bootstrap/mod.rs`.
 
 | Context | UART |
 |---------|------|
-| bootstrap / main loop | exclusive `Pl011` |
-| IRQ handlers | **no** UART |
+| bootstrap / main loop | exclusive `Pl011` **TX**; drain RX **ring** |
+| UART RX IRQ | drain FIFO → ring only (**no** TX / `println`) |
+| other IRQ handlers | **no** UART |
 | panic | mask IRQ, re-acquire console |
