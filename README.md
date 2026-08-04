@@ -180,7 +180,7 @@ See [`docs/verification.md`](docs/verification.md#m3-cooperative-tasks-hardware)
 | [`docs/interrupts.md`](docs/interrupts.md)     | VBAR, GIC, timer, HW evidence                    |
 | [`docs/boot-chain.md`](docs/boot-chain.md)     | ROM → EEPROM → start4 → kernel                   |
 | [`docs/blobs.md`](docs/blobs.md)               | Closed firmware policy                           |
-| [`docs/hardware.md`](docs/hardware.md)         | Pinout, GIC bases                                |
+| [`docs/hardware.md`](docs/hardware.md)         | Pinout, GIC bases, optional SPI TFT HAT          |
 | [`docs/adr/`](docs/adr/README.md)              | Architecture decisions (ADRs)                    |
 | [`docs/reviews/`](docs/reviews/)               | Multi-role analysis reports                      |
 
