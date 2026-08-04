@@ -81,17 +81,38 @@ W^X and the guard page are claims about what _fails_. A map that reports itself
 active proves nothing about enforcement. Both were checked by temporarily
 adding a deliberate fault to `bootstrap::run` and booting on hardware:
 
-| Probe                        | ESR          | Decoded                                                        | FAR       |
-| ---------------------------- | ------------ | -------------------------------------------------------------- | --------- |
-| Write to `.text` (`0x80000`) | `0x9600004F` | EC 0x25 data abort, DFSC `0b001111` permission fault L3, WnR=1 | `0x80000` |
-| Write to the guard page      | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0x9a000` |
+| Probe                        | ESR          | Decoded                                                        | FAR       | Run on    |
+| ---------------------------- | ------------ | -------------------------------------------------------------- | --------- | --------- |
+| Write to `.text` (`0x80000`) | `0x9600004F` | EC 0x25 data abort, DFSC `0b001111` permission fault L3, WnR=1 | `0x80000` | hardware  |
+| Write to the guard page      | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0x9a000` | hardware  |
+| Kernel stack overflow        | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0xa1ff8` | QEMU only |
 
 The translation fault is the one to insist on for the guard page: a
 _permission_ fault there would mean the page is mapped but protected, and a
 stack that overflowed by reading would not be caught.
 
+**The two hardware rows predate the stack split.** They were taken when the
+guard page was at `0x9a000`; it is now at `0xa1000`, and there are two guard
+pages. The ESR values are what matter and they do not depend on the address, but
+the FAR column is a record of a run that no longer matches the tree. Re-run both
+on hardware — that is the open item below.
+
 The probes are not in the tree — a deliberate fault is a dead board. Re-run
-them by hand after changing `link.ld` or the region list in `mm::layout`.
+them by hand after changing `link.ld` or the region list in `mm::layout`. This
+table is the only copy: it used to be duplicated in `mmu.md`, and both copies
+went stale together the moment the layout moved.
+
+## Open: what has not been run on hardware
+
+The stack split (`SP_EL0` for the kernel, `SP_EL1` for exceptions) has only been
+exercised under QEMU. It changes the boot sequence and the vector group the
+hardware enters through — both in the category this project has already been
+burned by, where emulation agrees and silicon does not.
+
+To close it, on a Pi 4B: a normal boot to `ticks=`, then re-run the W^X and
+guard-page probes above at their new addresses, then the small-frame overflow
+that should report `FAR` at the top of the guard page. Until then the rows above
+say `QEMU only`, and that is the honest reading of them.
 
 ## Bring-up gates
 
@@ -120,30 +141,30 @@ is observable too.
 A test that has never failed has not been shown to test anything. Each of these
 was confirmed by breaking the thing on purpose and watching the gate go red:
 
-| Check                                                            | Mutation                                  | Observed                                                                                                                             |
-| ---------------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| PL011 divisors, bump alignment, `TCR.EPD1`, descriptor alignment | original implementations                  | 10 red tests before the fixes                                                                                                        |
-| SPSC ring ordering                                               | publish `head` before writing the slot    | `out of sequence at 8572`                                                                                                            |
-| Allocator coalescing                                             | drop the backward merge                   | `arena must be whole again`, `churn left the arena fragmented`                                                                       |
-| L3 descriptor encoding                                           | encode an L3 leaf as a block              | `L3 leaf must be 0b11`                                                                                                               |
-| No-SIMD guard                                                    | the pre-softfloat image                   | `dup v0.4h` in `memset`                                                                                                              |
-| Pre-MMU path                                                     | a Rust `fetch_add` called from `_start`   | named the symbol and explained the fix                                                                                               |
-| QEMU boot check                                                  | remove `irq::enable(TIMER_IRQ)`           | missing tick reports                                                                                                                 |
-| Trap frame coupling                                              | grow `TrapFrame` by 16 bytes              | the stub's reservation moved `0x110` → `0x120`                                                                                       |
-| Blob integrity                                                   | corrupt an expected hash                  | refused to install, exit 1                                                                                                           |
-| Miri                                                             | publish `head` before writing the slot    | `Undefined Behavior: Data race detected between (1) non-atomic write and (2) non-atomic read`                                        |
-| `mmu::map` overwrite refusal                                     | map the same region twice                 | `AlreadyMapped(0x8000000)` instead of a silent replacement                                                                           |
-| Bring-up build gate                                              | rename a function used only there         | `make bringup-builds` red, `E0425`                                                                                                   |
-| Layout validator                                                 | `GUARD_PAGE_SIZE = 0` in `link.ld`        | `LAYOUT INVALID: GuardIneffective` — and the first attempt at that check passed, which is how the linker-symbol fold below was found |
-| Refusal to boot unprotected                                      | make `mmu::activate` return `OutOfTables` | `BOOT REFUSED: could not map planted failure` and then nothing — no heap line, no ticks, no shell                                    |
+| Check                                                            | Mutation                                    | Observed                                                                                                                             |
+| ---------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| PL011 divisors, bump alignment, `TCR.EPD1`, descriptor alignment | original implementations                    | 10 red tests before the fixes                                                                                                        |
+| SPSC ring ordering                                               | publish `head` before writing the slot      | `out of sequence at 8572`                                                                                                            |
+| Allocator coalescing                                             | drop the backward merge                     | `arena must be whole again`, `churn left the arena fragmented`                                                                       |
+| L3 descriptor encoding                                           | encode an L3 leaf as a block                | `L3 leaf must be 0b11`                                                                                                               |
+| No-SIMD guard                                                    | the pre-softfloat image                     | `dup v0.4h` in `memset`                                                                                                              |
+| Pre-MMU path                                                     | a Rust `fetch_add` called from `_start`     | named the symbol and explained the fix                                                                                               |
+| QEMU boot check                                                  | remove `irq::enable(TIMER_IRQ)`             | missing tick reports                                                                                                                 |
+| Trap frame coupling                                              | grow `TrapFrame` by 16 bytes                | the stub's reservation moved `0x110` → `0x120`                                                                                       |
+| Blob integrity                                                   | corrupt an expected hash                    | refused to install, exit 1                                                                                                           |
+| Miri                                                             | publish `head` before writing the slot      | `Undefined Behavior: Data race detected between (1) non-atomic write and (2) non-atomic read`                                        |
+| `mmu::map` overwrite refusal                                     | map the same region twice                   | `AlreadyMapped(0x8000000)` instead of a silent replacement                                                                           |
+| Bring-up build gate                                              | rename a function used only there           | `make bringup-builds` red, `E0425`                                                                                                   |
+| Layout validator                                                 | `GUARD_PAGE_SIZE = 0` in `link.ld`          | `LAYOUT INVALID: GuardIneffective` — and the first attempt at that check passed, which is how the linker-symbol fold below was found |
+| Refusal to boot unprotected                                      | make `mmu::activate` return `OutOfTables`   | `BOOT REFUSED: could not map planted failure` and then nothing — no heap line, no ticks, no console loop                                    |
 | Exception stack (`SP_EL1`)                                       | run the same overflow on the pre-split tree | `FAR=0x9c000`, the guard's **bottom**, against `0xa1ff8`, its **top** — the handler had walked the whole page and landed below it    |
 | Exception-stack guard page                                       | zero-length exception guard in `Boundaries` | `GuardIneffective` — validation is written once over both stacks, and this is what keeps that true                                   |
-| Double-free refusal (the mark)                                   | stop consulting the allocated bit         | one test red — the one where alignment leaves the back-pointer intact, which is the only case the sentinel cannot catch              |
-| Double free through the real allocator                           | free the same pointer twice in `shell`    | `heap: REFUSED 1 invalid frees`, boot check red, and the heap still `fully reclaimed`                                                |
-| Doc claims (test count)                                          | restore the stale `54 host unit tests`    | `README claims 54 host unit tests, there are 77` — the exact drift it was written for                                                |
-| Doc claims (gate list)                                           | drop `bringup-builds` from the README     | printed both lists side by side; this is F27, which had already happened twice for real                                              |
-| TLBI operand shift                                               | drop the `>> 12`                          | three tests red — the operand became the address, invalidating a different page                                                      |
-| Runtime mapping (`mmu::map`)                                     | skip the call, keep the read              | `ESR=0x96000006` level-2 translation fault at the blob address; with the call, `0xd00dfeed`                                          |
+| Double-free refusal (the mark)                                   | stop consulting the allocated bit           | one test red — the one where alignment leaves the back-pointer intact, which is the only case the sentinel cannot catch              |
+| Double free through the real allocator                           | free the same pointer twice in `console_loop`      | `heap: REFUSED 1 invalid frees`, boot check red, and the heap still `fully reclaimed`                                                |
+| Doc claims (test count)                                          | restore the stale `54 host unit tests`      | `README claims 54 host unit tests, there are 77` — the exact drift it was written for                                                |
+| Doc claims (gate list)                                           | drop `bringup-builds` from the README       | printed both lists side by side; this is F27, which had already happened twice for real                                              |
+| TLBI operand shift                                               | drop the `>> 12`                            | three tests red — the operand became the address, invalidating a different page                                                      |
+| Runtime mapping (`mmu::map`)                                     | skip the call, keep the read                | `ESR=0x96000006` level-2 translation fault at the blob address; with the call, `0xd00dfeed`                                          |
 
 ## What Miri adds over the two-thread test
 

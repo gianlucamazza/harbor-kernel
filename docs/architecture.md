@@ -20,7 +20,8 @@ is the target; the milestone table says which parts exist.
                              │ syscalls / IPC / cap_irq
 ┌────────────────────────────┴─────────────────────────────┐
 │  Kernel policy                                           │
-│  bootstrap · shell · time · console · mm · (sched M3+)   │
+│  bootstrap · console_loop · time · console · mm          │
+│  (scheduler from M3)                                     │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐

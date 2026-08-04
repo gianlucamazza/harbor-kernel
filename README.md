@@ -44,7 +44,7 @@ src/
   irq/            IrqChip trait, dispatch table, counters
   drivers/        PL011, GICv2
   bsp/rpi4/       memmap, GPIO, console, IRQ bind (static GIC)
-  bootstrap/      mod: boot sequence · shell: console loop · selftest: gates
+  bootstrap/      mod: boot sequence · console_loop: what the machine does · selftest: gates
   mm/             heap + GlobalAlloc, layout: regions and permissions
   time/           tick counter
   console.rs      TX claim + RX ring + print macros
@@ -105,6 +105,12 @@ ticks=20
 
 That transcript is from a Raspberry Pi 4B, not an emulator: `CNTFRQ` is the
 board's real 54 MHz, and the DTB address is the one this firmware passes.
+
+It is also the last hardware boot **before** the exception-stack split, so the
+addresses below the table arena have since moved — the guard page is now at
+`0xa1000`, and there are two. Rather than paste emulator output and call it a
+board, the transcript stays as recorded until the next hardware run; see
+[the open item in `verification.md`](docs/verification.md#open-what-has-not-been-run-on-hardware).
 
 Typed characters are echoed via the RX IRQ ring (main idles with `WFI` between
 events). `fully reclaimed` is the line that distinguishes a real allocator from

@@ -140,8 +140,8 @@ pub fn alloc(size: usize, align: usize) -> Option<*mut u8> {
 /// A double free is a bug in the code that owns the pointer, and the allocator
 /// is the only place that can see it. Refusing keeps the heap intact — the
 /// memory leaks instead — but a refusal nobody counts is a bug nobody learns
-/// about, so the number is reported by the shell and asserted on by the boot
-/// check.
+/// about, so the number is reported by the console loop and asserted on by
+/// the boot check.
 static REFUSED_FREES: AtomicU32 = AtomicU32::new(0);
 
 /// How many frees have been refused as invalid.

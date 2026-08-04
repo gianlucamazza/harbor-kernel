@@ -97,19 +97,19 @@ exhaustion is visible before it becomes a mapping failure.
 
 ### Verifying the protections
 
-A protection nobody has seen fire is an assumption. Both were checked by
-temporarily adding a deliberate fault to `bootstrap::run` and booting **on a
-Raspberry Pi 4B** — the ESR values below are from silicon, and match what QEMU
-produced bit for bit:
+A protection nobody has seen fire is an assumption. W^X and the guard page were
+both checked on hardware by planting a deliberate fault; the ESR values, and
+what each one has to be, live in
+[`verification.md`](verification.md#protections-are-only-verified-when-you-have-seen-them-fire).
 
-| Probe                        | Expected          | Observed                                                                       |
-| ---------------------------- | ----------------- | ------------------------------------------------------------------------------ |
-| write to `.text` (`0x80000`) | permission fault  | `ESR=0x9600004F` → DFSC `0b001111` (permission, level 3), WnR=1, `FAR=0x80000` |
-| write to the guard page      | translation fault | `ESR=0x96000047` → DFSC `0b000111` (translation, level 3), `FAR=0x9a000`       |
+They are recorded there and not here on purpose. This table used to exist in
+both files, and both copies went stale together when the stack split moved the
+guard page — which is exactly what a duplicated fact does.
 
-The guard page must give a _translation_ fault, not a permission one: a mapped
-page with restrictive permissions would still let a read through, and a stack
-that overflowed by reading would go unnoticed.
+One point belongs with the design rather than the evidence: the guard page must
+give a _translation_ fault, not a permission one. A mapped page with restrictive
+permissions would still let a read through, and a stack that overflowed by
+reading would go unnoticed.
 
 ## Two stacks, so an overflow can be reported
 
@@ -173,7 +173,7 @@ kernel_main     → bootstrap::run
   board::irq::init
   irq::seal
   irq_enable
-  shell::run
+  console_loop::run
 ```
 
 `survey` must precede `activate`: the firmware places the blob wherever it

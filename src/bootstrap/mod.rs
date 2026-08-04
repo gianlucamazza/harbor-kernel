@@ -1,14 +1,14 @@
 //! Kernel bring-up: the ordered sequence that takes the machine from `_start`
 //! to a running console, and nothing else.
 //!
-//! What the machine then *does* lives in [`shell`]; the hardware gates used to
-//! debug the M1 interrupt path live in [`selftest`], behind the `bringup`
-//! feature. Keeping the three apart matters because only this file has to be
-//! read in order: every line here depends on the ones above it.
+//! What the machine then *does* lives in [`console_loop`]; the hardware gates
+//! used to debug the M1 interrupt path live in [`selftest`], behind the
+//! `bringup` feature. Keeping the three apart matters because only this file
+//! has to be read in order: every line here depends on the ones above it.
 
+mod console_loop;
 #[cfg(feature = "bringup")]
 mod selftest;
-mod shell;
 
 use crate::arch::{bootinfo, cpu, exception, mmu, timer};
 use kernel_core::layout::Region;
@@ -212,7 +212,7 @@ pub fn run() -> ! {
         println!(uart, "interrupts stay masked — console is output only");
     }
 
-    shell::heap_check(&mut uart);
+    console_loop::heap_check(&mut uart);
 
-    shell::run(&mut uart)
+    console_loop::run(&mut uart)
 }
