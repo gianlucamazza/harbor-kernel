@@ -50,8 +50,11 @@ impl Mmio {
 
 /// Busy-wait for approximately `cycles` instruction retires.
 ///
-/// Not wall-clock accurate; used only for short hardware settle delays.
+/// Not wall-clock accurate; used only for short hardware settle delays when a
+/// timer-based wait is the wrong tool (e.g. pad settle before `CNTFRQ` is
+/// trusted). Prefer [`crate::arch::timer::busy_wait_us`] for real time.
 #[inline(always)]
+#[allow(dead_code)] // kept as the non-timer settle primitive; see module docs
 pub fn spin_cycles(mut cycles: u32) {
     while cycles > 0 {
         // SAFETY: `nop` has no memory side effects.

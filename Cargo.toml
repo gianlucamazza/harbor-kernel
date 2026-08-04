@@ -20,6 +20,15 @@ default = []
 # none of it is compiled into a production image — and so the diagnostic
 # accessors cannot leak into the stable driver API by accident.
 bringup = []
+# SoC RNG200 driver + soft boot probe (`rng200: ok word=…`). Off by default:
+# QEMU `raspi4b` (verified 11.0.3) does not map `0xFE10_4000`, so any access
+# external-aborts and panics. Enable on silicon. Register encodings stay in
+# `kernel-core::rng` (always tested on the host).
+hw-rng = []
+# Optional SPI TFT status surface (ADR-0009). Pulls in SpiBus/SpiDevice, the
+# BCM2711 SPI0 controller, and the BSP pinmux/bind for a Waveshare-class HAT.
+# Default images stay headless; enable explicitly for lab glass.
+debug-display = []
 
 [dependencies]
 # Pure register/allocator arithmetic, unit-tested on the host.

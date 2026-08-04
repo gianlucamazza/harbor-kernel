@@ -179,6 +179,52 @@ pub fn run() -> ! {
         println!(uart, "heap UNAVAILABLE (empty region)");
     }
 
+    // SoC RNG200 soft probe: after MMU (Device attributes), before IRQs.
+    // Gated: QEMU raspi4b does not map `0xFE10_4000` (external abort → panic).
+    // On silicon: `--features hw-rng`. Logical failure is soft — one line, continue.
+    #[cfg(feature = "hw-rng")]
+    {
+        // SAFETY: single core; RNG200 window not otherwise claimed.
+        match unsafe { board::rng::init() } {
+            Ok(rng) => match rng.try_word() {
+                Ok(Some(word)) => println!(uart, "rng200: ok word={word:#010x}"),
+                Ok(None) => {
+                    let mut words = [0u32; 1];
+                    match rng.read_words(&mut words) {
+                        Ok(1) => println!(uart, "rng200: ok word={:#010x}", words[0]),
+                        Ok(_) => println!(uart, "rng200: ok (FIFO empty after warm-up)"),
+                        Err(error) => {
+                            println!(uart, "rng200: warm-up ok, read FAILED: {error:?}")
+                        }
+                    }
+                }
+                Err(error) => println!(uart, "rng200: read FAILED: {error:?}"),
+            },
+            Err(error) => println!(uart, "rng200: unavailable ({error:?})"),
+        }
+    }
+
+    // Optional SPI0 stack for the status TFT (ADR-0009). After MMU so SPI MMIO
+    // is Device-mapped; before IRQs so a wedged controller cannot interrupt.
+    // The handle is dropped after the diagnostic line until the panel driver
+    // owns it for the status surface — construction alone proves pinmux + CDIV.
+    #[cfg(feature = "debug-display")]
+    {
+        board::display::smoke_delays();
+        // SAFETY: single core; GPIO/SPI0 not otherwise claimed.
+        match unsafe { board::display::init_spi() } {
+            Ok(spi) => {
+                // Keep handles live for the diagnostic line; panel attach is next.
+                let _ = (spi.device, spi.dc, spi.rst);
+                println!(
+                    uart,
+                    "SPI0 ready  cdiv={}  bit_clk={} Hz (debug-display)", spi.cdiv, spi.bit_hz
+                );
+            }
+            Err(error) => println!(uart, "SPI0 init FAILED: {error:?}"),
+        }
+    }
+
     // SAFETY: single-core; exclusive GIC ownership.
     let interrupts_bound = match unsafe { board::irq::init(TIMER_HZ) } {
         Ok(()) => true,

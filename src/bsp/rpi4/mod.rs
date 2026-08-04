@@ -4,3 +4,9 @@ pub mod console;
 pub mod gpio;
 pub mod irq;
 pub mod memmap;
+
+#[cfg(feature = "hw-rng")]
+pub mod rng;
+
+#[cfg(feature = "debug-display")]
+pub mod display;

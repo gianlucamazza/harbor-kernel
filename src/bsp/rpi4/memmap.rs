@@ -12,6 +12,32 @@ pub const GPIO_BASE: usize = PERIPHERAL_BASE + 0x0020_0000;
 /// PL011 UART0.
 pub const UART0_BASE: usize = PERIPHERAL_BASE + 0x0020_1000;
 
+/// RNG200 (iproc-rng200) register block — 0x28 bytes.
+///
+/// Low peripheral mode: legacy bus `0x7E10_4000` → ARM `0xFE10_4000`.
+/// Covered by the existing peripherals Device window (no extra map).
+#[cfg(feature = "hw-rng")]
+pub const RNG200_BASE: usize = PERIPHERAL_BASE + 0x0010_4000;
+
+/// SPI0 (SPI master 0) register block.
+///
+/// BCM2711 low peripheral window; same layout as the BCM2835 SPI0 block.
+#[cfg(feature = "debug-display")]
+pub const SPI0_BASE: usize = PERIPHERAL_BASE + 0x0020_4000;
+
+/// Core clock used as the SPI0 source when `core_freq_min=500` in `config.txt`.
+///
+/// The SPI bit rate is `SPI0_CORE_CLOCK_HZ / CDIV`. If the firmware core clock
+/// changes, re-measure before claiming a panel Fmax margin.
+#[cfg(feature = "debug-display")]
+pub const SPI0_CORE_CLOCK_HZ: u32 = 500_000_000;
+
+/// Conservative SPI bit-clock ceiling for Waveshare-class ILI9486 panels (Hz).
+///
+/// Programmed rate is at most this value (see `kernel_core::spi::clock_divisor`).
+#[cfg(feature = "debug-display")]
+pub const SPI0_TARGET_HZ: u32 = 16_000_000;
+
 /// UART reference clock after platform firmware enables the PL011 (Hz).
 ///
 /// Requires `enable_uart=1` in the boot partition `config.txt`.
@@ -34,6 +60,14 @@ pub const TIMER_PPI: u32 = 30;
 /// BCM2711 maps VideoCore peripheral IRQ 57 (UART) to GIC SPI base 96 →
 /// absolute interrupt id **153**. Matches Linux `GIC_SPI 121` (32 + 121 = 153).
 pub const UART0_SPI: u32 = 153;
+
+/// RNG200 GIC SPI absolute interrupt id (`GIC_SPI 125` → 32 + 125).
+///
+/// Documented for a future IRQ-driven consumer; the v1 driver is polled and
+/// does not enable this line.
+#[cfg(feature = "hw-rng")]
+#[allow(dead_code)] // reserved for an IRQ-driven path; polled v1 does not bind it
+pub const RNG200_SPI: u32 = 157;
 
 /// End of the RAM the kernel identity-maps and may allocate from.
 ///

@@ -97,7 +97,7 @@ pub fn on_interrupt() -> u64 {
 
 /// Current physical counter (`CNTPCT_EL0`).
 #[inline]
-fn physical_count() -> u64 {
+pub fn physical_count() -> u64 {
     let count: u64;
     // SAFETY: CNTPCT_EL0 is readable at EL1. `isb` orders the read against
     // preceding instructions — without it the counter may be sampled early,
@@ -111,6 +111,47 @@ fn physical_count() -> u64 {
         );
     }
     count
+}
+
+/// Spin until at least `ns` nanoseconds have elapsed on the physical counter.
+///
+/// Uses `CNTFRQ_EL0` so it is correct before [`init`] programs the periodic
+/// tick. A zero duration returns immediately. Does not mask IRQs: long panel
+/// waits must not suppress the timer for hundreds of milliseconds.
+#[inline]
+pub fn busy_wait_ns(ns: u64) {
+    let freq = frequency_hz();
+    let counts = kernel_core::delay::ns_to_counts(freq, ns);
+    busy_wait_counts(counts);
+}
+
+/// Spin until at least `us` microseconds have elapsed.
+#[inline]
+pub fn busy_wait_us(us: u32) {
+    // Route through `busy_wait_ns` so one counter path is always linked.
+    busy_wait_ns(u64::from(us).saturating_mul(1_000));
+}
+
+/// Spin until at least `ms` milliseconds have elapsed.
+#[inline]
+#[cfg(feature = "debug-display")]
+pub fn busy_wait_ms(ms: u32) {
+    let freq = frequency_hz();
+    let counts = kernel_core::delay::ms_to_counts(freq, ms);
+    busy_wait_counts(counts);
+}
+
+#[inline]
+fn busy_wait_counts(counts: u64) {
+    if counts == 0 {
+        return;
+    }
+    let start = physical_count();
+    // Wrapping subtract so a counter that passes 2^64 still terminates; on a
+    // 54 MHz clock that overflow is not a practical concern for panel waits.
+    while physical_count().wrapping_sub(start) < counts {
+        core::hint::spin_loop();
+    }
 }
 
 /// True if the physical timer condition is asserted (`CNTP_CTL.ISTATUS`).

@@ -15,12 +15,15 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod bump;
+pub mod delay;
 pub mod gic;
 pub mod heap;
 pub mod layout;
 pub mod paging;
 pub mod poll;
 pub mod ring;
+pub mod rng;
 pub mod runqueue;
+pub mod spi;
 pub mod timer;
 pub mod uart;

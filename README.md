@@ -30,8 +30,9 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
 | Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
 | Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters                                                          |
+| RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); boot probe via `--features hw-rng` (QEMU has no map)                            |
 | Console      | Shared TX (`install_tx` / `kprintln`), interrupt-driven RX ring, idle `WFI` when no ready work                                      |
-| Verification | 106 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware               |
+| Verification | 130 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware               |
 
 ## What does not exist yet
 
@@ -56,8 +57,8 @@ crates/kernel-core/  pure logic, unit-tested on the host:
 src/
   arch/aarch64/   MMIO, CPU/DAIF, cache, vectors, MMU, unmap, switch, CNTP, bootinfo
   irq/            IrqChip trait, dispatch table, counters
-  drivers/        PL011, GICv2
-  bsp/rpi4/       memmap, GPIO, console, IRQ bind (static GIC)
+  drivers/        PL011, GICv2, RNG200
+  bsp/rpi4/       memmap, GPIO, console, IRQ bind, RNG bind
   bootstrap/      mod: boot sequence · console_loop: idle body · selftest: gates
   sched/          cooperative TCB, spawn, yield, exit (ADR-0006)
   mm/             heap + GlobalAlloc, layout, task stacks + guard unmap
@@ -90,7 +91,7 @@ is fine.
 
 ```bash
 make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
-make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds miri doc-claims layering, then clippy
+make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds hw-rng-builds miri doc-claims layering, then clippy
 make test         # host unit tests only
 make fmt
 ```
@@ -115,25 +116,44 @@ Details: [`docs/hardware.md`](docs/hardware.md).
 
 ### Expected console
 
-**QEMU** (`make qemu`) — full current boot, 2026-08-04. Emulation has no firmware
-DTB (`x0` is not a device tree) and a different timer frequency than silicon.
+**QEMU** (`make qemu`) — full boot, 2026-08-05. Emulation has no firmware DTB
+(`x0` is not a device tree) and a different timer frequency than silicon.
 
 ```
 Harbor: hello
 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
 no DTB (x0 was 0x100); board constants are compiled in
-MMU on  (W^X, guard page at 0xa1000, 40960 B of table arena left)
+MMU on  (W^X, guard page at 0xa3000, 40960 B of table arena left)
 heap remaining = 67108864 bytes
 CNTFRQ=62500000 Hz  timer=10 Hz  PPI=30
 IRQs enabled (timer + UART RX)
 idle: WFI when no RX/tick work
-heap: Box at 0xb2010, Vec of 1024 sums to 523776
+heap: Box at 0xb4010, Vec of 1024 sums to 523776
 heap: 67100624 bytes free while held, 2 fragments
 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+unmap: page at 0xb5000 fault-ready
+unmap: remapped and freed
+split: page at 0x200000 split 1, remapped
+sched: spawned task-a
+sched: spawned task-b
+arena: 1 splits, 9 tables free
+task-a 0
+task-b 0
+task-a 1
+task-b 1
+task-a 2
+task-b 2
+task-a 3
+task-b 3
 ticks=10
 ticks=20
 ...
 ```
+
+Addresses in that transcript move whenever `.text` grows, so they are a sample
+of one build rather than a promise. The lines are what matter: `fully
+reclaimed`, `split 1` (a 2 MiB block really was rebuilt as a table), and the
+two workers alternating.
 
 **Hardware** (Pi 4B, same tree, 2026-08-04) differs in the ways that matter for
 “is this silicon?”:
@@ -142,7 +162,6 @@ ticks=20
 | ------ | ----- |
 | DTB | Present, then mapped RO (e.g. `DTB mapped: 61440 bytes at 0x2eff1000`) |
 | `CNTFRQ` | `54000000` Hz (not TCG’s 62.5 MHz) |
-| Guard page | `0xa1000` (post exception-stack split) |
 
 Full HW evidence (boot, overflow probe, W^X) lives in
 [`docs/verification.md`](docs/verification.md#hardware-evidence-stack-split-closed).
