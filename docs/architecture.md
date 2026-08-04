@@ -83,16 +83,20 @@ is the target; the milestone table says which parts exist.
 
 ## Agent model (target — none of this is implemented)
 
-The kernel today has no unit of execution, no scheduler, no address-space
-separation and no user mode. Everything below describes where the design is
-going, not what the code does. `kernel_core::paging` with `arch::mmu`, and the free-list allocator, are the
-first two pieces the rest can be built on; the third, an execution abstraction,
-does not exist yet.
+The kernel today has no scheduler in code, no address-space separation and no
+user mode. What runs is still a single control flow at EL1. The **execution
+model** for the first unit of concurrency is decided in
+[ADR-0006](adr/0006-cooperative-execution-model.md) (cooperative EL1 tasks,
+heap stacks with unmapped guards, no preemption); implementing it is M3.
+Everything below describes where the design goes after that, not what the code
+does yet. `kernel_core::paging` with `arch::mmu`, and the free-list allocator,
+are the first two pieces; the third is tasks under that ADR.
 
 | Concept    | Role                                                  |
 | ---------- | ----------------------------------------------------- |
-| Agent      | Schedulable entity + mailbox; later own address space |
-| Message    | Sole interaction channel                              |
+| Task (M3)  | Schedulable EL1 entity + private stack; see ADR-0006  |
+| Agent      | Task + mailbox; later own address space (M5)          |
+| Message    | Sole interaction channel (M4)                         |
 | Capability | Unforgeable handle (future: IRQ notification)         |
 
 `irq::register` is the hook for later capability mediation.
@@ -109,7 +113,7 @@ does not exist yet.
 | P2  | Early MMU, softfloat, build-enforced gates               | **done** (HW)               |
 | P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)               |
 | P4  | Exception stack, refused frees, fatal map failure         | **done** (HW, fault-probed) |
-| M3  | Cooperative tasks                                        | planned, blocked            |
+| M3  | Cooperative tasks                                        | planned                     |
 | M4  | IPC + capabilities                                       | planned                     |
 | M5  | EL0 agents                                               | planned                     |
 | M6  | Driver-as-agent                                          | planned                     |
@@ -134,30 +138,32 @@ applies forwards, or it is not the same standard.
 
 | ID  | Needs first                                                                                           | Done when                                                                                                                                                                                                               |
 | --- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M3  | An execution-model ADR (F12); a per-task stack with a guard, from the heap rather than `link.ld`      | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack |
+| M3  | [ADR-0006](adr/0006-cooperative-execution-model.md) (F12 done); per-task heap stack + unmapped guard  | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack |
 | M4  | An IRQ/handler-policy ADR (F13) — `Handler = fn()` has nowhere to carry a capability                  | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console                                             |
 | M5  | A frame allocator (ADR-0005 is the wrong shape for this); more than one address space; EL0 entry/exit | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
 | M6  | M4 and M5; narrower device windows (F26) — a driver agent must not receive 16 MiB of MMIO             | The PL011 RX path runs as an EL0 agent and the console still echoes; killing that agent leaves the kernel ticking                                                                                                       |
 
-M3 is **blocked, not merely unplanned**. Its dependencies exist — an allocator
-that frees, per-region permissions, per-stack guards — but [ADR-0001](adr/0001-multi-role-analysis.md)
-requires that a finding which moves a boundary becomes an ADR _before_ the code
-implementing it, and F12 is precisely that. Writing tasks first would make the
-execution model an artefact of the first implementation that compiled.
+M3 is **planned, not blocked on process**. F12 is closed by
+[ADR-0006](adr/0006-cooperative-execution-model.md): cooperative EL1 tasks,
+idle = today's console loop, runqueue in `kernel-core`, voluntary yield only,
+heap stacks with an unmapped guard page. The code does not exist yet; the model
+does, so the first implementation cannot invent preemption or `link.ld` stacks
+by accident. Pure cooperative yield does **not** depend on F18; any sleep-on-
+ticks or preemptive quantum does (see open findings).
 
 ### Open findings, against the milestone they block
 
 From [the multi-role review](reviews/2026-08-04-multi-role.md). Findings not
 listed here block nothing and are tracked in that report alone.
 
-| Finding | Blocks | Why                                                                                                                             |
-| ------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
-| F12     | M3     | No execution model is recorded; the ADR is the deliverable, not the code                                                        |
-| F18     | M3     | The timer re-arms relative to `TVAL`, so ticks drift in phase — a scheduler inherits that                                       |
-| F13     | M4     | `Handler = fn()` cannot carry a capability, and M4 is where handlers become mediated                                            |
-| F26     | M6     | Device windows are 16 MiB blankets; an agent-owned driver would receive all of it                                               |
-| F15     | none   | The DTB is mapped and never parsed, so board truth stays hard-coded. Parse it or risk-accept it in an ADR — today it is neither |
-| F24     | none   | The layering rules above are enforced by review only. This project has twice watched an ungated rule be forgotten               |
+| Finding | Blocks              | Why                                                                                                                                                      |
+| ------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F12     | — (resolved)        | Closed by [ADR-0006](adr/0006-cooperative-execution-model.md); the ADR was the deliverable                                                               |
+| F18     | time-based sched.   | Relative `TVAL` re-arm drifts phase; blocks sleep-N-ticks or a preemptive quantum, not pure cooperative yield (ADR-0006)                                 |
+| F13     | M4                  | `Handler = fn()` cannot carry a capability, and M4 is where handlers become mediated                                                                     |
+| F26     | M6                  | Device windows are 16 MiB blankets; an agent-owned driver would receive all of it                                                                        |
+| F15     | none                | The DTB is mapped and never parsed, so board truth stays hard-coded. Parse it or risk-accept it in an ADR — today it is neither                          |
+| F24     | none                | The layering rules above are enforced by review only. This project has twice watched an ungated rule be forgotten                                        |
 
 ## Decisions and reviews
 
@@ -172,6 +178,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0003](adr/0003-early-mmu.md)               | MMU enabled before any Rust runs                                            |
 | [ADR-0004](adr/0004-gic-group0-firmware-pin.md) | GIC Group 0 with IAR/EOIR, and the firmware pin                             |
 | [ADR-0005](adr/0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator                        |
+| [ADR-0006](adr/0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks); closes F12                      |
 | [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
 
 ## Non-goals

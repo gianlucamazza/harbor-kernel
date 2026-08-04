@@ -18,17 +18,19 @@ the code that follows.
 | [0003](0003-early-mmu.md)               | MMU enabled before any Rust runs                     | proposed |
 | [0004](0004-gic-group0-firmware-pin.md) | GIC Group 0 with IAR/EOIR, and the firmware pin      | proposed |
 | [0005](0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator | proposed |
+| [0006](0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks)           | proposed |
 
 Operational reviews (findings, not decisions): [`../reviews/`](../reviews/).
 
-## Why 0002–0005 exist
+## Why 0002–0006 exist
 
 0001 institutionalised _how_ to review before anything recorded _what_ had been
 decided: someone arriving and asking "why softfloat?" had no answer. 0002–0005
-cover the four choices that actually constrain the code.
+cover the four choices that already constrain the running kernel. 0006 records
+the execution model **before** any scheduler code (finding F12): cooperative
+tasks, heap stacks with unmapped guards, no preemption, no IRQ-side switch.
 
 Each names **the gate that would catch its own reversal**, and for three of them
 that gate has been seen red — see the mutation table in
-[`../verification.md`](../verification.md). 0005 declares that it has none: its
-limit is visible only to whoever reads the boot output, and that is written into
-the ADR rather than left implicit.
+[`../verification.md`](../verification.md). 0005 and 0006 declare weaker gates
+where the check is not yet automated; that honesty is part of the record.
