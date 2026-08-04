@@ -7,6 +7,21 @@ date: 2026-08-04
 
 # ADR-0006: Cooperative execution model (M3 tasks)
 
+## Acceptance status
+
+**Remains `proposed`.** Unlike ADR-0002–0005, this decision does not yet
+constrain running code — there is no scheduler to pin. F12 is closed as a
+_process_ deliverable by the existence of this ADR (see
+[`architecture.md`](../architecture.md)); **acceptance** waits on either:
+
+1. a human explicit accept of the model alone (before M3 code), or
+2. M3 implementation that matches this ADR, followed by accept with the
+   automated gates named under “The gate that protects this decision.”
+
+Leaving it `proposed` without this note would be silent drift; leaving it
+`accepted` without a scheduler would invent immutability over prose. Neither
+is acceptable.
+
 ## Context
 
 The kernel has a free-list heap, per-region permissions, guarded bootstrap and

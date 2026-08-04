@@ -207,7 +207,8 @@ caller's head.
 
 - **A frame allocator.** The table arena is a fixed pool sized in `link.ld` —
   the right shape for mapping the kernel once, the wrong one for address spaces
-  that come and go. Needed for M5, not before.
+  that come and go ([ADR-0005](adr/0005-static-page-table-arena.md), accepted).
+  Needed for M5, not before.
 - **More than one address space.** `activate` installs _the_ map; there is no
   per-task `TTBR0`, no ASID, no multi-core TLB maintenance.
 - **EL0 / user maps**, fine-grained device pages, `kfree` of page tables.

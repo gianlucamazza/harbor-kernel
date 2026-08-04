@@ -1,11 +1,20 @@
 ---
 id: 0001
 title: Multi-role analysis as project gate before M3
-status: proposed
+status: accepted
 date: 2026-08-04
+accepted: 2026-08-04
 ---
 
 # ADR-0001: Multi-role analysis as project gate before M3
+
+## Acceptance
+
+**Accepted 2026-08-04.** The baseline multi-role pass ran the same day
+([report](../reviews/2026-08-04-multi-role.md)); findings have driven ADRs and
+code (F12→ADR-0006, F24→`make layering`, free-list integrity, exception stack,
+doc-claims). The process is live, not aspirational. Immutable under the ADR
+lifecycle: change only via a successor ADR.
 
 ## Context
 

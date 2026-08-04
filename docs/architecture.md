@@ -68,6 +68,11 @@ is the target; the milestone table says which parts exist.
 9. Nothing is both writable and executable, and diagnostic scaffolding lives
    behind the `bringup` feature rather than in the production surface.
 
+Rules 1–4 are checked by `make layering` (`scripts/check-layering.sh`) against
+every `crate::` import edge. Coupling that is not an import (a shared constant,
+an agreed register value) is still review-only — see
+[`verification.md`](verification.md).
+
 ## Interrupt / timer / console contract
 
 | Role        | Module          | Responsibility                     |
@@ -163,7 +168,7 @@ listed here block nothing and are tracked in that report alone.
 | F13     | M4                  | `Handler = fn()` cannot carry a capability, and M4 is where handlers become mediated                                                                     |
 | F26     | M6                  | Device windows are 16 MiB blankets; an agent-owned driver would receive all of it                                                                        |
 | F15     | none                | The DTB is mapped and never parsed, so board truth stays hard-coded. Parse it or risk-accept it in an ADR — today it is neither                          |
-| F24     | none                | The layering rules above are enforced by review only. This project has twice watched an ungated rule be forgotten                                        |
+| F24     | — (resolved)        | Layering rules 1–4 are enforced by `make layering`; non-import coupling remains review-only (gate blind spots in verification)                           |
 
 ## Decisions and reviews
 
@@ -173,12 +178,12 @@ that was rejected and the gate that would catch its reversal.
 | Artefact                                        | Role                                                                        |
 | ----------------------------------------------- | --------------------------------------------------------------------------- |
 | [`docs/adr/`](adr/README.md)                    | Architecture Decision Records (lifecycle: proposed → accepted → superseded) |
-| [ADR-0001](adr/0001-multi-role-analysis.md)     | Multi-role analysis as pre-milestone gate                                   |
-| [ADR-0002](adr/0002-softfloat-kernel.md)        | Kernel compiled softfloat, FP left trapping                                 |
-| [ADR-0003](adr/0003-early-mmu.md)               | MMU enabled before any Rust runs                                            |
-| [ADR-0004](adr/0004-gic-group0-firmware-pin.md) | GIC Group 0 with IAR/EOIR, and the firmware pin                             |
-| [ADR-0005](adr/0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator                        |
-| [ADR-0006](adr/0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks); closes F12                      |
+| [ADR-0001](adr/0001-multi-role-analysis.md)     | Multi-role analysis as pre-milestone gate (**accepted**)                    |
+| [ADR-0002](adr/0002-softfloat-kernel.md)        | Kernel compiled softfloat, FP left trapping (**accepted**)                  |
+| [ADR-0003](adr/0003-early-mmu.md)               | MMU enabled before any Rust runs (**accepted**)                             |
+| [ADR-0004](adr/0004-gic-group0-firmware-pin.md) | GIC Group 0 with IAR/EOIR, and the firmware pin (**accepted**)              |
+| [ADR-0005](adr/0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator (**accepted**)         |
+| [ADR-0006](adr/0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks); closes F12 (**proposed** until model accept or M3) |
 | [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
 
 ## Non-goals

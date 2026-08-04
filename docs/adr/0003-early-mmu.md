@@ -1,11 +1,20 @@
 ---
 id: 0003
 title: MMU enabled before any Rust runs
-status: proposed
+status: accepted
 date: 2026-08-04
+accepted: 2026-08-04
 ---
 
 # ADR-0003: MMU enabled before any Rust runs
+
+## Acceptance
+
+**Accepted 2026-08-04.** The decision is load-bearing on silicon (the silent
+board that motivated it) and on every boot path. The protecting gate
+(`make no-early-exclusives` / `check-pre-mmu-path.sh`) has been **seen red**
+with a planted `fetch_add` and with an indirect `blr` edge. Immutable under
+the ADR lifecycle.
 
 ## Context
 

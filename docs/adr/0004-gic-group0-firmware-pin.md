@@ -1,11 +1,21 @@
 ---
 id: 0004
 title: GIC Group 0 with IAR/EOIR, and the firmware pin it depends on
-status: proposed
+status: accepted
 date: 2026-08-04
+accepted: 2026-08-04
 ---
 
 # ADR-0004: GIC Group 0 with IAR/EOIR, and the firmware pin it depends on
+
+## Acceptance
+
+**Accepted 2026-08-04.** Verified on a Pi 4B with the pinned firmware
+(`soft_ticks`, `HPPIR=30`, `IAR=0x1e`, `selftest: OK` under `--features
+bringup`, and live `ticks=` after early MMU). Blob hashes are enforced by
+`fetch-blobs.sh` (**seen red** on a corrupted expected hash). Immutable under
+the ADR lifecycle; revisit on every `firmware_tag` bump as the ADR already
+requires.
 
 ## Context
 

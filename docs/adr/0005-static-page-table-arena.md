@@ -1,11 +1,20 @@
 ---
 id: 0005
 title: Static page-table arena instead of a frame allocator
-status: proposed
+status: accepted
 date: 2026-08-04
+accepted: 2026-08-04
 ---
 
 # ADR-0005: Static page-table arena instead of a frame allocator
+
+## Acceptance
+
+**Accepted 2026-08-04.** The arena is what the running kernel uses; boot prints
+`tables_remaining()` and mapping failures surface as `MmuError::OutOfTables` /
+boot refusal rather than a silent hang. The weak gate (console remainder, no
+automated minimum) remains as declared in this ADR — acceptance does not invent
+coverage. Supersede at M5 when address spaces come and go.
 
 ## Context
 

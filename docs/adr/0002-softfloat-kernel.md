@@ -1,11 +1,19 @@
 ---
 id: 0002
 title: Kernel compiled softfloat, FP left trapping
-status: proposed
+status: accepted
 date: 2026-08-04
+accepted: 2026-08-04
 ---
 
 # ADR-0002: Kernel compiled softfloat, FP left trapping
+
+## Acceptance
+
+**Accepted 2026-08-04.** The decision constrains every build
+(`aarch64-unknown-none-softfloat`, FPEN off). The protecting gate
+(`make no-simd`) has been **seen red** on the pre-softfloat image
+(`dup v0.4h` in `memset`). Immutable under the ADR lifecycle.
 
 ## Context
 
