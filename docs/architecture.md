@@ -27,7 +27,7 @@ the target; the milestone table says which parts exist.
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
 │  irq                  │     │  drivers                   │
-│  dispatch · IrqChip   │     │  gicv2 · pl011             │
+│  dispatch · IrqChip   │     │  gicv2 · pl011 · rng200    │
 └───────────▲───────────┘     └───────────▲────────────────┘
             │ claim/eoi                   │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
@@ -171,6 +171,17 @@ listed here block nothing and are tracked in that report alone.
 | F15     | none                | The DTB is mapped and never parsed, so board truth stays hard-coded. Parse it or risk-accept it in an ADR — today it is neither                          |
 | F24     | — (resolved)        | Layering rules 1–4 are enforced by `make layering`; non-import coupling remains review-only (gate blind spots in verification)                           |
 
+### Side-track (not an M/P milestone)
+
+Optional lab **SPI TFT status surface** (Waveshare-class 3.5″ / ILI9486) is
+specified in [ADR-0009](adr/0009-optional-spi-tft-debug-console.md) and
+[`hardware.md`](hardware.md). It is observability, not agent capability: UART
+stays primary; the panel is a structured status sink behind a default-off
+feature. Implementation order there builds reusable `SpiBus`/`SpiDevice`
+foundations (no vendor monolith, no serial mirror, no full-frame requirement).
+It must not block or redefine M4–M6; M6 may later *reuse* those drivers as
+agents.
+
 ## Decisions and reviews
 
 The choices that constrain the code have an ADR, each naming the alternative
@@ -186,6 +197,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0005](adr/0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator (**accepted**)         |
 | [ADR-0006](adr/0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks); closes F12 (**accepted**) |
 | [ADR-0008](adr/0008-irq-handler-policy.md)      | IRQ handler shape for M4 wakes / caps; closes F13 process (**proposed**) |
+| [ADR-0009](adr/0009-optional-spi-tft-debug-console.md) | Optional SPI TFT status surface; lab side-track (**accepted**) |
 | [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
 
 ## Non-goals
