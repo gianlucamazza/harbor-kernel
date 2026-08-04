@@ -22,6 +22,7 @@ the code that follows.
 | [0007](0007-project-identity-harbor-kernel.md) | Project identity — Harbor and `harbor-kernel` | accepted |
 | [0008](0008-irq-handler-policy.md)          | IRQ handler policy for cooperative wakes (F13/M4)| proposed |
 | [0009](0009-optional-spi-tft-debug-console.md) | Optional SPI TFT status surface (ILI9486 HAT) | accepted |
+| [0010](0010-spi-transaction-and-dbi-panel.md) | SPI transactions and DBI panel streaming | accepted |
 
 Operational reviews (findings, not decisions): [`../reviews/`](../reviews/).
 

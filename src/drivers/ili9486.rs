@@ -1,33 +1,31 @@
 //! ILI9486 TFT panel over SPI (MIPI DBI-style command/data).
 //!
-//! Board-agnostic: takes a [`SpiDevice`], a DC pin, and a delay. Init tables
-//! are declarative [`InitOp`] lists — datasheet opcodes with fbtft PiScreen
-//! values as the documented cross-check for Waveshare-class glass
-//! (ADR-0009: datasheet-first, no opaque blob).
+//! Board-agnostic panel protocol on top of:
+//! - short ops via [`SpiDevice`] (init registers);
+//! - long streams via [`ExclusiveDevice::with_bus`] (ADR-0010 RAMWR session).
 //!
-//! Pixel path is RGB565, big-endian on the wire, 8-bit SPI words.
+//! Init tables are declarative [`InitOp`] lists — datasheet opcodes with the
+//! Linux `fb_ili9486` PiScreen table as a documented cross-check (ADR-0009).
 //!
-//! **CS discipline:** a RAMWR stream must keep chip-select asserted for the
-//! whole pixel burst. Toggling CS between chunks ends the write on ILI9486 and
-//! leaves the rest of GRAM untouched (classic white band after a partial fill).
+//! Pixel path: RGB565, big-endian on the wire, 8-bit SPI words. Solid fill
+//! **streams** a small stack pattern under one CS — no full-frame heap buffer.
 
-extern crate alloc;
-
-use alloc::vec;
+use core::convert::Infallible;
 
 use kernel_core::display::{self, InitOp, Rgb565, address_window_bytes, cmd, madctl};
 
 use crate::drivers::delay::DelayNs;
 use crate::drivers::pin::OutputPin;
-use crate::drivers::spi::SpiDevice;
+use crate::drivers::spi::{ExclusiveDevice, ExclusiveDeviceError, SpiBus, SpiDevice};
 
 /// Landscape 480×320 as used by Waveshare-class 3.5″ HATs after MADCTL MV.
 pub const WIDTH: u16 = 480;
 pub const HEIGHT: u16 = 320;
 
-/// PiScreen / Waveshare-class power and gamma (Linux `fb_ili9486` default
-/// sequence). Command bytes are ILI9486 / MIPI DCS; parameter blobs match the
-/// open fbtft table used on those HATs.
+/// PiScreen / Waveshare-class power and gamma (Linux `fb_ili9486` default).
+///
+/// Command bytes are ILI9486 / MIPI DCS; parameter blobs match the open fbtft
+/// table used on those HATs (cross-check, not an opaque vendor blob).
 pub const INIT_PISCREEN: &[InitOp] = &[
     InitOp::Cmd(cmd::IFMODE),
     InitOp::Data(&[0x00]),
@@ -51,7 +49,7 @@ pub const INIT_PISCREEN: &[InitOp] = &[
     InitOp::Data(&[
         0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00,
     ]),
-    // Landscape, BGR order (fbtft rotate=90 + bgr).
+    // Landscape, BGR (fbtft rotate=90 + bgr).
     InitOp::Cmd(cmd::MADCTL),
     InitOp::Data(&[madctl::MV | madctl::BGR]),
     InitOp::Cmd(cmd::DISPON),
@@ -65,23 +63,36 @@ pub enum Ili9486Error<S, P> {
     Pin(P),
 }
 
-/// ILI9486 driven over SPI + DC.
-pub struct Ili9486<SPI, DC, D> {
-    spi: SPI,
+type SpiErr<BUS, CS> = ExclusiveDeviceError<<BUS as SpiBus>::Error, <CS as OutputPin>::Error>;
+
+/// ILI9486 on software-CS SPI ([`ExclusiveDevice`]) + DC + delay.
+///
+/// Bound to [`ExclusiveDevice`] so RAMWR can use [`ExclusiveDevice::with_bus`]
+/// (ADR-0010). Short init ops still go through [`SpiDevice`].
+pub struct Ili9486<BUS, CS, DELAY, DC, D> {
+    spi: ExclusiveDevice<BUS, CS, DELAY>,
     dc: DC,
     delay: D,
     width: u16,
     height: u16,
 }
 
-impl<SPI, DC, D> Ili9486<SPI, DC, D>
+impl<BUS, CS, DELAY, DC, D> Ili9486<BUS, CS, DELAY, DC, D>
 where
-    SPI: SpiDevice,
+    BUS: SpiBus,
+    CS: OutputPin,
+    DELAY: DelayNs,
     DC: OutputPin,
     D: DelayNs,
 {
     /// Bind the panel without programming it.
-    pub fn new(spi: SPI, dc: DC, delay: D, width: u16, height: u16) -> Self {
+    pub fn new(
+        spi: ExclusiveDevice<BUS, CS, DELAY>,
+        dc: DC,
+        delay: D,
+        width: u16,
+        height: u16,
+    ) -> Self {
         Self {
             spi,
             dc,
@@ -91,13 +102,17 @@ where
         }
     }
 
-    /// Hardware reset via the RST pin, then run `init` (typically [`INIT_PISCREEN`]).
+    /// Split back into bus device and pins (BSP stores the parts after bring-up).
+    pub fn into_parts(self) -> (ExclusiveDevice<BUS, CS, DELAY>, DC, D) {
+        (self.spi, self.dc, self.delay)
+    }
+
+    /// Hardware reset via RST, then run `init` (typically [`INIT_PISCREEN`]).
     pub fn reset_and_init<RST: OutputPin>(
         &mut self,
         rst: &mut RST,
         init: &[InitOp],
-    ) -> Result<(), Ili9486Error<SPI::Error, DC::Error>> {
-        // Active-low reset pulse (pin errors are ignored only when Infallible).
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>> {
         let _ = rst.set_low();
         self.delay.delay_ms(20);
         let _ = rst.set_high();
@@ -105,8 +120,11 @@ where
         self.run_init(init)
     }
 
-    /// Execute a declarative init table.
-    pub fn run_init(&mut self, init: &[InitOp]) -> Result<(), Ili9486Error<SPI::Error, DC::Error>> {
+    /// Execute a declarative init table (short CS transactions per op).
+    pub fn run_init(
+        &mut self,
+        init: &[InitOp],
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>> {
         for op in init {
             match *op {
                 InitOp::Cmd(c) => self.write_cmd(c)?,
@@ -128,7 +146,7 @@ where
         y0: u16,
         x1: u16,
         y1: u16,
-    ) -> Result<(), Ili9486Error<SPI::Error, DC::Error>> {
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>> {
         self.write_cmd(cmd::CASET)?;
         self.write_data(&address_window_bytes(x0, x1))?;
         self.write_cmd(cmd::PASET)?;
@@ -136,43 +154,79 @@ where
         Ok(())
     }
 
-    /// Fill the full panel with a solid colour.
-    ///
-    /// Builds one RGB565 frame buffer and clocks it out in a **single** SPI
-    /// write so CS stays low for the entire RAMWR payload (see module docs).
-    pub fn fill_screen(
+    fn write_cmd(
         &mut self,
-        color: Rgb565,
-    ) -> Result<(), Ili9486Error<SPI::Error, DC::Error>> {
-        let x1 = self.width.saturating_sub(1);
-        let y1 = self.height.saturating_sub(1);
-        self.set_window(0, 0, x1, y1)?;
-        self.write_cmd(cmd::RAMWR)?;
-
-        let pixel = color.to_be_bytes();
-        let total = display::frame_pixels(self.width, self.height) as usize;
-        let mut frame = vec![0u8; total.saturating_mul(2)];
-        for slot in frame.chunks_exact_mut(2) {
-            slot.copy_from_slice(&pixel);
-        }
-
-        // One SpiDevice::write ⇒ one CS assertion around the whole buffer.
-        self.dc_data()?;
-        self.spi.write(&frame).map_err(Ili9486Error::Spi)?;
-        Ok(())
-    }
-
-    fn write_cmd(&mut self, c: u8) -> Result<(), Ili9486Error<SPI::Error, DC::Error>> {
+        c: u8,
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>> {
         self.dc.set_low().map_err(Ili9486Error::Pin)?;
         self.spi.write(&[c]).map_err(Ili9486Error::Spi)
     }
 
-    fn write_data(&mut self, bytes: &[u8]) -> Result<(), Ili9486Error<SPI::Error, DC::Error>> {
-        self.dc_data()?;
+    fn write_data(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>> {
+        self.dc.set_high().map_err(Ili9486Error::Pin)?;
         self.spi.write(bytes).map_err(Ili9486Error::Spi)
     }
+}
 
-    fn dc_data(&mut self) -> Result<(), Ili9486Error<SPI::Error, DC::Error>> {
-        self.dc.set_high().map_err(Ili9486Error::Pin)
+/// Solid-fill path: DC pin errors are [`Infallible`] so DC can toggle inside a
+/// bus session without polluting [`SpiBus::Error`] (ADR-0010). BSP GPIO outputs
+/// satisfy this; fallible DC would need a richer session error type later.
+impl<BUS, CS, DELAY, DC, D> Ili9486<BUS, CS, DELAY, DC, D>
+where
+    BUS: SpiBus,
+    CS: OutputPin,
+    DELAY: DelayNs,
+    DC: OutputPin<Error = Infallible>,
+    D: DelayNs,
+{
+    /// Fill the full panel with a solid colour.
+    ///
+    /// One CS session (ADR-0010): RAMWR command, then repeated FIFO-sized
+    /// colour chunks from a **stack** buffer — no full-frame heap allocation.
+    pub fn fill_screen(
+        &mut self,
+        color: Rgb565,
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>> {
+        let x1 = self.width.saturating_sub(1);
+        let y1 = self.height.saturating_sub(1);
+        self.set_window(0, 0, x1, y1)?;
+
+        let pixel = color.to_be_bytes();
+        // 32 pixels × 2 B = 64 B — matches BCM SPI0 FIFO depth.
+        const PIXELS: usize = 32;
+        let mut chunk = [0u8; PIXELS * 2];
+        for slot in chunk.chunks_exact_mut(2) {
+            slot.copy_from_slice(&pixel);
+        }
+
+        let total = display::frame_pixels(self.width, self.height) as usize;
+        let mut remaining = total;
+
+        let spi = &mut self.spi;
+        let dc = &mut self.dc;
+
+        spi.with_bus(|bus| {
+            // DBI: DC low → opcode; DC high → RAMWR payload. CS stays low.
+            match dc.set_low() {
+                Ok(()) => {}
+                Err(e) => match e {},
+            }
+            bus.write(&[cmd::RAMWR])?;
+            match dc.set_high() {
+                Ok(()) => {}
+                Err(e) => match e {},
+            }
+
+            while remaining > 0 {
+                let n = remaining.min(PIXELS);
+                bus.write(&chunk[..n * 2])?;
+                remaining -= n;
+            }
+            Ok(())
+        })
+        .map_err(Ili9486Error::Spi)
     }
 }

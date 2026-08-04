@@ -46,9 +46,14 @@ pub trait SpiDevice {
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error>;
 
     /// Full-duplex transfer under CS (`read` and `words` same length).
+    ///
+    /// Required for duplex slaves (e.g. XPT2046 touch). The panel path is
+    /// write-only today; the methods stay part of the contract (ADR-0009).
+    #[allow(dead_code)]
     fn transfer(&mut self, read: &mut [u8], words: &[u8]) -> Result<(), Self::Error>;
 
     /// Full-duplex in place under CS.
+    #[allow(dead_code)]
     fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error>;
 }
 
@@ -95,6 +100,18 @@ where
             delay,
             cs_idle_ns,
         })
+    }
+
+    /// Assert CS for the whole of `body`, then always release it.
+    ///
+    /// This is the session primitive (ADR-0010): long slave streams (ILI9486
+    /// RAMWR, bulk flash) run multiple [`SpiBus`] ops under **one** select.
+    /// Short register access should keep using [`SpiDevice::write`].
+    pub fn with_bus<R>(
+        &mut self,
+        body: impl FnOnce(&mut BUS) -> Result<R, BUS::Error>,
+    ) -> Result<R, ExclusiveDeviceError<BUS::Error, CS::Error>> {
+        self.with_cs(body)
     }
 
     fn with_cs<R>(
