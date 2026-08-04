@@ -6,7 +6,8 @@
 - W^X: nothing is both writable and executable
 - An unmapped guard page below the stack
 - Enable stage-1 MMU + I/D caches at EL1
-- Provide a bump heap for kernel allocations
+- Provide a free-list heap behind `GlobalAlloc` (the bump allocator remains for
+  early boot, where nothing is ever returned)
 
 ## Two maps
 

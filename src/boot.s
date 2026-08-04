@@ -24,10 +24,11 @@ __dtb_ptr:
 .type _start, %function
 
 _start:
-    // The firmware passes the device-tree blob address in x0. Nothing consumes
-    // it yet, but it is unrecoverable once clobbered, and it is the only route
-    // to discovering RAM size, the UART clock and the peripheral base instead
-    // of hard-coding them. Two instructions now, or a re-flash later.
+    // The firmware passes the device-tree blob address in x0. `bootinfo`
+    // validates it and `bootstrap` maps it read-only after the kernel map is
+    // active; nothing *parses* it yet, but it is the only route to discovering
+    // RAM size, the UART clock and the peripheral base instead of hard-coding
+    // them — and it is unrecoverable once this register is reused.
     adrp    x19, __dtb_ptr
     add     x19, x19, :lo12:__dtb_ptr
     str     x0, [x19]

@@ -15,7 +15,7 @@ polled gates run under — from no attributes to Normal WB with caches on:
 | GIC `HPPIR` = PPI 30 when pending  | OK                  |
 | `GICC_IAR` claim + `EOIR`          | OK                  |
 | Vector IRQ → `ticks=`              | **OK**              |
-| UART0 SPI 153 + RX ring + WFI idle | P0 (validate on HW) |
+| UART0 SPI 153 + RX ring + WFI idle | **OK** (HW, 2026-08-04) |
 
 ### Gotchas fixed during bring-up
 
@@ -80,7 +80,9 @@ irq_enable
 idle console (drain ring, ticks, WFI)
 ```
 
-Optional full gates: set `BRINGUP_SELFTEST = true` in `bootstrap/mod.rs`.
+Optional full gates: build with `--features bringup`. They are compiled out of a
+production image entirely, along with the raw GIC accessors they need — there is
+no longer a constant to flip.
 
 ## Console rule
 
@@ -89,4 +91,4 @@ Optional full gates: set `BRINGUP_SELFTEST = true` in `bootstrap/mod.rs`.
 | bootstrap / main loop | exclusive `Pl011` **TX**; drain RX **ring**    |
 | UART RX IRQ           | drain FIFO → ring only (**no** TX / `println`) |
 | other IRQ handlers    | **no** UART                                    |
-| panic                 | mask IRQ, re-acquire console                   |
+| panic                 | mask IRQ, `console::steal`, bounded TX         |

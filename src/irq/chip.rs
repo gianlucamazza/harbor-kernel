@@ -7,8 +7,7 @@ pub struct Ack(pub u32);
 impl Ack {
     #[inline]
     pub const fn interrupt_id(self) -> u32 {
-        // Low 10 bits are the interrupt id; upper bits may carry chip flags.
-        self.0 & 0x3FF
+        kernel_core::gic::ack_id(self.0)
     }
 
     #[inline]

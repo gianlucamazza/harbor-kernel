@@ -133,10 +133,13 @@ pub fn run() -> ! {
     }
 
     // SAFETY: single-core; exclusive GIC ownership.
-    if let Err(error) = unsafe { board::irq::init(TIMER_HZ) } {
-        println!(uart, "IRQ bind FAILED: {error:?}");
-        println!(uart, "no timer or RX interrupts — console is output only");
-    }
+    let interrupts_bound = match unsafe { board::irq::init(TIMER_HZ) } {
+        Ok(()) => true,
+        Err(error) => {
+            println!(uart, "IRQ bind FAILED: {error:?}");
+            false
+        }
+    };
     cpu::sync_pipeline();
 
     println!(
@@ -160,17 +163,27 @@ pub fn run() -> ! {
 
     // Arm PL011 RX IRQ into the console ring (GIC line already enabled).
     // SAFETY: exclusive console; IRQs still masked.
-    unsafe {
-        console::enable_rx_irq(&uart);
+    if interrupts_bound {
+        unsafe {
+            console::enable_rx_irq(&uart);
+        }
     }
 
-    // Clean periodic deadline, then unmask IRQs.
-    timer::on_interrupt();
-    cpu::sync_pipeline();
-    cpu::irq_enable();
-    cpu::sync_pipeline();
-    println!(uart, "IRQs enabled (timer + UART RX)");
-    println!(uart, "idle: WFI when no RX/tick work");
+    // Unmask only if the lines are actually bound. Enabling interrupts after a
+    // failed bind arms a timer whose handler was never registered: the IRQ
+    // fires, the dispatcher acknowledges it with nothing to run, and the
+    // console looks alive while the tick counter never moves — a failure that
+    // reads as a subtler bug than the one it is.
+    if interrupts_bound {
+        timer::on_interrupt();
+        cpu::sync_pipeline();
+        cpu::irq_enable();
+        cpu::sync_pipeline();
+        println!(uart, "IRQs enabled (timer + UART RX)");
+        println!(uart, "idle: WFI when no RX/tick work");
+    } else {
+        println!(uart, "interrupts stay masked — console is output only");
+    }
 
     shell::heap_check(&mut uart);
 

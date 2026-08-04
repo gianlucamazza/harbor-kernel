@@ -32,7 +32,6 @@ const GICC_HPPIR: usize = 0x018;
 
 const CTLR_ENABLE_GRP0: u32 = 1 << 0;
 const CTLR_ENABLE_GRP1: u32 = 1 << 1;
-const SPURIOUS: u32 = 1023;
 
 pub struct GicV2 {
     dist: Mmio,
@@ -69,8 +68,8 @@ impl IrqChip for GicV2 {
         self.set_group0(irq);
         // Highest priority (0) so PMR never filters it.
         self.set_priority(irq, 0x00);
-        // SPIs must target a CPU; PPIs are banked per core.
-        if irq >= 32 {
+        // SPIs must target a CPU; PPIs and SGIs are banked per core.
+        if gic::classify(irq) == gic::IrqClass::Spi {
             self.set_target_cpu0(irq);
             self.set_level_sensitive(irq);
         }
@@ -90,8 +89,15 @@ impl IrqChip for GicV2 {
 
     fn claim(&self) -> Option<Ack> {
         let raw = self.cpu.read32(GICC_IAR);
-        let id = raw & 0x3FF;
-        if id == SPURIOUS { None } else { Some(Ack(raw)) }
+        // `gic::is_spurious` rather than an inline mask: it knows about both
+        // spurious encodings (1023 and 1022, the other security group), and it
+        // is the version the host tests actually exercise. Re-deriving the
+        // mask here would leave those tests covering code nobody runs.
+        if gic::is_spurious(raw) {
+            None
+        } else {
+            Some(Ack(raw))
+        }
     }
 
     fn end(&self, ack: Ack) {
@@ -111,8 +117,12 @@ impl IrqChip for GicV2 {
 impl GicV2 {
     /// Highest pending id without claiming it.
     pub fn debug_hppir_id(&self) -> Option<u32> {
-        let id = self.cpu.read32(GICC_HPPIR) & 0x3FF;
-        if id == SPURIOUS { None } else { Some(id) }
+        let raw = self.cpu.read32(GICC_HPPIR);
+        if gic::is_spurious(raw) {
+            None
+        } else {
+            Some(gic::ack_id(raw))
+        }
     }
 
     /// Raw IAR (claims). Bring-up / selftest only.

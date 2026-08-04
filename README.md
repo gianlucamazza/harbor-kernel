@@ -64,7 +64,7 @@ target, so `rustup` installs what is needed on first build.
 
 ```bash
 make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
-make check        # fmt --check + host tests + no-SIMD guard + clippy -D warnings
+make check        # fmt, host tests, Miri, no-SIMD, pre-MMU path, QEMU boot, clippy
 make test         # host unit tests only
 make fmt
 ```

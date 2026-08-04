@@ -2,7 +2,11 @@
 //!
 //! Everything in this crate is a total function over integers: register
 //! encodings, divisor math, allocator bookkeeping. No MMIO, no assembly, no
-//! `unsafe`. The kernel crate owns the hardware; this crate owns the arithmetic
+//! `unsafe` — with one deliberate exception, the SPSC ring, whose `UnsafeCell`
+//! buffer and `Sync` assertion are what let the IRQ producer and the main-loop
+//! consumer share it without aliasing `&mut`. It carries a scoped `#[allow]`
+//! and is covered by Miri. The kernel crate owns the hardware; this crate owns
+//! the arithmetic
 //! that used to be buried inside it and therefore untestable.
 //!
 //! `no_std` for the kernel build, `std` under `cargo test` so the default test

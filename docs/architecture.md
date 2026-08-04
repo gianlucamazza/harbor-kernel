@@ -51,14 +51,16 @@ is the target; the milestone table says which parts exist.
    and is mutated inside `cpu::without_irqs`.
 
    **Exception, and it is a hard one: no atomic read-modify-write before
-   `mmu::enable`.** `swap`, `fetch_add` and `compare_exchange` compile to an
+   the MMU is enabled.** `swap`, `fetch_add` and `compare_exchange` compile to an
    `LDXR`/`STXR` pair, and with the MMU off every access is Device-nGnRnE,
    where exclusives do not make progress on Cortex-A72 — the retry loop spins
    forever. The board goes silent with no fault to show for it, and QEMU does
    not reproduce it, because its exclusive monitor ignores memory attributes.
    Plain atomic loads and stores (`LDAR`/`STLR`) are fine anywhere. Code that
-   runs before the MMU — `console::acquire`, the panic handler — uses
-   `SyncCell` and the single-core invariant instead.
+   runs before the MMU is on is confined to `_start` and `early_mmu_enable`,
+   and `scripts/check-pre-mmu-path.sh` fails the build if that changes. Because
+   the window is now that small, `console::acquire` and the panic handler use
+   ordinary atomics like everything else.
 8. Main idle uses `WFI` when the RX ring is empty and no tick report is due,
    with IRQs masked across the check so a wakeup cannot be lost.
 9. Nothing is both writable and executable, and diagnostic scaffolding lives
@@ -81,7 +83,7 @@ is the target; the milestone table says which parts exist.
 
 The kernel today has no unit of execution, no scheduler, no address-space
 separation and no user mode. Everything below describes where the design is
-going, not what the code does. `mm::paging` and the free-list allocator are the
+going, not what the code does. `kernel_core::paging` with `arch::mmu`, and the free-list allocator, are the
 first two pieces the rest can be built on; the third, an execution abstraction,
 does not exist yet.
 
