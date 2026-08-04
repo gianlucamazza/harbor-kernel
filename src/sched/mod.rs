@@ -11,7 +11,8 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use kernel_core::runqueue::{RunQueue, TaskId};
+use kernel_core::runqueue::RunQueue;
+pub use kernel_core::runqueue::TaskId;
 
 use crate::arch::cpu;
 use crate::arch::switch::{Context, context_switch};
@@ -157,6 +158,69 @@ pub fn exit() -> ! {
     switch_with(false);
     // Idle called exit, or no one left to run.
     cpu::halt()
+}
+
+/// One task's stack geometry, as reported to a bring-up probe.
+#[cfg(feature = "bringup")]
+#[derive(Clone, Copy)]
+pub struct StackReport {
+    pub id: TaskId,
+    /// Unmapped guard page, `[low, high)`.
+    pub guard: (u64, u64),
+    /// Usable stack, `[low, high)`.
+    pub stack: (u64, u64),
+}
+
+#[cfg(feature = "bringup")]
+impl StackReport {
+    pub const fn empty() -> Self {
+        Self {
+            id: IDLE_ID,
+            guard: (0, 0),
+            stack: (0, 0),
+        }
+    }
+}
+
+/// Geometry of every live task stack, for bring-up probes.
+///
+/// Fills `out` and returns the written prefix. Idle is skipped: it runs on the
+/// `link.ld` bootstrap stack, whose guard is a different mechanism (never
+/// mapped, rather than unmapped at spawn).
+///
+/// The probe needs every range, not just its own, because the claim under test
+/// is that an overflow lands in its own guard *instead of* a peer's stack.
+#[cfg(feature = "bringup")]
+pub fn stack_map(out: &mut [StackReport]) -> usize {
+    cpu::irq_disable();
+    // SAFETY: IRQs masked; single core.
+    let sched = unsafe { &*SCHED.get() };
+    let mut count = 0;
+    for (slot, tcb) in sched.tcbs.iter().enumerate() {
+        if count == out.len() {
+            break;
+        }
+        if let Some(stack) = tcb.stack.as_ref() {
+            out[count] = StackReport {
+                id: TaskId(slot as u32),
+                guard: stack.guard_range(),
+                stack: stack.stack_range(),
+            };
+            count += 1;
+        }
+    }
+    cpu::irq_enable();
+    count
+}
+
+/// The running task's id.
+#[cfg(feature = "bringup")]
+pub fn current_id() -> TaskId {
+    cpu::irq_disable();
+    // SAFETY: IRQs masked; single core.
+    let id = unsafe { (*SCHED.get()).current };
+    cpu::irq_enable();
+    id
 }
 
 /// True when the ready queue holds at least one task.

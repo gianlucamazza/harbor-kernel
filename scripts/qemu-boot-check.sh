@@ -63,11 +63,18 @@ grep -q 'unmap: remapped and freed' "${log}" ||
 if grep -q 'unmap: FAILED' "${log}"; then
 	fail "mmu::unmap refused a mapped heap page"
 fi
-# M3 cooperative demo: two tasks yield; console shows interleaved lines.
-grep -q 'task-a 0' "${log}" || fail "task-a did not run"
-grep -q 'task-b 0' "${log}" || fail "task-b did not run"
-grep -q 'task-a 3' "${log}" || fail "task-a did not finish its yields"
-grep -q 'task-b 3' "${log}" || fail "task-b did not finish its yields"
+# M3 cooperative demo (ADR-0006): the console must show the two tasks *alternating*.
+#
+# The order is deterministic, not a race: both tasks are on the runqueue before
+# either runs, and each yields exactly once per line, so round-robin fixes the
+# sequence. Asserting the whole sequence rather than four independent greps is
+# the difference between proving a switch happened and proving both tasks ran —
+# `task-a 0..3` followed by `task-b 0..3` satisfies the second and means the
+# scheduler never switched until the first task exited.
+observed="$(grep -oE '^task-[ab] [0-9]+' "${log}" | tr '\n' ' ')"
+expected="task-a 0 task-b 0 task-a 1 task-b 1 task-a 2 task-b 2 task-a 3 task-b 3 "
+[[ "${observed}" == "${expected}" ]] ||
+	fail "task output not interleaved: ${observed}"
 if grep -q 'spawn task-a FAILED' "${log}" || grep -q 'spawn task-b FAILED' "${log}"; then
 	fail "cooperative task spawn failed"
 fi

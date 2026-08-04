@@ -85,13 +85,27 @@ impl TaskStack {
         self.stack_top
     }
 
-    /// Base of the unmapped guard page (for deliberate fault probes).
+    /// The unmapped guard page, `[low, high)`.
     ///
-    /// Used by `--features bringup` selftest; not referenced in production.
+    /// Used by `--features bringup` probes; not referenced in production. The
+    /// probe prints this range next to the faulting `FAR` rather than deducing
+    /// where the fault should have landed — deducing it is what produced a
+    /// wrong conclusion during bring-up.
     #[cfg_attr(not(feature = "bringup"), allow(dead_code))]
     #[inline]
-    pub fn guard_base(&self) -> u64 {
-        self.geometry.guard.0
+    pub fn guard_range(&self) -> (u64, u64) {
+        self.geometry.guard
+    }
+
+    /// The usable stack, `[low, high)`. High is the initial SP.
+    ///
+    /// A probe needs the *peer's* range too: "the overflow faulted" is a weaker
+    /// claim than "it faulted instead of reaching another task's stack", and
+    /// only the second is M3's done-when.
+    #[cfg_attr(not(feature = "bringup"), allow(dead_code))]
+    #[inline]
+    pub fn stack_range(&self) -> (u64, u64) {
+        self.geometry.stack
     }
 
     /// Remap the guard and return the allocation to the heap.

@@ -27,6 +27,12 @@ const TIMER_HZ: u32 = 10;
 /// Kernel heap size, clamped to the identity-mapped RAM window.
 const HEAP_SIZE: usize = 64 * 1024 * 1024;
 
+/// Page tables that must remain free once the kernel map is built.
+///
+/// One per task that lands in a 2 MiB heap block not yet split, plus the device
+/// tree's, plus margin. `MAX_TASKS` is 4, so three workers can each cost one.
+const MIN_SPARE_TABLES: usize = 6;
+
 /// Stop the boot, having said why, when the kernel map could not be established.
 ///
 /// The early map from `boot.s` is RWX across three gigabytes by construction —
@@ -151,6 +157,20 @@ pub fn run() -> ! {
         }
     }
 
+    // Every later spawn may cost a table (guard unmap splits a 2 MiB heap
+    // block; the arena never frees). Check *after* the DTB map so the reserve
+    // is what spawn actually sees — counting before that under-states the cost.
+    if mmu::tables_free() < MIN_SPARE_TABLES {
+        refuse_to_boot(
+            &mut uart,
+            format_args!(
+                "table arena nearly exhausted: {} tables left, need {MIN_SPARE_TABLES} \
+                 (raise PAGE_TABLE_ARENA_SIZE in link.ld)",
+                mmu::tables_free()
+            ),
+        )
+    }
+
     // SAFETY: the heap region was just mapped as Normal memory.
     let heap_ok = unsafe { mm::init_heap(heap_end) };
     if heap_ok {
@@ -226,6 +246,25 @@ pub fn run() -> ! {
         Ok(_) => crate::kprintln!("sched: spawned task-b"),
         Err(e) => crate::kprintln!("sched: spawn task-b FAILED {e:?}"),
     }
+
+    // Deliberate fault, last so the demo tasks are alive when it runs: the
+    // probe must overflow its own guard while a peer stack exists, or it cannot
+    // show that the fault landed there *instead of* in the peer (M3 done-when).
+    #[cfg(feature = "bringup")]
+    match crate::sched::spawn(selftest::guard_probe_task) {
+        Ok(_) => crate::kprintln!("sched: spawned guard probe"),
+        Err(e) => crate::kprintln!("sched: spawn guard probe FAILED {e:?}"),
+    }
+
+    // What the spawns cost the arena. Printed here rather than tracked in the
+    // idle loop because spawning is a boot-time act today; when tasks come and
+    // go at runtime this number is the one that has to be watched, and the
+    // counter already exists for that.
+    crate::kprintln!(
+        "arena: {} splits, {} tables free",
+        mmu::splits(),
+        mmu::tables_free()
+    );
 
     // Idle body — never returns (ADR-0006).
     console_loop::run()

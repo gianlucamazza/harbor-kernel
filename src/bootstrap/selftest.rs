@@ -12,8 +12,8 @@ use crate::arch::{cpu, timer};
 use crate::bsp::board;
 use crate::drivers::pl011::Pl011;
 use crate::irq;
-use crate::mm::TaskStack;
 use crate::println;
+use crate::sched;
 use crate::time;
 
 /// Timer firings to observe before believing CNTP works.
@@ -48,9 +48,10 @@ pub fn run(uart: &mut Pl011) -> bool {
         return false;
     }
 
-    // Last: intentional fault. Does not return on success.
-    println!(uart, "selftest: task-stack guard write (expects fault)…");
-    probe_task_stack_guard(uart);
+    // The task-stack overflow probe is not here: it needs a live scheduler and
+    // a peer task, so bootstrap spawns it after `sched::init` (see
+    // `guard_probe_task`). These gates run before any of that exists.
+    true
 }
 
 /// Poll `CNTP_CTL.ISTATUS` with IRQs masked: does the timer fire at all?
@@ -138,30 +139,63 @@ fn software_inject_timer(uart: &mut Pl011) -> bool {
     after > before
 }
 
-/// Write the first byte of a heap task-stack guard page.
+/// Recurse until the stack runs out, one real frame per call.
 ///
-/// Success is a data abort: the panic path prints ESR/FAR. Record that line on
-/// silicon under M3 hardware evidence. Failure modes that return mean the
-/// guard was still mapped or allocation failed — those are bugs, not probes.
-fn probe_task_stack_guard(uart: &mut Pl011) -> ! {
-    // Same usable size as `sched` (16 KiB) so the geometry matches production.
-    let stack = match TaskStack::allocate(16 * 1024) {
-        Ok(stack) => stack,
-        Err(error) => {
-            println!(uart, "PROBE: task stack alloc FAILED {error:?}");
-            cpu::halt();
-        }
-    };
-    let guard = stack.guard_base();
-    println!(uart, "PROBE: writing to task stack guard at {guard:#x}");
-    // SAFETY: deliberate fault — address must be the unmapped guard.
-    unsafe {
-        core::ptr::write_volatile(guard as *mut u8, 0xA5);
+/// The frame is deliberately small: a large one can step *over* a 4 KiB guard
+/// page and fault in whatever lies below it, which proves nothing about the
+/// guard. `black_box` keeps the array live so the frame cannot be optimised
+/// away, and the addition after the call keeps this frame alive across it —
+/// a tail call would reuse one frame and never overflow.
+///
+/// The depth limit is unreachable (16 KiB of stack is gone long before) and
+/// exists so the recursion is not provably infinite to the optimiser.
+#[inline(never)]
+fn eat_stack(depth: usize) -> u64 {
+    let mut frame = [0u64; 8];
+    frame[depth % frame.len()] = depth as u64;
+    core::hint::black_box(&mut frame);
+    if depth > 1_000_000 {
+        return frame[0];
     }
-    println!(uart, "PROBE: FAIL — guard write did not fault");
-    // Keep the stack alive so we do not free an unmapped range by accident.
-    core::mem::forget(stack);
-    cpu::halt();
+    eat_stack(depth + 1) + frame[0]
+}
+
+/// Overflow this task's own stack while a peer task is alive.
+///
+/// Spawned by bootstrap as a third task, so the fault happens on a real
+/// heap-allocated task stack under the scheduler — not on a stack allocated by
+/// the probe itself. That distinction is M3's done-when: the claim is that an
+/// overflow faults *rather than reaching another task's stack*, which cannot be
+/// shown without a second stack in play.
+///
+/// Success is a data abort; the panic path prints ESR/FAR. Every range is
+/// printed first so the captured `FAR` can be compared rather than deduced:
+/// it must fall inside this task's guard and outside every stack listed.
+pub fn guard_probe_task() {
+    let mut map = [sched::StackReport::empty(); sched::MAX_TASKS];
+    let count = sched::stack_map(&mut map);
+    let me = sched::current_id();
+
+    crate::kprintln!("PROBE: overflowing task {} of {count} live stacks", me.0);
+    for report in &map[..count] {
+        let tag = if report.id == me { "self" } else { "peer" };
+        crate::kprintln!(
+            "PROBE: {tag} task {} guard {:#x}..{:#x} stack {:#x}..{:#x}",
+            report.id.0,
+            report.guard.0,
+            report.guard.1,
+            report.stack.0,
+            report.stack.1
+        );
+    }
+    crate::kprintln!("PROBE: recursing until the guard faults");
+
+    core::hint::black_box(eat_stack(0));
+
+    // Reached only if the guard was still mapped: the recursion would then have
+    // walked into whatever lies below, which is the failure this probe exists
+    // to catch.
+    crate::kprintln!("PROBE: FAIL — overflow did not fault");
 }
 
 /// Fallback console for a board whose IRQ path failed the gates: poll the

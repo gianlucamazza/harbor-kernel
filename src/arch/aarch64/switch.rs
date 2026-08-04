@@ -32,6 +32,16 @@ impl Context {
     }
 }
 
+// The assembly below addresses these fields by hard-coded byte offset, so the
+// struct and the offsets must be pinned together. Size alone is not enough:
+// swapping `x29`/`x30`/`sp`, or splitting `x19_x28` into two arrays, keeps the
+// size at 104 and silently switches to the wrong stack. `TrapFrame` carries the
+// same four-assert pattern for the same reason, written after exactly that
+// drift — see `exception/frame.rs`.
+const _: () = assert!(core::mem::offset_of!(Context, x19_x28) == 0);
+const _: () = assert!(core::mem::offset_of!(Context, x29) == 80);
+const _: () = assert!(core::mem::offset_of!(Context, x30) == 88);
+const _: () = assert!(core::mem::offset_of!(Context, sp) == 96);
 const _: () = assert!(core::mem::size_of::<Context>() == 13 * 8);
 
 core::arch::global_asm!(

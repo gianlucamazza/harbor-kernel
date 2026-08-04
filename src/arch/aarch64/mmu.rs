@@ -19,11 +19,16 @@
 //! so [`activate`]'s caller supplies them. The bit encodings and the region
 //! splitting live in [`kernel_core::paging`] and are unit-tested on the host.
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use kernel_core::layout::Region;
 use kernel_core::paging::{self, Level, MemKind, Perms};
 
 use crate::arch::aarch64::cache;
 use crate::sync::SyncCell;
+
+/// Blocks split into next-level tables since boot. See [`splits`].
+static SPLITS: AtomicU32 = AtomicU32::new(0);
 
 /// `TCR_EL1.T0SZ` — 39-bit VA, so the initial lookup level is 1.
 const T0SZ: u64 = 25;
@@ -526,6 +531,12 @@ unsafe fn split_block(
             })?;
         let next_level = level.next().ok_or(MmuError::OutOfRange(va))?;
         let child = alloc_table()?;
+        // Counted because the arena is a bump with no free path: a split takes
+        // a table for the rest of the boot, and `release` remaps the leaf
+        // without giving the table back. A resource consumed by a path nobody
+        // counts is an exhaustion nobody sees coming — the same argument as
+        // `mm::refused_frees`.
+        SPLITS.fetch_add(1, Ordering::Relaxed);
         let entry_size = next_level.entry_size();
 
         for i in 0..paging::ENTRIES_PER_TABLE {
@@ -596,6 +607,21 @@ pub fn tables_remaining() -> usize {
     // SAFETY: single core; the arena is only mutated while building the map.
     let arena = unsafe { &*ARENA.get() };
     arena.end.saturating_sub(arena.next)
+}
+
+/// Tables still available, in tables rather than bytes.
+pub fn tables_free() -> usize {
+    tables_remaining() / core::mem::size_of::<Table>()
+}
+
+/// Blocks split into next-level tables since boot.
+///
+/// Each split costs one table permanently: the arena is a bump allocator with
+/// no free path, and unmapping a guard page inside a 2 MiB block splits that
+/// block. Spawning tasks into distinct blocks therefore consumes the arena
+/// monotonically, which is why boot refuses to continue below a reserve.
+pub fn splits() -> u32 {
+    SPLITS.load(Ordering::Relaxed)
 }
 
 /// True if `SCTLR_EL1.M` is set.
