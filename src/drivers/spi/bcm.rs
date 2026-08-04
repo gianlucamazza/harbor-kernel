@@ -94,9 +94,15 @@ impl BcmSpi {
     }
 
     fn stop(&self) -> Result<(), BcmSpiError> {
-        // Drain any residual RX before dropping TA.
-        while self.regs.read32(CS) & CS_RXD != 0 {
-            let _ = self.regs.read32(FIFO);
+        // Drain residual RX before dropping TA — bounded like every other wait.
+        let regs = self.regs;
+        let mut spins = 0u32;
+        while regs.read32(CS) & CS_RXD != 0 {
+            let _ = regs.read32(FIFO);
+            spins = spins.saturating_add(1);
+            if spins > SPIN_LIMIT {
+                return Err(BcmSpiError::Timeout);
+            }
         }
         self.wait_cs(CS_DONE)?;
         self.regs.write32(CS, 0);

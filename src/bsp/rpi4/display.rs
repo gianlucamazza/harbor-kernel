@@ -1,15 +1,19 @@
 //! BSP bind for the optional SPI status surface (ADR-0009).
 //!
-//! Pinmux + SPI0 construction and a bus smoke transfer. Panel protocol
-//! (ILI9486) is a driver; this module does not speak ILI commands.
+//! Owns pinmux, SPI0 construction, and the resident [`DisplaySpi`] handle.
+//! Panel protocol (ILI9486) is a separate driver; this module does not speak
+//! ILI commands. Accessors for the bus and control pins are added when that
+//! driver consumes them — not as unused placeholders.
 
 use kernel_core::spi::{self as spi_math, ClockDivError};
 
+use crate::arch::cpu;
 use crate::arch::mmio::Mmio;
 use crate::bsp::rpi4::{gpio, memmap};
-use crate::drivers::delay::ArchTimerDelay;
+use crate::drivers::delay::{ArchTimerDelay, DelayNs};
 use crate::drivers::pin::OutputPin;
 use crate::drivers::spi::{BcmSpi, BcmSpiError, ExclusiveDevice, ExclusiveDeviceError, SpiDevice};
+use crate::sync::SyncCell;
 
 /// Waveshare-class LCD chip-select (BCM GPIO 8, header pin 24).
 pub const LCD_CS_PIN: u8 = 8;
@@ -29,21 +33,49 @@ pub enum DisplaySpiError {
     Bus(ExclusiveDeviceError<BcmSpiError, core::convert::Infallible>),
 }
 
-/// SPI0 + software CS for the LCD, ready for an ILI9486 driver.
+/// SPI0 + software CS + control pins for the LCD.
+///
+/// Ready for an ILI9486 driver. The bus and pin fields are the resident
+/// resource; diagnostics use [`DisplaySpi::cdiv`] / [`DisplaySpi::bit_hz`].
+/// Field readers land with the panel driver — until then the handle exists to
+/// own the hardware, not to be torn down after a log line.
 pub struct DisplaySpi {
-    pub device: ExclusiveDevice<BcmSpi, gpio::Output, ArchTimerDelay>,
-    pub dc: gpio::Output,
-    pub rst: gpio::Output,
-    /// Programmed CDIV encoding (for diagnostics).
-    pub cdiv: u32,
-    /// Effective bit clock in Hz (for diagnostics).
-    pub bit_hz: u32,
+    // First consumer: ILI9486 init (command stream + DC/RST sequencing).
+    #[allow(dead_code)]
+    device: ExclusiveDevice<BcmSpi, gpio::Output, ArchTimerDelay>,
+    #[allow(dead_code)]
+    dc: gpio::Output,
+    #[allow(dead_code)]
+    rst: gpio::Output,
+    cdiv: u32,
+    bit_hz: u32,
 }
 
-/// Pinmux SPI0 data pins, claim CS/DC/RST outputs, init the controller, and
-/// run an empty full-duplex smoke transfer (proves TA/FIFO/DONE, not the panel).
+impl DisplaySpi {
+    /// Programmed clock divisor encoding.
+    #[inline]
+    pub fn cdiv(&self) -> u32 {
+        self.cdiv
+    }
+
+    /// Effective SPI bit clock (Hz).
+    #[inline]
+    pub fn bit_hz(&self) -> u32 {
+        self.bit_hz
+    }
+}
+
+/// Resident handle after a successful [`init_spi`] + [`install`].
 ///
-/// CS is idle-high on success. Does not reset or configure the ILI9486.
+/// Single-core, voluntary path only (ADR-0009: IRQ never paints). Mutated under
+/// [`cpu::without_irqs`].
+static DISPLAY: SyncCell<Option<DisplaySpi>> = SyncCell::new(None);
+
+/// Pinmux SPI0, claim CS/DC/RST, init the controller, and self-test the SPI
+/// path with the panel **held in reset** so glass state is not programmed.
+///
+/// On success CS is idle-high and reset is released (high) for the panel
+/// driver to sequence properly.
 ///
 /// # Safety
 ///
@@ -57,28 +89,40 @@ pub unsafe fn init_spi() -> Result<DisplaySpi, DisplaySpiError> {
 
     // SAFETY: caller holds exclusive GPIO + SPI0.
     unsafe {
-        gpio::configure_spi0_data_pins();
         let gpio = gpio::Gpio::new();
+        gpio::configure_spi0_data_pins(&gpio);
+
         let cs = gpio
             .claim_output(LCD_CS_PIN, gpio::Pull::None)
             .map_err(DisplaySpiError::Gpio)?;
-        let dc = gpio
+        let mut dc = gpio
             .claim_output(LCD_DC_PIN, gpio::Pull::None)
             .map_err(DisplaySpiError::Gpio)?;
         let mut rst = gpio
             .claim_output(LCD_RST_PIN, gpio::Pull::None)
             .map_err(DisplaySpiError::Gpio)?;
-        // Hold reset released (high) until the panel driver sequences it.
-        let _ = rst.set_high();
+
+        let mut delay = ArchTimerDelay;
+
+        // Hold the panel in reset for the controller self-test so SPI activity
+        // cannot be mistaken for an intentional command stream.
+        let _ = rst.set_low();
+        let _ = dc.set_low();
+        delay.delay_us(20);
 
         let bus = BcmSpi::init(Mmio::new(memmap::SPI0_BASE), cdiv);
-        // 1 ns post-CS idle exercises the DelayNs path; negligible on the wire.
-        let mut device = ExclusiveDevice::new(bus, cs, ArchTimerDelay)
-            .expect("Infallible GPIO output")
-            .with_cs_idle_ns(1);
+        // cs_idle_ns = 0 until the panel datasheet requires a hold time.
+        let mut device = match ExclusiveDevice::new(bus, cs, delay, 0) {
+            Ok(dev) => dev,
+            Err(infallible) => match infallible {},
+        };
 
-        // Empty transfers: start/stop + CS bracket without clocking a slave.
-        smoke_bus(&mut device).map_err(DisplaySpiError::Bus)?;
+        selftest_spi_device(&mut device).map_err(DisplaySpiError::Bus)?;
+
+        // Release reset so a later panel driver starts from a known idle line.
+        let _ = rst.set_high();
+        // `device` owns the other ArchTimerDelay; use a fresh one for settle.
+        ArchTimerDelay.delay_us(20);
 
         Ok(DisplaySpi {
             device,
@@ -90,21 +134,32 @@ pub unsafe fn init_spi() -> Result<DisplaySpi, DisplaySpiError> {
     }
 }
 
-/// Exercise [`SpiDevice`] without depending on panel glass.
-fn smoke_bus<D: SpiDevice>(dev: &mut D) -> Result<(), D::Error> {
-    dev.write(&[])?;
-    let mut read = [];
-    dev.transfer(&mut read, &[])?;
-    let mut words = [];
+/// Full-duplex paths under CS while the panel is held in reset.
+fn selftest_spi_device<D: SpiDevice>(dev: &mut D) -> Result<(), D::Error> {
+    dev.write(&[0x00])?;
+    let mut read = [0u8; 1];
+    dev.transfer(&mut read, &[0x00])?;
+    let mut words = [0u8; 1];
     dev.transfer_in_place(&mut words)?;
     Ok(())
 }
 
-/// Touch the delay helpers the panel driver will use (ms / us), so the arch
-/// timer paths stay linked under `debug-display`.
-pub fn smoke_delays() {
-    use crate::drivers::delay::DelayNs;
-    let mut d = ArchTimerDelay;
-    d.delay_us(1);
-    d.delay_ms(0);
+/// Install the exclusive display SPI stack for later panel/status use.
+pub fn install(spi: DisplaySpi) {
+    cpu::without_irqs(|| {
+        // SAFETY: single core; IRQs masked; voluntary path only.
+        unsafe {
+            *DISPLAY.get() = Some(spi);
+        }
+    });
+}
+
+/// Run `f` with the installed display stack, IRQs masked for the duration.
+///
+/// `None` if [`install`] has not run.
+pub fn with_display<R>(f: impl FnOnce(&mut DisplaySpi) -> R) -> Option<R> {
+    cpu::without_irqs(|| {
+        // SAFETY: single core; IRQs masked.
+        unsafe { (*DISPLAY.get()).as_mut().map(f) }
+    })
 }

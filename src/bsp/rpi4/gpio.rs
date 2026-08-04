@@ -180,16 +180,12 @@ pub unsafe fn configure_uart0_pins() {
     timer::busy_wait_us(1);
 }
 
-/// Pinmux SPI0 data/clock lines; CS stays GPIO for [`crate::drivers::spi::ExclusiveDevice`].
+/// Pinmux SPI0 data/clock lines on an existing [`Gpio`] claim.
 ///
-/// GPIO 9 = MISO, 10 = MOSI, 11 = SCLK — all ALT0. Does not touch CE0/CE1.
-///
-/// # Safety
-///
-/// Exclusive GPIO ownership; must not race other pinmux.
+/// GPIO 9 = MISO, 10 = MOSI, 11 = SCLK — all ALT0. Does not touch CE0/CE1
+/// (software CS via [`crate::drivers::spi::ExclusiveDevice`]).
 #[cfg(feature = "debug-display")]
-pub unsafe fn configure_spi0_data_pins() {
-    let gpio = unsafe { Gpio::new() };
+pub fn configure_spi0_data_pins(gpio: &Gpio) {
     for pin in [9u8, 10, 11] {
         let _ = gpio.configure_alt(pin, Function::Alt0, Pull::None);
     }

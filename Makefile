@@ -45,7 +45,7 @@ ifeq ($(PROFILE),release)
   CARGO_FLAGS += --release
 endif
 
-.PHONY: all debug img elf check test miri bringup-builds hw-rng-builds no-simd no-early-exclusives boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy restore-rpios serial clean
+.PHONY: all debug img elf check test miri bringup-builds no-simd no-early-exclusives boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy restore-rpios serial clean
 
 all: img
 
@@ -65,7 +65,7 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds hw-rng-builds miri doc-claims layering
+check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds miri doc-claims layering
 	cargo clippy --target $(TARGET) -- -D warnings
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
 
@@ -133,13 +133,6 @@ debug-display-builds:
 	cargo build $(CARGO_FLAGS) --features debug-display
 	cargo clippy --target $(TARGET) --features debug-display -- -D warnings
 	@echo "debug-display-builds: clean"
-
-# RNG200 driver + boot probe are feature-gated (QEMU has no map). Compile the
-# configuration so the silicon path does not bit-rot.
-hw-rng-builds:
-	cargo build $(CARGO_FLAGS) --features hw-rng
-	cargo clippy --target $(TARGET) --features hw-rng -- -D warnings
-	@echo "hw-rng-builds: clean"
 
 fmt:
 	cargo fmt --all

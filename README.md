@@ -30,7 +30,7 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
 | Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
 | Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters                                                          |
-| RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); boot probe via `--features hw-rng` (QEMU has no map)                            |
+| RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Shared TX (`install_tx` / `kprintln`), interrupt-driven RX ring, idle `WFI` when no ready work                                      |
 | Verification | 130 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware               |
 
@@ -91,7 +91,7 @@ is fine.
 
 ```bash
 make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
-make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds hw-rng-builds miri doc-claims layering, then clippy
+make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds miri doc-claims layering, then clippy
 make test         # host unit tests only
 make fmt
 ```

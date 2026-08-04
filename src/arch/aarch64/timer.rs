@@ -132,15 +132,6 @@ pub fn busy_wait_us(us: u32) {
     busy_wait_ns(u64::from(us).saturating_mul(1_000));
 }
 
-/// Spin until at least `ms` milliseconds have elapsed.
-#[inline]
-#[cfg(feature = "debug-display")]
-pub fn busy_wait_ms(ms: u32) {
-    let freq = frequency_hz();
-    let counts = kernel_core::delay::ms_to_counts(freq, ms);
-    busy_wait_counts(counts);
-}
-
 #[inline]
 fn busy_wait_counts(counts: u64) {
     if counts == 0 {

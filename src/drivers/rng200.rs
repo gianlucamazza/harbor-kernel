@@ -16,6 +16,7 @@ use kernel_core::rng::{
 };
 
 use crate::arch::mmio::Mmio;
+use crate::arch::probe;
 
 /// Spins waiting for warm-up bit count or a FIFO word.
 ///
@@ -30,6 +31,11 @@ const MAX_RESETS_PER_READ: u32 = 1;
 /// Why the RNG could not supply data.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RngError {
+    /// No device responded at the MMIO window (external abort on probe).
+    ///
+    /// On real BCM2711 this is unexpected. QEMU `raspi4b` currently has no
+    /// RNG200 backend at `0xFE10_4000`, so init reports this instead of panicking.
+    NotPresent,
     /// Warm-up or FIFO wait exhausted its spin budget.
     Timeout,
     /// Lockout / NIST fail remained after the reset budget.
@@ -44,13 +50,23 @@ pub struct Rng200 {
 impl Rng200 {
     /// Soft-reset, clear interrupt status, enable the RBG, wait for warm-up.
     ///
-    /// Safe to call again on the same block (full re-init).
+    /// Safe to call again on the same block (full re-init). The first access
+    /// is a recoverable probe: a missing bus backend yields
+    /// [`RngError::NotPresent`] rather than a fatal data abort.
     ///
     /// # Safety
     ///
     /// `mmio` must address the RNG200 register window exclusive to this driver
-    /// for the duration of use, and must be Device-mapped.
+    /// for the duration of use, and must be Device-mapped when the block exists.
     pub unsafe fn init(mmio: Mmio) -> Result<Self, RngError> {
+        // Presence: one write into the window. Emulators without the block
+        // external-abort here; the probe path turns that into NotPresent.
+        let ctrl = mmio.base() + rng::RNG_CTRL;
+        // SAFETY: Device window; probe recovers external abort at `ctrl`.
+        if unsafe { probe::try_write32(ctrl, 0) }.is_err() {
+            return Err(RngError::NotPresent);
+        }
+
         let rng = Self { regs: mmio };
         rng.restart()?;
         rng.wait_warmup()?;

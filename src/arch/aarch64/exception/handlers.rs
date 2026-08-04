@@ -1,13 +1,26 @@
 //! Exception handlers — thin: diagnose fatal traps; forward IRQs to `irq`.
+//!
+//! Sync EL1t may return when [`crate::arch::probe`] consumes a deliberate MMIO
+//! presence fault; the vector path then `eret`s (see `vectors.s`).
 
 use super::frame::TrapFrame;
+use crate::arch::probe;
 use crate::irq;
 
-/// Synchronous exception from EL1 — always fatal in M1.
+/// Synchronous exception from EL1.
+///
+/// Most traps are fatal. An active [`probe`] window that matches this data
+/// abort advances `ELR` by one A64 instruction and returns so the access can
+/// report `Err` instead of hanging the board.
 #[unsafe(no_mangle)]
-pub extern "C" fn exception_sync_el1(frame: &TrapFrame) -> ! {
+pub extern "C" fn exception_sync_el1(frame: &mut TrapFrame) {
     let esr = read_esr_el1();
     let far = read_far_el1();
+    if probe::take_data_abort(far, esr) {
+        // A64 fixed-length encoding: skip the faulting LDR/STR.
+        frame.elr = frame.elr.wrapping_add(4);
+        return;
+    }
     panic!(
         "sync exception EL1\n  ESR={esr:#018x}\n  ELR={:#018x}\n  SPSR={:#018x}\n  FAR={far:#018x}",
         frame.elr, frame.spsr

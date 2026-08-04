@@ -16,7 +16,6 @@ pub const UART0_BASE: usize = PERIPHERAL_BASE + 0x0020_1000;
 ///
 /// Low peripheral mode: legacy bus `0x7E10_4000` → ARM `0xFE10_4000`.
 /// Covered by the existing peripherals Device window (no extra map).
-#[cfg(feature = "hw-rng")]
 pub const RNG200_BASE: usize = PERIPHERAL_BASE + 0x0010_4000;
 
 /// SPI0 (SPI master 0) register block.
@@ -60,14 +59,6 @@ pub const TIMER_PPI: u32 = 30;
 /// BCM2711 maps VideoCore peripheral IRQ 57 (UART) to GIC SPI base 96 →
 /// absolute interrupt id **153**. Matches Linux `GIC_SPI 121` (32 + 121 = 153).
 pub const UART0_SPI: u32 = 153;
-
-/// RNG200 GIC SPI absolute interrupt id (`GIC_SPI 125` → 32 + 125).
-///
-/// Documented for a future IRQ-driven consumer; the v1 driver is polled and
-/// does not enable this line.
-#[cfg(feature = "hw-rng")]
-#[allow(dead_code)] // reserved for an IRQ-driven path; polled v1 does not bind it
-pub const RNG200_SPI: u32 = 157;
 
 /// End of the RAM the kernel identity-maps and may allocate from.
 ///

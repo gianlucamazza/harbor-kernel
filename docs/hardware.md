@@ -57,7 +57,7 @@ Harbor drives it with a **polled** driver (`drivers/rng200`); no IRQ path in v1.
 | Register window | 0x28 bytes |
 | ARM base (low peripheral) | `0xFE10_4000` (`memmap::RNG200_BASE`) |
 | Legacy bus address | `0x7E10_4000` (not used; Harbor is low-peripheral) |
-| GIC (unused in v1) | SPI 125 → absolute id **157** (`memmap::RNG200_SPI`) |
+| GIC (unused in v1) | SPI 125 → absolute id **157** |
 
 ### Essential registers
 
@@ -82,18 +82,20 @@ Harbor drives it with a **polled** driver (`drivers/rng200`); no IRQ path in v1.
 4. Read: if `RNG_FIFO_COUNT & 0xFF` > 0, read `RNG_FIFO_DATA`.
 5. On lockout / NIST fail in status → soft-reset + re-enable (limited budget).
 
-Build with **`--features hw-rng`** for the driver, BSP bind, and a soft boot
-line (`rng200: ok word=…` or `rng200: unavailable (…)`). Boot **never refuses**
-on logical failure (timeout / health). Host-tested encodings live in
-`kernel-core::rng` with or without the feature.
+Bootstrap logs one line (`rng200: ok word=…` or `rng200: unavailable (…)`)
+after the MMU is on. Boot **never refuses** on logical failure (timeout /
+health). Encodings are host-tested in `kernel-core::rng`.
+
+**Interrupt:** GIC SPI 125 → absolute id **157** is reserved for a future
+IRQ-driven path; v1 is polled and does not enable the line.
 
 ### QEMU
 
-QEMU `raspi4b` (checked on 11.0.3) does **not** map RNG200: `info mtree` has
-no device at `0xFE10_4000` (hole between `cprman` and GPIO). A write there is a
-synchronous external abort, not a soft `Err`. Default images therefore leave
-the probe behind `hw-rng` so `make boot-check` stays green. Real silicon has
-the block; enable the feature for the bring-up line.
+QEMU `raspi4b` (checked on 11.0.3 / upstream `bcm2838_peripherals`) does **not**
+instantiate RNG200 at `0xFE10_4000`. Init probes the window with a recoverable
+MMIO write (`arch::probe`); a missing backend becomes `RngError::NotPresent` and
+a soft console line — not a panic. Silicon has the block and should log
+`rng200: ok`. QEMU boot is not evidence of entropy quality.
 
 ### Limits and honesty
 

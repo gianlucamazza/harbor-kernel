@@ -8,7 +8,6 @@
 pub mod bcm;
 
 pub use bcm::{BcmSpi, BcmSpiError};
-// `BcmSpiError` is part of the public surface for BSP error mapping.
 
 use crate::drivers::delay::DelayNs;
 use crate::drivers::pin::OutputPin;
@@ -65,8 +64,8 @@ pub enum ExclusiveDeviceError<B, P> {
 /// One SPI slave with software (GPIO) chip-select.
 ///
 /// Active-low CS, which is the convention on the Waveshare-class HAT and most
-/// SPI panels. A short post-deassert delay absorbs CS-to-idle hold when the
-/// slave datasheet requires it; zero is a valid delay.
+/// SPI panels. A post-deassert delay absorbs CS-to-idle hold when the slave
+/// datasheet requires it; pass zero when none is needed.
 pub struct ExclusiveDevice<BUS, CS, D> {
     bus: BUS,
     cs: CS,
@@ -83,23 +82,19 @@ where
 {
     /// Build a device with CS held idle (high) after construction.
     ///
+    /// `cs_idle_ns` is applied after each transaction's CS deassert (0 = none).
+    ///
     /// # Errors
     ///
     /// Returns the pin error if driving CS high fails.
-    pub fn new(bus: BUS, mut cs: CS, delay: D) -> Result<Self, CS::Error> {
+    pub fn new(bus: BUS, mut cs: CS, delay: D, cs_idle_ns: u32) -> Result<Self, CS::Error> {
         cs.set_high()?;
         Ok(Self {
             bus,
             cs,
             delay,
-            cs_idle_ns: 0,
+            cs_idle_ns,
         })
-    }
-
-    /// Set the post-deassert idle delay (nanoseconds).
-    pub fn with_cs_idle_ns(mut self, ns: u32) -> Self {
-        self.cs_idle_ns = ns;
-        self
     }
 
     fn with_cs<R>(
