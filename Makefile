@@ -5,6 +5,7 @@
 #   make check      fmt + tests + no-SIMD + pre-MMU + QEMU boot + clippy
 #   make test       host unit tests for the pure-logic crate
 #   make miri       run those tests under Miri (nightly; checks the unsafe)
+#   make bringup-builds  compile the --features bringup configuration
 #   make fmt        rustfmt
 #   make qemu       boot the image under QEMU (PL011 on stdio)
 #   make qemu-gdb   same, halted, waiting for gdb on :1234
@@ -43,7 +44,7 @@ ifeq ($(PROFILE),release)
   CARGO_FLAGS += --release
 endif
 
-.PHONY: all debug img elf check test miri no-simd no-early-exclusives boot-check fmt fmt-check qemu qemu-gdb blobs deploy serial clean
+.PHONY: all debug img elf check test miri bringup-builds no-simd no-early-exclusives boot-check fmt fmt-check qemu qemu-gdb blobs deploy serial clean
 
 all: img
 
@@ -63,7 +64,7 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives boot-check miri
+check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds miri
 	cargo clippy --target $(TARGET) -- -D warnings
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
 
@@ -106,6 +107,14 @@ miri:
 	  exit 0; \
 	fi; \
 	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET)
+
+# The bring-up gates are what you reach for when the board will not talk, which
+# is the worst moment to discover they no longer compile. Nothing else builds
+# this configuration, so nothing else would notice.
+bringup-builds:
+	cargo build $(CARGO_FLAGS) --features bringup
+	cargo clippy --target $(TARGET) --features bringup -- -D warnings
+	@echo "bringup-builds: clean"
 
 fmt:
 	cargo fmt --all

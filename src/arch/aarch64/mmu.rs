@@ -108,7 +108,12 @@ struct Arena {
     end: usize,
 }
 
-/// Table arena state. Touched only while building the map, MMU off, IRQs masked.
+/// Table arena state.
+///
+/// Mutated by `activate` while the early map is active, and by `map` with the
+/// kernel map active — never with translation off, and always with interrupts
+/// masked. The invariant is the masking, not the MMU state: the walker reads
+/// the tables this hands out, so a half-written entry must not be reachable.
 static ARENA: SyncCell<Arena> = SyncCell::new(Arena { next: 0, end: 0 });
 
 /// Physical address of the root table, published for `TTBR0_EL1`.
@@ -132,6 +137,12 @@ pub enum MmuError {
     BlockAlreadyMapped(u64),
     /// [`map`] was called before [`activate`] installed the kernel map.
     NotActivated,
+    /// Something is already mapped at this address, at this level.
+    ///
+    /// Distinct from [`Self::BlockAlreadyMapped`], which is a *coarser* block
+    /// in the way: this is an exact collision, and overwriting it would change
+    /// the target and permissions of a live mapping without saying so.
+    AlreadyMapped(u64),
 }
 
 /// Build the kernel map from `regions` and switch `TTBR0_EL1` to it.
@@ -271,7 +282,9 @@ unsafe fn alloc_table() -> Result<*mut Table, MmuError> {
 /// Identity-map one region.
 ///
 /// # Safety
-/// `root` is a live level-1 table; MMU off.
+/// `root` is a live level-1 table and interrupts are masked. Translation may be
+/// on: this runs under `activate` (early map active) and under `map` (kernel
+/// map active), so it must not assume either.
 unsafe fn map_region(root: *mut Table, region: &Region) -> Result<(), MmuError> {
     let chunks =
         paging::chunks(region.base, region.base, region.len).ok_or(MmuError::Unaligned {
@@ -289,7 +302,9 @@ unsafe fn map_region(root: *mut Table, region: &Region) -> Result<(), MmuError> 
 /// Install one leaf descriptor, creating intermediate tables as needed.
 ///
 /// # Safety
-/// `root` is a live level-1 table; MMU off.
+/// `root` is a live level-1 table and interrupts are masked. Translation may be
+/// on — see [`map_region`]. The caller publishes the entries and invalidates;
+/// this function only writes them.
 unsafe fn map_chunk(
     root: *mut Table,
     chunk: paging::Chunk,
@@ -330,6 +345,18 @@ unsafe fn map_chunk(
         }
 
         let index = level.index(chunk.va);
+
+        // Refuse to overwrite. Silently replacing a leaf changes the physical
+        // address and the permissions of something already in use — a W^X
+        // region quietly becoming writable is the failure this map exists to
+        // prevent. Changing an existing mapping is a legitimate operation, but
+        // it has to be asked for: a future `remap` can clear the entry first,
+        // which also makes the break-before-make sequence its author's problem
+        // rather than an accident.
+        if (*table).entries[index] != 0 {
+            return Err(MmuError::AlreadyMapped(chunk.va));
+        }
+
         (*table).entries[index] =
             paging::leaf(level, chunk.pa, kind, perms).ok_or(MmuError::BadDescriptor {
                 va: chunk.va,
