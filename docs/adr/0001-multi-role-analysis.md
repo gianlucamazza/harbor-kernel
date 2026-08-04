@@ -29,8 +29,13 @@ The failure surface of a bare-metal kernel is asymmetric:
   firmware state (see [`verification.md`](../verification.md)).
 - Protections (W^X, guard page) hold only if someone has seen them fire on
   hardware; a map that "activates" does not demonstrate enforcement.
-- The layering rules in [`architecture.md`](../architecture.md) are explicit but
-  not enforced by tooling: they remain discipline plus human review.
+- When this ADR was written, the layering rules in
+  [`architecture.md`](../architecture.md) were explicit but not enforced by
+  tooling — discipline plus human review only. That gap was finding F24; it is
+  **closed for import edges** by `make layering` (`scripts/check-layering.sh`).
+  What remains review-only is coupling that is not an import (shared constants,
+  agreed register values, naming conventions) — the gate's documented blind
+  spot, not a claim that layering is ungated.
 - Before introducing an execution abstraction (task / yield / scheduler),
   unexamined choices risk solidifying underneath M3.
 
@@ -128,12 +133,12 @@ changes a boundary or a model, it becomes a subsequent ADR.
 
 ## Alternatives considered
 
-| Alternative                         | Why not chosen                                                                |
-| ----------------------------------- | ----------------------------------------------------------------------------- |
-| Automated gates / CI only           | Blind to attributes, caches, firmware, layering, roadmap                      |
-| Monolithic single-role code review  | Loses perspectives (security vs size vs IRQ latency)                          |
-| A one-off external audit            | Does not institutionalise the pre-milestone discipline                        |
-| Formal methods / model checking now | Low ROI pre-M3; host tests plus Miri on `kernel-core` suffice as a foundation |
+| Alternative                         | Why not chosen                                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Automated gates / CI only           | Still blind to attributes, caches, firmware, non-import coupling, and roadmap — gates do not replace R1–R12 |
+| Monolithic single-role code review  | Loses perspectives (security vs size vs IRQ latency)                                                    |
+| A one-off external audit            | Does not institutionalise the pre-milestone discipline                                                  |
+| Formal methods / model checking now | Low ROI pre-M3; host tests plus Miri on `kernel-core` suffice as a foundation                           |
 
 ## References
 
