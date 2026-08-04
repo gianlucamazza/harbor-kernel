@@ -13,7 +13,7 @@ interactive serial console.
 | Area         | State                                                                                                                               |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
 | Boot         | EL2→EL1, softfloat, DTB pointer captured (not parsed)                                                                               |
-| Memory       | Multi-level identity map, **W^X**, unmapped stack guard page, runtime `map` with TLB maintenance                                    |
+| Memory       | Multi-level identity map, **W^X**, a guarded stack for the kernel and another for exceptions, runtime `map` with TLB maintenance                                    |
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
 | Interrupts   | GICv2, arch timer PPI, PL011 RX via SPI, dispatch counters                                                                          |
 | Console      | Polled TX, interrupt-driven RX into a lock-free ring, `WFI` idle                                                                    |

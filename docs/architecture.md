@@ -108,25 +108,57 @@ does not exist yet.
 | P1  | W^X + guard page + free-list `GlobalAlloc`               | **done** (HW, fault-probed) |
 | P2  | Early MMU, softfloat, build-enforced gates               | **done** (HW)               |
 | P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)               |
-| M3  | Cooperative tasks                                        | planned                     |
+| P4  | Exception stack, refused frees, fatal map failure        | QEMU only — **open**        |
+| M3  | Cooperative tasks                                        | planned, blocked            |
 | M4  | IPC + capabilities                                       | planned                     |
 | M5  | EL0 agents                                               | planned                     |
 | M6  | Driver-as-agent                                          | planned                     |
 
-M3 is unblocked: it needs an allocator that frees and per-region permissions,
-both of which exist. What it still lacks is an execution abstraction — there is
-no task, no context switch, no scheduler.
+**M** milestones add capability. **P** milestones add protection or evidence and
+add no capability at all: they are numbered separately because "the kernel can
+now do X" and "the kernel can now be trusted about X" are different claims, and
+mixing them lets the second silently stand in for the first. A P milestone is
+work that would be invisible in a demo.
 
-M5 needs two things `arch::mmu` does not have: a frame allocator (the table
-arena is a fixed, build-time pool, which is the right shape for mapping the
-kernel once and the wrong one for address spaces that come and go) and a notion
-of more than one address space at all — `activate` installs _the_ map, and
-`TTBR0` is switched once.
+"done (HW)" means the deliverable was observed working on a Raspberry Pi 4B, not
+merely in QEMU. The distinction earned its place: emulation booted a kernel that
+hung on silicon, because TCG's exclusive monitor ignores memory attributes. See
+[`verification.md`](verification.md). P4 is `open` for exactly this reason — it
+works under emulation, and it changes the boot sequence and the vector group the
+hardware enters through, which is the category emulation has already been wrong
+about here.
 
-"done (HW)" means the deliverable was observed working on a Raspberry Pi 4B,
-not merely in QEMU. The distinction earned its place: emulation booted a kernel
-that hung on silicon, because TCG's exclusive monitor ignores memory
-attributes. See [`verification.md`](verification.md).
+### What each planned milestone needs, and how it is judged done
+
+The done column above was earned against a stated observable. The same standard
+applies forwards, or it is not the same standard.
+
+| ID  | Needs first                                                                                           | Done when                                                                                                                                                                                                               |
+| --- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M3  | An execution-model ADR (F12); a per-task stack with a guard, from the heap rather than `link.ld`      | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack |
+| M4  | An IRQ/handler-policy ADR (F13) — `Handler = fn()` has nowhere to carry a capability                  | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console                                             |
+| M5  | A frame allocator (ADR-0005 is the wrong shape for this); more than one address space; EL0 entry/exit | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
+| M6  | M4 and M5; narrower device windows (F26) — a driver agent must not receive 16 MiB of MMIO             | The PL011 RX path runs as an EL0 agent and the console still echoes; killing that agent leaves the kernel ticking                                                                                                       |
+
+M3 is **blocked, not merely unplanned**. Its dependencies exist — an allocator
+that frees, per-region permissions, per-stack guards — but [ADR-0001](adr/0001-multi-role-analysis.md)
+requires that a finding which moves a boundary becomes an ADR _before_ the code
+implementing it, and F12 is precisely that. Writing tasks first would make the
+execution model an artefact of the first implementation that compiled.
+
+### Open findings, against the milestone they block
+
+From [the multi-role review](reviews/2026-08-04-multi-role.md). Findings not
+listed here block nothing and are tracked in that report alone.
+
+| Finding | Blocks | Why                                                                                                                             |
+| ------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| F12     | M3     | No execution model is recorded; the ADR is the deliverable, not the code                                                        |
+| F18     | M3     | The timer re-arms relative to `TVAL`, so ticks drift in phase — a scheduler inherits that                                       |
+| F13     | M4     | `Handler = fn()` cannot carry a capability, and M4 is where handlers become mediated                                            |
+| F26     | M6     | Device windows are 16 MiB blankets; an agent-owned driver would receive all of it                                               |
+| F15     | none   | The DTB is mapped and never parsed, so board truth stays hard-coded. Parse it or risk-accept it in an ADR — today it is neither |
+| F24     | none   | The layering rules above are enforced by review only. This project has twice watched an ungated rule be forgotten               |
 
 ## Decisions and reviews
 
