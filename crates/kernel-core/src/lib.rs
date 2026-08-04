@@ -15,5 +15,6 @@ pub mod gic;
 pub mod heap;
 pub mod layout;
 pub mod paging;
+pub mod poll;
 pub mod ring;
 pub mod uart;

@@ -17,11 +17,19 @@ if [[ ! -f "${IMG}" ]]; then
 	exit 1
 fi
 
-# Absence of the emulator must be loud. A check that silently passes when it
-# cannot run is worse than no check: it reports coverage it does not have.
+# Absence of the emulator must be loud, and by default fatal. A check that
+# passes when it cannot run reports coverage it does not have — and "skipped"
+# scrolls past in a log that ends in a green tick. A developer without QEMU
+# opts out explicitly; CI never does, so a missing install fails the job
+# instead of quietly removing the boot from the gate.
 if ! command -v "${QEMU}" >/dev/null; then
-	echo "boot-check: SKIPPED — ${QEMU} not installed (pacman -S qemu-system-aarch64)" >&2
-	exit 0
+	if [[ -n "${ALLOW_BOOT_SKIP:-}" ]]; then
+		echo "boot-check: SKIPPED — ${QEMU} missing, ALLOW_BOOT_SKIP set" >&2
+		exit 0
+	fi
+	echo "error: ${QEMU} not found — the boot check cannot run" >&2
+	echo "  install it (pacman -S qemu-system-aarch64), or set ALLOW_BOOT_SKIP=1" >&2
+	exit 1
 fi
 
 log="$(mktemp)"

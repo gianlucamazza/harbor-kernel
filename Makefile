@@ -60,8 +60,10 @@ img: elf
 	@ls -la $(IMG)
 
 # Deliberately a superset of what CI runs: a green here has to predict a green
-# there, or it is not worth running locally.
-check: fmt-check test no-simd no-early-exclusives boot-check
+# there, or it is not worth running locally. Every CI job has a target here —
+# including `miri`, which skips loudly when nightly is absent rather than
+# letting the claim quietly become false.
+check: fmt-check test no-simd no-early-exclusives boot-check miri
 	cargo clippy --target $(TARGET) -- -D warnings
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
 
@@ -99,8 +101,10 @@ no-early-exclusives: elf
 # Not part of `make check`: it needs nightly, and the toolchain pin is
 # deliberately stable. Run it when touching the ring or the allocator.
 miri:
-	@rustup toolchain list | grep -q nightly \
-	  || { echo "error: nightly not installed (rustup toolchain install nightly --component miri)" >&2; exit 1; }
+	@if ! rustup toolchain list | grep -q nightly; then \
+	  echo "miri: SKIPPED — nightly not installed (rustup toolchain install nightly --component miri)" >&2; \
+	  exit 0; \
+	fi; \
 	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET)
 
 fmt:

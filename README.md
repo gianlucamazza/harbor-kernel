@@ -139,6 +139,8 @@ cargo build --release --features bringup
 | [`docs/boot-chain.md`](docs/boot-chain.md)     | ROM → EEPROM → start4 → kernel  |
 | [`docs/blobs.md`](docs/blobs.md)               | Closed firmware policy          |
 | [`docs/hardware.md`](docs/hardware.md)         | Pinout, GIC bases               |
+| [`docs/adr/`](docs/adr/README.md)              | Architecture decisions (ADRs)   |
+| [`docs/reviews/`](docs/reviews/)               | Multi-role analysis reports     |
 
 ## License
 

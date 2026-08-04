@@ -68,9 +68,15 @@ pub fn run(uart: &mut Pl011) -> ! {
     loop {
         // 1. Echo all bytes the UART RX IRQ pushed into the ring.
         while let Some(byte) = console::pop_rx() {
-            match byte {
+            let sent = match byte {
                 b'\r' => uart.write_bytes(b"\r\n"),
                 byte => uart.write_byte(byte),
+            };
+            if !sent {
+                // The transmitter stopped draining. Keep draining the ring so
+                // a level-triggered RX line does not re-fire forever, but stop
+                // echoing: there is nowhere for the bytes to go.
+                break;
             }
         }
 

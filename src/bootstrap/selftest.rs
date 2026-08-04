@@ -151,10 +151,10 @@ pub fn soft_console(uart: &mut Pl011) -> ! {
             }
         }
         if let Some(byte) = rx.read_byte() {
-            match byte {
+            let _ = match byte {
                 b'\r' => uart.write_bytes(b"\r\n"),
                 byte => uart.write_byte(byte),
-            }
+            };
         }
     }
 }

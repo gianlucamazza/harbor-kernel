@@ -9,6 +9,7 @@
 
 use core::fmt;
 
+use kernel_core::poll;
 use kernel_core::uart::Divisors;
 
 use crate::arch::mmio::Mmio;
@@ -50,8 +51,17 @@ const ICR_RTIC: u32 = 1 << 6;
 ///
 /// The panic path re-programs the UART and must never hang there, so the wait
 /// is bounded: a wedged transmitter costs one garbled character, not the
-/// diagnostic that follows it.
+/// diagnostic that follows it. The budget behaviour itself is tested in
+/// [`kernel_core::poll`], where a condition that never clears can be produced
+/// on demand — which real hardware will not do when asked.
 const BUSY_SPIN_LIMIT: u32 = 100_000;
+
+/// Upper bound on the spin waiting for room in the TX FIFO.
+///
+/// Generous: at 115200 baud a full 16-byte FIFO drains in about 1.4 ms, and a
+/// CPU at 1.5 GHz spins this many times in a few milliseconds. Only a UART
+/// that has stopped transmitting altogether reaches it.
+const TX_SPIN_LIMIT: u32 = 10_000_000;
 
 /// The console owner: configuration plus transmit.
 ///
@@ -110,10 +120,7 @@ impl Pl011 {
         // Let any character already in flight finish. Disabling mid-character
         // corrupts it, which matters precisely when the panic handler takes the
         // console away from a main loop that was writing.
-        let mut spins = 0;
-        while regs.read32(FR) & FR_BUSY != 0 && spins < BUSY_SPIN_LIMIT {
-            spins += 1;
-        }
+        poll::until(BUSY_SPIN_LIMIT, || regs.read32(FR) & FR_BUSY == 0);
 
         // Disable, then flush the FIFO by clearing FEN before touching the
         // divisors (DDI 0183: LCRH must be rewritten after IBRD/FBRD).
@@ -134,17 +141,36 @@ impl Pl011 {
         self.regs.write32(IMSC, IMSC_RXIM | IMSC_RTIM);
     }
 
-    /// Transmit one byte, blocking while the TX FIFO is full.
-    pub fn write_byte(&self, byte: u8) {
-        while self.regs.read32(FR) & FR_TXFF != 0 {}
+    /// Transmit one byte, waiting for room in the TX FIFO.
+    ///
+    /// Returns `false` if the FIFO never drained and the byte was dropped.
+    ///
+    /// The wait is bounded, and that matters most on the path that cannot
+    /// afford to hang: the panic handler masks interrupts, takes the console
+    /// and writes. If the UART is wedged — no receiver asserting flow control,
+    /// a clock that stopped, a half-programmed controller — an unbounded spin
+    /// there means the board goes quiet at exactly the moment it has something
+    /// to say. A dropped character is a bad diagnostic; a hang is none.
+    pub fn write_byte(&self, byte: u8) -> bool {
+        if !poll::until(TX_SPIN_LIMIT, || self.regs.read32(FR) & FR_TXFF == 0) {
+            return false;
+        }
         self.regs.write32(DR, u32::from(byte));
+        true
     }
 
     /// Transmit raw bytes (no newline translation).
-    pub fn write_bytes(&self, bytes: &[u8]) {
+    ///
+    /// Stops at the first byte that could not be sent: once the FIFO has
+    /// stopped draining, the rest of the line will not fare better, and
+    /// retrying each byte multiplies the stall by the message length.
+    pub fn write_bytes(&self, bytes: &[u8]) -> bool {
         for &byte in bytes {
-            self.write_byte(byte);
+            if !self.write_byte(byte) {
+                return false;
+            }
         }
+        true
     }
 }
 
@@ -214,10 +240,15 @@ impl Pl011Rx {
 impl fmt::Write for Pl011 {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for byte in s.bytes() {
-            if byte == b'\n' {
-                self.write_byte(b'\r');
+            if byte == b'\n' && !self.write_byte(b'\r') {
+                return Err(fmt::Error);
             }
-            self.write_byte(byte);
+            if !self.write_byte(byte) {
+                // A wedged transmitter is reported rather than spun on. Every
+                // caller uses `let _ = write!(...)`, so this degrades to lost
+                // output instead of a hang.
+                return Err(fmt::Error);
+            }
         }
         Ok(())
     }

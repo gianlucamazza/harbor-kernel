@@ -18,8 +18,18 @@ jobs:
       - name: Show toolchain
         run: rustc -vV && cargo -V
 
-      - name: Install llvm-objcopy / llvm-objdump
-        run: sudo apt-get update && sudo apt-get install -y llvm
+      # `make check` includes the QEMU boot and Miri. Installing both here is
+      # what makes the "local check is a superset of CI" claim in
+      # docs/verification.md true rather than aspirational: without QEMU the
+      # boot check would refuse to run, and the job would fail — which is the
+      # intended behaviour, not a nuisance.
+      - name: Install llvm and QEMU
+        run: sudo apt-get update && sudo apt-get install -y llvm qemu-system-arm
+
+      - name: Install nightly with Miri
+        run: |
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
 
       # fmt --check, host tests, the no-SIMD guard on the linked image, and
       # clippy for both targets. The no-SIMD step is the one that matters most:
@@ -47,36 +57,8 @@ jobs:
       - name: Build kernel image
         run: make img
 
-      # Same script `make check` runs locally, so the two gates cannot drift.
-      # It fails loudly if QEMU cannot provide the machine, rather than passing
-      # with no coverage.
+      # Same script `make check` runs, so the two cannot drift. Kept as its own
+      # job so a boot regression is legible at a glance instead of buried in
+      # the middle of a longer gate.
       - name: Boot under QEMU and assert a healthy run
         run: make boot-check
-
-      # The script skips when QEMU is missing, which is right for a developer
-      # machine and wrong here: CI installs it, so a skip means the install
-      # broke and the job would otherwise report coverage it does not have.
-      - name: Fail if the boot check was skipped
-        run: |
-          command -v qemu-system-aarch64 >/dev/null \
-            || { echo "::error::qemu-system-aarch64 missing — boot check did not run"; exit 1; }
-
-  # The only `unsafe` in kernel-core is the SPSC ring's `UnsafeCell` buffer and
-  # its `Sync` assertion. The two-thread test finds coarse mistakes; Miri checks
-  # the aliasing and provenance rules that no amount of running can sample.
-  #
-  # Separate job on nightly: Miri needs it, and the pin in rust-toolchain.toml
-  # is deliberately stable — a nightly requirement must not leak into the gate
-  # everything else runs under.
-  miri:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install nightly with Miri
-        run: |
-          rustup toolchain install nightly --component miri
-          cargo +nightly miri setup
-
-      - name: Miri
-        run: cargo +nightly miri test -p kernel-core --target x86_64-unknown-linux-gnu

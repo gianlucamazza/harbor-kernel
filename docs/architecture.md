@@ -123,6 +123,14 @@ not merely in QEMU. The distinction earned its place: emulation booted a kernel
 that hung on silicon, because TCG's exclusive monitor ignores memory
 attributes. See [`verification.md`](verification.md).
 
+## Decisions and reviews
+
+| Artefact | Role |
+| --- | --- |
+| [`docs/adr/`](adr/README.md) | Architecture Decision Records (lifecycle: proposed → accepted → superseded) |
+| [ADR-0001](adr/0001-multi-role-analysis.md) | Multi-role analysis as pre-milestone gate |
+| [`docs/reviews/`](reviews/) | Pass outcomes (findings), not decisions |
+
 ## Non-goals
 
 - Linux / POSIX compatibility

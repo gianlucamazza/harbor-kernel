@@ -15,8 +15,23 @@ covered.
 | QEMU boot (`make boot-check`)             | Boots the image, asserts on the log   | MMU activation, allocator reclaim, timer IRQ, WFI idle, unhandled interrupts, panics       | **Memory attributes.** Also cache behaviour, real clocks, firmware state |
 | Hardware                                  | A Pi 4B on a serial console           | Everything above, for real                                                                 | Only what you actually boot and look at                                  |
 
-`make check` runs all of the local layers and is deliberately a superset of CI,
-so a green here predicts a green there.
+`make check` runs every layer above except the hardware one, and is deliberately
+a superset of CI: each CI job has a target here, so a green locally predicts a
+green remotely. That claim is load-bearing and easy to break — it was false for
+part of one day, when a Miri job was added to CI without adding it to
+`make check`. A verification claim that is false is worse than one that is
+absent, because someone relies on it.
+
+Two escape hatches, both explicit:
+
+| Situation | Behaviour |
+| --------- | --------- |
+| QEMU missing | `boot-check` **fails**; `ALLOW_BOOT_SKIP=1` to opt out |
+| nightly missing | `miri` skips with a message |
+
+Skipping is never silent. A check that passes when it cannot run reports
+coverage it does not have, and "skipped" scrolls past in a log that ends in a
+green tick.
 
 ## What emulation cannot catch, with the example that proved it
 
