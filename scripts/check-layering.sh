@@ -2,11 +2,11 @@
 # Enforce the layering rules in docs/architecture.md against the actual imports.
 #
 # Those rules *are* the architecture — drivers never know the board, arch never
-# names board peripherals, `exception` reaches only `irq`. Until now they were
-# enforced by review alone, which this project has twice watched fail: the rule
+# names board peripherals, `exception` reaches only `irq`. They used to be
+# enforced by review alone, which this project twice watched fail: the rule
 # against pre-MMU atomics was withdrawn by the person who wrote it and cost a
 # silent board, and the README's gate list went stale on the very commit that
-# added a gate. Layering rules are in the same position and matter more.
+# added a gate. This script closes the import-edge half of that gap (F24).
 #
 # The check walks every import edge, not every module: a rule holds only for the
 # edges that propagate it, so an edge nobody looks at is where it stops holding.
