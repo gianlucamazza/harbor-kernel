@@ -26,10 +26,10 @@ fi
 # Preserve our bare-metal bits under a timestamped name for easy re-deploy.
 ts="$(date +%Y%m%d-%H%M%S)"
 if [[ -f "${MOUNT}/kernel8.img" ]]; then
-  cp -a "${MOUNT}/kernel8.img" "${BACKUP}/kernel8.img.agentic.${ts}" || true
+  cp -a "${MOUNT}/kernel8.img" "${BACKUP}/kernel8.img.harbor.${ts}" || true
 fi
 if [[ -f "${MOUNT}/config.txt" ]]; then
-  cp -a "${MOUNT}/config.txt" "${BACKUP}/config.txt.agentic.${ts}" || true
+  cp -a "${MOUNT}/config.txt" "${BACKUP}/config.txt.harbor.${ts}" || true
 fi
 
 install -m 0644 "${BACKUP}/kernel8.img.rpios" "${MOUNT}/kernel8.img"

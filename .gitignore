@@ -8,7 +8,7 @@
 /third_party/blobs/fixup4.dat
 /third_party/blobs/MANIFEST.txt
 
-# Local SD backups (Pi OS / previous agentic images)
+# Local SD backups (Pi OS / previous Harbor images)
 /.sd-backup/
 
 # Editor / OS
