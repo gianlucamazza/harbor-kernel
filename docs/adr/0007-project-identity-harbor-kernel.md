@@ -1,7 +1,7 @@
 ---
 id: 0007
 title: Project identity — Harbor and harbor-kernel
-status: proposed
+status: accepted
 date: 2026-08-04
 ---
 
@@ -9,9 +9,12 @@ date: 2026-08-04
 
 ## Acceptance status
 
-**Proposed.** This ADR records the project identity before the corresponding
-repository and package rename. Accepting it fixes the naming decision; it does
-not itself change Cargo metadata, source code, scripts, or the boot image.
+**Accepted.** This ADR fixes the naming decision. The migration it describes
+has since been implemented in `5d3bd3d`, which renamed the Cargo package, the
+lockfile, the ELF path, the documentation, the serial banner, and the QEMU
+assertion. The gate below has been re-run: the only remaining occurrences of
+the old name are the deliberate historical citations in ADR-0001 and in this
+document.
 
 ## Context
 
