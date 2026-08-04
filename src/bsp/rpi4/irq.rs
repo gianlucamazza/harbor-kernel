@@ -42,20 +42,29 @@ pub unsafe fn init(timer_hz: u32) -> bool {
     }
 }
 
-/// Raw `GICC_IAR` read (side-effect: claim). Bring-up / selftest only.
-#[allow(dead_code)]
-pub fn debug_read_iar() -> u32 {
-    GIC.debug_iar()
+/// Raw GIC accessors for the bring-up gates.
+///
+/// Compiled only with the `bringup` feature: these have side effects on the
+/// interrupt controller and exist to debug it, not to be used by kernel policy.
+#[cfg(feature = "bringup")]
+mod debug {
+    use super::GIC;
+
+    /// Highest pending id without claiming it.
+    pub fn debug_peek_pending() -> Option<u32> {
+        GIC.debug_hppir_id()
+    }
+
+    /// Raw `GICC_IAR` read (side-effect: claim).
+    pub fn debug_read_iar() -> u32 {
+        GIC.debug_iar()
+    }
+
+    /// Raw `GICC_EOIR` write.
+    pub fn debug_write_eoir(val: u32) {
+        GIC.debug_eoir(val);
+    }
 }
 
-/// Raw `GICC_HPPIR` read (no claim). Bring-up / selftest only.
-#[allow(dead_code)]
-pub fn debug_read_hppir() -> u32 {
-    GIC.debug_hppir()
-}
-
-/// Raw `GICC_EOIR` write. Bring-up / selftest only.
-#[allow(dead_code)]
-pub fn debug_write_eoir(val: u32) {
-    GIC.debug_eoir(val);
-}
+#[cfg(feature = "bringup")]
+pub use debug::*;

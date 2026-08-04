@@ -117,17 +117,15 @@ pub fn enable(irq: u32) {
 }
 
 /// Disable `irq` on the platform chip. No-op if no chip is installed.
+///
+/// Only the bring-up gates mask a line by hand today; the production path
+/// enables its interrupts once and leaves them enabled.
+#[cfg(feature = "bringup")]
 pub fn disable(irq: u32) {
     // SAFETY: shared read; mutation only happens with IRQs masked.
     if let Some(chip) = unsafe { state() }.chip {
         chip.disable(irq);
     }
-}
-
-/// Highest pending id (no claim). For bring-up gates only.
-pub fn peek_pending() -> Option<u32> {
-    // SAFETY: shared read; mutation only happens with IRQs masked.
-    unsafe { state() }.chip?.peek_pending()
 }
 
 /// CPU IRQ exception entry: claim → dispatch → EOI loop.
@@ -170,23 +168,4 @@ pub fn handle_cpu_irq_counted() -> u32 {
     // Left the loop with the budget spent rather than with nothing to claim.
     LOOP_EXHAUSTED.fetch_add(1, Ordering::Relaxed);
     claimed
-}
-
-/// Claim a single interrupt and return its id (after running handler + EOI).
-///
-/// For bring-up diagnostics only.
-#[allow(dead_code)]
-pub fn claim_one_id() -> Option<u32> {
-    // SAFETY: shared read; the table is only mutated with IRQs masked.
-    let state = unsafe { state() };
-    let chip = state.chip?;
-    let ack = chip.claim()?;
-    let id = ack.interrupt_id();
-
-    if let Some(Some(handler)) = state.handlers.get(id as usize) {
-        handler();
-    }
-
-    chip.end(ack);
-    Some(id)
 }

@@ -141,6 +141,10 @@ impl Pl011 {
 
     /// Non-blocking receive: `None` if the RX FIFO is empty or the character
     /// arrived with a framing/parity/break/overrun error.
+    ///
+    /// Production RX is interrupt-driven ([`Self::drain_rx`]); this is the
+    /// polled path the bring-up soft console falls back to.
+    #[cfg(feature = "bringup")]
     pub fn read_byte(&self) -> Option<u8> {
         if self.regs.read32(FR) & FR_RXFE != 0 {
             return None;

@@ -8,6 +8,8 @@
 //! did not advance ticks. Group 0 + IAR is the classic bare-metal sequence used
 //! by working RPi4 examples.
 
+use kernel_core::gic;
+
 use crate::arch::mmio::Mmio;
 use crate::irq::{Ack, IrqChip};
 
@@ -25,11 +27,11 @@ const GICC_PMR: usize = 0x004;
 const GICC_BPR: usize = 0x008;
 const GICC_IAR: usize = 0x00C;
 const GICC_EOIR: usize = 0x010;
+#[cfg(feature = "bringup")]
 const GICC_HPPIR: usize = 0x018;
 
 const CTLR_ENABLE_GRP0: u32 = 1 << 0;
 const CTLR_ENABLE_GRP1: u32 = 1 << 1;
-const CTLR_EOIMODE: u32 = 1 << 9;
 const SPURIOUS: u32 = 1023;
 
 pub struct GicV2 {
@@ -61,7 +63,6 @@ impl IrqChip for GicV2 {
             .write32(GICC_CTLR, CTLR_ENABLE_GRP0 | CTLR_ENABLE_GRP1);
         self.dist
             .write32(GICD_CTLR, CTLR_ENABLE_GRP0 | CTLR_ENABLE_GRP1);
-        let _ = CTLR_EOIMODE;
     }
 
     fn enable(&self, irq: u32) {
@@ -73,17 +74,18 @@ impl IrqChip for GicV2 {
             self.set_target_cpu0(irq);
             self.set_level_sensitive(irq);
         }
+        // Mask before re-enabling: the line may already be live with the old
+        // configuration, and clearing a stale pending bit under it is racy.
+        self.disable(irq);
         self.clear_pending(irq);
-        let reg = (irq / 32) as usize;
-        let bit = irq % 32;
-        self.dist.write32(GICD_ICENABLER + reg * 4, 1u32 << bit);
-        self.dist.write32(GICD_ISENABLER + reg * 4, 1u32 << bit);
+
+        let (offset, mask) = gic::bit_slot(irq);
+        self.dist.write32(GICD_ISENABLER + offset, mask);
     }
 
     fn disable(&self, irq: u32) {
-        let reg = (irq / 32) as usize;
-        let bit = irq % 32;
-        self.dist.write32(GICD_ICENABLER + reg * 4, 1u32 << bit);
+        let (offset, mask) = gic::bit_slot(irq);
+        self.dist.write32(GICD_ICENABLER + offset, mask);
     }
 
     fn claim(&self) -> Option<Ack> {
@@ -98,68 +100,63 @@ impl IrqChip for GicV2 {
             core::arch::asm!("dsb sy", options(nostack, preserves_flags));
         }
     }
+}
 
-    fn peek_pending(&self) -> Option<u32> {
+/// Diagnostic accessors, compiled only with the `bringup` feature.
+///
+/// These read and write GIC registers with side effects (`IAR` claims, `EOIR`
+/// completes) and have no place in the driver's stable surface: a caller that
+/// reaches them from kernel policy has bypassed the irqchip abstraction.
+#[cfg(feature = "bringup")]
+impl GicV2 {
+    /// Highest pending id without claiming it.
+    pub fn debug_hppir_id(&self) -> Option<u32> {
         let id = self.cpu.read32(GICC_HPPIR) & 0x3FF;
         if id == SPURIOUS { None } else { Some(id) }
     }
-}
 
-impl GicV2 {
     /// Raw IAR (claims). Bring-up / selftest only.
-    #[allow(dead_code)]
     pub fn debug_iar(&self) -> u32 {
         self.cpu.read32(GICC_IAR)
     }
 
-    /// Raw HPPIR (no claim). Bring-up / selftest only.
-    #[allow(dead_code)]
-    pub fn debug_hppir(&self) -> u32 {
-        self.cpu.read32(GICC_HPPIR)
-    }
-
     /// Raw EOIR. Bring-up / selftest only.
-    #[allow(dead_code)]
     pub fn debug_eoir(&self, val: u32) {
         self.cpu.write32(GICC_EOIR, val);
         unsafe {
             core::arch::asm!("dsb sy", options(nostack, preserves_flags));
         }
     }
+}
 
+/// Distributor register plumbing used by [`IrqChip::enable`].
+impl GicV2 {
     fn set_group0(&self, irq: u32) {
-        let reg = (irq / 32) as usize;
-        let bit = irq % 32;
-        let offset = GICD_IGROUPR + reg * 4;
-        let value = self.dist.read32(offset) & !(1u32 << bit);
-        self.dist.write32(offset, value);
+        let (offset, mask) = gic::bit_slot(irq);
+        let value = self.dist.read32(GICD_IGROUPR + offset) & !mask;
+        self.dist.write32(GICD_IGROUPR + offset, value);
     }
 
     fn set_priority(&self, irq: u32, priority: u8) {
-        let word = (irq / 4) as usize;
-        let shift = (irq % 4) * 8;
-        let offset = GICD_IPRIORITYR + word * 4;
-        let mut value = self.dist.read32(offset);
-        value &= !(0xFF << shift);
-        value |= u32::from(priority) << shift;
-        self.dist.write32(offset, value);
+        let (offset, _) = gic::byte_slot(irq);
+        let value = self.dist.read32(GICD_IPRIORITYR + offset);
+        self.dist.write32(
+            GICD_IPRIORITYR + offset,
+            gic::insert_byte(value, irq, priority),
+        );
     }
 
     fn clear_pending(&self, irq: u32) {
-        let reg = (irq / 32) as usize;
-        let bit = irq % 32;
-        self.dist.write32(GICD_ICPENDR + reg * 4, 1u32 << bit);
+        let (offset, mask) = gic::bit_slot(irq);
+        self.dist.write32(GICD_ICPENDR + offset, mask);
     }
 
     /// Route SPI `irq` to CPU interface 0 (bit 0 of the target byte).
     fn set_target_cpu0(&self, irq: u32) {
-        let word = (irq / 4) as usize;
-        let shift = (irq % 4) * 8;
-        let offset = GICD_ITARGETSR + word * 4;
-        let mut value = self.dist.read32(offset);
-        value &= !(0xFF << shift);
-        value |= 0x01 << shift;
-        self.dist.write32(offset, value);
+        let (offset, _) = gic::byte_slot(irq);
+        let value = self.dist.read32(GICD_ITARGETSR + offset);
+        self.dist
+            .write32(GICD_ITARGETSR + offset, gic::insert_byte(value, irq, 0x01));
     }
 
     /// Level-sensitive configuration (PL011 and most peripherals).

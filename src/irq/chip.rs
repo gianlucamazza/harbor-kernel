@@ -35,7 +35,10 @@ pub trait IrqChip: Sync {
 
     /// Complete a previously claimed interrupt.
     fn end(&self, ack: Ack);
-
-    /// Highest pending id without claiming (diagnostics / bring-up gates).
-    fn peek_pending(&self) -> Option<u32>;
 }
+
+// There is no `peek_pending` here. Reading the highest pending interrupt
+// without claiming it is a bring-up diagnostic, and a trait every irqchip must
+// implement is the wrong place for one: it obliges future chips to provide an
+// operation the kernel never performs. The GIC keeps it behind the `bringup`
+// feature, where the self-test that needs it also lives.

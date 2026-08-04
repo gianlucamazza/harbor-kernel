@@ -54,6 +54,10 @@ pub fn on_interrupt() {
 }
 
 /// True if the physical timer condition is asserted (`CNTP_CTL.ISTATUS`).
+///
+/// Polling the timer is a bring-up technique; the production path waits for
+/// the interrupt.
+#[cfg(feature = "bringup")]
 #[inline]
 pub fn is_pending() -> bool {
     (read_ctl() & (1 << 2)) != 0
@@ -62,11 +66,13 @@ pub fn is_pending() -> bool {
 /// Program a one-shot relative deadline of `counts` timer ticks (ENABLE, unmasked).
 ///
 /// Used by bring-up gates; normal periodic mode uses [`init`] / [`on_interrupt`].
+#[cfg(feature = "bringup")]
 pub fn set_deadline_counts(counts: u64) {
     write_tval(counts.max(1));
     write_ctl(0b001);
 }
 
+#[cfg(feature = "bringup")]
 #[inline]
 fn read_ctl() -> u64 {
     let value: u64;

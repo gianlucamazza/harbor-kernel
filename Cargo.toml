@@ -13,6 +13,14 @@ readme = "README.md"
 categories = ["embedded", "no-std", "os"]
 keywords = ["raspberry-pi", "aarch64", "kernel", "bare-metal"]
 
+[features]
+default = []
+# Bring-up scaffolding: the masked CNTP/HPPIR/IAR gates used to debug the M1
+# GIC path, and the raw GIC register accessors they need. Off by default so
+# none of it is compiled into a production image — and so the diagnostic
+# accessors cannot leak into the stable driver API by accident.
+bringup = []
+
 [dependencies]
 # Pure register/allocator arithmetic, unit-tested on the host.
 kernel-core = { path = "crates/kernel-core" }
