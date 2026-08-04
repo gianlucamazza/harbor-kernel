@@ -390,6 +390,7 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | `Context` / assembly coupling (M3)                                | swap `x30` and `sp` in `Context`            | two `offset_of` asserts red at compile time, naming both offsets; the size assert alone stayed green at 104 bytes                     |
 | Table-arena reserve (M3)                                         | raise `MIN_SPARE_TABLES` to 40              | `BOOT REFUSED: table arena nearly exhausted: 10 tables left, need 40 (raise PAGE_TABLE_ARENA_SIZE in link.ld)` and then nothing       |
 | SPI divisor overflow                                             | range-check after rounding instead of before | `left: Ok(0)` against `right: Err(TargetTooSlow …)` — a wrapped divider is a *legal* encoding, so the fastest request became the slowest clock |
+| MMIO probe window (`FAR` match)                                  | drop the `far != expected` check, and fault twice inside one probe | without it both aborts are swallowed and the boot continues (`rng200: unavailable`); with it the second is fatal — `ESR=0x96000050 FAR=0xfe105000`, the injected address |
 
 ## What Miri adds over the two-thread test
 

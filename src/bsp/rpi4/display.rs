@@ -10,11 +10,9 @@ use crate::arch::cpu;
 use crate::arch::mmio::Mmio;
 use crate::bsp::rpi4::{gpio, memmap};
 use crate::drivers::delay::{ArchTimerDelay, DelayNs};
-use crate::drivers::ili9486::{self, Ili9486, Ili9486Error, INIT_PISCREEN};
+use crate::drivers::ili9486::{self, INIT_PISCREEN, Ili9486, Ili9486Error};
 use crate::drivers::pin::OutputPin;
-use crate::drivers::spi::{
-    BcmSpi, BcmSpiError, ExclusiveDevice, ExclusiveDeviceError, SpiDevice,
-};
+use crate::drivers::spi::{BcmSpi, BcmSpiError, ExclusiveDevice, ExclusiveDeviceError, SpiDevice};
 use crate::sync::SyncCell;
 
 /// Waveshare-class LCD chip-select (BCM GPIO 8, header pin 24).
@@ -34,7 +32,12 @@ pub enum DisplaySpiError {
     /// Polled SPI transfer timed out or rejected its arguments.
     Bus(ExclusiveDeviceError<BcmSpiError, core::convert::Infallible>),
     /// ILI9486 command stream or fill failed.
-    Panel(Ili9486Error<ExclusiveDeviceError<BcmSpiError, core::convert::Infallible>, core::convert::Infallible>),
+    Panel(
+        Ili9486Error<
+            ExclusiveDeviceError<BcmSpiError, core::convert::Infallible>,
+            core::convert::Infallible,
+        >,
+    ),
 }
 
 /// SPI0 + software CS + control pins + post-init panel state.
@@ -74,9 +77,7 @@ impl DisplaySpi {
         panel
             .reset_and_init(&mut self.rst, INIT_PISCREEN)
             .map_err(DisplaySpiError::Panel)?;
-        panel
-            .fill_screen(color)
-            .map_err(DisplaySpiError::Panel)?;
+        panel.fill_screen(color).map_err(DisplaySpiError::Panel)?;
         Ok(())
     }
 }

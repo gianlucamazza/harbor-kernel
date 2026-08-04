@@ -6,10 +6,16 @@
 //! (ADR-0009: datasheet-first, no opaque blob).
 //!
 //! Pixel path is RGB565, big-endian on the wire, 8-bit SPI words.
+//!
+//! **CS discipline:** a RAMWR stream must keep chip-select asserted for the
+//! whole pixel burst. Toggling CS between chunks ends the write on ILI9486 and
+//! leaves the rest of GRAM untouched (classic white band after a partial fill).
 
-use kernel_core::display::{
-    self, InitOp, Rgb565, address_window_bytes, cmd, madctl,
-};
+extern crate alloc;
+
+use alloc::vec;
+
+use kernel_core::display::{self, InitOp, Rgb565, address_window_bytes, cmd, madctl};
 
 use crate::drivers::delay::DelayNs;
 use crate::drivers::pin::OutputPin;
@@ -35,18 +41,15 @@ pub const INIT_PISCREEN: &[InitOp] = &[
     InitOp::Data(&[0x00, 0x00, 0x00, 0x00]),
     InitOp::Cmd(cmd::PGAMCTRL),
     InitOp::Data(&[
-        0x0F, 0x1F, 0x1C, 0x0C, 0x0F, 0x08, 0x48, 0x98, 0x37, 0x0A, 0x13, 0x04, 0x11, 0x0D,
-        0x00,
+        0x0F, 0x1F, 0x1C, 0x0C, 0x0F, 0x08, 0x48, 0x98, 0x37, 0x0A, 0x13, 0x04, 0x11, 0x0D, 0x00,
     ]),
     InitOp::Cmd(cmd::NGAMCTRL),
     InitOp::Data(&[
-        0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24, 0x20,
-        0x00,
+        0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00,
     ]),
     InitOp::Cmd(cmd::DGAMCTRL),
     InitOp::Data(&[
-        0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24, 0x20,
-        0x00,
+        0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00,
     ]),
     // Landscape, BGR order (fbtft rotate=90 + bgr).
     InitOp::Cmd(cmd::MADCTL),
@@ -103,10 +106,7 @@ where
     }
 
     /// Execute a declarative init table.
-    pub fn run_init(
-        &mut self,
-        init: &[InitOp],
-    ) -> Result<(), Ili9486Error<SPI::Error, DC::Error>> {
+    pub fn run_init(&mut self, init: &[InitOp]) -> Result<(), Ili9486Error<SPI::Error, DC::Error>> {
         for op in init {
             match *op {
                 InitOp::Cmd(c) => self.write_cmd(c)?,
@@ -137,6 +137,9 @@ where
     }
 
     /// Fill the full panel with a solid colour.
+    ///
+    /// Builds one RGB565 frame buffer and clocks it out in a **single** SPI
+    /// write so CS stays low for the entire RAMWR payload (see module docs).
     pub fn fill_screen(
         &mut self,
         color: Rgb565,
@@ -147,23 +150,15 @@ where
         self.write_cmd(cmd::RAMWR)?;
 
         let pixel = color.to_be_bytes();
-        // Stream in modest chunks: each pixel is 2 bytes; 32 pixels = 64 B = SPI FIFO depth.
-        const PIXELS_PER_CHUNK: usize = 32;
-        let mut chunk = [0u8; PIXELS_PER_CHUNK * 2];
-        for slot in chunk.chunks_exact_mut(2) {
+        let total = display::frame_pixels(self.width, self.height) as usize;
+        let mut frame = vec![0u8; total.saturating_mul(2)];
+        for slot in frame.chunks_exact_mut(2) {
             slot.copy_from_slice(&pixel);
         }
 
-        let total = display::frame_pixels(self.width, self.height) as usize;
-        let mut remaining = total;
+        // One SpiDevice::write ⇒ one CS assertion around the whole buffer.
         self.dc_data()?;
-        while remaining > 0 {
-            let n = remaining.min(PIXELS_PER_CHUNK);
-            self.spi
-                .write(&chunk[..n * 2])
-                .map_err(Ili9486Error::Spi)?;
-            remaining -= n;
-        }
+        self.spi.write(&frame).map_err(Ili9486Error::Spi)?;
         Ok(())
     }
 
