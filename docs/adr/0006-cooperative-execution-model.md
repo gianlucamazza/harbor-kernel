@@ -1,7 +1,7 @@
 ---
 id: 0006
 title: Cooperative execution model (M3 tasks)
-status: proposed
+status: accepted
 date: 2026-08-04
 ---
 
@@ -9,18 +9,15 @@ date: 2026-08-04
 
 ## Acceptance status
 
-**Remains `proposed`.** Unlike ADR-0002–0005, this decision does not yet
-constrain running code — there is no scheduler to pin. F12 is closed as a
-_process_ deliverable by the existence of this ADR (see
-[`architecture.md`](../architecture.md)); **acceptance** waits on either:
+**Accepted** as the execution model for M3 (human accept of the model before a
+full scheduler). The decision is immutable from here: preemption, IRQ-side
+context switches, `link.ld` task stacks, and software canaries instead of
+unmapped guards are out of scope unless a successor ADR supersedes this one.
 
-1. a human explicit accept of the model alone (before M3 code), or
-2. M3 implementation that matches this ADR, followed by accept with the
-   automated gates named under “The gate that protects this decision.”
-
-Leaving it `proposed` without this note would be silent drift; leaving it
-`accepted` without a scheduler would invent immutability over prose. Neither
-is acceptable.
+Accepting the **model** is not the same as marking M3 `done (HW)`. Pure
+runqueue arithmetic may land under this ADR; the automated gates named under
+“The gate that protects this decision” (interleaved yield on hardware, stack
+overflow probe) still arrive with the rest of the milestone.
 
 ## Context
 
