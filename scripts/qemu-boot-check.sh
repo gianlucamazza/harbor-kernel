@@ -55,6 +55,14 @@ grep -q 'MMU on' "${log}" ||
 	fail "the kernel map did not activate"
 grep -q 'fully reclaimed' "${log}" ||
 	fail "the allocator did not return freed memory"
+# `mmu::unmap` (and the L2→L3 split when the heap is a block) then remap.
+# Failure prints `unmap: FAILED` / `remap FAILED`; silence would mean a hang
+# on the first post-unmap access instead.
+grep -q 'unmap: remapped and freed' "${log}" ||
+	fail "unmap smoke did not complete (split/TLBI/remap)"
+if grep -q 'unmap: FAILED' "${log}"; then
+	fail "mmu::unmap refused a mapped heap page"
+fi
 # Two tick reports mean the timer IRQ fired repeatedly *and* the WFI idle loop
 # kept waking: a stalled idle loop prints the first and then goes quiet.
 grep -q 'ticks=20' "${log}" ||

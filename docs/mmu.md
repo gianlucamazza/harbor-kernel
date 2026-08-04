@@ -39,18 +39,28 @@ runtime is known. `mmu::map` adds a region to the live tables afterwards: it
 takes the root from `ROOT`, walks down with the same `map_chunk` the initial
 build uses, then publishes with `dsb ishst` and invalidates.
 
+`mmu::unmap` is the reverse path for a page-aligned range that is already
+mapped: each page becomes a translation fault. It is required by
+[ADR-0006](adr/0006-cooperative-execution-model.md) for task-stack **guard
+pages** inside the identity-mapped heap. The heap is usually covered by 2 MiB
+blocks, so unmapping a single 4 KiB page **splits** the covering block into a
+next-level table (break-before-make: clear block → TLBI → install table), then
+clears the leaf. Physical pages are not returned to the free list by `unmap`;
+only the virtual mapping is removed.
+
 Invalidation granularity comes from `kernel_core::paging::tlbi_plan`: per page
 (`tlbi vaae1is`, operand = VA >> 12) up to 64 pages, whole-TLB (`tlbi vmalle1`)
 beyond, where thousands of broadcasts cost more than the refills a global flush
-forces. Going from invalid to valid would not strictly require invalidation —
-the architecture does not permit caching invalid entries — but doing it anyway
-makes the same function correct for *re*mapping, where it is mandatory.
+forces. Shared by `map` and `unmap`. For **valid→invalid** (`unmap`), the
+invalidation is architecturally mandatory; a stale TLB entry would keep a
+"guard" writable. That is the first kernel operation that makes TLB
+maintenance falsifiable in principle — see [`verification.md`](verification.md).
 
-The first user is the device-tree blob: the firmware puts it wherever it likes
-(`0x2eff1f00` on this board), the kernel map covers far less, so it is mapped
-read-only after `activate`. Verified in both directions — without the call, a
-read of the blob takes `ESR=0x96000006`, a level-2 translation fault at exactly
-its address; with it, the magic reads back as `0xd00dfeed`.
+The first user of `map` is the device-tree blob: the firmware puts it wherever
+it likes (`0x2eff1f00` on this board), the kernel map covers far less, so it is
+mapped read-only after `activate`. Verified in both directions — without the
+call, a read of the blob takes `ESR=0x96000006`, a level-2 translation fault at
+exactly its address; with it, the magic reads back as `0xd00dfeed`.
 
 ## Translation regime
 

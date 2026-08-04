@@ -57,24 +57,25 @@ identity map before any Rust runs, so the window does not exist, and
 exclusive access, or the state the firmware leaves behind, a green QEMU boot is
 not evidence.
 
-## What is still not falsifiable: TLB maintenance
+## TLB maintenance: encoding vs necessity
 
-`mmu::map` issues `tlbi vaae1is` per page, or `vmalle1` past the threshold, and
-the operand encoding is unit-tested (`tlbi_plan`, and the mutation that dropped
-the `>> 12`). Hardware has exercised the per-page branch for real — the DTB is
-15 pages, so a live boot takes the branch QEMU never does, since its 2 MiB
-region always resolves to `Everything`.
+`mmu::map` and `mmu::unmap` issue `tlbi vaae1is` per page, or `vmalle1` past the
+threshold, and the operand encoding is unit-tested (`tlbi_plan`, and the
+mutation that dropped the `>> 12`). Hardware has exercised the per-page branch
+for real on `map` — the DTB is 15 pages, so a live boot takes the branch QEMU
+never does, since its 2 MiB region always resolves to `Everything`.
 
-That is coverage of the _encoding_, not of the _necessity_. Every mapping this
-kernel makes is invalid→valid, and an invalid entry is not architecturally
-permitted to be cached, so removing the invalidation entirely would very likely
-change nothing observable. The maintenance is correct by construction and
-untested by consequence.
+**invalid→valid (`map`):** an invalid entry is not architecturally permitted to
+be cached, so dropping the invalidation would very likely change nothing
+observable. Encoding is covered; necessity is not.
 
-A `remap` — changing the permissions or output address of a live mapping — is
-the first operation that would make it falsifiable. Until one exists, no green
-result here should be read as "the TLB handling works"; it means "nothing has
-contradicted it".
+**valid→invalid (`unmap`):** a stale TLB entry keeps the old translation. That
+is the first path where maintenance is load-bearing. It lands with M3 task-stack
+guards (ADR-0006). Until a deliberate probe shows a post-`unmap` access taking
+a translation fault on hardware (and the same access succeeding if TLBI is
+stripped — optional mutation test), treat "unmap works" as: host decode/split
+tests green, QEMU path exists, silicon evidence still to record next to the
+guard-page rows below.
 
 ## Protections are only verified when you have seen them fire
 

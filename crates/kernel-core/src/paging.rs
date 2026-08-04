@@ -149,6 +149,60 @@ pub const fn leaf(level: Level, pa: u64, kind: MemKind, perms: Perms) -> Option<
     Some(desc)
 }
 
+/// True when the entry is free: the walker treats type `0b00` as invalid.
+#[inline]
+pub const fn is_invalid(entry: u64) -> bool {
+    entry & 0b11 == 0
+}
+
+/// True when `entry` is a next-level table pointer at `level` (L1 or L2 only).
+///
+/// At L3 the same low bits mean "page", not "table" — see [`is_leaf`].
+#[inline]
+pub const fn is_table(entry: u64, level: Level) -> bool {
+    matches!(level, Level::L1 | Level::L2) && (entry & 0b11) == DESC_TABLE
+}
+
+/// True when `entry` is a block (L1/L2) or page (L3) mapping.
+#[inline]
+pub const fn is_leaf(entry: u64, level: Level) -> bool {
+    match level {
+        Level::L3 => (entry & 0b11) == DESC_PAGE,
+        Level::L1 | Level::L2 => (entry & 0b11) == DESC_BLOCK,
+    }
+}
+
+/// Output address field of a table or leaf descriptor (bits [47:12]).
+#[inline]
+pub const fn descriptor_address(entry: u64) -> u64 {
+    entry & ADDR_MASK
+}
+
+/// Decode a leaf written by [`leaf`] / [`l1_block`].
+///
+/// `None` if the entry is invalid, a table pointer, or not a recognisable leaf
+/// at `level`. Used when splitting a coarser block so the child pages keep the
+/// same memory type and permissions.
+pub const fn decode_leaf(entry: u64, level: Level) -> Option<(u64, MemKind, Perms)> {
+    if !is_leaf(entry, level) {
+        return None;
+    }
+
+    let pa = descriptor_address(entry);
+    // Attribute index lives in bits [4:2].
+    let kind = if (entry & (0b111 << 2)) == ATTR_IDX_DEVICE {
+        MemKind::Device
+    } else {
+        MemKind::NormalWb
+    };
+
+    // AP[2:1] at bits [7:6]: `00` EL1 RW, `10` EL1 RO (no EL0 in this kernel).
+    let write = (entry & (0b11 << 6)) == DESC_AP_EL1_RW;
+    let execute = (entry & DESC_PXN) == 0;
+
+    Some((pa, kind, Perms { write, execute }))
+}
+
 /// One naturally aligned piece of a mapping request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Chunk {
@@ -620,6 +674,42 @@ mod tests {
         assert_eq!(tlbi_plan(0x1800, PAGE_SIZE), None);
         assert_eq!(tlbi_plan(0x1000, 0x800), None);
         assert_eq!(tlbi_plan(0x1000, 0), None);
+    }
+
+    // --- leaf decode (needed to split blocks on unmap) ----------------------
+
+    #[test]
+    fn decode_round_trips_every_permission_and_kind() {
+        for level in [Level::L1, Level::L2, Level::L3] {
+            let pa = match level {
+                Level::L1 => 0x4000_0000,
+                Level::L2 => 0x0020_0000,
+                Level::L3 => 0x0000_3000,
+            };
+            for kind in [MemKind::NormalWb, MemKind::Device] {
+                for perms in [Perms::RW, Perms::RX, Perms::RO] {
+                    let desc = leaf(level, pa, kind, perms).expect("aligned pa");
+                    assert!(is_leaf(desc, level));
+                    assert!(!is_table(desc, level));
+                    assert!(!is_invalid(desc));
+                    let (got_pa, got_kind, got_perms) =
+                        decode_leaf(desc, level).expect("decode leaf");
+                    assert_eq!(got_pa, pa);
+                    assert_eq!(got_kind, kind);
+                    assert_eq!(got_perms, perms);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn decode_rejects_invalid_and_table_entries() {
+        assert!(decode_leaf(0, Level::L3).is_none());
+        let table = table_descriptor(0x9000).unwrap();
+        assert!(is_table(table, Level::L2));
+        assert!(decode_leaf(table, Level::L2).is_none());
+        // At L3 the same bits are a page at PA 0x9000, not a table.
+        assert!(is_leaf(table, Level::L3));
     }
 
     #[test]

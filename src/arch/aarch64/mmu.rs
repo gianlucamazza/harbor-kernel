@@ -143,6 +143,8 @@ pub enum MmuError {
     /// in the way: this is an exact collision, and overwriting it would change
     /// the target and permissions of a live mapping without saying so.
     AlreadyMapped(u64),
+    /// [`unmap`] found no live mapping covering this address.
+    NotMapped(u64),
 }
 
 /// Build the kernel map from `regions` and switch `TTBR0_EL1` to it.
@@ -195,11 +197,73 @@ pub unsafe fn map(region: &Region) -> Result<(), MmuError> {
         // Publish the entries before anything can walk them, then drop stale
         // translations. Going from invalid to valid would not strictly need the
         // invalidation — the architecture does not permit caching invalid
-        // entries — but doing it makes this correct for *re*mapping too, where
-        // it is mandatory, at the cost of a few cycles on a rare operation.
+        // entries — but the same path is shared with [`unmap`], where it is
+        // mandatory.
+        publish_and_invalidate(region.base, region.len);
+        Ok(())
+    }
+}
+
+/// Remove the live mapping of `[base, base + len)`.
+///
+/// Every page in the range must already be mapped; on success each becomes a
+/// translation fault. Used for task-stack guard pages (ADR-0006): the physical
+/// page stays owned by the stack allocation — only the virtual mapping goes.
+///
+/// Coarser blocks that cover a page being unmapped are split into the next
+/// level (break-before-make) so a single 4 KiB guard can sit inside a 2 MiB
+/// heap block without unmapping the rest of the heap.
+///
+/// # Safety
+/// [`activate`] must have succeeded. Interrupts masked. After this returns,
+/// software must not touch the range except through a deliberate remapping;
+/// instruction fetches or data accesses there will fault.
+pub unsafe fn unmap(base: u64, len: u64) -> Result<(), MmuError> {
+    unsafe {
+        let root = *ROOT.get();
+        if root == 0 {
+            return Err(MmuError::NotActivated);
+        }
+        if base % paging::PAGE_SIZE != 0 || len % paging::PAGE_SIZE != 0 || len == 0 {
+            return Err(MmuError::Unaligned {
+                va: base,
+                pa: base,
+                len,
+            });
+        }
+
+        let root = root as *mut Table;
+        let end = base.checked_add(len).ok_or(MmuError::OutOfRange(base))?;
+
+        // Fail closed before mutating: a hole mid-range would leave a half
+        // unmapped region with no honest recovery short of a reboot.
+        let mut va = base;
+        while va < end {
+            ensure_mapped(root, va)?;
+            va += paging::PAGE_SIZE;
+        }
+
+        va = base;
+        while va < end {
+            unmap_page(root, va)?;
+            va += paging::PAGE_SIZE;
+        }
+
+        publish_and_invalidate(base, len);
+        Ok(())
+    }
+}
+
+/// `dsb ishst`, TLB invalidation for `[va, va + len)`, then `dsb ish` / `isb`.
+///
+/// # Safety
+/// Table updates for the range must already be visible to this core's view of
+/// memory; this only orders and invalidates.
+unsafe fn publish_and_invalidate(va: u64, len: u64) {
+    unsafe {
         core::arch::asm!("dsb ishst", options(nostack, preserves_flags));
 
-        match paging::tlbi_plan(region.base, region.len) {
+        match paging::tlbi_plan(va, len) {
             Some(paging::TlbiPlan::ByPage { first, pages }) => {
                 for index in 0..pages {
                     let operand = paging::tlbi_operand(first, index);
@@ -210,13 +274,11 @@ pub unsafe fn map(region: &Region) -> Result<(), MmuError> {
                     );
                 }
             }
-            // A large region, or one the planner cannot express: the whole TLB
-            // is cheaper than thousands of broadcasts, and always sufficient.
+            // Large region, or a planner refusal: the whole TLB is always enough.
             _ => core::arch::asm!("tlbi vmalle1", options(nostack, preserves_flags)),
         }
 
         core::arch::asm!("dsb ish", "isb", options(nostack, preserves_flags));
-        Ok(())
     }
 }
 
@@ -364,6 +426,129 @@ unsafe fn map_chunk(
             })?;
 
         Ok(())
+    }
+}
+
+/// Walk without mutating: `va` must be covered by some leaf (block or page).
+///
+/// # Safety
+/// `root` is the live level-1 table; interrupts masked.
+unsafe fn ensure_mapped(root: *mut Table, va: u64) -> Result<(), MmuError> {
+    unsafe {
+        if va >= (paging::L1_BLOCK_SIZE * paging::ENTRIES_PER_TABLE as u64) {
+            return Err(MmuError::OutOfRange(va));
+        }
+
+        let mut table = root;
+        let mut level = Level::L1;
+
+        loop {
+            let index = level.index(va);
+            let entry = (*table).entries[index];
+
+            if paging::is_invalid(entry) {
+                return Err(MmuError::NotMapped(va));
+            }
+            if paging::is_leaf(entry, level) {
+                return Ok(());
+            }
+            if paging::is_table(entry, level) {
+                table = paging::descriptor_address(entry) as *mut Table;
+                level = level.next().ok_or(MmuError::OutOfRange(va))?;
+                continue;
+            }
+            return Err(MmuError::NotMapped(va));
+        }
+    }
+}
+
+/// Clear the L3 mapping for one page, splitting coarser blocks as needed.
+///
+/// # Safety
+/// `root` is the live level-1 table; interrupts masked; [`ensure_mapped`] has
+/// succeeded for `va`. Intermediate break-before-make flushes run inside.
+unsafe fn unmap_page(root: *mut Table, va: u64) -> Result<(), MmuError> {
+    unsafe {
+        let mut table = root;
+        let mut level = Level::L1;
+
+        loop {
+            let index = level.index(va);
+            let entry = (*table).entries[index];
+
+            if paging::is_invalid(entry) {
+                return Err(MmuError::NotMapped(va));
+            }
+
+            if paging::is_leaf(entry, level) {
+                if level == Level::L3 {
+                    (*table).entries[index] = 0;
+                    return Ok(());
+                }
+                // Coarser block covers this page: replace it with a table of
+                // next-level leaves, then continue the walk into that table.
+                table = split_block(table, index, level, entry, va)?;
+                level = level.next().ok_or(MmuError::OutOfRange(va))?;
+                continue;
+            }
+
+            if paging::is_table(entry, level) {
+                table = paging::descriptor_address(entry) as *mut Table;
+                level = level.next().ok_or(MmuError::OutOfRange(va))?;
+                continue;
+            }
+
+            return Err(MmuError::NotMapped(va));
+        }
+    }
+}
+
+/// Break-before-make: replace a block leaf with a fully populated next-level
+/// table that maps the same physical range with the same attributes.
+///
+/// Returns a pointer to the new table. The caller's `va` must lie inside the
+/// block being split (used only to compute the block's base for TLB flush).
+///
+/// # Safety
+/// Live tables; IRQs masked. Allocates from the page-table arena.
+unsafe fn split_block(
+    parent: *mut Table,
+    index: usize,
+    level: Level,
+    block_entry: u64,
+    va: u64,
+) -> Result<*mut Table, MmuError> {
+    unsafe {
+        let (pa_base, kind, perms) =
+            paging::decode_leaf(block_entry, level).ok_or(MmuError::BadDescriptor {
+                va,
+                pa: paging::descriptor_address(block_entry),
+            })?;
+        let next_level = level.next().ok_or(MmuError::OutOfRange(va))?;
+        let child = alloc_table()?;
+        let entry_size = next_level.entry_size();
+
+        for i in 0..paging::ENTRIES_PER_TABLE {
+            let pa = pa_base + (i as u64) * entry_size;
+            (*child).entries[i] = paging::leaf(next_level, pa, kind, perms)
+                .ok_or(MmuError::BadDescriptor { va, pa })?;
+        }
+
+        // Break: drop the block so no walker can see a half-built child.
+        (*parent).entries[index] = 0;
+        let block_size = level.entry_size();
+        let block_va = va & !(block_size - 1);
+        publish_and_invalidate(block_va, block_size);
+
+        // Make: install the table. Invalid→valid; still ordered for the next walk.
+        (*parent).entries[index] =
+            paging::table_descriptor(child as u64).ok_or(MmuError::BadDescriptor {
+                va,
+                pa: child as u64,
+            })?;
+        core::arch::asm!("dsb ishst", options(nostack, preserves_flags));
+
+        Ok(child)
     }
 }
 

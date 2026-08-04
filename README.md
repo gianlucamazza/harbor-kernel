@@ -29,7 +29,7 @@ interactive serial console.
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
 | Interrupts   | GICv2, arch timer PPI, PL011 RX via SPI, dispatch counters                                                                          |
 | Console      | Polled TX, interrupt-driven RX into a lock-free ring, `WFI` idle                                                                    |
-| Verification | 102 host unit tests, Miri over the `unsafe`, a layout validator, build-enforced invariants, QEMU boot gate, fault-probed on hardware |
+| Verification | 104 host unit tests, Miri over the `unsafe`, a layout validator, build-enforced invariants, QEMU boot gate, fault-probed on hardware |
 
 ## What does not exist yet
 
