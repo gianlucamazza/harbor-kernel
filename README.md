@@ -1,54 +1,83 @@
 # rpi_minimal_agentic
 
-Agent-based microkernel for the **Raspberry Pi 4 Model B**, written in Rust
-(`no_std`), booting bare metal under the platform firmware.
+A bare-metal AArch64 kernel for the **Raspberry Pi 4 Model B**, written in Rust
+(`no_std`), booting under the platform firmware. The long-term target is an
+agent-based microkernel; see _What exists_ below for the difference between
+that goal and the current tree.
 
-**M2 + P0 (in tree):** identity **MMU** + **bump heap** + **idle (WFI)** +
-**UART RX IRQ** (ring).  
-Validate on Pi: `MMU on`, `heap demo:`, `idle: WFI…`, continuing `ticks=`, echo works.
+## What exists
+
+Boot to EL1, a mapped and protected address space, interrupts, a heap, and an
+interactive serial console.
+
+| Area         | State                                                            |
+| ------------ | ---------------------------------------------------------------- |
+| Boot         | EL2→EL1, softfloat, DTB pointer captured (not parsed)            |
+| Memory       | Multi-level identity map, **W^X**, unmapped stack guard page     |
+| Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work      |
+| Interrupts   | GICv2, arch timer PPI, PL011 RX via SPI, dispatch counters       |
+| Console      | Polled TX, interrupt-driven RX into a lock-free ring, `WFI` idle |
+| Verification | 54 host unit tests, QEMU boot in CI                              |
+
+## What does not exist yet
+
+No scheduler, no tasks, no address-space separation, no user mode, no IPC, no
+capabilities — **none of the agent model is implemented.** Everything runs on
+one core at EL1 in a single identity-mapped address space. The design those
+words describe is the roadmap in
+[`docs/architecture.md`](docs/architecture.md), not the code.
 
 ## Design
 
-- **Target:** agents, message passing, capabilities (see roadmap in
-  [`docs/architecture.md`](docs/architecture.md)).
 - **Layers:** `arch` → `bsp` → `drivers` / `irq` → `bootstrap` / `time` / console.
+- **Memory:** [`docs/mmu.md`](docs/mmu.md).
 - **Interrupts:** [`docs/interrupts.md`](docs/interrupts.md).
 - **Blobs:** EEPROM + `start4.elf` only — [`docs/blobs.md`](docs/blobs.md).
 
 ## Layout
 
 ```
+crates/kernel-core/  pure logic, unit-tested on the host:
+                     paging encodings, allocators, GIC register maths, SPSC ring
 src/
-  arch/aarch64/   MMIO, CPU/DAIF, exception vectors, CNTP timer
-  irq/            IrqChip trait, dispatch table
+  arch/aarch64/   MMIO, CPU/DAIF, cache maintenance, vectors, MMU, CNTP, bootinfo
+  irq/            IrqChip trait, dispatch table, counters
   drivers/        PL011, GICv2
   bsp/rpi4/       memmap, GPIO, console, IRQ bind (static GIC)
-  bootstrap/      bring-up (production; optional selftest)
+  bootstrap/      mod: boot sequence · shell: console loop · selftest: gates
+  mm/             heap + GlobalAlloc, layout: regions and permissions
   time/           tick counter
-  console.rs      TX acquire + RX ring + print macros
-  sync.rs         SyncCell for single-core globals
-  panic.rs        mask IRQ → UART → halt
-  boot.s          EL2→EL1, CNTHCTL, BSS, stack
+  console.rs      TX claim + RX ring + print macros
+  sync.rs         SyncCell for globals the IRQ path shares
+  panic.rs        mask IRQ → steal console → halt
+  boot.s          DTB pointer, EL2→EL1, CNTHCTL, BSS, stack
   main.rs         → bootstrap::run()
 boot/config.txt   arm_64bit, enable_uart, enable_gic
-docs/             architecture, interrupts, boot, blobs, hardware
+docs/             architecture, mmu, interrupts, boot, blobs, hardware
 scripts/          fetch-blobs, deploy-sd, serial, restore-rpios-boot
 ```
 
 ## Build (host: Arch Linux)
 
+The toolchain file pins the channel and the `aarch64-unknown-none-softfloat`
+target, so `rustup` installs what is needed on first build.
+
 ```bash
-rustup target add aarch64-unknown-none
-make              # → target/aarch64-unknown-none/release/kernel8.img
-make check        # cargo check + clippy -D warnings
+make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
+make check        # fmt --check + host tests + no-SIMD guard + clippy -D warnings
+make test         # host unit tests only
 make fmt
 ```
+
+The kernel is built **softfloat**: it contains no FP/SIMD, `CPACR_EL1.FPEN` is
+left trapping, and `make no-simd` fails the build if a register ever appears in
+the image. See `src/arch/aarch64/cpu.rs` for why.
 
 ## Flash and run
 
 ```bash
-make blobs
-make deploy SD_MOUNT=/run/media/$USER/bootfs
+make blobs                                    # verified against EXPECTED.sha256
+make deploy SD_MOUNT=/run/media/$USER/bootfs  # refuses anything not a FAT boot partition
 make serial SERIAL_DEV=/dev/ttyUSB0
 ```
 
@@ -60,33 +89,52 @@ Details: [`docs/hardware.md`](docs/hardware.md).
 ```
 rpi_minimal_agentic: hello
 M2+P0: MMU + heap + idle + UART RX IRQ
-MMU on  (identity 2GiB RAM + device window)
-heap remaining = …
+no DTB (x0 was 0x…); board constants are compiled in
+MMU on  (W^X, guard page at 0x…, 40960 B of table arena left)
+heap remaining = 67108864 bytes
 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
 IRQs enabled (timer + UART RX)
 idle: WFI when no RX/tick work
-heap demo: alloc 64B at 0x…
+heap: Box at 0x…, Vec of 1024 sums to 523776
+heap: … bytes free while held, 2 fragments
+heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
 ticks=10
 ticks=20
 ...
 ```
 
-Typed characters are echoed via the RX IRQ ring (main idles with `WFI` between events).
+Typed characters are echoed via the RX IRQ ring (main idles with `WFI` between
+events). `fully reclaimed` is the line that distinguishes a real allocator from
+the bump one it replaced. An `irq: unhandled=…` line only appears if the
+dispatch counters move — on a healthy boot they stay at zero and stay quiet.
+
+The same boot runs under emulation, which is the fast way to check a change:
+
+```bash
+make qemu        # Ctrl-A x to quit
+make qemu-gdb    # halted, waiting for gdb on :1234
+```
 
 ### Bring-up self-test
 
-In `src/bootstrap/mod.rs`, set `BRINGUP_SELFTEST = true` to re-run soft/HPPIR/IAR
-gates (used while debugging M1). Default is `false` for a short production boot.
+The masked CNTP / HPPIR / IAR gates used to debug the M1 interrupt path are
+behind a cargo feature, so none of it — including the raw GIC accessors it
+needs — is compiled into a production image:
+
+```bash
+cargo build --release --features bringup
+```
 
 ## Docs
 
-| Doc | Content |
-|-----|---------|
+| Doc                                            | Content                         |
+| ---------------------------------------------- | ------------------------------- |
 | [`docs/architecture.md`](docs/architecture.md) | Layers, agent model, milestones |
-| [`docs/interrupts.md`](docs/interrupts.md) | VBAR, GIC, timer, HW evidence |
-| [`docs/boot-chain.md`](docs/boot-chain.md) | ROM → EEPROM → start4 → kernel |
-| [`docs/blobs.md`](docs/blobs.md) | Closed firmware policy |
-| [`docs/hardware.md`](docs/hardware.md) | Pinout, GIC bases |
+| [`docs/mmu.md`](docs/mmu.md)                   | Regions, W^X, guard page        |
+| [`docs/interrupts.md`](docs/interrupts.md)     | VBAR, GIC, timer, HW evidence   |
+| [`docs/boot-chain.md`](docs/boot-chain.md)     | ROM → EEPROM → start4 → kernel  |
+| [`docs/blobs.md`](docs/blobs.md)               | Closed firmware policy          |
+| [`docs/hardware.md`](docs/hardware.md)         | Pinout, GIC bases               |
 
 ## License
 

@@ -1,0 +1,17 @@
+# Expected SHA-256 of the pinned platform firmware, committed to the repo.
+#
+# This is the integrity check, not `MANIFEST.txt`: the manifest records what
+# was downloaded, so it agrees with itself no matter what arrived. These hashes
+# were reviewed once and are verified on every fetch.
+#
+# Bumping firmware_tag means replacing these deliberately: fetch with
+# `FIRMWARE_TAG=<new> ALLOW_UNVERIFIED=1 ./scripts/fetch-blobs.sh`, review the
+# printed sums, then paste them here in the same commit as the tag change and
+# note the reason (see docs/blobs.md).
+#
+# Format: <sha256>  <filename>, as produced by `sha256sum`.
+
+firmware_tag=1.20250430
+
+2cc344f6171797317ae0b6197191803b45e2f3cda091f0da31c0a3f0bfc47593  start4.elf
+ca84b2fae239fc9041ac1bdc8648c1e33b9c6e67c4bd073b651b96dc2726c553  fixup4.dat

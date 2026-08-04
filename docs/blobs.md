@@ -9,13 +9,29 @@ not pretend they are open, and we do not spread closed code into the kernel.
 
 ## Inventory
 
-| Component | Location | Controllable? | Notes |
-|-----------|----------|---------------|-------|
-| Boot ROM | On-chip | No | Fused; starts the machine |
-| EEPROM bootloader | SPI flash on board | Update only | Raspberry Pi Ltd binary |
-| `start4.elf` | SD boot partition | Yes (version pin) | VideoCore; loads our kernel |
-| `fixup4.dat` | SD boot partition | Yes (version pin) | Companion to `start4.elf` |
-| `kernel8.img` | SD boot partition | Yes | **Our code** |
+| Component         | Location           | Controllable?     | Notes                       |
+| ----------------- | ------------------ | ----------------- | --------------------------- |
+| Boot ROM          | On-chip            | No                | Fused; starts the machine   |
+| EEPROM bootloader | SPI flash on board | Update only       | Raspberry Pi Ltd binary     |
+| `start4.elf`      | SD boot partition  | Yes (version pin) | VideoCore; loads our kernel |
+| `fixup4.dat`      | SD boot partition  | Yes (version pin) | Companion to `start4.elf`   |
+| `kernel8.img`     | SD boot partition  | Yes               | **Our code**                |
+
+## What the kernel depends on the firmware for
+
+Beyond loading `kernel8.img`, the pinned firmware determines machine state the
+kernel inherits and does not reprogram from scratch. These are the reasons the
+tag is a pin and not a preference:
+
+| Inherited state                  | Effect if the firmware changes it                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GIC security/group configuration | `drivers/gicv2.rs` drives the **Group 0 + `IAR`/`EOIR`** path, chosen because it is what worked on this firmware. In the Non-Secure view of GICv2, `GICD_CTLR` bit 0 is `EnableGrp1`, so this sequence depends on the state `start4.elf` leaves the distributor in. A firmware bump can stop interrupts being delivered — with no diagnostic beyond a silent `ticks=` line. |
+| `CNTFRQ_EL0`                     | The arch timer rate is read, not set. Zero is reported as `TimerError::NoCounterFrequency`.                                                                                                                                                                                                                                                                                 |
+| PL011 reference clock            | Assumed 48 MHz, which holds with `enable_uart=1` and `core_freq_min=500`. A different clock produces a console that prints garbage rather than nothing.                                                                                                                                                                                                                     |
+| `CPACR_EL1`                      | Irrelevant by design: the kernel is softfloat and leaves FP trapping.                                                                                                                                                                                                                                                                                                       |
+
+After bumping `firmware_tag`, boot once with `--features bringup` and check the
+gates still pass; that is the cheapest way to catch a GIC regression.
 
 ## Operational rules
 

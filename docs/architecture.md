@@ -2,13 +2,13 @@
 
 ## Purpose
 
-`rpi_minimal_agentic` is an agent-based microkernel for the Raspberry Pi 4
-Model B. Agents will be isolated units that interact only through message
-passing and capabilities.
+`rpi_minimal_agentic` **aims to be** an agent-based microkernel for the
+Raspberry Pi 4 Model B, where agents are isolated units interacting only
+through message passing and capabilities.
 
-**M2 + P0 in tree:** identity MMU + bump heap, timer IRQ ticks, **idle (WFI)**
-
-- **UART RX IRQ** into a kernel ring. Validate idle/RX on hardware after flash.
+It is not one yet. What runs today is a single-core kernel at EL1: a protected
+identity map, interrupts, a heap, and a serial console. The agent model below
+is the target; the milestone table says which parts exist.
 
 ## Layering
 
@@ -20,7 +20,7 @@ passing and capabilities.
                              │ syscalls / IPC / cap_irq
 ┌────────────────────────────┴─────────────────────────────┐
 │  Kernel policy                                           │
-│  bootstrap · time · console · (sched M3+)                │
+│  bootstrap · shell · time · console · mm · (sched M3+)   │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
@@ -29,8 +29,8 @@ passing and capabilities.
 └───────────▲───────────┘     └───────────▲────────────────┘
             │ claim/eoi                   │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
-│  arch/exception       │     │  arch/timer (CNTP)         │
-│  VBAR · frame · entry │     │  program / rearm / pending│
+│  arch/exception       │     │  arch/{timer,mmu,cache}    │
+│  VBAR · frame · entry │     │  CNTP · page tables · maint│
 └───────────────────────┘     └────────────────────────────┘
             ▲                              ▲
             │         bsp/rpi4             │
@@ -54,6 +54,8 @@ passing and capabilities.
    `cpu::without_irqs`.
 8. Main idle uses `WFI` when the RX ring is empty and no tick report is due,
    with IRQs masked across the check so a wakeup cannot be lost.
+9. Nothing is both writable and executable, and diagnostic scaffolding lives
+   behind the `bringup` feature rather than in the production surface.
 
 ## Interrupt / timer / console contract
 
@@ -65,8 +67,16 @@ passing and capabilities.
 | Tick policy | `time`          | `on_timer_irq`, `ticks()`          |
 | Console RX  | `console`       | ring, `on_uart_rx_irq`, `pop_rx`   |
 | Bind        | `bsp/rpi4/irq`  | TIMER=30, UART=153, static GIC     |
+| Layout      | `mm/layout`     | regions and their permissions      |
+| Allocation  | `mm`            | free list + `GlobalAlloc`          |
 
-## Agent model (target)
+## Agent model (target — none of this is implemented)
+
+The kernel today has no unit of execution, no scheduler, no address-space
+separation and no user mode. Everything below describes where the design is
+going, not what the code does. `mm::paging` and the free-list allocator are the
+first two pieces the rest can be built on; the third, an execution abstraction,
+does not exist yet.
 
 | Concept    | Role                                                  |
 | ---------- | ----------------------------------------------------- |
@@ -84,10 +94,16 @@ passing and capabilities.
 | M1  | Exceptions + timer IRQ ticks              | **done** (HW)             |
 | M2  | MMU + kernel heap (+ atomics after attrs) | **done** (HW)             |
 | P0  | Idle (WFI) + UART RX IRQ + ring           | **in tree** — HW validate |
+| P1  | W^X + guard page + free-list `GlobalAlloc` | **in tree** — HW validate |
 | M3  | Cooperative tasks                         | planned                   |
 | M4  | IPC + capabilities                        | planned                   |
 | M5  | EL0 agents                                | planned                   |
 | M6  | Driver-as-agent                           | planned                   |
+
+M3 is now unblocked: it needs an allocator that frees (P1) and per-region
+permissions (P1). It still needs a frame allocator and per-task `TTBR0` before
+M5 can give agents their own address spaces — `arch::mmu` maps regions but has
+no notion of more than one address space.
 
 ## Non-goals
 
