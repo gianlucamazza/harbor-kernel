@@ -25,6 +25,13 @@ needs a barrier rather than the invalidate-everything sequence a cold enable
 requires. If it fails, nothing is switched and the early map stays active —
 which is what lets the failure be reported over a working console.
 
+Reported, and then the boot stops. The early map is RWX across three gigabytes
+by construction; every protection this kernel claims about itself arrives with
+`activate`. Continuing would offer an interactive console on a machine with no
+memory protection, having said so once in a line that scrolls past. The boot
+also refuses if `activate` returns `Ok` while `SCTLR_EL1.M` reads back clear:
+the claim printed is about the hardware, so it is read from the hardware.
+
 ## Mapping after boot
 
 `activate` installs _the_ map, once, before any address the firmware assigns at

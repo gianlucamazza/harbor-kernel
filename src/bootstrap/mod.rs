@@ -16,6 +16,7 @@ use kernel_core::paging::{MemKind, Perms};
 
 use crate::bsp::board;
 use crate::console;
+use crate::drivers::pl011::Pl011;
 use crate::irq;
 use crate::mm;
 use crate::println;
@@ -25,6 +26,28 @@ const TIMER_HZ: u32 = 10;
 
 /// Kernel heap size, clamped to the identity-mapped RAM window.
 const HEAP_SIZE: usize = 64 * 1024 * 1024;
+
+/// Stop the boot, having said why, when the kernel map could not be established.
+///
+/// The early map from `boot.s` is RWX across three gigabytes by construction —
+/// it exists only to give the first Rust code memory attributes. Everything the
+/// kernel claims about itself, W^X and the guard page both, arrives with
+/// `mmu::activate`. Continuing without it would hand an interactive console to a
+/// machine with no memory protection at all, having said so once in a line that
+/// scrolls past in a second.
+///
+/// A boot that cannot establish its invariants has not degraded, it has failed.
+/// Halting is also the honest signal: silence after this message is easier to
+/// notice, and harder to ignore, than a prompt that works.
+fn refuse_to_boot(uart: &mut Pl011, reason: core::fmt::Arguments<'_>) -> ! {
+    println!(uart, "BOOT REFUSED: {reason}");
+    println!(
+        uart,
+        "the early map is RWX — no W^X, no guard page. Halting rather than \
+         offering a console on an unprotected machine."
+    );
+    cpu::halt()
+}
 
 /// Full kernel bring-up; never returns.
 pub fn run() -> ! {
@@ -77,30 +100,34 @@ pub fn run() -> ! {
             // The layout itself is inconsistent — overlapping regions, a
             // mapped guard page, a W+X region. Mapping it would produce
             // something that boots and protects nothing.
-            println!(uart, "LAYOUT INVALID: {error:?}");
-            println!(uart, "staying on the early map — no W^X, no guard page");
-            shell::run(&mut uart)
+            refuse_to_boot(&mut uart, format_args!("layout invalid: {error:?}"))
         }
     };
 
     // Swap the coarse early map for the real one. On failure the early map
-    // stays active, so the report below still reaches the console.
+    // stays active, so the report still reaches the console — and then the boot
+    // stops, because that map protects nothing.
     // SAFETY: single core, IRQs masked, early map active.
-    match unsafe { mmu::activate(regions) } {
-        Ok(()) => {
-            println!(
-                uart,
-                "MMU {}  (W^X, guard page at {:#x}, {} B of table arena left)",
-                if mmu::is_enabled() { "on" } else { "OFF?" },
-                mm::layout::guard_page(),
-                mmu::tables_remaining()
-            );
-        }
-        Err((error, region)) => {
-            println!(uart, "MMU FAILED mapping {region}: {error:?}");
-            println!(uart, "continuing unmapped — addresses are physical");
-        }
+    if let Err((error, region)) = unsafe { mmu::activate(regions) } {
+        refuse_to_boot(&mut uart, format_args!("could not map {region}: {error:?}"))
     }
+
+    // `activate` returning `Ok` is not the same as the MMU being on. The claim
+    // printed below is about the hardware, so it is read back from `SCTLR_EL1`
+    // rather than inferred from the path that just ran.
+    if !mmu::is_enabled() {
+        refuse_to_boot(
+            &mut uart,
+            format_args!("activate reported success but SCTLR_EL1.M is clear"),
+        )
+    }
+
+    println!(
+        uart,
+        "MMU on  (W^X, guard page at {:#x}, {} B of table arena left)",
+        mm::layout::guard_page(),
+        mmu::tables_remaining()
+    );
 
     // The kernel map deliberately covers far less than the early one, so the
     // device-tree blob is now outside it. Map it back in: it is the first
