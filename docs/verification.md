@@ -84,18 +84,16 @@ adding a deliberate fault to `bootstrap::run` and booting on hardware:
 | Probe                        | ESR          | Decoded                                                        | FAR       | Run on    |
 | ---------------------------- | ------------ | -------------------------------------------------------------- | --------- | --------- |
 | Write to `.text` (`0x80000`) | `0x9600004F` | EC 0x25 data abort, DFSC `0b001111` permission fault L3, WnR=1 | `0x80000` | hardware  |
-| Write to the guard page      | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0x9a000` | hardware  |
-| Kernel stack overflow        | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0xa1ff8` | QEMU only |
+| Write to the guard page      | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0xa1000` | hardware  |
+| Kernel stack overflow        | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0xa1ff8` | hardware  |
 
 The translation fault is the one to insist on for the guard page: a
 _permission_ fault there would mean the page is mapped but protected, and a
 stack that overflowed by reading would not be caught.
 
-**The two hardware rows predate the stack split.** They were taken when the
-guard page was at `0x9a000`; it is now at `0xa1000`, and there are two guard
-pages. The ESR values are what matter and they do not depend on the address, but
-the FAR column is a record of a run that no longer matches the tree. Re-run both
-on hardware — that is the open item below.
+All three rows are hardware runs against the current tree. The W^X row was taken
+before the stack split and not re-run: `.text` and `.rodata` were not touched by
+it, and its ESR does not depend on an address that moved.
 
 The probes are not in the tree — a deliberate fault is a dead board. Re-run
 them by hand after changing `link.ld` or the region list in `mm::layout`. This
@@ -123,12 +121,38 @@ layout and not a stale card. Timer IRQs arrive, which is the part worth
 insisting on: they can only arrive through the **EL1t** vector entries, so the
 vector group moved correctly and the hardware really does switch to `SP_EL1`.
 
-**The fault half is still open.** What a clean boot cannot show is the overflow
-behaviour the split exists for. Still to run, one deliberate-fault image each:
+**The overflow probe is closed too.** On the same board, a small-frame recursion
+into the guard page:
 
-- the small-frame recursion, which must report `FAR` at the *top* of the guard
-  page (`0xa1ff8` under QEMU) rather than walking down through it;
-- the guard-page write probe, at its new address.
+```
+PROBE: overflowing the kernel stack
+  ESR=0x0000000096000047   ELR=0x00000000000812bc
+  SPSR=0x0000000060000344  FAR=0x00000000000a1ff8
+```
+
+`FAR=0xa1ff8` is the top of the guard page: the handler stopped at the first
+byte that faulted instead of walking down through it. The `SPSR` is independent
+evidence for the same thing — `M[3:0] = 0b0100` is EL1t, so the interrupted
+context was running on `SP_EL0`. Before the split the same probe recorded
+`SPSR=0x3c5`, `M[3:0] = 0b0101`, EL1h.
+
+**The guard-page write probe is closed as well**, at the address the split moved
+it to:
+
+```
+PROBE: writing to the guard page at 0xa1000
+  ESR=0x0000000096000047  FAR=0x00000000000a1000
+```
+
+DFSC `0b000111` is a translation fault, not a permission fault, which is the
+property that matters: an unmapped page catches an overflowing *read* too.
+
+It took two runs. The first was captured while a stale monitor still held the
+port, and the two readers split the stream — `CNTFRQ=5400096000047` is one line
+of each. The bytes could have been stitched back together from the two logs, and
+the answer would have been right, but a reconstructed stream is what produced a
+wrong conclusion earlier in this project. The probe was re-run with one reader
+instead.
 
 The W^X probe needs no re-run: `.text` and `.rodata` were not touched by the
 split, and its recorded ESR does not depend on an address that moved.
