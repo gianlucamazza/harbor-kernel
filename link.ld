@@ -26,9 +26,17 @@ ENTRY(_start)
    overflow then faults instead of quietly eating the page tables. */
 GUARD_PAGE_SIZE = 0x1000;
 
-/* Root table + one L2 per mapped GiB + L3 tables for the sub-2 MiB detail.
-   Four are needed today; sixteen leaves room to map more device windows
-   without touching the linker script again. */
+/* Root table + one L2 per mapped GiB + one L3 per 2 MiB window that is not a
+   whole block. Six are used by `activate`, and the boot prints the remainder.
+
+   Two things consume tables after that, both permanently: `mmu::map` for the
+   DTB, and every `mmu::unmap` that has to split a 2 MiB block to punch out a
+   task-stack guard. The arena is a bump allocator with no free path, so a
+   split is never given back — spawning tasks into distinct blocks is what
+   grows this number over a long uptime.
+
+   Sixteen leaves ten free, against a `MIN_SPARE_TABLES` reserve of six that
+   `bootstrap::run` refuses to boot below. Raise both together. */
 PAGE_TABLE_ARENA_SIZE = 16 * 0x1000;
 
 STACK_SIZE = 0x10000;

@@ -66,6 +66,30 @@ would close it, and has not been written.
 At M5, or earlier if `mmu::map` acquires many callers. The concrete trigger is
 the first address space that is created and destroyed.
 
+## Amendment — 2026-08-05: the gate above has been written
+
+The decision is unchanged; the text above is left exactly as accepted. This
+records that the assertion its gate section calls for — "an assertion in the
+boot check on a minimum remainder would close it, and has not been written" —
+now exists, so that section should be read as history rather than as the
+current state.
+
+`bootstrap::run` refuses to boot when fewer than `MIN_SPARE_TABLES` tables are
+free after the kernel map and the DTB mapping, naming the constant to raise.
+Exhaustion is no longer something a reader of the boot output has to notice.
+
+What made the reserve necessary rather than merely tidy is M3: unmapping a
+task-stack guard inside a 2 MiB block splits that block, taking one table per
+split with no path back. The arena therefore stopped being a boot-time cost and
+became one that grows with task churn — the shape this ADR anticipated at M5
+and met at M3 instead. `mmu::splits()` counts them, and the boot line reports
+both numbers.
+
+The reserve is a strengthening, not a change of decision, so it is written here
+rather than in a successor. A successor is still what a *different* allocation
+strategy would need, and [`ADR-0006`](0006-cooperative-execution-model.md)
+already names ADR-0005 as the wrong shape for M5.
+
 ## References
 
 `link.ld` (`PAGE_TABLE_ARENA_SIZE`), `src/arch/aarch64/mmu.rs`,

@@ -142,13 +142,18 @@ vector entries, not EL1h. The EL1h entries are reached only from inside a
 handler, and route to `exc_unexpected`: a fault inside a fault is not something
 this kernel tries to survive.
 
+The addresses themselves live in [`verification.md`](verification.md), dated to
+the layout they were observed on. They are deliberately not repeated here: this
+table and that one drifted apart once already, the moment the stack split moved
+the guard.
+
 What this buys is visible in where the report stops. Overflow the kernel stack
 with a small-frame recursion and compare:
 
-| Arrangement              | `FAR` reported | Where that is          |
-| ------------------------ | -------------- | ---------------------- |
-| One stack (before this)  | `0x9c000`      | the guard's **bottom** |
-| Separate exception stack | `0xa1ff8`      | the guard's **top**    |
+| Arrangement              | Where the reported `FAR` lands |
+| ------------------------ | ------------------------------ |
+| One stack (before this)  | the guard's **bottom**         |
+| Separate exception stack | the guard's **top**            |
 
 With one stack the handler saved its trap frame below the faulting `SP`, inside
 the guard page, and faulted again — about fifteen times, walking 272 bytes lower

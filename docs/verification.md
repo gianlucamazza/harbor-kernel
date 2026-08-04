@@ -8,7 +8,7 @@ covered.
 
 | Layer                                     | Runs                                    | Covers                                                                                                                 | Blind to                                                                                       |
 | ----------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Host unit tests (`make test`)             | `cargo test -p kernel-core`             | Register encodings, allocator arithmetic, GIC index maths, region splitting, the SPSC ring                             | Anything that touches hardware, and any _use_ of these functions                               |
+| Host unit tests (`make test`)             | `cargo test -p kernel-core`             | Register encodings (UART, SPI, RNG200, …), allocator arithmetic, GIC index maths, region splitting, the SPSC ring      | Anything that touches hardware, and any _use_ of these functions                               |
 | Miri (`make miri`)                        | Interprets the host tests               | Aliasing, provenance and data races in the crate's only `unsafe` — the ring's `UnsafeCell` buffer and `Sync` assertion | The kernel crate's `unsafe`, which touches MMIO and system registers and cannot be interpreted |
 | Bring-up build (`make bringup-builds`)    | Compiles and lints `--features bringup` | A configuration nothing else builds, and the one you reach for when the board will not talk                            | Anything the gates do not _run_ — it compiles, it is not executed                              |
 | No-SIMD guard (`make no-simd`)            | Disassembles the linked image           | A build that silently regains FP/SIMD                                                                                  | FP that never reaches the image                                                                |
@@ -84,19 +84,28 @@ W^X and the guard page are claims about what _fails_. A map that reports itself
 active proves nothing about enforcement. Both were checked by temporarily
 adding a deliberate fault to `bootstrap::run` and booting on hardware:
 
-| Probe                        | ESR          | Decoded                                                        | FAR       | Run on    |
-| ---------------------------- | ------------ | -------------------------------------------------------------- | --------- | --------- |
-| Write to `.text` (`0x80000`) | `0x9600004F` | EC 0x25 data abort, DFSC `0b001111` permission fault L3, WnR=1 | `0x80000` | hardware  |
-| Write to the guard page      | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0xa1000` | hardware  |
-| Kernel stack overflow        | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0xa1ff8` | hardware  |
+| Probe                        | ESR          | Decoded                                                        | FAR       | Layout when run |
+| ---------------------------- | ------------ | -------------------------------------------------------------- | --------- | --------------- |
+| Write to `.text` (`0x80000`) | `0x9600004F` | EC 0x25 data abort, DFSC `0b001111` permission fault L3, WnR=1 | `0x80000` | any — `.text` starts at the image base |
+| Write to the guard page      | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0xa1000` | guard at `0xa1000`, pre-M3 |
+| Kernel stack overflow        | `0x96000047` | EC 0x25 data abort, DFSC `0b000111` translation fault L3       | `0xa1ff8` | guard at `0xa1000`, pre-M3 |
 
 The translation fault is the one to insist on for the guard page: a
 _permission_ fault there would mean the page is mapped but protected, and a
 stack that overflowed by reading would not be caught.
 
-All three rows are hardware runs against the current tree. The W^X row was taken
-before the stack split and not re-run: `.text` and `.rodata` were not touched by
-it, and its ESR does not depend on an address that moved.
+**These are dated observations, not current addresses.** The bootstrap guard has
+since moved to `0xa2000` and then `0xa3000` — not because anything about it
+changed, but because `.text` grew underneath it, which happens on any commit
+that adds code. What each row asserts is the **ESR**, which does not depend on
+where the guard sits; the `FAR` column is meaningful only against the layout
+named beside it, and the boot line prints the guard's current address on every
+boot.
+
+That is why the addresses are not tracked: a doc gate that compared them to the
+running binary would go red on commits that changed nothing it was meant to
+protect. Re-run the two guard rows when the *mechanism* changes — a different
+guard strategy, a different stack arrangement — not when the address moves.
 
 The probes are not in the tree — a deliberate fault is a dead board. Re-run
 them by hand after changing `link.ld` or the region list in `mm::layout`. This
@@ -117,7 +126,9 @@ be marked `done (HW)`.
 ### Boot + cooperative yield (closed)
 
 Pi 4B, production image, CP2104 @ 115200, 2026-08-04. `CNTFRQ=54000000` is
-silicon (TCG is 62.5 MHz). Guard page at `0xa2000` matches the post-M3 layout.
+silicon (TCG is 62.5 MHz). The guard sat at `0xa2000` in the image that was
+flashed; it has moved since, with `.text` — see the probe table above on why
+that is expected and not tracked.
 
 ```
 Harbor: hello
@@ -217,8 +228,9 @@ heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
 ticks=10 … ticks=70
 ```
 
-`CNTFRQ=54000000` says this is silicon, not TCG; `0xa1000` says it is the split
-layout and not a stale card. Timer IRQs arrive, which is the part worth
+`CNTFRQ=54000000` says this is silicon, not TCG; the guard at `0xa1000` says
+this image is the split layout and not a stale card — the check being "does it
+match the image just flashed", never "does it match today's build". Timer IRQs arrive, which is the part worth
 insisting on: they can only arrive through the **EL1t** vector entries, so the
 vector group moved correctly and the hardware really does switch to `SP_EL1`.
 
@@ -315,6 +327,7 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Block split (M3)                                                 | aim the split smoke at an already-L3 page   | `block split path did not run: split: page at 0xb5000 split 0, remapped` — the line is there, the split is not                        |
 | `Context` / assembly coupling (M3)                                | swap `x30` and `sp` in `Context`            | two `offset_of` asserts red at compile time, naming both offsets; the size assert alone stayed green at 104 bytes                     |
 | Table-arena reserve (M3)                                         | raise `MIN_SPARE_TABLES` to 40              | `BOOT REFUSED: table arena nearly exhausted: 10 tables left, need 40 (raise PAGE_TABLE_ARENA_SIZE in link.ld)` and then nothing       |
+| SPI divisor overflow                                             | range-check after rounding instead of before | `left: Ok(0)` against `right: Err(TargetTooSlow …)` — a wrapped divider is a *legal* encoding, so the fastest request became the slowest clock |
 
 ## What Miri adds over the two-thread test
 
