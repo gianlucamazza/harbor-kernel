@@ -11,10 +11,13 @@ if [[ -z "${MOUNT}" ]]; then
   echo "usage: $0 <boot-partition-mount>" >&2
   exit 2
 fi
-if [[ ! -d "${MOUNT}" ]]; then
-  echo "error: mount not found: ${MOUNT}" >&2
-  exit 1
-fi
+# The same guard `deploy-sd.sh` uses. This script had two checks against its
+# nine, and it is the one reached for when something has already gone wrong —
+# the worst moment to install a bootloader into the local filesystem.
+# shellcheck source=lib/sd-target.sh
+source "${ROOT}/scripts/lib/sd-target.sh"
+
+assert_boot_partition "${MOUNT}" || exit 1
 if [[ ! -f "${BACKUP}/kernel8.img.rpios" || ! -f "${BACKUP}/config.txt.rpios" ]]; then
   echo "error: missing backup in ${BACKUP}" >&2
   exit 1

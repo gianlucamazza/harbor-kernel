@@ -11,47 +11,13 @@ if [[ -z "${MOUNT}" || -z "${IMG}" ]]; then
 	exit 2
 fi
 
-if [[ ! -d "${MOUNT}" ]]; then
-	echo "error: mount point not found: ${MOUNT}" >&2
-	exit 1
-fi
+# Shared with restore-rpios-boot.sh: one definition of "this is a Pi boot
+# partition", so the two writers cannot end up with different amounts of care.
+# shellcheck source=lib/sd-target.sh
+source "${ROOT}/scripts/lib/sd-target.sh"
 
-# Refuse to write anywhere that is not actually a mounted boot partition.
-#
-# Without this the script installs into any existing directory: an unmounted
-# card, or the difference between /run/media/$USER/boot and .../bootfs, means
-# quietly writing a bootloader into the local filesystem and wondering later
-# why the Pi did not pick up the new kernel.
-if ! mountpoint -q "${MOUNT}"; then
-	echo "error: ${MOUNT} is not a mount point — is the card inserted?" >&2
-	echo "hint: SD_MOUNT=/run/media/\$USER/bootfs make deploy" >&2
-	exit 1
-fi
+assert_boot_partition "${MOUNT}" || exit 1
 
-fstype="$(findmnt -no FSTYPE "${MOUNT}" || true)"
-case "${fstype}" in
-vfat | msdos | exfat) ;;
-*)
-	echo "error: ${MOUNT} is ${fstype:-unknown}, not a FAT boot partition" >&2
-	exit 1
-	;;
-esac
-
-# A Pi boot partition carries the firmware the EEPROM loads. If none of these
-# is present, this is some other FAT volume — a camera card, say.
-looks_like_boot=""
-for probe in bootcode.bin start4.elf start.elf config.txt kernel8.img; do
-	if [[ -e "${MOUNT}/${probe}" ]]; then
-		looks_like_boot=1
-		break
-	fi
-done
-
-if [[ -z "${looks_like_boot}" && -z "${FORCE_EMPTY:-}" ]]; then
-	echo "error: ${MOUNT} has no Raspberry Pi boot files — refusing to write" >&2
-	echo "hint: FORCE_EMPTY=1 to initialise a blank boot partition" >&2
-	exit 1
-fi
 if [[ ! -f "${IMG}" ]]; then
 	echo "error: kernel image not found: ${IMG}" >&2
 	exit 1
@@ -68,6 +34,13 @@ if [[ ! -f "${CONFIG}" ]]; then
 	echo "error: missing ${CONFIG}" >&2
 	exit 1
 fi
+
+# Verify the blobs again, here, immediately before they are written. Between
+# the fetch and this write the files sit in a working tree for days: an
+# interrupted re-fetch, a botched firmware bump, an editor saving over one of
+# them. ADR-0004 pins this firmware because the GIC configuration depends on it,
+# so "some start4.elf" is not the same claim as "the one that was validated".
+assert_blobs_pinned "${BLOBS}" || exit 1
 
 install -m 0644 "${IMG}" "${MOUNT}/kernel8.img"
 install -m 0644 "${CONFIG}" "${MOUNT}/config.txt"
