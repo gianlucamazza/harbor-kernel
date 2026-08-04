@@ -7,8 +7,9 @@ Raspberry Pi 4 Model B, where agents are isolated units interacting only
 through message passing and capabilities.
 
 It is not one yet. What runs today is a single-core kernel at EL1: a protected
-identity map, interrupts, a heap, and a serial console. The agent model below
-is the target; the milestone table says which parts exist.
+identity map, interrupts, a heap, cooperative tasks (M3 on QEMU; hardware
+evidence still incomplete — see the milestone table), and a serial console. The
+agent model below is the target; the milestone table says which parts exist.
 
 ## Layering
 
@@ -20,8 +21,8 @@ is the target; the milestone table says which parts exist.
                              │ syscalls / IPC / cap_irq
 ┌────────────────────────────┴─────────────────────────────┐
 │  Kernel policy                                           │
-│  bootstrap · console_loop · time · console · mm          │
-│  (scheduler from M3)                                     │
+│  bootstrap · console_loop (idle) · sched · time · console│
+│  mm (heap + task stacks)                                 │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
@@ -30,8 +31,8 @@ is the target; the milestone table says which parts exist.
 └───────────▲───────────┘     └───────────▲────────────────┘
             │ claim/eoi                   │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
-│  arch/exception       │     │  arch/{timer,mmu,cache}    │
-│  VBAR · frame · entry │     │  CNTP · page tables · maint│
+│  arch/exception       │     │  arch/{timer,mmu,switch}   │
+│  VBAR · frame · entry │     │  CNTP · map/unmap · yield  │
 └───────────────────────┘     └────────────────────────────┘
             ▲                              ▲
             │         bsp/rpi4             │
@@ -164,8 +165,8 @@ listed here block nothing and are tracked in that report alone.
 | Finding | Blocks              | Why                                                                                                                                                      |
 | ------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | F12     | — (resolved)        | Closed by [ADR-0006](adr/0006-cooperative-execution-model.md); the ADR was the deliverable                                                               |
-| F18     | time-based sched.   | Relative `TVAL` re-arm drifts phase; blocks sleep-N-ticks or a preemptive quantum, not pure cooperative yield (ADR-0006)                                 |
-| F13     | M4                  | `Handler = fn()` cannot carry a capability, and M4 is where handlers become mediated                                                                     |
+| F18     | — (resolved)        | Absolute `CNTP_CVAL` deadlines + missed-tick counter; pure cooperative yield never depended on it                                                        |
+| F13     | M4                  | `Handler = fn()` cannot carry a capability — see [ADR-0008](adr/0008-irq-handler-policy.md)                                                              |
 | F26     | M6                  | Device windows are 16 MiB blankets; an agent-owned driver would receive all of it                                                                        |
 | F15     | none                | The DTB is mapped and never parsed, so board truth stays hard-coded. Parse it or risk-accept it in an ADR — today it is neither                          |
 | F24     | — (resolved)        | Layering rules 1–4 are enforced by `make layering`; non-import coupling remains review-only (gate blind spots in verification)                           |
@@ -184,6 +185,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0004](adr/0004-gic-group0-firmware-pin.md) | GIC Group 0 with IAR/EOIR, and the firmware pin (**accepted**)              |
 | [ADR-0005](adr/0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator (**accepted**)         |
 | [ADR-0006](adr/0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks); closes F12 (**accepted**) |
+| [ADR-0008](adr/0008-irq-handler-policy.md)      | IRQ handler shape for M4 wakes / caps; closes F13 process (**proposed**) |
 | [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
 
 ## Non-goals

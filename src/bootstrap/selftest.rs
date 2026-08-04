@@ -1,17 +1,18 @@
-//! Bring-up gates for the GIC and timer path — `bringup` feature only.
+//! Bring-up gates — `bringup` feature only.
 //!
-//! These reproduce the sequence used to debug M1 on real hardware: prove CNTP
-//! fires with IRQs masked, prove the GIC reports the PPI as pending, then prove
-//! an `IAR` claim advances the tick counter. They reach for raw GIC registers,
-//! which is exactly why they are not compiled into a production image: the
-//! irqchip abstraction exists so kernel policy never touches those.
+//! - GIC/timer path: soft CNTP, HPPIR, IAR (M1).
+//! - Task-stack guard: deliberate write to an unmapped heap stack guard (M3).
+//!   That path **panics** with ESR/FAR on success; it is never in a production
+//!   image. Capture the panic line on silicon and record it in
+//!   `docs/verification.md`.
 //!
-//! Run with `cargo build --features bringup`.
+//! Run with `cargo build --release --features bringup`.
 
 use crate::arch::{cpu, timer};
 use crate::bsp::board;
 use crate::drivers::pl011::Pl011;
 use crate::irq;
+use crate::mm::TaskStack;
 use crate::println;
 use crate::time;
 
@@ -47,8 +48,9 @@ pub fn run(uart: &mut Pl011) -> bool {
         return false;
     }
 
-    println!(uart, "selftest: OK");
-    true
+    // Last: intentional fault. Does not return on success.
+    println!(uart, "selftest: task-stack guard write (expects fault)…");
+    probe_task_stack_guard(uart);
 }
 
 /// Poll `CNTP_CTL.ISTATUS` with IRQs masked: does the timer fire at all?
@@ -134,6 +136,32 @@ fn software_inject_timer(uart: &mut Pl011) -> bool {
     let after = time::ticks();
     println!(uart, "inject: ticks {before} -> {after}");
     after > before
+}
+
+/// Write the first byte of a heap task-stack guard page.
+///
+/// Success is a data abort: the panic path prints ESR/FAR. Record that line on
+/// silicon under M3 hardware evidence. Failure modes that return mean the
+/// guard was still mapped or allocation failed — those are bugs, not probes.
+fn probe_task_stack_guard(uart: &mut Pl011) -> ! {
+    // Same usable size as `sched` (16 KiB) so the geometry matches production.
+    let stack = match TaskStack::allocate(16 * 1024) {
+        Ok(stack) => stack,
+        Err(error) => {
+            println!(uart, "PROBE: task stack alloc FAILED {error:?}");
+            cpu::halt();
+        }
+    };
+    let guard = stack.guard_base();
+    println!(uart, "PROBE: writing to task stack guard at {guard:#x}");
+    // SAFETY: deliberate fault — address must be the unmapped guard.
+    unsafe {
+        core::ptr::write_volatile(guard as *mut u8, 0xA5);
+    }
+    println!(uart, "PROBE: FAIL — guard write did not fault");
+    // Keep the stack alive so we do not free an unmapped range by accident.
+    core::mem::forget(stack);
+    cpu::halt();
 }
 
 /// Fallback console for a board whose IRQ path failed the gates: poll the

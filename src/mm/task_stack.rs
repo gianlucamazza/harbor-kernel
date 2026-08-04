@@ -85,6 +85,15 @@ impl TaskStack {
         self.stack_top
     }
 
+    /// Base of the unmapped guard page (for deliberate fault probes).
+    ///
+    /// Used by `--features bringup` selftest; not referenced in production.
+    #[cfg_attr(not(feature = "bringup"), allow(dead_code))]
+    #[inline]
+    pub fn guard_base(&self) -> u64 {
+        self.geometry.guard.0
+    }
+
     /// Remap the guard and return the allocation to the heap.
     ///
     /// # Safety

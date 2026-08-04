@@ -71,11 +71,12 @@ observable. Encoding is covered; necessity is not.
 
 **valid→invalid (`unmap`):** a stale TLB entry keeps the old translation. That
 is the first path where maintenance is load-bearing. It lands with M3 task-stack
-guards (ADR-0006). Until a deliberate probe shows a post-`unmap` access taking
-a translation fault on hardware (and the same access succeeding if TLBI is
-stripped — optional mutation test), treat "unmap works" as: host decode/split
-tests green, QEMU path exists, silicon evidence still to record next to the
-guard-page rows below.
+guards (ADR-0006). Production boots exercise unmap+remap in `heap_check` (QEMU
+gated). A deliberate **task-stack guard write** is behind `--features bringup`
+(`selftest::probe_task_stack_guard`): it must panic with a translation fault.
+Record the ESR/FAR line under [M3 hardware evidence](#m3-cooperative-tasks-hardware)
+when silicon is available. Until that row exists, treat TLB *necessity* as
+construction + QEMU smoke, not silicon-closed.
 
 ## Protections are only verified when you have seen them fire
 
@@ -101,6 +102,32 @@ The probes are not in the tree — a deliberate fault is a dead board. Re-run
 them by hand after changing `link.ld` or the region list in `mm::layout`. This
 table is the only copy: it used to be duplicated in `mmu.md`, and both copies
 went stale together the moment the layout moved.
+
+## M3 cooperative tasks (hardware)
+
+**Status: open.** QEMU is closed (`boot-check` asserts interleaved `task-a` /
+`task-b`, spawn, unmap smoke, ticks). Silicon is not yet recorded in this tree.
+
+| Check | How | Evidence |
+| --- | --- | --- |
+| Interleaved yield | Production image on Pi 4B serial | *pending* — expect `task-a`/`task-b` lines and `CNTFRQ=54000000` |
+| Task-stack guard fault | `cargo build --release --features bringup`, flash, capture panic | *pending* — expect `PROBE: writing to task stack guard at …` then `ESR=…` DFSC translation, FAR in guard |
+| Review | [2026-08-04-m3-incremental.md](reviews/2026-08-04-m3-incremental.md) | desk pass done; HW checklist open |
+
+When both captures exist, paste them here and flip the M3 row in
+`architecture.md` to `done (HW)`.
+
+### Lab procedure (task guard)
+
+```bash
+cargo build --release --features bringup
+llvm-objcopy -O binary target/aarch64-unknown-none-softfloat/release/harbor-kernel \
+  target/aarch64-unknown-none-softfloat/release/kernel8.img
+make deploy SD_MOUNT=/run/media/$USER/bootfs   # adjust mount
+make serial
+# Expect selftest GIC gates, then PROBE line, then PANIC with ESR/FAR.
+# Re-flash a production image (no bringup) afterwards — bringup panics by design.
+```
 
 ## Hardware evidence: stack split (closed)
 

@@ -158,13 +158,16 @@ make qemu-gdb    # halted, waiting for gdb on :1234
 
 ### Bring-up self-test
 
-The masked CNTP / HPPIR / IAR gates used to debug the M1 interrupt path are
-behind a cargo feature, so none of it — including the raw GIC accessors it
-needs — is compiled into a production image:
+The masked CNTP / HPPIR / IAR gates (M1) and a deliberate **task-stack guard
+write** (M3 — panics with ESR/FAR on success) are behind a cargo feature, so
+none of it is compiled into a production image:
 
 ```bash
 cargo build --release --features bringup
 ```
+
+Use a bringup image only to capture silicon evidence, then re-flash production.
+See [`docs/verification.md`](docs/verification.md#m3-cooperative-tasks-hardware).
 
 ## Docs
 
