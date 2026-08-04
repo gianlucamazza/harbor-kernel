@@ -4,8 +4,8 @@ members = ["crates/kernel-core"]
 [package]
 name = "rpi_minimal_agentic"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.75"
+edition = "2024"
+rust-version = "1.85"
 description = "Agent-based microkernel for Raspberry Pi 4 Model B"
 license = "MIT OR Apache-2.0"
 publish = false

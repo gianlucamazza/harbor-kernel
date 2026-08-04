@@ -69,8 +69,9 @@ pub fn run() -> ! {
     }
 
     // SAFETY: single-core; exclusive GIC ownership.
-    unsafe {
-        board::irq::init(TIMER_HZ);
+    let irq_bound = unsafe { board::irq::init(TIMER_HZ) };
+    if !irq_bound {
+        println!(uart, "IRQ bind FAILED: a handler id is out of range");
     }
     cpu::sync_pipeline();
 
@@ -244,6 +245,7 @@ fn soft_console(uart: &mut Pl011) -> ! {
 /// Event-driven console: drain RX ring, report ticks, idle with WFI.
 fn irq_console(uart: &mut Pl011) -> ! {
     let mut last_printed = 0u64;
+    let mut last_counters = irq::Counters::default();
     loop {
         // 1. Echo all bytes the UART RX IRQ pushed into the ring.
         while let Some(b) = console::pop_rx() {
@@ -253,24 +255,41 @@ fn irq_console(uart: &mut Pl011) -> ! {
             }
         }
 
-        // 2. Periodic tick report (~1 Hz).
+        // 2. Periodic tick report (~1 Hz), plus dispatch anomalies. Reporting
+        //    the counters only when they move keeps a quiet system quiet while
+        //    making an interrupt storm impossible to mistake for idleness.
         let ticks = time::ticks();
         if ticks >= last_printed + TICK_PRINT_EVERY {
             let report = ticks - (ticks % TICK_PRINT_EVERY);
             if report > last_printed {
                 println!(uart, "ticks={report}");
                 last_printed = report;
+
+                let counters = irq::counters();
+                if counters != last_counters {
+                    println!(
+                        uart,
+                        "irq: unhandled={} out_of_range={} loop_exhausted={}",
+                        counters.unhandled,
+                        counters.out_of_range,
+                        counters.loop_exhausted
+                    );
+                    last_counters = counters;
+                }
             }
         }
 
         // 3. Idle when nothing is pending. Timer (10 Hz) and UART RX both wake.
-        //    Race (IRQ between empty-check and WFI) is bounded by the next IRQ.
-        if console::rx_is_empty() {
-            let ticks = time::ticks();
-            if ticks < last_printed + TICK_PRINT_EVERY {
+        //
+        //    The check and the sleep run with IRQs masked so an interrupt
+        //    arriving between them cannot be lost: `WFI` still completes on a
+        //    pending interrupt with `DAIF.I` set, and `without_irqs` restores
+        //    the mask so the handler runs immediately after.
+        cpu::without_irqs(|| {
+            if console::rx_is_empty() && time::ticks() < last_printed + TICK_PRINT_EVERY {
                 cpu::wait_for_interrupt();
             }
-        }
+        });
     }
 }
 

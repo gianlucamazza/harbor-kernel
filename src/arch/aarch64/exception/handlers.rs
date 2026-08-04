@@ -4,7 +4,7 @@ use super::frame::TrapFrame;
 use crate::irq;
 
 /// Synchronous exception from EL1 — always fatal in M1.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn exception_sync_el1(frame: &TrapFrame) -> ! {
     let esr = read_esr_el1();
     let far = read_far_el1();
@@ -15,7 +15,7 @@ pub extern "C" fn exception_sync_el1(frame: &TrapFrame) -> ! {
 }
 
 /// Unexpected vector — always fatal.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn exception_unexpected(frame: &TrapFrame) -> ! {
     let esr = read_esr_el1();
     let far = read_far_el1();
@@ -26,7 +26,7 @@ pub extern "C" fn exception_unexpected(frame: &TrapFrame) -> ! {
 }
 
 /// IRQ from EL1h → kernel IRQ subsystem (no device knowledge here).
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn exception_irq_el1() {
     irq::handle_cpu_irq();
 }

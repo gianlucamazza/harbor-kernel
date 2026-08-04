@@ -1,12 +1,18 @@
 //! Kernel timekeeping — tick counter and timer IRQ policy.
 //!
-//! M1 runs single-core with the MMU off. Hardware atomics (`LDXR`/`STXR`) are
-//! unreliable without proper memory attributes; use plain counters until M2.
+//! The counter is written by the timer IRQ and read by the main loop, so it is
+//! atomic (architecture rule 7). The M1-era ban on atomics applied while the
+//! MMU was off; since M2 the RAM is Normal WB Inner-Shareable and `LDXR`/`STXR`
+//! behave. A plain `static mut` here would not merely be untidy: the main loop
+//! reads `ticks()` in a spin that ends in `WFI`, and a non-atomic read is free
+//! to be hoisted out of that loop.
+
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::arch::timer;
 
-// Single-core exclusive: only the IRQ path / bootstrap masked path write this.
-static mut TICKS: u64 = 0;
+/// Monotonic tick counter. Producer: timer IRQ. Consumer: main loop.
+static TICKS: AtomicU64 = AtomicU64::new(0);
 
 /// IRQ handler registered for the platform timer line (BSP supplies the id).
 ///
@@ -20,15 +26,13 @@ pub fn on_timer_irq() {
 /// Advance the tick counter only (no hardware access).
 #[inline]
 pub fn tick() {
-    // SAFETY: single core; callers hold exclusive context (IRQ or bootstrap).
-    unsafe {
-        TICKS = TICKS.wrapping_add(1);
-    }
+    // Release: any state the handler updated before this is visible to a
+    // reader that observes the new count.
+    TICKS.fetch_add(1, Ordering::Release);
 }
 
-/// Monotonic tick count since timer IRQ path became live.
+/// Monotonic tick count since the timer IRQ path became live.
 #[inline]
 pub fn ticks() -> u64 {
-    // SAFETY: single core; atomicity not required.
-    unsafe { TICKS }
+    TICKS.load(Ordering::Acquire)
 }

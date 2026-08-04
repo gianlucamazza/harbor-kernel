@@ -1,23 +1,65 @@
 //! CPU control helpers for AArch64.
 
 /// Wait for event (low-power idle until SEV/interrupt).
+///
+/// Deliberately **not** `nomem`: the caller waits for state another context
+/// makes visible in memory, so this must act as a compiler barrier. Marking it
+/// `nomem` would let the loop condition be hoisted out and never re-read.
 #[inline(always)]
 pub fn wait_for_event() {
-    // SAFETY: `wfe` is a pure idle hint.
+    // SAFETY: `wfe` is an idle hint with no architectural side effects.
     unsafe {
-        core::arch::asm!("wfe", options(nomem, nostack, preserves_flags));
+        core::arch::asm!("wfe", options(nostack, preserves_flags));
     }
 }
 
 /// Wait for interrupt (idle until an IRQ/FIQ is taken or already pending).
 ///
-/// Preferred for the main idle loop when work is purely IRQ-driven.
+/// Preferred for the main idle loop when work is purely IRQ-driven. See
+/// [`wait_for_event`] for why this is not `nomem`.
+///
+/// `WFI` completes on a pending interrupt **even with `DAIF.I` set**, which is
+/// what makes [`without_irqs`] the correct wrapper for check-then-sleep: an
+/// interrupt arriving after the check cannot be lost.
 #[inline(always)]
 pub fn wait_for_interrupt() {
-    // SAFETY: `wfi` is a pure idle hint.
+    // SAFETY: `wfi` is an idle hint with no architectural side effects.
     unsafe {
-        core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
+        core::arch::asm!("wfi", options(nostack, preserves_flags));
     }
+}
+
+/// Run `f` with IRQs masked, then **restore** the previous `DAIF`.
+///
+/// Restoring rather than unconditionally unmasking is the whole point: nested
+/// use, or a call from a context that already had IRQs masked (bootstrap, an
+/// exception handler), must not silently enable them on the way out.
+#[inline]
+pub fn without_irqs<R>(f: impl FnOnce() -> R) -> R {
+    let daif: u64;
+    // SAFETY: reading DAIF and masking IRQs are pure PSTATE operations. Not
+    // `nomem`: this opens a critical section around memory the IRQ path shares.
+    unsafe {
+        core::arch::asm!(
+            "mrs {daif}, daif",
+            "msr daifset, #2",
+            daif = out(reg) daif,
+            options(nostack, preserves_flags),
+        );
+    }
+
+    let result = f();
+
+    // SAFETY: restores the exact PSTATE mask bits captured above.
+    unsafe {
+        core::arch::asm!(
+            "msr daif, {daif}",
+            daif = in(reg) daif,
+            options(nostack, preserves_flags),
+        );
+    }
+
+    result
 }
 
 /// Park this core forever.

@@ -7,21 +7,26 @@
 //! Formatting helpers take the TX handle as the first argument so ownership
 //! stays visible and testable.
 
-use core::ptr::addr_of_mut;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use kernel_core::ring::ByteRing;
 
+use crate::arch::mmio::Mmio;
 use crate::bsp::board;
 use crate::drivers::pl011::Pl011;
 
 /// RX ring capacity (usable = CAP − 1). Power of two.
 const RX_CAP: usize = 256;
 
-// Single-core: IRQ producer writes head, main consumer writes tail.
-static mut RX_RING: ByteRing<RX_CAP> = ByteRing::new();
+/// IRQ producer → main-loop consumer. `ByteRing` takes `&self`, so the two
+/// contexts share this `static` without ever forming aliasing `&mut`.
+static RX_RING: ByteRing<RX_CAP> = ByteRing::new();
 
-// Second MMIO handle for the IRQ drain path (same PL011 as the TX owner).
-static mut RX_MMIO: Option<crate::arch::mmio::Mmio> = None;
+/// MMIO base the RX IRQ drains from; 0 until [`enable_rx_irq`] arms it.
+///
+/// An `Option<Mmio>` here would be written by the main loop and read by the
+/// IRQ with no atomicity: the handler could observe it half-initialised.
+static RX_MMIO_BASE: AtomicUsize = AtomicUsize::new(0);
 
 /// Bring up the board serial console and return exclusive TX ownership.
 ///
@@ -36,9 +41,12 @@ static mut RX_MMIO: Option<crate::arch::mmio::Mmio> = None;
 /// lifetime of the returned handle, aside from the RX IRQ path which only
 /// drains RX after [`enable_rx_irq`].
 pub unsafe fn acquire() -> Pl011 {
-    // Panic / re-init: drop IRQ view so we do not drain with a stale config.
-    RX_MMIO = None;
-    board::console::init()
+    unsafe {
+        // Panic / re-init: disarm the IRQ view so we do not drain with a stale
+        // config. Release so the handler cannot see the disarm out of order.
+        RX_MMIO_BASE.store(0, Ordering::Release);
+        board::console::init()
+    }
 }
 
 /// Arm PL011 RX interrupts and install the IRQ-side MMIO view.
@@ -51,7 +59,7 @@ pub unsafe fn acquire() -> Pl011 {
 /// `uart` must be the live console PL011; exclusive TX + IRQ-only RX for the
 /// rest of the boot.
 pub unsafe fn enable_rx_irq(uart: &Pl011) {
-    RX_MMIO = Some(uart.mmio());
+    RX_MMIO_BASE.store(uart.mmio().base(), Ordering::Release);
     uart.enable_rx_interrupt();
 }
 
@@ -59,26 +67,26 @@ pub unsafe fn enable_rx_irq(uart: &Pl011) {
 ///
 /// Drains the PL011 RX FIFO into the kernel ring. Must not transmit or format.
 pub fn on_uart_rx_irq() {
-    let Some(mmio) = (unsafe { RX_MMIO }) else {
+    let base = RX_MMIO_BASE.load(Ordering::Acquire);
+    if base == 0 {
         return;
-    };
-    // SAFETY: mmio set in enable_rx_irq; single-core exclusive with TX owner
-    // (TX only writes; RX drain only reads DR/FR and ICR).
-    let uart = unsafe { Pl011::from_mmio(mmio) };
-    let ring = unsafe { &mut *addr_of_mut!(RX_RING) };
-    uart.drain_rx(|b| ring.push(b));
+    }
+    // SAFETY: base was published by `enable_rx_irq` from the live console
+    // PL011. Sharing the block with the TX owner is sound because the two
+    // touch disjoint behaviour: TX writes DR, this path reads DR/FR and
+    // acknowledges via ICR.
+    let uart = unsafe { Pl011::from_mmio(Mmio::new(base)) };
+    uart.drain_rx(|b| RX_RING.push(b));
 }
 
 /// Pop one RX byte from the IRQ-filled ring (`None` if empty).
 pub fn pop_rx() -> Option<u8> {
-    let ring = unsafe { &mut *addr_of_mut!(RX_RING) };
-    ring.pop()
+    RX_RING.pop()
 }
 
 /// `true` when the RX ring has no bytes for the consumer.
 pub fn rx_is_empty() -> bool {
-    let ring = unsafe { &*core::ptr::addr_of!(RX_RING) };
-    ring.is_empty()
+    RX_RING.is_empty()
 }
 
 /// Write formatted output to a caller-owned console.

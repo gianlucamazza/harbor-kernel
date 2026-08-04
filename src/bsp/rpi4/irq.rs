@@ -23,13 +23,23 @@ pub const UART_IRQ: u32 = UART0_SPI;
 ///
 /// # Safety
 /// Single core; exclusive GIC ownership; call once.
-pub unsafe fn init(timer_hz: u32) {
-    irq::init(&GIC);
-    irq::register(TIMER_IRQ, time::on_timer_irq);
-    irq::register(UART_IRQ, console::on_uart_rx_irq);
-    timer::init(timer_hz);
-    irq::enable(TIMER_IRQ);
-    irq::enable(UART_IRQ);
+/// Returns `false` if a handler could not be registered — the line would then
+/// be acknowledged and dropped, so the caller should say so rather than boot
+/// into a console that silently never receives anything.
+#[must_use]
+pub unsafe fn init(timer_hz: u32) -> bool {
+    unsafe {
+        irq::init(&GIC);
+
+        let registered = irq::register(TIMER_IRQ, time::on_timer_irq)
+            & irq::register(UART_IRQ, console::on_uart_rx_irq);
+
+        timer::init(timer_hz);
+        irq::enable(TIMER_IRQ);
+        irq::enable(UART_IRQ);
+
+        registered
+    }
 }
 
 /// Raw `GICC_IAR` read (side-effect: claim). Bring-up / selftest only.

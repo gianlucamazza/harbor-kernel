@@ -10,7 +10,7 @@ use crate::bsp::board::memmap::IDENTITY_RAM_END;
 use crate::sync::SyncCell;
 
 // Linker symbol (physical = virtual after identity map).
-extern "C" {
+unsafe extern "C" {
     static __heap_start: u8;
 }
 
@@ -34,13 +34,15 @@ static HEAP: SyncCell<Bump> = SyncCell::new(Bump::empty());
 /// # Safety
 /// Single core; call once after the MMU identity map covers `[__heap_start, end)`.
 pub unsafe fn init_heap(end: usize) -> bool {
-    let end = end.min(IDENTITY_RAM_END);
-    match Bump::new(heap_start(), end) {
-        Some(bump) => {
-            *HEAP.get() = bump;
-            true
+    unsafe {
+        let end = end.min(IDENTITY_RAM_END);
+        match Bump::new(heap_start(), end) {
+            Some(bump) => {
+                *HEAP.get() = bump;
+                true
+            }
+            None => false,
         }
-        None => false,
     }
 }
 

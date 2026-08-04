@@ -5,13 +5,24 @@
 
 use core::fmt::Write;
 use core::panic::PanicInfo;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::arch::cpu;
 use crate::console;
 
+/// Set on entry so a panic raised *inside* the panic path does not recurse.
+static PANICKING: AtomicBool = AtomicBool::new(false);
+
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     cpu::irq_disable();
+
+    // A second panic while reporting the first (console::acquire, formatting)
+    // would otherwise loop here forever, spending the stack and printing
+    // nothing useful. Park instead: the first message is already out.
+    if PANICKING.swap(true, Ordering::Relaxed) {
+        cpu::halt()
+    }
 
     // SAFETY: single execution context after panic on core 0; re-init restores
     // the UART from a cold programming state.

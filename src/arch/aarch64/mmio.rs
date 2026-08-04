@@ -24,6 +24,15 @@ impl Mmio {
         Self { base }
     }
 
+    /// Physical base address of this register window.
+    ///
+    /// Lets a handle be published through an atomic (an `Option<Mmio>` in a
+    /// `static` would be read non-atomically by an IRQ handler).
+    #[inline(always)]
+    pub const fn base(self) -> usize {
+        self.base
+    }
+
     /// Read a 32-bit register at `offset` from the base.
     #[inline(always)]
     pub fn read32(self, offset: usize) -> u32 {

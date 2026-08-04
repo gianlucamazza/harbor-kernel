@@ -7,7 +7,8 @@ Model B. Agents will be isolated units that interact only through message
 passing and capabilities.
 
 **M2 + P0 in tree:** identity MMU + bump heap, timer IRQ ticks, **idle (WFI)**
-+ **UART RX IRQ** into a kernel ring. Validate idle/RX on hardware after flash.
+
+- **UART RX IRQ** into a kernel ring. Validate idle/RX on hardware after flash.
 
 ## Layering
 
@@ -45,42 +46,48 @@ passing and capabilities.
 5. One irqchip owner via `irq::init(&'static dyn IrqChip)`.
 6. IRQ handlers do not **transmit** on the console (`println` / TX). The UART
    RX handler may only drain the FIFO into the kernel ring.
-7. No hardware atomics until the MMU establishes memory attributes (M2).
-8. Main idle uses `WFI` when the RX ring is empty and no tick report is due.
+7. State shared between the IRQ path and the main loop uses `core::sync::atomic`
+   — never `static mut`. Before M2 atomics were banned because `LDXR`/`STXR`
+   can livelock without memory attributes; since M2 the RAM is mapped Normal
+   WB Inner-Shareable and that constraint no longer applies. State that is
+   _not_ producer/consumer uses `SyncCell` and is mutated inside
+   `cpu::without_irqs`.
+8. Main idle uses `WFI` when the RX ring is empty and no tick report is due,
+   with IRQs masked across the check so a wakeup cannot be lost.
 
 ## Interrupt / timer / console contract
 
-| Role | Module | Responsibility |
-|------|--------|----------------|
-| Clocksource | `arch/timer` | CNTP deadline, ISTATUS, re-arm |
-| Irqchip | `drivers/gicv2` | enable, claim/EOI, SPI target CPU0 |
-| Dispatch | `irq` | id → handler |
-| Tick policy | `time` | `on_timer_irq`, `ticks()` |
-| Console RX | `console` | ring, `on_uart_rx_irq`, `pop_rx` |
-| Bind | `bsp/rpi4/irq` | TIMER=30, UART=153, static GIC |
+| Role        | Module          | Responsibility                     |
+| ----------- | --------------- | ---------------------------------- |
+| Clocksource | `arch/timer`    | CNTP deadline, ISTATUS, re-arm     |
+| Irqchip     | `drivers/gicv2` | enable, claim/EOI, SPI target CPU0 |
+| Dispatch    | `irq`           | id → handler                       |
+| Tick policy | `time`          | `on_timer_irq`, `ticks()`          |
+| Console RX  | `console`       | ring, `on_uart_rx_irq`, `pop_rx`   |
+| Bind        | `bsp/rpi4/irq`  | TIMER=30, UART=153, static GIC     |
 
 ## Agent model (target)
 
-| Concept | Role |
-|---------|------|
-| Agent | Schedulable entity + mailbox; later own address space |
-| Message | Sole interaction channel |
-| Capability | Unforgeable handle (future: IRQ notification) |
+| Concept    | Role                                                  |
+| ---------- | ----------------------------------------------------- |
+| Agent      | Schedulable entity + mailbox; later own address space |
+| Message    | Sole interaction channel                              |
+| Capability | Unforgeable handle (future: IRQ notification)         |
 
 `irq::register` is the hook for later capability mediation.
 
 ## Milestones
 
-| ID | Deliverable | Status |
-|----|-------------|--------|
-| M0 | Hello UART + echo | **done** |
-| M1 | Exceptions + timer IRQ ticks | **done** (HW) |
-| M2 | MMU + kernel heap (+ atomics after attrs) | **done** (HW) |
-| P0 | Idle (WFI) + UART RX IRQ + ring | **in tree** — HW validate |
-| M3 | Cooperative tasks | planned |
-| M4 | IPC + capabilities | planned |
-| M5 | EL0 agents | planned |
-| M6 | Driver-as-agent | planned |
+| ID  | Deliverable                               | Status                    |
+| --- | ----------------------------------------- | ------------------------- |
+| M0  | Hello UART + echo                         | **done**                  |
+| M1  | Exceptions + timer IRQ ticks              | **done** (HW)             |
+| M2  | MMU + kernel heap (+ atomics after attrs) | **done** (HW)             |
+| P0  | Idle (WFI) + UART RX IRQ + ring           | **in tree** — HW validate |
+| M3  | Cooperative tasks                         | planned                   |
+| M4  | IPC + capabilities                        | planned                   |
+| M5  | EL0 agents                                | planned                   |
+| M6  | Driver-as-agent                           | planned                   |
 
 ## Non-goals
 

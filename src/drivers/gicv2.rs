@@ -89,11 +89,7 @@ impl IrqChip for GicV2 {
     fn claim(&self) -> Option<Ack> {
         let raw = self.cpu.read32(GICC_IAR);
         let id = raw & 0x3FF;
-        if id == SPURIOUS {
-            None
-        } else {
-            Some(Ack(raw))
-        }
+        if id == SPURIOUS { None } else { Some(Ack(raw)) }
     }
 
     fn end(&self, ack: Ack) {
@@ -105,11 +101,7 @@ impl IrqChip for GicV2 {
 
     fn peek_pending(&self) -> Option<u32> {
         let id = self.cpu.read32(GICC_HPPIR) & 0x3FF;
-        if id == SPURIOUS {
-            None
-        } else {
-            Some(id)
-        }
+        if id == SPURIOUS { None } else { Some(id) }
     }
 }
 

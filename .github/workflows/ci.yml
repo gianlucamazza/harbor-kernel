@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # rust-toolchain.toml pins the channel, the components and the
+      # `-softfloat` target, so there is nothing to configure here.
+      - name: Show toolchain
+        run: rustc -vV && cargo -V
+
+      - name: Install llvm-objcopy / llvm-objdump
+        run: sudo apt-get update && sudo apt-get install -y llvm
+
+      # fmt --check, host tests, the no-SIMD guard on the linked image, and
+      # clippy for both targets. The no-SIMD step is the one that matters most:
+      # a silent switch back to a NEON-enabled target would otherwise surface
+      # only as a synchronous exception on the board.
+      - name: make check
+        run: make check
+
+      - name: Build kernel image
+        run: make img
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel8.img
+          path: target/aarch64-unknown-none-softfloat/release/kernel8.img
+
+  qemu-boot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU and llvm
+        run: sudo apt-get update && sudo apt-get install -y qemu-system-arm llvm
+
+      - name: Build kernel image
+        run: make img
+
+      # The boot must reach the timer IRQ path and keep going: `ticks=` only
+      # appears if the MMU came up, the GIC delivers PPI 30, the atomic tick
+      # counter is observed by the main loop, and the WFI idle loop still
+      # wakes. A regression in any of those prints nothing at all.
+      - name: Boot under QEMU and require ticks
+        run: |
+          timeout 20 qemu-system-aarch64 -M raspi4b \
+            -kernel target/aarch64-unknown-none-softfloat/release/kernel8.img \
+            -serial mon:stdio -display none < /dev/null > boot.log 2>&1 || true
+          cat boot.log
+          grep -q 'MMU on' boot.log || { echo "::error::MMU did not come up"; exit 1; }
+          grep -q 'ticks=20' boot.log || { echo "::error::timer IRQ / idle loop stalled"; exit 1; }
+          ! grep -q 'irq: unhandled' boot.log || { echo "::error::unhandled interrupts"; exit 1; }

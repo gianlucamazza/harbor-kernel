@@ -2,9 +2,13 @@
 //!
 //! Board-agnostic. Interrupt routing (PPI 30 → GIC) is the BSP's job.
 
+use core::sync::atomic::{AtomicU64, Ordering};
+
 /// Interval between ticks, in timer counts (derived from `CNTFRQ_EL0`).
-/// Single-core; avoid atomics until MMU sets memory attributes (M2).
-static mut INTERVAL_COUNTS: u64 = 0;
+///
+/// Written once by `init` during bootstrap, read from the IRQ path. Relaxed is
+/// enough: the value is published before interrupts are ever unmasked.
+static INTERVAL_COUNTS: AtomicU64 = AtomicU64::new(0);
 
 /// Read the timer frequency programmed by platform firmware (Hz).
 #[inline]
@@ -36,10 +40,7 @@ pub fn init(hz: u32) {
     let interval = freq / u64::from(hz);
     assert!(interval > 0, "timer interval underflows at requested hz");
 
-    // SAFETY: single-core boot.
-    unsafe {
-        INTERVAL_COUNTS = interval;
-    }
+    INTERVAL_COUNTS.store(interval, Ordering::Relaxed);
     write_tval(interval);
     // ENABLE=1, IMASK=0.
     write_ctl(0b001);
@@ -47,9 +48,7 @@ pub fn init(hz: u32) {
 
 /// Re-arm the next deadline. Called from the IRQ path only.
 pub fn on_interrupt() {
-    // SAFETY: single-core; written once in init.
-    let interval = unsafe { INTERVAL_COUNTS };
-    write_tval(interval);
+    write_tval(INTERVAL_COUNTS.load(Ordering::Relaxed));
     // Keep ENABLE=1, IMASK=0 after reprogram.
     write_ctl(0b001);
 }

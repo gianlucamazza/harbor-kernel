@@ -32,10 +32,12 @@ const CONSOLE_DIVISORS: Divisors = match CONSOLE_RATE.divisors() {
 /// Exclusive access to GPIO and UART0 MMIO is required. On M0 this holds
 /// because only core 0 runs and no other subsystem touches these devices.
 pub unsafe fn init() -> Pl011 {
-    gpio::configure_uart0_pins();
+    unsafe {
+        gpio::configure_uart0_pins();
 
-    let mmio = Mmio::new(memmap::UART0_BASE);
+        let mmio = Mmio::new(memmap::UART0_BASE);
 
-    // SAFETY: `UART0_BASE` is the PL011 register block on BCM2711.
-    Pl011::init(mmio, CONSOLE_DIVISORS)
+        // SAFETY: `UART0_BASE` is the PL011 register block on BCM2711.
+        Pl011::init(mmio, CONSOLE_DIVISORS)
+    }
 }

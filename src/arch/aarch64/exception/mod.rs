@@ -26,7 +26,7 @@ pub fn init() {
 
 #[inline(always)]
 fn exception_vectors_addr() -> u64 {
-    extern "C" {
+    unsafe extern "C" {
         static exception_vectors: u8;
     }
     // SAFETY: symbol is provided by `vectors.s` and lives in .text.
