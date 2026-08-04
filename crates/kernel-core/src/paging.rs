@@ -6,6 +6,12 @@
 
 /// Block descriptor at level 1 or 2.
 pub const DESC_BLOCK: u64 = 0b01;
+/// Table descriptor (levels 1 and 2) — and, confusingly, the *page* descriptor
+/// at level 3, where `0b01` is invalid instead.
+pub const DESC_TABLE: u64 = 0b11;
+/// Page descriptor at level 3. Same encoding as [`DESC_TABLE`]; the level
+/// decides how it is read.
+pub const DESC_PAGE: u64 = 0b11;
 /// Access flag: a cleared AF faults on first touch.
 pub const DESC_AF: u64 = 1 << 10;
 /// Inner shareable.
@@ -36,6 +42,188 @@ pub const fn mair_el1() -> u64 {
 
 /// Size of a level-1 block with the 4 KiB granule.
 pub const L1_BLOCK_SIZE: u64 = 1 << 30;
+/// Size of a level-2 block.
+pub const L2_BLOCK_SIZE: u64 = 1 << 21;
+/// Size of a level-3 page — the granule.
+pub const PAGE_SIZE: u64 = 1 << 12;
+
+/// Entries per table at every level with the 4 KiB granule.
+pub const ENTRIES_PER_TABLE: usize = 512;
+
+/// Output-address field of a descriptor: bits [47:12].
+const ADDR_MASK: u64 = 0x0000_FFFF_FFFF_F000;
+
+/// Translation level a descriptor lives at.
+///
+/// With `T0SZ = 25` the walk starts at level 1, so these are the three levels
+/// the kernel ever writes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Level {
+    /// 1 GiB blocks.
+    L1,
+    /// 2 MiB blocks.
+    L2,
+    /// 4 KiB pages.
+    L3,
+}
+
+impl Level {
+    /// Bytes mapped by one entry at this level.
+    pub const fn entry_size(self) -> u64 {
+        match self {
+            Level::L1 => L1_BLOCK_SIZE,
+            Level::L2 => L2_BLOCK_SIZE,
+            Level::L3 => PAGE_SIZE,
+        }
+    }
+
+    /// Index into this level's table for `va`.
+    pub const fn index(self, va: u64) -> usize {
+        let shift = match self {
+            Level::L1 => 30,
+            Level::L2 => 21,
+            Level::L3 => 12,
+        };
+        ((va >> shift) as usize) & (ENTRIES_PER_TABLE - 1)
+    }
+
+    /// The level below, or `None` at the last one.
+    pub const fn next(self) -> Option<Level> {
+        match self {
+            Level::L1 => Some(Level::L2),
+            Level::L2 => Some(Level::L3),
+            Level::L3 => None,
+        }
+    }
+}
+
+/// Descriptor pointing at the next-level table at physical address `pa`.
+///
+/// Attributes are left to the leaf entries: the table-level permission fields
+/// (APTable, XNTable…) only ever restrict further, and mixing the two makes
+/// permissions unreadable at the point they matter.
+pub const fn table_descriptor(pa: u64) -> Option<u64> {
+    if pa % PAGE_SIZE != 0 || pa >= (1 << 48) {
+        return None;
+    }
+    Some((pa & ADDR_MASK) | DESC_TABLE)
+}
+
+/// Encode a leaf descriptor at `level` mapping `pa`.
+///
+/// `None` if `pa` is not aligned to the level's entry size or does not fit the
+/// 48-bit output address.
+pub const fn leaf(level: Level, pa: u64, kind: MemKind, perms: Perms) -> Option<u64> {
+    let size = level.entry_size();
+    if pa % size != 0 || pa >= (1 << 48) {
+        return None;
+    }
+
+    // Level 3 leaves are `0b11`; at levels 1 and 2 that encoding means "table",
+    // and `0b01` means "block". Getting this backwards produces a descriptor
+    // the walker either ignores or follows into nonsense.
+    let kind_bits = match level {
+        Level::L3 => DESC_PAGE,
+        _ => DESC_BLOCK,
+    };
+
+    let mut desc = (pa & ADDR_MASK) | DESC_AF | DESC_SH_IS | kind_bits;
+
+    desc |= match kind {
+        MemKind::NormalWb => ATTR_IDX_NORMAL,
+        MemKind::Device => ATTR_IDX_DEVICE,
+    };
+
+    desc |= if perms.write {
+        DESC_AP_EL1_RW
+    } else {
+        DESC_AP_EL1_RO
+    };
+
+    // EL0 never executes a kernel mapping.
+    desc |= DESC_UXN;
+    if !perms.execute {
+        desc |= DESC_PXN;
+    }
+
+    Some(desc)
+}
+
+/// One naturally aligned piece of a mapping request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Chunk {
+    pub level: Level,
+    pub va: u64,
+    pub pa: u64,
+}
+
+impl Chunk {
+    /// Bytes this chunk covers.
+    pub const fn size(self) -> u64 {
+        self.level.entry_size()
+    }
+}
+
+/// Split `[va, va + len)` into the largest naturally aligned chunks.
+///
+/// A level is usable only where *both* addresses are aligned to it and the
+/// remaining length still covers it, so a region whose VA and PA have different
+/// alignments degrades to 4 KiB pages rather than silently mapping the wrong
+/// physical memory.
+#[derive(Clone, Copy, Debug)]
+pub struct Chunks {
+    va: u64,
+    pa: u64,
+    remaining: u64,
+}
+
+/// Iterate the chunks covering `[va, va + len)`.
+///
+/// `None` if `va`, `pa` or `len` is not page aligned — a partial page has no
+/// correct rounding: growing it maps memory the caller did not ask for and
+/// shrinking it leaves a hole.
+pub const fn chunks(va: u64, pa: u64, len: u64) -> Option<Chunks> {
+    if va % PAGE_SIZE != 0 || pa % PAGE_SIZE != 0 || len % PAGE_SIZE != 0 {
+        return None;
+    }
+    Some(Chunks {
+        va,
+        pa,
+        remaining: len,
+    })
+}
+
+impl Iterator for Chunks {
+    type Item = Chunk;
+
+    fn next(&mut self) -> Option<Chunk> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        let level = [Level::L1, Level::L2, Level::L3]
+            .into_iter()
+            .find(|level| {
+                let size = level.entry_size();
+                self.va % size == 0 && self.pa % size == 0 && self.remaining >= size
+            })
+            // Every address is 4 KiB aligned by construction, so L3 always fits.
+            .unwrap_or(Level::L3);
+
+        let chunk = Chunk {
+            level,
+            va: self.va,
+            pa: self.pa,
+        };
+
+        let size = level.entry_size();
+        self.va += size;
+        self.pa += size;
+        self.remaining -= size;
+
+        Some(chunk)
+    }
+}
 
 /// Memory type of a mapping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,6 +371,151 @@ mod tests {
     /// The kernel maps nothing in the upper half. Leaving `EPD1` clear means a
     /// stray high virtual address starts a page-table walk through whatever
     /// `TTBR1_EL1` happened to contain at reset.
+    // --- multi-level descriptors -------------------------------------------
+
+    /// The AArch64 trap: at levels 1 and 2 a leaf is `0b01` and `0b11` means
+    /// "table", but at level 3 a *page* is `0b11` and `0b01` is invalid. A
+    /// level-3 leaf written as a block is simply not mapped.
+    #[test]
+    fn level3_leaves_use_the_page_encoding_not_the_block_encoding() {
+        let page = leaf(Level::L3, 0x8000, MemKind::NormalWb, Perms::RX).unwrap();
+        assert_eq!(page & 0b11, DESC_PAGE, "L3 leaf must be 0b11");
+
+        let block = leaf(Level::L2, 0x20_0000, MemKind::NormalWb, Perms::RX).unwrap();
+        assert_eq!(block & 0b11, DESC_BLOCK, "L2 leaf must be 0b01");
+    }
+
+    #[test]
+    fn leaf_rejects_addresses_not_aligned_to_its_level() {
+        assert!(leaf(Level::L3, 0x1000, MemKind::NormalWb, Perms::RW).is_some());
+        assert_eq!(leaf(Level::L2, 0x1000, MemKind::NormalWb, Perms::RW), None);
+        assert_eq!(
+            leaf(Level::L1, 0x20_0000, MemKind::NormalWb, Perms::RW),
+            None
+        );
+    }
+
+    #[test]
+    fn leaf_carries_permissions_at_every_level() {
+        for level in [Level::L1, Level::L2, Level::L3] {
+            let pa = level.entry_size();
+            let rx = leaf(level, pa, MemKind::NormalWb, Perms::RX).unwrap();
+            let rw = leaf(level, pa, MemKind::NormalWb, Perms::RW).unwrap();
+
+            assert_eq!(rx & DESC_PXN, 0, "{level:?}: RX must be executable at EL1");
+            assert_eq!(
+                rx & (0b11 << 6),
+                DESC_AP_EL1_RO,
+                "{level:?}: RX is read-only"
+            );
+            assert_ne!(rw & DESC_PXN, 0, "{level:?}: RW must not be executable");
+            assert_eq!(
+                rw & (0b11 << 6),
+                DESC_AP_EL1_RW,
+                "{level:?}: RW is writable"
+            );
+            assert_eq!(rx & ADDR_MASK, pa, "{level:?}: output address");
+        }
+    }
+
+    #[test]
+    fn table_descriptor_points_at_a_page_aligned_table() {
+        let d = table_descriptor(0x9_1000).unwrap();
+        assert_eq!(d & 0b11, DESC_TABLE);
+        assert_eq!(d & ADDR_MASK, 0x9_1000);
+        assert_eq!(table_descriptor(0x9_1800), None, "must be page aligned");
+    }
+
+    #[test]
+    fn level_indices_decode_the_virtual_address_fields() {
+        // L1 index 1, L2 index 2, L3 index 3.
+        let va = (1 << 30) | (2 << 21) | (3 << 12);
+        assert_eq!(Level::L1.index(va), 1);
+        assert_eq!(Level::L2.index(va), 2);
+        assert_eq!(Level::L3.index(va), 3);
+        // Indices wrap within their own 9 bits.
+        assert_eq!(Level::L2.index(511 << 21), 511);
+        assert_eq!(Level::L2.index(512 << 21), 0);
+    }
+
+    // --- region splitting --------------------------------------------------
+
+    #[test]
+    fn an_aligned_2mib_region_is_one_l2_block() {
+        let c: Vec<_> = chunks(0x20_0000, 0x20_0000, L2_BLOCK_SIZE)
+            .unwrap()
+            .collect();
+        assert_eq!(
+            c,
+            vec![Chunk {
+                level: Level::L2,
+                va: 0x20_0000,
+                pa: 0x20_0000
+            }]
+        );
+    }
+
+    #[test]
+    fn a_single_page_is_one_l3_page() {
+        let c: Vec<_> = chunks(0x8000, 0x8000, PAGE_SIZE).unwrap().collect();
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].level, Level::L3);
+    }
+
+    /// The kernel image starts at 0x80000, which is not 2 MiB aligned: the
+    /// mapping has to page in up to the boundary before it can use blocks.
+    #[test]
+    fn an_unaligned_region_pages_in_then_blocks_then_pages_out() {
+        let start = 0x8_0000;
+        let len = 4 * L2_BLOCK_SIZE;
+        let c: Vec<_> = chunks(start, start, len).unwrap().collect();
+
+        assert_eq!(c[0].level, Level::L3, "must start with pages");
+        assert!(
+            c.iter().any(|k| k.level == Level::L2),
+            "must use blocks in the middle"
+        );
+
+        // Contiguous, exactly covering, VA and PA staying in step.
+        let mut cursor = start;
+        for k in &c {
+            assert_eq!(k.va, cursor);
+            assert_eq!(k.pa, cursor);
+            cursor += k.size();
+        }
+        assert_eq!(cursor, start + len);
+    }
+
+    /// Both addresses must be aligned: using a level on VA alignment alone
+    /// would map physical memory the caller never asked for.
+    #[test]
+    fn mismatched_va_and_pa_alignment_falls_back_to_pages() {
+        let c: Vec<_> = chunks(0x20_0000, 0x21_1000, 2 * L2_BLOCK_SIZE)
+            .unwrap()
+            .collect();
+        assert!(c.iter().all(|k| k.level == Level::L3));
+        assert_eq!(c.len() as u64, 2 * L2_BLOCK_SIZE / PAGE_SIZE);
+    }
+
+    #[test]
+    fn a_gib_aligned_region_uses_l1_blocks() {
+        let c: Vec<_> = chunks(0, 0, L1_BLOCK_SIZE).unwrap().collect();
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].level, Level::L1);
+    }
+
+    #[test]
+    fn an_empty_region_yields_nothing() {
+        assert_eq!(chunks(0x1000, 0x1000, 0).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn unaligned_requests_are_rejected_rather_than_rounded() {
+        assert!(chunks(0x1800, 0x1000, PAGE_SIZE).is_none());
+        assert!(chunks(0x1000, 0x1800, PAGE_SIZE).is_none());
+        assert!(chunks(0x1000, 0x1000, 0x800).is_none());
+    }
+
     #[test]
     fn tcr_disables_ttbr1_walks() {
         let tcr = tcr_el1_ttbr0_only(25);

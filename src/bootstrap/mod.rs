@@ -15,6 +15,9 @@ use crate::time;
 /// Timer rate (IRQ ticks per second).
 const TIMER_HZ: u32 = 10;
 
+/// Kernel heap size, clamped to the identity-mapped RAM window.
+const HEAP_SIZE: usize = 64 * 1024 * 1024;
+
 /// Print `ticks=` every this many IRQ ticks (~1 Hz at [`TIMER_HZ`] = 10).
 const TICK_PRINT_EVERY: u64 = 10;
 
@@ -40,28 +43,30 @@ pub fn run() -> ! {
     // FP instruction traps loudly instead of silently corrupting the IRQ path,
     // whose trap frame saves no q registers.
 
-    // SAFETY: identity map before enabling translation; IRQs still masked.
-    let mmu_result = unsafe {
-        mmu::enable_identity(
-            &board::memmap::IDENTITY_RAM_BLOCKS,
-            &[board::memmap::DEVICE_BLOCK],
-        )
-    };
-    match mmu_result {
-        Ok(()) => println!(
-            uart,
-            "MMU {}  (identity 2GiB RAM + device window)",
-            if mmu::is_enabled() { "on" } else { "OFF?" }
-        ),
-        Err(e) => println!(uart, "MMU FAILED: {e:?}  (continuing unmapped)"),
+    // The heap bound is decided before the map is built, because the heap is
+    // one of the regions being mapped.
+    let heap_end = (mm::heap_start() + HEAP_SIZE).min(board::memmap::IDENTITY_RAM_END);
+    let regions = mm::layout::kernel_regions(heap_end as u64);
+
+    // SAFETY: build the map before enabling translation; IRQs still masked.
+    match unsafe { mmu::enable(&regions) } {
+        Ok(()) => {
+            println!(
+                uart,
+                "MMU {}  (W^X, guard page at {:#x}, {} B of table arena left)",
+                if mmu::is_enabled() { "on" } else { "OFF?" },
+                mm::layout::guard_page(),
+                mmu::tables_remaining()
+            );
+        }
+        Err((error, region)) => {
+            println!(uart, "MMU FAILED mapping {region}: {error:?}");
+            println!(uart, "continuing unmapped — addresses are physical");
+        }
     }
 
-    // Heap: from linker `__heap_start` for 64 MiB (within identity-mapped RAM).
-    // SAFETY: MMU maps this range as Normal memory.
-    let heap_ok = unsafe {
-        let end = (mm::heap_start() + 64 * 1024 * 1024).min(board::memmap::IDENTITY_RAM_END);
-        mm::init_heap(end)
-    };
+    // SAFETY: the heap region was just mapped as Normal memory.
+    let heap_ok = unsafe { mm::init_heap(heap_end) };
     if heap_ok {
         println!(uart, "heap remaining = {} bytes", mm::heap_remaining());
     } else {

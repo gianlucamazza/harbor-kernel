@@ -2,31 +2,66 @@
 
 ## Goals
 
-- Identity-map kernel RAM and device MMIO
+- Identity-map kernel RAM and device MMIO, **one region at a time**
+- W^X: nothing is both writable and executable
+- An unmapped guard page below the stack
 - Enable stage-1 MMU + I/D caches at EL1
 - Provide a bump heap for kernel allocations
 
 ## Translation regime
 
-| Item          | Value                                 |
-| ------------- | ------------------------------------- |
-| Granule       | 4 KiB                                 |
-| VA size       | 39-bit (`TCR_EL1.T0SZ = 25`)          |
-| Initial level | L1 (1 GiB blocks)                     |
-| TTBR          | `TTBR0_EL1` only (`TCR_EL1.EPD1` set) |
+| Item          | Value                                   |
+| ------------- | --------------------------------------- |
+| Granule       | 4 KiB                                   |
+| VA size       | 39-bit (`TCR_EL1.T0SZ = 25`)            |
+| Initial level | L1 (1 GiB blocks, then 2 MiB and 4 KiB) |
+| TTBR          | `TTBR0_EL1` only (`TCR_EL1.EPD1` set)   |
 
 `EPD1` matters: nothing is mapped in the upper half, so a stray high address
 must fault rather than start a walk through an uninitialised `TTBR1_EL1`.
 
-### Identity map
+Levels are picked per chunk: the largest of 1 GiB / 2 MiB / 4 KiB whose size
+divides _both_ the virtual and the physical address and still fits in what is
+left. A region whose VA and PA alignments disagree degrades to pages rather
+than mapping physical memory the caller did not ask for.
 
-| L1 index | VA/PA range                 | Memory type            |
-| -------- | --------------------------- | ---------------------- |
-| 0        | `0x0000_0000`–`0x3FFF_FFFF` | Normal WB (MAIR Attr0) |
-| 1        | `0x4000_0000`–`0x7FFF_FFFF` | Normal WB              |
-| 3        | `0xC000_0000`–`0xFFFF_FFFF` | Device-nGnRnE (Attr1)  |
+Level 3 leaves use descriptor type `0b11`, which at levels 1 and 2 means
+"table" instead. Writing an L3 leaf as `0b01` leaves the page simply unmapped.
 
-Covers kernel at `0x80000`, heap, UART (`0xFE20_1000`), GIC (`0xFF84_x000`).
+### Regions
+
+Derived from the linker symbols by `mm::layout::kernel_regions`:
+
+| Region                              | Type          | Permissions       |
+| ----------------------------------- | ------------- | ----------------- |
+| below the image (`0`–`0x80000`)     | Normal WB     | RW, no execute    |
+| `.text` (+ vectors)                 | Normal WB     | **RX, read-only** |
+| `.rodata`                           | Normal WB     | RO, no execute    |
+| `.data` / `.bss`                    | Normal WB     | RW, no execute    |
+| translation table arena             | Normal WB     | RW, no execute    |
+| **guard page**                      | —             | **unmapped**      |
+| stack (64 KiB)                      | Normal WB     | RW, no execute    |
+| heap                                | Normal WB     | RW, no execute    |
+| peripherals (`0xFE00_0000`, 16 MiB) | Device-nGnRnE | RW, no execute    |
+| GIC (`0xFF84_0000`, 16 KiB)         | Device-nGnRnE | RW, no execute    |
+
+Anything else faults. Tables come from a 64 KiB arena reserved by `link.ld`;
+six are used today, and `mmu::tables_remaining()` is printed at boot so
+exhaustion is visible before it becomes a mapping failure.
+
+### Verifying the protections
+
+A protection nobody has seen fire is an assumption. Both were checked by
+temporarily adding a deliberate fault to `bootstrap::run` and booting under
+QEMU:
+
+| Probe                        | Expected          | Observed                                                                       |
+| ---------------------------- | ----------------- | ------------------------------------------------------------------------------ |
+| write to `.text` (`0x80000`) | permission fault  | `ESR=0x9600004F` → DFSC `0b001111` (permission, level 3), WnR=1, `FAR=0x80000` |
+| write to the guard page      | translation fault | `ESR=0x96000047` → DFSC `0b000111` (translation, level 3), `FAR=0x96000`       |
+
+The probes are not in the tree: a deliberate fault is a dead board. Re-run them
+by hand after any change to `link.ld` or to the region list.
 
 ## Code
 

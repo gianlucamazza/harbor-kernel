@@ -43,16 +43,19 @@ pub const UART0_SPI: u32 = 153;
 /// 2 GiB even on 4/8 GB boards until the memory map is discovered at runtime.
 pub const IDENTITY_RAM_END: usize = 0x8000_0000;
 
-/// Physical base of each 1 GiB block the kernel identity-maps as RAM.
+/// Device MMIO windows the kernel maps: `(base, length, name)`.
 ///
-/// Documented for board consumers; the active programmer is `arch::mmu`
-/// (must stay free of BSP imports).
-#[allow(dead_code)]
-pub const IDENTITY_RAM_BLOCKS: [u64; 2] = [0x0000_0000, 0x4000_0000];
+/// Mapped Device-nGnRnE and never executable. Kept as narrow as the hardware
+/// allows: everything outside these windows faults, which is how a stray
+/// pointer into the peripheral range becomes a diagnosable exception instead
+/// of an unpredictable side effect on a device register.
+pub const DEVICE_REGIONS: [(usize, usize, &str); 2] = [
+    // Low peripherals: GPIO, PL011, mailboxes.
+    (PERIPHERAL_BASE, 0x0100_0000, "peripherals"),
+    // GIC-400 distributor + CPU interface.
+    (0xFF84_0000, 0x0000_4000, "GIC"),
+];
 
-/// Physical base of the 1 GiB block holding the peripheral and GIC windows.
-///
-/// `PERIPHERAL_BASE` (`0xFE00_0000`) and the GIC (`0xFF84_x000`) both fall in
-/// the block starting at `0xC000_0000`.
-#[allow(dead_code)]
-pub const DEVICE_BLOCK: u64 = 0xC000_0000;
+// The 1 GiB block constants that used to live here are gone: RAM is no longer
+// mapped a gigabyte at a time. `mm::layout` derives the RAM regions from the
+// linker symbols so each one can carry its own permissions.

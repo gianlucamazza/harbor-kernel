@@ -1,10 +1,16 @@
-//! AArch64 stage-1 MMU: identity map with 1 GiB blocks (4K granule, 39-bit VA).
+//! AArch64 stage-1 MMU: multi-level identity map (4 KiB granule, 39-bit VA).
 //!
-//! Which physical ranges are RAM and which are device MMIO is board knowledge:
-//! the caller passes them in, so this module never names a peripheral. The bit
-//! encodings live in [`kernel_core::paging`] and are unit-tested on the host.
+//! Regions are mapped one at a time with their own permissions, using 1 GiB
+//! and 2 MiB blocks where the alignment allows and 4 KiB pages where it does
+//! not. That is what makes W^X and a stack guard page possible: with a single
+//! 1 GiB block per gigabyte, `.text`, the stack and the heap all had to share
+//! one set of permissions, and the weakest won.
+//!
+//! Which physical ranges are RAM and which are device MMIO is board knowledge,
+//! so the caller supplies them. The bit encodings and the region splitting
+//! live in [`kernel_core::paging`] and are unit-tested on the host.
 
-use kernel_core::paging::{self, MemKind, Perms};
+use kernel_core::paging::{self, Level, MemKind, Perms};
 
 use crate::arch::aarch64::cache;
 use crate::sync::SyncCell;
@@ -12,62 +18,196 @@ use crate::sync::SyncCell;
 /// `TCR_EL1.T0SZ` — 39-bit VA, so the initial lookup level is 1.
 const T0SZ: u64 = 25;
 
-/// 512 × 1 GiB entries (level-1 table for 4K granule).
-#[repr(C, align(4096))]
-struct L1Table {
-    entries: [u64; 512],
+unsafe extern "C" {
+    static __pagetables_start: u8;
+    static __pagetables_end: u8;
 }
 
-/// The single kernel translation table.
-///
-/// Written only by [`enable_identity`], with the MMU off and IRQs masked.
-static L1: SyncCell<L1Table> = SyncCell::new(L1Table { entries: [0; 512] });
+/// One translation table: 512 entries, page aligned at every level.
+#[repr(C, align(4096))]
+struct Table {
+    entries: [u64; paging::ENTRIES_PER_TABLE],
+}
 
-/// Why a requested identity map could not be built.
+/// Hands out zeroed translation tables from the linker-provided arena.
+struct Arena {
+    next: usize,
+    end: usize,
+}
+
+/// Table arena state. Touched only while building the map, MMU off, IRQs masked.
+static ARENA: SyncCell<Arena> = SyncCell::new(Arena { next: 0, end: 0 });
+
+/// Physical address of the root table, published for `TTBR0_EL1`.
+static ROOT: SyncCell<usize> = SyncCell::new(0);
+
+/// Why a mapping request could not be satisfied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MmuError {
-    /// A block base is not 1 GiB aligned or exceeds the 48-bit output address.
-    UnmappableBlock(u64),
-    /// A block base falls outside the 512 GiB the level-1 table can describe.
-    BlockOutOfRange(u64),
+    /// `va`, `pa` or `len` was not page aligned.
+    Unaligned { va: u64, pa: u64, len: u64 },
+    /// A descriptor could not be encoded for this address at this level.
+    BadDescriptor { va: u64, pa: u64 },
+    /// The address is outside the 512 GiB the level-1 table describes.
+    OutOfRange(u64),
+    /// The table arena is exhausted — raise `PAGE_TABLE_ARENA_SIZE` in `link.ld`.
+    OutOfTables,
+    /// A region overlaps one already mapped with a block at a coarser level.
+    ///
+    /// Splitting an existing block is possible but never needed here: regions
+    /// are mapped once, in address order, at boot.
+    BlockAlreadyMapped(u64),
 }
 
-/// Build identity maps and enable the MMU + I/D caches.
+/// A region to identity-map.
+#[derive(Clone, Copy, Debug)]
+pub struct Region {
+    pub base: u64,
+    pub len: u64,
+    pub kind: MemKind,
+    pub perms: Perms,
+    /// Shown in diagnostics when mapping fails.
+    pub name: &'static str,
+}
+
+/// Build the identity map from `regions`, then enable the MMU and caches.
 ///
-/// `ram` and `device` are physical 1 GiB block bases. RAM is mapped writable
-/// **and** executable: with 1 GiB blocks there is no way to separate `.text`
-/// from the stack and heap, so W^X has to wait for the 4 KiB/2 MiB paging of
-/// M3. Device blocks are never executable.
+/// Anything not covered by a region stays unmapped and faults — that is the
+/// point of the guard page.
 ///
 /// # Safety
-/// Single core; no concurrent page-table writers; IRQs masked. After return,
-/// every address the kernel touches must lie in one of the mapped windows.
-pub unsafe fn enable_identity(ram: &[u64], device: &[u64]) -> Result<(), MmuError> {
+/// Single core, MMU off, IRQs masked. Every address the kernel touches after
+/// this returns must be inside one of `regions`.
+pub unsafe fn enable(regions: &[Region]) -> Result<(), (MmuError, &'static str)> {
     unsafe {
-        // See the doc comment: writable + executable is a known gap, not an oversight.
-        const RAM_PERMS: Perms = Perms {
-            write: true,
-            execute: true,
+        arena_init();
+
+        let root = alloc_table().map_err(|e| (e, "root table"))?;
+        *ROOT.get() = root as usize;
+
+        for region in regions {
+            map_region(root, region).map_err(|e| (e, region.name))?;
+        }
+
+        install(root as u64);
+    }
+    Ok(())
+}
+
+/// Point the arena at the linker-reserved range.
+///
+/// # Safety
+/// Call once, before any [`alloc_table`].
+unsafe fn arena_init() {
+    unsafe {
+        *ARENA.get() = Arena {
+            next: core::ptr::addr_of!(__pagetables_start) as usize,
+            end: core::ptr::addr_of!(__pagetables_end) as usize,
         };
+    }
+}
 
-        let l1 = L1.get();
-        let entries = &mut (*l1).entries;
-        entries.fill(0);
-
-        for &base in ram {
-            entries[index_of(base, entries.len())?] =
-                paging::l1_block(base, MemKind::NormalWb, RAM_PERMS)
-                    .ok_or(MmuError::UnmappableBlock(base))?;
+/// Take the next zeroed table from the arena.
+///
+/// # Safety
+/// Single core, arena initialised.
+unsafe fn alloc_table() -> Result<*mut Table, MmuError> {
+    unsafe {
+        let arena = &mut *ARENA.get();
+        let size = core::mem::size_of::<Table>();
+        if arena.next + size > arena.end {
+            return Err(MmuError::OutOfTables);
         }
 
-        for &base in device {
-            entries[index_of(base, entries.len())?] =
-                paging::l1_block(base, MemKind::Device, Perms::RW)
-                    .ok_or(MmuError::UnmappableBlock(base))?;
+        let table = arena.next as *mut Table;
+        arena.next += size;
+
+        // The arena is NOLOAD and `boot.s` only clears .bss, so a table arrives
+        // holding whatever was in DRAM. An unzeroed table is a walk into noise.
+        (*table).entries = [0; paging::ENTRIES_PER_TABLE];
+
+        Ok(table)
+    }
+}
+
+/// Identity-map one region.
+///
+/// # Safety
+/// `root` is a live level-1 table; MMU off.
+unsafe fn map_region(root: *mut Table, region: &Region) -> Result<(), MmuError> {
+    let chunks =
+        paging::chunks(region.base, region.base, region.len).ok_or(MmuError::Unaligned {
+            va: region.base,
+            pa: region.base,
+            len: region.len,
+        })?;
+
+    for chunk in chunks {
+        unsafe { map_chunk(root, chunk, region.kind, region.perms)? };
+    }
+    Ok(())
+}
+
+/// Install one leaf descriptor, creating intermediate tables as needed.
+///
+/// # Safety
+/// `root` is a live level-1 table; MMU off.
+unsafe fn map_chunk(
+    root: *mut Table,
+    chunk: paging::Chunk,
+    kind: MemKind,
+    perms: Perms,
+) -> Result<(), MmuError> {
+    unsafe {
+        // Level 1 covers 512 GiB; beyond that there is no entry to write.
+        if chunk.va >= (paging::L1_BLOCK_SIZE * paging::ENTRIES_PER_TABLE as u64) {
+            return Err(MmuError::OutOfRange(chunk.va));
         }
 
-        let ttbr = l1 as u64;
+        let mut table = root;
+        let mut level = Level::L1;
 
+        // Walk down to the level this chunk maps, creating tables on the way.
+        while level != chunk.level {
+            let index = level.index(chunk.va);
+            let entry = (*table).entries[index];
+
+            let next = if entry == 0 {
+                let new = alloc_table()?;
+                (*table).entries[index] =
+                    paging::table_descriptor(new as u64).ok_or(MmuError::BadDescriptor {
+                        va: chunk.va,
+                        pa: new as u64,
+                    })?;
+                new
+            } else if entry & 0b11 == paging::DESC_TABLE {
+                (entry & 0x0000_FFFF_FFFF_F000) as *mut Table
+            } else {
+                // A coarser block already covers this address.
+                return Err(MmuError::BlockAlreadyMapped(chunk.va));
+            };
+
+            table = next;
+            level = level.next().ok_or(MmuError::OutOfRange(chunk.va))?;
+        }
+
+        let index = level.index(chunk.va);
+        (*table).entries[index] =
+            paging::leaf(level, chunk.pa, kind, perms).ok_or(MmuError::BadDescriptor {
+                va: chunk.va,
+                pa: chunk.pa,
+            })?;
+
+        Ok(())
+    }
+}
+
+/// Program `MAIR`/`TCR`/`TTBR0`, invalidate, then set `SCTLR_EL1.{M,C,I}`.
+///
+/// # Safety
+/// `root` is a complete translation table covering every address in use.
+unsafe fn install(root: u64) {
+    unsafe {
         core::arch::asm!(
             "msr mair_el1, {v}",
             v = in(reg) paging::mair_el1(),
@@ -79,15 +219,15 @@ pub unsafe fn enable_identity(ram: &[u64], device: &[u64]) -> Result<(), MmuErro
             options(nostack),
         );
         core::arch::asm!(
-            "msr ttbr0_el1, {ttbr}",
+            "msr ttbr0_el1, {root}",
             "isb",
-            ttbr = in(reg) ttbr,
+            root = in(reg) root,
             options(nostack),
         );
 
-        // The table was written with the MMU off, so it went straight to memory —
-        // but the walker is about to read it through the caches, and the firmware
-        // left lines of its own behind. Invalidate before turning caches on.
+        // The tables were written with the MMU off, so they went straight to
+        // memory — but the walker is about to read them through the caches, and
+        // the firmware left lines of its own behind.
         cache::invalidate_dcache_all();
         cache::invalidate_icache();
         cache::invalidate_tlb_all();
@@ -102,18 +242,14 @@ pub unsafe fn enable_identity(ram: &[u64], device: &[u64]) -> Result<(), MmuErro
             v = in(reg) sctlr,
             options(nostack),
         );
-
-        Ok(())
     }
 }
 
-/// Level-1 index for a 1 GiB block base.
-fn index_of(base: u64, entries: usize) -> Result<usize, MmuError> {
-    let index = (base / paging::L1_BLOCK_SIZE) as usize;
-    if index >= entries {
-        return Err(MmuError::BlockOutOfRange(base));
-    }
-    Ok(index)
+/// Bytes of the table arena still unused. Zero means the next map fails.
+pub fn tables_remaining() -> usize {
+    // SAFETY: single core; the arena is only mutated while building the map.
+    let arena = unsafe { &*ARENA.get() };
+    arena.end.saturating_sub(arena.next)
 }
 
 /// True if `SCTLR_EL1.M` is set.

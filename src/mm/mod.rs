@@ -4,6 +4,8 @@
 //! the host; this module owns the linker symbol, the single instance, and the
 //! conversion to raw pointers.
 
+pub mod layout;
+
 use kernel_core::bump::Bump;
 
 use crate::bsp::board::memmap::IDENTITY_RAM_END;
