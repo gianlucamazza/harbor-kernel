@@ -40,8 +40,9 @@ pub fn run() -> ! {
     // size, UART clock, peripheral base — is in here; consuming it is future
     // work, but losing the pointer is not recoverable.
     //
-    // Must stay above `mmu::enable`: validating the DTB dereferences an
-    // address the map does not cover.
+    // Must stay above `mmu::activate`: the early map covers 3 GiB of RAM so the
+    // blob is readable wherever the firmware put it, while the kernel map
+    // deliberately covers far less.
     match bootinfo::device_tree() {
         Some(dtb) => println!(uart, "DTB at {dtb:#x}"),
         None => println!(
@@ -62,8 +63,10 @@ pub fn run() -> ! {
     let heap_end = (mm::heap_start() + HEAP_SIZE).min(board::memmap::IDENTITY_RAM_END);
     let regions = mm::layout::kernel_regions(heap_end as u64);
 
-    // SAFETY: build the map before enabling translation; IRQs still masked.
-    match unsafe { mmu::enable(&regions) } {
+    // Swap the coarse early map for the real one. On failure the early map
+    // stays active, so the report below still reaches the console.
+    // SAFETY: single core, IRQs masked, early map active.
+    match unsafe { mmu::activate(&regions) } {
         Ok(()) => {
             println!(
                 uart,

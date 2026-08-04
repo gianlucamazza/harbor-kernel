@@ -40,12 +40,13 @@ SECTIONS
         __text_start = .;
         KEEP(*(.text.boot))
         *(.text .text.*)
-    }
 
-    /* VBAR_EL1 requires 2 KiB alignment for the vector table. Executable, so
-       it belongs inside the .text permission region. */
-    .text.vectors : ALIGN(0x800) {
-        KEEP(*(.text.vectors))
+        /* VBAR_EL1 requires 2 KiB alignment. The section is named `.vectors`,
+           not `.text.vectors`, precisely so the wildcard above cannot claim it
+           first — which is what used to happen, leaving the alignment to the
+           `.align 11` inside the assembly and nothing to enforce it here. */
+        . = ALIGN(0x800);
+        KEEP(*(.vectors))
     }
     . = ALIGN(0x1000);
     __text_end = .;

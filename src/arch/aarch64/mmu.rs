@@ -1,14 +1,23 @@
-//! AArch64 stage-1 MMU: multi-level identity map (4 KiB granule, 39-bit VA).
+//! AArch64 stage-1 MMU: two maps, in the order Linux uses.
 //!
-//! Regions are mapped one at a time with their own permissions, using 1 GiB
-//! and 2 MiB blocks where the alignment allows and 4 KiB pages where it does
-//! not. That is what makes W^X and a stack guard page possible: with a single
-//! 1 GiB block per gigabyte, `.text`, the stack and the heap all had to share
-//! one set of permissions, and the weakest won.
+//! **Early map** ([`early_mmu_enable`]): a coarse identity map of 1 GiB blocks,
+//! built entirely at compile time, enabled from `boot.s` before any other Rust
+//! runs. It exists so that *no kernel code ever executes without memory
+//! attributes*. With translation off every access is Device-nGnRnE, where the
+//! `LDXR`/`STXR` pair behind an atomic read-modify-write does not make
+//! progress on Cortex-A72 — an `AtomicBool::swap` in early boot hangs the board
+//! silently, and emulators do not reproduce it. Rather than ask every future
+//! author to remember that, the window is removed.
+//!
+//! **Kernel map** ([`activate`]): the real per-region map with W^X and a guard
+//! page, built at runtime from the linker layout and installed by switching
+//! `TTBR0_EL1`. Because the early map is already active, the tables are written
+//! through the caches the walker itself reads, so this needs a barrier rather
+//! than the invalidate-the-world dance a cold enable requires.
 //!
 //! Which physical ranges are RAM and which are device MMIO is board knowledge,
-//! so the caller supplies them. The bit encodings and the region splitting
-//! live in [`kernel_core::paging`] and are unit-tested on the host.
+//! so [`activate`]'s caller supplies them. The bit encodings and the region
+//! splitting live in [`kernel_core::paging`] and are unit-tested on the host.
 
 use kernel_core::paging::{self, Level, MemKind, Perms};
 
@@ -17,6 +26,69 @@ use crate::sync::SyncCell;
 
 /// `TCR_EL1.T0SZ` — 39-bit VA, so the initial lookup level is 1.
 const T0SZ: u64 = 25;
+
+/// Writable and executable — only ever used by the early map, which cannot
+/// distinguish `.text` from the stack at 1 GiB granularity. [`activate`]
+/// replaces it before any of the kernel's own untrusted input is touched.
+const RWX: Perms = Perms {
+    write: true,
+    execute: true,
+};
+
+/// Encode a level-1 block or fail the build.
+///
+/// The early map has no error path: it is installed before the console exists,
+/// so a bad descriptor could not be reported. Evaluating it in `const` context
+/// turns that into a compile error instead.
+const fn early_block(pa: u64, kind: MemKind, perms: Perms) -> u64 {
+    match paging::leaf(Level::L1, pa, kind, perms) {
+        Some(descriptor) => descriptor,
+        None => panic!("early identity map: unencodable block address"),
+    }
+}
+
+/// The early identity map, resolved at compile time.
+///
+/// Not `mut` and never written at runtime: the table lives in `.rodata`, and
+/// the page-table walker only reads it (the access flag is pre-set, so there
+/// is no hardware update either).
+static EARLY_L1: Table = Table {
+    entries: {
+        let mut entries = [0u64; paging::ENTRIES_PER_TABLE];
+        // RAM: 0–3 GiB. Executable because the kernel image is at 0x80000, and
+        // covering 3 GiB means a firmware-placed DTB is readable wherever it
+        // landed — the fine map deliberately covers far less.
+        entries[0] = early_block(0x0000_0000, MemKind::NormalWb, RWX);
+        entries[1] = early_block(0x4000_0000, MemKind::NormalWb, RWX);
+        entries[2] = early_block(0x8000_0000, MemKind::NormalWb, RWX);
+        // Peripherals and the GIC.
+        entries[3] = early_block(0xC000_0000, MemKind::Device, Perms::RW);
+        entries
+    },
+};
+
+/// Enable translation with the compile-time identity map.
+///
+/// Called from `_start` once the stack exists and BSS is clear, before
+/// `kernel_main`. After this returns, memory has attributes and the rest of
+/// the kernel — atomics included — behaves as the architecture documents.
+///
+/// # Safety
+/// Call exactly once, on the primary core, with interrupts masked and
+/// translation off.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn early_mmu_enable() {
+    unsafe {
+        // Caches are about to be enabled. Anything the firmware left resident
+        // would otherwise shadow memory — including this table.
+        cache::invalidate_dcache_all();
+        cache::invalidate_icache();
+
+        program_regime(&raw const EARLY_L1 as u64);
+        cache::invalidate_tlb_all();
+        enable_translation();
+    }
+}
 
 unsafe extern "C" {
     static __pagetables_start: u8;
@@ -70,28 +142,55 @@ pub struct Region {
     pub name: &'static str,
 }
 
-/// Build the identity map from `regions`, then enable the MMU and caches.
+/// Build the kernel map from `regions` and switch `TTBR0_EL1` to it.
 ///
-/// Anything not covered by a region stays unmapped and faults — that is the
-/// point of the guard page.
+/// Replaces the coarse early map. Anything not covered by a region becomes
+/// unmapped and faults — that is the point of the guard page, and the reason
+/// this is a distinct step rather than something `early_mmu_enable` could do.
+///
+/// On error nothing is switched: the early map stays active, so the caller can
+/// report the failure over a console that still works.
 ///
 /// # Safety
-/// Single core, MMU off, IRQs masked. Every address the kernel touches after
-/// this returns must be inside one of `regions`.
-pub unsafe fn enable(regions: &[Region]) -> Result<(), (MmuError, &'static str)> {
+/// Single core, IRQs masked, early map active. Every address the kernel touches
+/// after this returns must be inside one of `regions`.
+pub unsafe fn activate(regions: &[Region]) -> Result<(), (MmuError, &'static str)> {
     unsafe {
         arena_init();
 
         let root = alloc_table().map_err(|e| (e, "root table"))?;
-        *ROOT.get() = root as usize;
 
         for region in regions {
             map_region(root, region).map_err(|e| (e, region.name))?;
         }
 
-        install(root as u64);
+        *ROOT.get() = root as usize;
+        switch_ttbr0(root as u64);
     }
     Ok(())
+}
+
+/// Point `TTBR0_EL1` at a new table and flush the old translations.
+///
+/// No cache maintenance: translation is already on, so the table writes and
+/// the walker's reads go through the same caches. Only ordering is needed —
+/// the writes must be observable before the switch.
+///
+/// # Safety
+/// `root` is a complete table covering every address in use.
+unsafe fn switch_ttbr0(root: u64) {
+    unsafe {
+        core::arch::asm!(
+            "dsb ishst",
+            "msr ttbr0_el1, {root}",
+            "isb",
+            "tlbi vmalle1",
+            "dsb ish",
+            "isb",
+            root = in(reg) root,
+            options(nostack),
+        );
+    }
 }
 
 /// Point the arena at the linker-reserved range.
@@ -202,36 +301,32 @@ unsafe fn map_chunk(
     }
 }
 
-/// Program `MAIR`/`TCR`/`TTBR0`, invalidate, then set `SCTLR_EL1.{M,C,I}`.
+/// Program the translation regime: `MAIR`, `TCR` and the initial `TTBR0`.
 ///
 /// # Safety
 /// `root` is a complete translation table covering every address in use.
-unsafe fn install(root: u64) {
+unsafe fn program_regime(root: u64) {
     unsafe {
         core::arch::asm!(
-            "msr mair_el1, {v}",
-            v = in(reg) paging::mair_el1(),
-            options(nostack),
-        );
-        core::arch::asm!(
-            "msr tcr_el1, {v}",
-            v = in(reg) paging::tcr_el1_ttbr0_only(T0SZ),
-            options(nostack),
-        );
-        core::arch::asm!(
+            "msr mair_el1, {mair}",
+            "msr tcr_el1, {tcr}",
             "msr ttbr0_el1, {root}",
             "isb",
+            mair = in(reg) paging::mair_el1(),
+            tcr = in(reg) paging::tcr_el1_ttbr0_only(T0SZ),
             root = in(reg) root,
             options(nostack),
         );
+    }
+}
 
-        // The tables were written with the MMU off, so they went straight to
-        // memory — but the walker is about to read them through the caches, and
-        // the firmware left lines of its own behind.
-        cache::invalidate_dcache_all();
-        cache::invalidate_icache();
-        cache::invalidate_tlb_all();
-
+/// Set `SCTLR_EL1.{M,C,I}` — translation and both caches.
+///
+/// # Safety
+/// A valid regime must already be programmed; the code executing this call
+/// must be identity-mapped, or the next instruction fetch faults.
+unsafe fn enable_translation() {
+    unsafe {
         let mut sctlr: u64;
         core::arch::asm!("mrs {v}, sctlr_el1", v = out(reg) sctlr, options(nostack));
         sctlr |= (1 << 0) | (1 << 2) | (1 << 12); // M | C | I

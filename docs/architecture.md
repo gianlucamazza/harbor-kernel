@@ -47,11 +47,18 @@ is the target; the milestone table says which parts exist.
 6. IRQ handlers do not **transmit** on the console (`println` / TX). The UART
    RX handler may only drain the FIFO into the kernel ring.
 7. State shared between the IRQ path and the main loop uses `core::sync::atomic`
-   — never `static mut`. Before M2 atomics were banned because `LDXR`/`STXR`
-   can livelock without memory attributes; since M2 the RAM is mapped Normal
-   WB Inner-Shareable and that constraint no longer applies. State that is
-   _not_ producer/consumer uses `SyncCell` and is mutated inside
-   `cpu::without_irqs`.
+   — never `static mut`. State that is _not_ producer/consumer uses `SyncCell`
+   and is mutated inside `cpu::without_irqs`.
+
+   **Exception, and it is a hard one: no atomic read-modify-write before
+   `mmu::enable`.** `swap`, `fetch_add` and `compare_exchange` compile to an
+   `LDXR`/`STXR` pair, and with the MMU off every access is Device-nGnRnE,
+   where exclusives do not make progress on Cortex-A72 — the retry loop spins
+   forever. The board goes silent with no fault to show for it, and QEMU does
+   not reproduce it, because its exclusive monitor ignores memory attributes.
+   Plain atomic loads and stores (`LDAR`/`STLR`) are fine anywhere. Code that
+   runs before the MMU — `console::acquire`, the panic handler — uses
+   `SyncCell` and the single-core invariant instead.
 8. Main idle uses `WFI` when the RX ring is empty and no tick report is due,
    with IRQs masked across the check so a wakeup cannot be lost.
 9. Nothing is both writable and executable, and diagnostic scaffolding lives

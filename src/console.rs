@@ -30,11 +30,12 @@ static RX_MMIO_BASE: AtomicUsize = AtomicUsize::new(0);
 
 /// Set once the console has been handed to an owner.
 ///
-/// The previous `acquire()` was `unsafe` and documented exclusivity as a
-/// caller obligation — while the panic handler called it a second time with
-/// the boot path still holding a handle. The obligation was therefore already
-/// violated by design. Enforcing it here makes the panic path's override an
-/// explicit [`steal`] rather than an undocumented exception.
+/// Enforcing the single owner here makes the panic path's override an explicit
+/// [`steal`] instead of the undocumented second `acquire()` it used to be.
+///
+/// A real atomic, not a single-core assumption: `boot.s` enables the early
+/// identity map before any Rust runs, so memory has attributes everywhere and
+/// the compare-and-set behaves. This stays correct when a second core appears.
 static CLAIMED: AtomicBool = AtomicBool::new(false);
 
 /// Bring up the board serial console and take exclusive TX ownership.

@@ -84,6 +84,12 @@ _start:
     ldr     x0, =__stack_top
     mov     sp, x0
 
+    // Enable translation with the compile-time identity map *before* any other
+    // Rust runs. Until this point memory has no attributes, and an atomic
+    // read-modify-write there spins forever on Cortex-A72 — a whole class of
+    // silent hangs that no emulator reproduces. See arch::aarch64::mmu.
+    bl      early_mmu_enable
+
     bl      kernel_main
 
     // kernel_main must not return; park if it does.

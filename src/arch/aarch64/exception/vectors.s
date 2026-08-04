@@ -66,7 +66,7 @@
     b       \label
 .endm
 
-.section .text.vectors, "ax"
+.section .vectors, "ax"
 .align 11
 .global exception_vectors
 exception_vectors:

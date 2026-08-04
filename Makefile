@@ -39,7 +39,7 @@ ifeq ($(PROFILE),release)
   CARGO_FLAGS += --release
 endif
 
-.PHONY: all debug img elf check test no-simd fmt fmt-check qemu qemu-gdb blobs deploy serial clean
+.PHONY: all debug img elf check test no-simd no-early-exclusives fmt fmt-check qemu qemu-gdb blobs deploy serial clean
 
 all: img
 
@@ -55,7 +55,7 @@ img: elf
 	@echo "built $(IMG)"
 	@ls -la $(IMG)
 
-check: fmt-check test no-simd
+check: fmt-check test no-simd no-early-exclusives
 	cargo clippy --target $(TARGET) -- -D warnings
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
 
@@ -71,6 +71,18 @@ no-simd: elf
 	  | head -5 | grep . \
 	  || { echo "error: FP/SIMD registers found in $(ELF)" >&2; exit 1; }
 	@echo "no-simd: clean"
+
+# `early_mmu_enable` runs with translation off, where every access is
+# Device-nGnRnE and the LDXR/STXR pair behind an atomic read-modify-write does
+# not make progress on Cortex-A72 — the board hangs with no output and no
+# fault, and QEMU does not reproduce it because its exclusive monitor ignores
+# memory attributes. The window is one function long; keep it that way.
+no-early-exclusives: elf
+	@! llvm-objdump -d --disassemble-symbols=early_mmu_enable --no-show-raw-insn $(ELF) \
+	  | grep -oE '\b(ld|st)a?xr[bh]?\b|\bcas[ab]*l?[bh]?\b|\bswp[ab]*l?[bh]?\b' \
+	  | head -5 | grep . \
+	  || { echo "error: atomic read-modify-write in the pre-MMU path" >&2; exit 1; }
+	@echo "no-early-exclusives: clean"
 
 fmt:
 	cargo fmt --all

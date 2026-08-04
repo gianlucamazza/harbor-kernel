@@ -3,12 +3,12 @@
 //! Masks IRQs, re-initialises the serial console, emits a diagnostic, then
 //! parks the core. Unwinding is disabled (`panic = "abort"`).
 
-use core::fmt::Write;
-use core::panic::PanicInfo;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::arch::cpu;
 use crate::console;
+use core::fmt::Write;
+use core::panic::PanicInfo;
 
 /// Set on entry so a panic raised *inside* the panic path does not recurse.
 static PANICKING: AtomicBool = AtomicBool::new(false);
