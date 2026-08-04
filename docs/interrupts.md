@@ -1,0 +1,68 @@
+# Interrupts and exceptions (M1)
+
+## Hardware evidence (Pi 4B Rev 1.5)
+
+| Check | Result |
+|-------|--------|
+| PL011 console | OK |
+| CNTP `ISTATUS` (IRQs masked) | OK |
+| GIC `HPPIR` = PPI 30 when pending | OK |
+| `GICC_IAR` claim + `EOIR` | OK |
+| Vector IRQ → `ticks=` | **OK** |
+
+### Gotchas fixed during bring-up
+
+1. **No `AtomicU64` before MMU** — exclusive load/store can livelock without
+   proper memory attributes. Use single-core plain counters until M2.
+2. **Do not reprogram CNTP while the timer line is live on the GIC** without
+   masking the PPI first (observed hang).
+3. **Group 0 + `IAR`/`EOIR`** works for this firmware/GIC path; relying only on
+   Group 1 aliased registers was unreliable during early bring-up.
+4. Prefer **`HPPIR`** over a zero **`AHPPIR`** reading when both are present.
+
+## Layering
+
+```
+exception_irq_el1
+    → irq::handle_cpu_irq()
+         chip.claim() → handlers[id]() → chip.end()
+
+time::on_timer_irq  ← registered for TIMER_IRQ (PPI 30)
+arch/timer          ← CNTP only (no GIC)
+drivers/gicv2       ← IrqChip
+bsp/rpi4            ← static GIC + bind
+```
+
+## GIC-400 (BCM2711)
+
+| Block | Base |
+|-------|------|
+| GICD | `0xFF84_1000` |
+| GICC | `0xFF84_2000` |
+
+Requires `enable_gic=1` in `config.txt`.
+
+## Timer
+
+ARM Generic Timer physical: `CNTP_*`, IRQ **PPI 30**, frequency from
+`CNTFRQ_EL0` (~54 MHz on the tested board).
+
+## Production bring-up
+
+```
+exception::init
+bsp::irq::init(hz)     // irq::init, register timer, CNTP, enable PPI
+timer::on_interrupt()  // clean deadline
+irq_enable
+console (print ticks)
+```
+
+Optional full gates: set `BRINGUP_SELFTEST = true` in `bootstrap/mod.rs`.
+
+## Console rule
+
+| Context | UART |
+|---------|------|
+| bootstrap / main loop | exclusive `Pl011` |
+| IRQ handlers | **no** UART |
+| panic | mask IRQ, re-acquire console |

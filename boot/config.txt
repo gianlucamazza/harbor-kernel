@@ -1,0 +1,13 @@
+# Raspberry Pi 4 Model B — boot configuration for rpi_minimal_agentic
+# Documented in docs/boot-chain.md, docs/hardware.md, docs/interrupts.md
+#
+# Pinmux for UART0 is performed by the kernel BSP (not by device tree).
+# No DTB or overlays are required for M0/M1.
+
+arm_64bit=1
+kernel=kernel8.img
+enable_uart=1
+enable_gic=1
+
+# Keep the VPU core clock stable so the PL011 reference clock stays at 48 MHz.
+core_freq_min=500

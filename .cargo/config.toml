@@ -1,0 +1,13 @@
+[build]
+target = "aarch64-unknown-none"
+
+[target.aarch64-unknown-none]
+rustflags = [
+    "-C", "link-arg=--script=link.ld",
+    "-C", "relocation-model=static",
+    "-C", "target-cpu=cortex-a72",
+    "-C", "linker=rust-lld",
+]
+
+[term]
+quiet = false

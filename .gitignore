@@ -1,0 +1,18 @@
+/target/
+/kernel8.img
+**/*.elf
+**/*.o
+
+# Fetched platform firmware (regenerate with `make blobs`)
+/third_party/blobs/start4.elf
+/third_party/blobs/fixup4.dat
+/third_party/blobs/MANIFEST.txt
+
+# Local SD backups (Pi OS / previous agentic images)
+/.sd-backup/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

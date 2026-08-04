@@ -1,0 +1,25 @@
+[package]
+name = "rpi_minimal_agentic"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Agent-based microkernel for Raspberry Pi 4 Model B"
+license = "MIT OR Apache-2.0"
+publish = false
+readme = "README.md"
+categories = ["embedded", "no-std", "os"]
+keywords = ["raspberry-pi", "aarch64", "kernel", "bare-metal"]
+
+[profile.dev]
+panic = "abort"
+opt-level = 1
+lto = false
+debug = true
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+lto = true
+codegen-units = 1
+debug = true
+strip = false
