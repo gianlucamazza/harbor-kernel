@@ -64,7 +64,7 @@ target, so `rustup` installs what is needed on first build.
 
 ```bash
 make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
-make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds miri doc-claims, then clippy
+make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds miri doc-claims layering, then clippy
 make test         # host unit tests only
 make fmt
 ```
@@ -86,6 +86,12 @@ Details: [`docs/hardware.md`](docs/hardware.md).
 
 ### Expected console
 
+**Historical transcript** (Pi 4B silicon, **before** the exception-stack split).
+`CNTFRQ=54000000` is real board frequency, not TCG. Addresses below the table
+arena have **moved** since this capture: the live kernel guard is at
+`0xa1000`, and there is a second guard under the exception stack. Do not treat
+`0x9a000` as the current map.
+
 ```
 rpi_minimal_agentic: hello
 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
@@ -103,14 +109,13 @@ ticks=20
 ...
 ```
 
-That transcript is from a Raspberry Pi 4B, not an emulator: `CNTFRQ` is the
-board's real 54 MHz, and the DTB address is the one this firmware passes.
-
-It is also the last hardware boot **before** the exception-stack split, so the
-addresses below the table arena have since moved — the guard page is now at
-`0xa1000`, and there are two. Rather than paste emulator output and call it a
-board, the transcript stays as recorded until the next hardware run; see
-[the open item in `verification.md`](docs/verification.md#open-what-has-not-been-run-on-hardware).
+**Current layout on silicon** (same board, post-split, 2026-08-04): guard at
+`0xa1000`, DTB mapped, heap fully reclaimed, timer IRQs through EL1t — recorded
+in
+[`verification.md`](docs/verification.md#hardware-evidence-stack-split-closed).
+Rather than replace the historical block with QEMU output and call it a board
+boot, the pre-split transcript stays labeled above until the next full
+console capture is pasted here.
 
 Typed characters are echoed via the RX IRQ ring (main idles with `WFI` between
 events). `fully reclaimed` is the line that distinguishes a real allocator from

@@ -44,7 +44,7 @@ ifeq ($(PROFILE),release)
   CARGO_FLAGS += --release
 endif
 
-.PHONY: all debug img elf check test miri bringup-builds no-simd no-early-exclusives boot-check doc-claims fmt fmt-check qemu qemu-gdb blobs deploy serial clean
+.PHONY: all debug img elf check test miri bringup-builds no-simd no-early-exclusives boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy serial clean
 
 all: img
 
@@ -64,9 +64,14 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds miri doc-claims
+check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds miri doc-claims layering
 	cargo clippy --target $(TARGET) -- -D warnings
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
+
+# The layering rules in docs/architecture.md, checked against real imports.
+# They are the architecture, and were enforced by review alone until now.
+layering:
+	./scripts/check-layering.sh
 
 # The README's two machine-checkable claims: the gate list and the test count.
 # Both have drifted, the gate list twice — once on the commit that added a gate.

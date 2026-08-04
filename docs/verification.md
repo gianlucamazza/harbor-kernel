@@ -15,6 +15,7 @@ covered.
 | Pre-MMU path (`make no-early-exclusives`) | Disassembles `_start` and its callees   | Atomic read-modify-write before translation is on, the path growing, and any indirect branch on it                     | Nothing on that path: an edge it cannot follow is refused rather than skipped                  |
 | QEMU boot (`make boot-check`)             | Boots the image, asserts on the log     | MMU activation, allocator reclaim, timer IRQ, WFI idle, unhandled interrupts, panics                                   | **Memory attributes.** Also cache behaviour, real clocks, firmware state                       |
 | Doc claims (`make doc-claims`)            | Compares README against the Makefile    | The two README claims a machine can settle: the `make check` gate list and the host test count                         | Every other sentence in the docs, which is prose and stays prose                               |
+| Layering (`make layering`)                | Every `crate::` import edge in `src/`   | The rules in `architecture.md`: drivers never know the board, arch never names a driver, `exception` reaches only `irq` | Coupling that is not an import — a shared constant, an agreed register value, a naming convention |
 | Hardware                                  | A Pi 4B on a serial console             | Everything above, for real                                                                                             | Only what you actually boot and look at                                                        |
 
 `make check` runs every layer above except the hardware one, and is deliberately
@@ -100,14 +101,15 @@ them by hand after changing `link.ld` or the region list in `mm::layout`. This
 table is the only copy: it used to be duplicated in `mmu.md`, and both copies
 went stale together the moment the layout moved.
 
-## Open: what has not been run on hardware
+## Hardware evidence: stack split (closed)
 
-The stack split (`SP_EL0` for the kernel, `SP_EL1` for exceptions) changes the
+The stack split (`SP_EL0` for the kernel, `SP_EL1` for exceptions) changed the
 boot sequence and the vector group the hardware enters through — both in the
 category this project has already been burned by, where emulation agrees and
-silicon does not.
+silicon does not. **Boot, overflow probe, and guard-page write are all closed
+on hardware**; this section is the evidence, not an open checklist.
 
-**The boot half is now closed.** On a Pi 4B, 2026-08-04:
+**Boot.** On a Pi 4B, 2026-08-04:
 
 ```
 MMU on  (W^X, guard page at 0xa1000, 40960 B of table arena left)
@@ -121,8 +123,8 @@ layout and not a stale card. Timer IRQs arrive, which is the part worth
 insisting on: they can only arrive through the **EL1t** vector entries, so the
 vector group moved correctly and the hardware really does switch to `SP_EL1`.
 
-**The overflow probe is closed too.** On the same board, a small-frame recursion
-into the guard page:
+**Overflow probe.** On the same board, a small-frame recursion into the guard
+page:
 
 ```
 PROBE: overflowing the kernel stack
@@ -136,8 +138,7 @@ evidence for the same thing — `M[3:0] = 0b0100` is EL1t, so the interrupted
 context was running on `SP_EL0`. Before the split the same probe recorded
 `SPSR=0x3c5`, `M[3:0] = 0b0101`, EL1h.
 
-**The guard-page write probe is closed as well**, at the address the split moved
-it to:
+**Guard-page write probe**, at the address the split moved it to:
 
 ```
 PROBE: writing to the guard page at 0xa1000
@@ -201,6 +202,7 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Layout validator                                                 | `GUARD_PAGE_SIZE = 0` in `link.ld`          | `LAYOUT INVALID: GuardIneffective` — and the first attempt at that check passed, which is how the linker-symbol fold below was found |
 | Refusal to boot unprotected                                      | make `mmu::activate` return `OutOfTables`   | `BOOT REFUSED: could not map planted failure` and then nothing — no heap line, no ticks, no console loop                                    |
 | Pre-MMU path, indirect branch                                    | reach the gate through `blr x9`             | `indirect branch in _start: its target is not derivable` — the call graph the check walks had a hole                                 |
+| Layering rules                                                   | `drivers` imports `bsp`; `arch` imports `drivers`; `exception` imports `drivers` | one line naming the module and the edge, for each of the three rules separately                                    |
 | RX bytes dropped                                                 | shrink the ring to 4 bytes and paste 60     | `console: DROPPED 57 received bytes (ring full)`, where before the loss was invisible                                                |
 | Exception stack (`SP_EL1`)                                       | run the same overflow on the pre-split tree | `FAR=0x9c000`, the guard's **bottom**, against `0xa1ff8`, its **top** — the handler had walked the whole page and landed below it    |
 | Exception-stack guard page                                       | zero-length exception guard in `Boundaries` | `GuardIneffective` — validation is written once over both stacks, and this is what keeps that true                                   |
