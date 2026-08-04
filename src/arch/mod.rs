@@ -5,6 +5,7 @@
 
 pub mod aarch64;
 
+pub use aarch64::bootinfo;
 pub use aarch64::cpu;
 pub use aarch64::exception;
 pub use aarch64::mmio;

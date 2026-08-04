@@ -10,7 +10,7 @@
 mod selftest;
 mod shell;
 
-use crate::arch::{cpu, exception, mmu, timer};
+use crate::arch::{bootinfo, cpu, exception, mmu, timer};
 use crate::bsp::board;
 use crate::console;
 use crate::mm;
@@ -24,13 +24,32 @@ const HEAP_SIZE: usize = 64 * 1024 * 1024;
 
 /// Full kernel bring-up; never returns.
 pub fn run() -> ! {
-    // SAFETY: core 0; DAIF still masked from `boot.s`.
-    let mut uart = unsafe { console::acquire() };
+    // SAFETY: core 0; DAIF still masked from `boot.s`; nothing else has run.
+    let Some(mut uart) = (unsafe { console::acquire() }) else {
+        // Unreachable in practice — this is the first claim — but there is no
+        // console to report it on, so park rather than pretend.
+        cpu::halt()
+    };
 
     println!(uart, "rpi_minimal_agentic: hello");
     println!(uart, "M2+P0: MMU + heap + idle + UART RX IRQ");
 
     exception::init();
+
+    // Report what the firmware handed us. Everything the BSP hard-codes — RAM
+    // size, UART clock, peripheral base — is in here; consuming it is future
+    // work, but losing the pointer is not recoverable.
+    //
+    // Must stay above `mmu::enable`: validating the DTB dereferences an
+    // address the map does not cover.
+    match bootinfo::device_tree() {
+        Some(dtb) => println!(uart, "DTB at {dtb:#x}"),
+        None => println!(
+            uart,
+            "no DTB (x0 was {:#x}); board constants are compiled in",
+            bootinfo::dtb_address()
+        ),
+    }
 
     // No `CPACR_EL1.FPEN` here on purpose: the kernel is built for
     // `aarch64-unknown-none-softfloat`, so it contains no FP/SIMD at all
@@ -69,9 +88,9 @@ pub fn run() -> ! {
     }
 
     // SAFETY: single-core; exclusive GIC ownership.
-    let irq_bound = unsafe { board::irq::init(TIMER_HZ) };
-    if !irq_bound {
-        println!(uart, "IRQ bind FAILED: a handler id is out of range");
+    if let Err(error) = unsafe { board::irq::init(TIMER_HZ) } {
+        println!(uart, "IRQ bind FAILED: {error:?}");
+        println!(uart, "no timer or RX interrupts — console is output only");
     }
     cpu::sync_pipeline();
 

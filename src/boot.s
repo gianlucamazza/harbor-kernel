@@ -8,10 +8,26 @@
 //
 // Symbols from the linker script: __bss_start, __bss_end, __stack_top.
 
+// Storage for the firmware's x0. Deliberately in .data, not .bss: the BSS
+// clear below runs *after* this is written and would zero it.
+.section .data
+.global __dtb_ptr
+.align 3
+__dtb_ptr:
+    .quad 0
+
 .section .text.boot, "ax"
 .global _start
 
 _start:
+    // The firmware passes the device-tree blob address in x0. Nothing consumes
+    // it yet, but it is unrecoverable once clobbered, and it is the only route
+    // to discovering RAM size, the UART clock and the peripheral base instead
+    // of hard-coding them. Two instructions now, or a re-flash later.
+    adrp    x19, __dtb_ptr
+    add     x19, x19, :lo12:__dtb_ptr
+    str     x0, [x19]
+
     // Affinity level 0 only (core id within cluster).
     mrs     x0, mpidr_el1
     and     x0, x0, #0xFF

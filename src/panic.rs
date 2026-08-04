@@ -24,9 +24,9 @@ fn panic(info: &PanicInfo) -> ! {
         cpu::halt()
     }
 
-    // SAFETY: single execution context after panic on core 0; re-init restores
-    // the UART from a cold programming state.
-    let mut uart = unsafe { console::acquire() };
+    // SAFETY: the panicking context never resumes, so taking the console from
+    // it is sound; re-init restores the UART from a cold programming state.
+    let mut uart = unsafe { console::steal() };
 
     let _ = writeln!(uart, "\n*** KERNEL PANIC ***");
     let _ = writeln!(uart, "{info}");

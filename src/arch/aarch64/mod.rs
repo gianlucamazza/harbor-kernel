@@ -3,6 +3,7 @@
 //! Contains only CPU- and ISA-level facilities. Device drivers and board
 //! wiring live in [`crate::drivers`] and [`crate::bsp`] respectively.
 
+pub mod bootinfo;
 pub mod cache;
 pub mod cpu;
 pub mod exception;

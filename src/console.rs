@@ -1,13 +1,13 @@
 //! Kernel console policy.
 //!
-//! Until a resident console agent exists, callers hold an explicit [`Pl011`]
-//! obtained via [`acquire`] for TX. RX bytes arrive via UART IRQ into a kernel
+//! Until a resident console agent exists, one owner holds an explicit [`Pl011`]
+//! taken from [`acquire`] for TX; a second [`acquire`] returns `None`. RX bytes arrive via UART IRQ into a kernel
 //! ring ([`on_uart_rx_irq`] → [`pop_rx`]); the IRQ path never transmits.
 //!
 //! Formatting helpers take the TX handle as the first argument so ownership
 //! stays visible and testable.
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use kernel_core::ring::ByteRing;
 
@@ -28,25 +28,54 @@ static RX_RING: ByteRing<RX_CAP> = ByteRing::new();
 /// IRQ with no atomicity: the handler could observe it half-initialised.
 static RX_MMIO_BASE: AtomicUsize = AtomicUsize::new(0);
 
-/// Bring up the board serial console and return exclusive TX ownership.
+/// Set once the console has been handed to an owner.
 ///
-/// Each call re-programs pinmux and the UART from a known reset state. That
-/// makes the operation valid both on the cold boot path and in the panic
-/// handler (where any previous handle may already be invalid).
+/// The previous `acquire()` was `unsafe` and documented exclusivity as a
+/// caller obligation — while the panic handler called it a second time with
+/// the boot path still holding a handle. The obligation was therefore already
+/// violated by design. Enforcing it here makes the panic path's override an
+/// explicit [`steal`] rather than an undocumented exception.
+static CLAIMED: AtomicBool = AtomicBool::new(false);
+
+/// Bring up the board serial console and take exclusive TX ownership.
+///
+/// `None` if the console is already owned.
 ///
 /// # Safety
 ///
-/// The caller must guarantee exclusive ownership of the console hardware
-/// (GPIO pinmux for the UART pins and the PL011 MMIO block) for the entire
-/// lifetime of the returned handle, aside from the RX IRQ path which only
-/// drains RX after [`enable_rx_irq`].
-pub unsafe fn acquire() -> Pl011 {
-    unsafe {
-        // Panic / re-init: disarm the IRQ view so we do not drain with a stale
-        // config. Release so the handler cannot see the disarm out of order.
-        RX_MMIO_BASE.store(0, Ordering::Release);
-        board::console::init()
+/// No other subsystem may be driving the UART0 pins or the PL011 register
+/// block; the RX IRQ path is the one exception, and only after
+/// [`enable_rx_irq`].
+pub unsafe fn acquire() -> Option<Pl011> {
+    if CLAIMED.swap(true, Ordering::Acquire) {
+        return None;
     }
+    // SAFETY: we won the claim, so no other handle exists.
+    unsafe { Some(reprogram()) }
+}
+
+/// Take the console away from its current owner.
+///
+/// # Safety
+///
+/// The previous owner must be about to stop running. This exists for the panic
+/// path, where an interleaved diagnostic beats a diagnostic nobody can print.
+pub unsafe fn steal() -> Pl011 {
+    CLAIMED.store(true, Ordering::Release);
+    // SAFETY: forwarded from the caller's obligation.
+    unsafe { reprogram() }
+}
+
+/// Re-program pinmux and the PL011 from a known reset state.
+///
+/// # Safety
+/// Caller holds the exclusive claim.
+unsafe fn reprogram() -> Pl011 {
+    // Disarm the IRQ view so the handler cannot drain with a stale config.
+    // Release so it cannot observe the disarm out of order.
+    RX_MMIO_BASE.store(0, Ordering::Release);
+    // SAFETY: forwarded from the caller's obligation.
+    unsafe { board::console::init() }
 }
 
 /// Arm PL011 RX interrupts and install the IRQ-side MMIO view.

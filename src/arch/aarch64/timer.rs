@@ -25,25 +25,46 @@ pub fn frequency_hz() -> u64 {
     freq
 }
 
+/// Why the timer could not be programmed at the requested rate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimerError {
+    /// A rate of zero has no interval.
+    ZeroRate,
+    /// `CNTFRQ_EL0` reads zero — the firmware did not program the counter.
+    NoCounterFrequency,
+    /// The requested rate is faster than the counter can express.
+    RateTooHigh { requested_hz: u32, counter_hz: u64 },
+}
+
 /// Program a periodic physical timer at `hz` ticks per second and start it.
 ///
 /// Does not touch the GIC. Caller must enable PPI 30 and unmask DAIF.I.
 ///
-/// # Panics
-///
-/// Panics if `hz == 0`, `CNTFRQ_EL0 == 0`, or the derived interval is zero.
-pub fn init(hz: u32) {
-    assert!(hz > 0, "timer hz must be non-zero");
+/// Returns an error rather than panicking: a board that cannot start its timer
+/// can still run a polled console and report why, which is strictly more
+/// useful than a kernel panic at boot.
+pub fn init(hz: u32) -> Result<(), TimerError> {
+    if hz == 0 {
+        return Err(TimerError::ZeroRate);
+    }
     let freq = frequency_hz();
-    assert!(freq > 0, "CNTFRQ_EL0 is zero");
+    if freq == 0 {
+        return Err(TimerError::NoCounterFrequency);
+    }
 
     let interval = freq / u64::from(hz);
-    assert!(interval > 0, "timer interval underflows at requested hz");
+    if interval == 0 {
+        return Err(TimerError::RateTooHigh {
+            requested_hz: hz,
+            counter_hz: freq,
+        });
+    }
 
     INTERVAL_COUNTS.store(interval, Ordering::Relaxed);
     write_tval(interval);
     // ENABLE=1, IMASK=0.
     write_ctl(0b001);
+    Ok(())
 }
 
 /// Re-arm the next deadline. Called from the IRQ path only.

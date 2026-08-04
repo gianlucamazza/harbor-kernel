@@ -21,24 +21,34 @@ pub const UART_IRQ: u32 = UART0_SPI;
 /// IRQs must remain **masked** until bootstrap finishes soft proof and arms
 /// PL011 `IMSC` via [`console::enable_rx_irq`].
 ///
+/// Everything that can go wrong binding the board's interrupt sources.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BindError {
+    /// A handler id was beyond the dispatch table: the line would be
+    /// acknowledged and dropped, so the console would silently receive nothing.
+    HandlerNotRegistered(u32),
+    /// The arch timer would not start at the requested rate.
+    Timer(timer::TimerError),
+}
+
 /// # Safety
 /// Single core; exclusive GIC ownership; call once.
-/// Returns `false` if a handler could not be registered — the line would then
-/// be acknowledged and dropped, so the caller should say so rather than boot
-/// into a console that silently never receives anything.
-#[must_use]
-pub unsafe fn init(timer_hz: u32) -> bool {
+pub unsafe fn init(timer_hz: u32) -> Result<(), BindError> {
     unsafe {
         irq::init(&GIC);
 
-        let registered = irq::register(TIMER_IRQ, time::on_timer_irq)
-            & irq::register(UART_IRQ, console::on_uart_rx_irq);
+        if !irq::register(TIMER_IRQ, time::on_timer_irq) {
+            return Err(BindError::HandlerNotRegistered(TIMER_IRQ));
+        }
+        if !irq::register(UART_IRQ, console::on_uart_rx_irq) {
+            return Err(BindError::HandlerNotRegistered(UART_IRQ));
+        }
 
-        timer::init(timer_hz);
+        timer::init(timer_hz).map_err(BindError::Timer)?;
+
         irq::enable(TIMER_IRQ);
         irq::enable(UART_IRQ);
-
-        registered
+        Ok(())
     }
 }
 
