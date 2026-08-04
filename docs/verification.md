@@ -105,28 +105,71 @@ went stale together the moment the layout moved.
 
 ## M3 cooperative tasks (hardware)
 
-**Status: open.** QEMU is closed (`boot-check` asserts interleaved `task-a` /
-`task-b`, spawn, unmap smoke, ticks). Silicon is not yet recorded in this tree.
-
-| Check | How | Evidence |
+| Check | Status | Evidence |
 | --- | --- | --- |
-| Interleaved yield | Production image on Pi 4B serial | *pending* — expect `task-a`/`task-b` lines and `CNTFRQ=54000000` |
-| Task-stack guard fault | `cargo build --release --features bringup`, flash, capture panic | *pending* — expect `PROBE: writing to task stack guard at …` then `ESR=…` DFSC translation, FAR in guard |
-| Review | [2026-08-04-m3-incremental.md](reviews/2026-08-04-m3-incremental.md) | desk pass done; HW checklist open |
+| Interleaved yield + unmap smoke | **closed (HW)** | Pi 4B serial, 2026-08-04 — transcript below |
+| Task-stack guard fault | **open** | need bringup image + ESR row |
+| Review | desk done | [2026-08-04-m3-incremental.md](reviews/2026-08-04-m3-incremental.md) |
 
-When both captures exist, paste them here and flip the M3 row in
-`architecture.md` to `done (HW)`.
+QEMU remains gated by `boot-check`. Do not mark M3 `done (HW)` until the guard
+fault row is filled (same standard as P4).
 
-### Lab procedure (task guard)
+### Boot + cooperative yield (closed)
+
+Pi 4B, production image, CP2104 @ 115200, 2026-08-04. `CNTFRQ=54000000` is
+silicon (TCG is 62.5 MHz). Guard page at `0xa2000` matches the post-M3 layout.
+
+```
+Harbor: hello
+EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+DTB at 0x2eff1f00
+MMU on  (W^X, guard page at 0xa2000, 40960 B of table arena left)
+DTB mapped: 61440 bytes at 0x2eff1000
+heap remaining = 67108864 bytes
+CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+IRQs enabled (timer + UART RX)
+idle: WFI when no RX/tick work
+heap: Box at 0xb3010, Vec of 1024 sums to 523776
+heap: 67100624 bytes free while held, 2 fragments
+heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+unmap: page at 0xb4000 fault-ready
+unmap: remapped and freed
+sched: spawned task-a
+sched: spawned task-b
+task-a 0
+task-b 0
+task-a 1
+task-b 1
+task-a 2
+task-b 2
+task-a 3
+task-b 3
+ticks=10
+…
+ticks=410
+```
+
+No `irq: unhandled`, no `timer: MISSED`, no panic through several minutes of idle.
+
+### Task-stack guard write (open)
+
+Lab procedure — image panics by design; re-flash production afterwards:
 
 ```bash
 cargo build --release --features bringup
-llvm-objcopy -O binary target/aarch64-unknown-none-softfloat/release/harbor-kernel \
-  target/aarch64-unknown-none-softfloat/release/kernel8.img
-make deploy SD_MOUNT=/run/media/$USER/bootfs   # adjust mount
-make serial
-# Expect selftest GIC gates, then PROBE line, then PANIC with ESR/FAR.
-# Re-flash a production image (no bringup) afterwards — bringup panics by design.
+make img   # or objcopy the bringup ELF to kernel8.img
+make deploy SD_MOUNT=/run/media/$USER/bootfs
+# serial: expect selftest GIC gates, then:
+#   PROBE: writing to task stack guard at 0x…
+#   PANIC: sync exception … ESR=… FAR=…
+# Want DFSC translation fault (0b000111), FAR inside the printed guard page.
+```
+
+Paste ESR/FAR here when captured:
+
+```
+PROBE: writing to task stack guard at 0x________
+  ESR=0x________________   FAR=0x________________
 ```
 
 ## Hardware evidence: stack split (closed)

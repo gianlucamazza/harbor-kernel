@@ -91,12 +91,12 @@ No P0 hang-class bug found in static review of the switch/IRQ-mask protocol. Res
 
 ## Checklist to mark M3 `done (HW)`
 
-1. [ ] Pi 4B serial: `task-a`/`task-b` interleaved, `CNTFRQ=54000000`, DTB mapped  
+1. [x] Pi 4B serial: `task-a`/`task-b` interleaved, `CNTFRQ=54000000`, DTB mapped (2026-08-04)  
 2. [ ] `--features bringup` image: `PROBE: writing to task stack guard` + panic ESR with DFSC translation, FAR in guard  
-3. [ ] Paste both into `docs/verification.md`  
-4. [ ] Re-read this report; no open P1  
+3. [x] Boot transcript in `docs/verification.md`  
+4. [ ] Guard ESR row in `docs/verification.md`  
 
-Until then status remains **QEMU** (honest).
+Until (2)+(4), status is **HW boot** (not full `done (HW)`).
 
 ---
 
