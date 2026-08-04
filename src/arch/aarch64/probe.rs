@@ -55,11 +55,28 @@ pub fn take_data_abort(far: u64, esr: u64) -> bool {
         return false;
     }
 
-    FAULTED.store(true, Ordering::Relaxed);
+    // Release, paired with the Acquire load in `try_write32`. On one core an
+    // `eret` already orders this, but the pairing is what the code claims and
+    // what a second core would need — an unpaired store here would be a lie
+    // that stays true only by accident.
+    FAULTED.store(true, Ordering::Release);
     true
 }
 
 /// Write `value` to a 32-bit MMIO location; `Err` if the access aborts.
+///
+/// **The probe is the write.** Presence cannot be tested by reading: a read
+/// from an unbacked window can return whatever the bus leaves on the lines,
+/// and there is no value that distinguishes "no device" from "device holding
+/// that value". A write to a Device-nGnRnE mapping, by contrast, waits for the
+/// bus to acknowledge it — no early write acknowledgement is exactly what the
+/// `nE` in that attribute means — so a missing backend has to answer with an
+/// external abort.
+///
+/// The price is that probing **modifies** the register it probes. Choose an
+/// address where `value` is harmless, or one the caller is about to program
+/// anyway: `Rng200::init` probes `RNG_CTRL` with `0`, which is the disable its
+/// reset sequence performs first regardless.
 ///
 /// # Safety
 ///

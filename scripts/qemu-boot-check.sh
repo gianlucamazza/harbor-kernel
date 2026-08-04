@@ -53,6 +53,11 @@ grep -q 'Harbor: hello' "${log}" ||
 	fail "no console output: the kernel did not reach bootstrap::run"
 grep -q 'MMU on' "${log}" ||
 	fail "the kernel map did not activate"
+# RNG200 is always probed after the MMU. QEMU has no backend: expect soft
+# NotPresent. Silicon logs `ok word=…`. Either shape is a successful probe path;
+# silence would mean the probe panicked or never ran.
+grep -qE 'rng200: (ok |unavailable \()' "${log}" ||
+	fail "RNG200 probe line missing (expected ok or unavailable)"
 grep -q 'fully reclaimed' "${log}" ||
 	fail "the allocator did not return freed memory"
 # `mmu::unmap` (and the L2→L3 split when the heap is a block) then remap.

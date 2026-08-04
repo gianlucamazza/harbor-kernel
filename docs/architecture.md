@@ -177,10 +177,11 @@ Optional lab **SPI TFT status surface** (Waveshare-class 3.5″ / ILI9486) is
 specified in [ADR-0009](adr/0009-optional-spi-tft-debug-console.md) and
 [`hardware.md`](hardware.md). It is observability, not agent capability: UART
 stays primary; the panel is a structured status sink behind a default-off
-feature. Implementation order there builds reusable `SpiBus`/`SpiDevice`
-foundations (no vendor monolith, no serial mirror, no full-frame requirement).
-It must not block or redefine M4–M6; M6 may later *reuse* those drivers as
-agents.
+feature (`debug-display`). **SPI0 + RNG200 foundations are silicon-closed**
+([verification](verification.md#rng200-and-spi0-hardware)); ILI fill / status
+surface remain open. Missing peripherals soft-fail via `arch::probe` (QEMU
+RNG hole) rather than a feature gate. Must not block or redefine M4–M6; M6 may
+later *reuse* those drivers as agents.
 
 ## Decisions and reviews
 

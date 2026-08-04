@@ -118,10 +118,13 @@ sits inside the existing 16 MiB peripheral Device map (`0xFE00_0000`).
 ## Optional status display — Waveshare-class 3.5″ SPI TFT
 
 **Status:** side-track in progress (not an M-milestone). Policy:
-[ADR-0009](adr/0009-optional-spi-tft-debug-console.md) (**accepted**). Foundation in
-tree behind `--features debug-display`: GPIO claim API, `SpiBus`/`SpiDevice`,
-BCM2711 SPI0 polled master, BSP bind + empty-transfer smoke. ILI9486 / status
-surface not yet.
+[ADR-0009](adr/0009-optional-spi-tft-debug-console.md) (**accepted**). Foundation
+in tree behind `--features debug-display` (or `make FEATURES=debug-display img`):
+GPIO claim API, `SpiBus`/`SpiDevice`, polled SPI0 with FIFO chunking, BSP bind,
+resident handle after boot self-test **with the panel held in reset**. **SPI0
+bring-up closed on Pi 4B silicon** (no HAT required for that line) — see
+[`verification.md`](verification.md#rng200-and-spi0-hardware). ILI9486 / status
+surface / HAT glass not yet.
 
 This is **not** HDMI, DSI, or a VideoCore framebuffer. It is a GPIO HAT that
 drives a TFT over **SPI0** with an **ILI9486** controller. Harbor will talk to

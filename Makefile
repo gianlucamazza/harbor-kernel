@@ -2,6 +2,8 @@
 #
 #   make            release kernel8.img
 #   make debug      debug kernel8.img
+#   make FEATURES=debug-display img   # lab image with SPI TFT stack
+#   make FEATURES=debug-display deploy SD_MOUNT=...
 #   make check      fmt + tests + no-SIMD + pre-MMU + QEMU boot + clippy
 #   make test       host unit tests for the pure-logic crate
 #   make miri       run those tests under Miri (nightly; checks the unsafe)
@@ -40,9 +42,16 @@ BOOT_CHECK_SECONDS ?= 15
 TEST_PKG    := kernel-core
 HOST_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
 
+# Optional cargo features for img/deploy (e.g. FEATURES=debug-display).
+# Default images stay featureless so QEMU boot-check and production match.
+FEATURES    ?=
+
 CARGO_FLAGS := --target $(TARGET)
 ifeq ($(PROFILE),release)
   CARGO_FLAGS += --release
+endif
+ifneq ($(strip $(FEATURES)),)
+  CARGO_FLAGS += --features $(FEATURES)
 endif
 
 .PHONY: all debug img elf check test miri bringup-builds no-simd no-early-exclusives boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy restore-rpios serial clean

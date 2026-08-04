@@ -21,7 +21,9 @@ use crate::arch::probe;
 /// Spins waiting for warm-up bit count or a FIFO word.
 ///
 /// Generous: warm-up is a few dozen bits at ~MHz class rates; a wedged block
-/// must not hang boot or panic diagnostics forever.
+/// must not hang boot or panic diagnostics forever. Each spin is an MMIO read,
+/// on the order of a hundred nanoseconds here, so the budget is roughly a
+/// second of CPU time rather than the milliseconds a bare count suggests.
 const WARMUP_SPIN_LIMIT: u32 = 10_000_000;
 const FIFO_SPIN_LIMIT: u32 = 10_000_000;
 
@@ -126,9 +128,15 @@ impl Rng200 {
 
     /// One word if the FIFO is non-empty; `Ok(None)` if empty.
     ///
-    /// On health failure attempts a single restart, then re-checks.
+    /// Never blocks: it reads two registers and returns. A block that has
+    /// tripped its health checks reports [`RngError::HealthFail`] rather than
+    /// repairing itself here — recovery costs a reset plus a warm-up wait, and
+    /// a `try_` method that can spend millions of spins is a promise broken in
+    /// the only place a caller cannot see it. Call [`Self::restart`] to repair.
     pub fn try_word(&self) -> Result<Option<u32>, RngError> {
-        self.ensure_healthy()?;
+        if !self.health_ok() {
+            return Err(RngError::HealthFail);
+        }
         if self.fifo_count() == 0 {
             return Ok(None);
         }
@@ -153,8 +161,7 @@ impl Rng200 {
                         Err(RngError::HealthFail)
                     };
                 }
-                self.restart()?;
-                self.wait_warmup()?;
+                self.ensure_healthy()?;
                 resets += 1;
             }
 
@@ -182,6 +189,9 @@ impl Rng200 {
         Ok(filled)
     }
 
+    /// Repair a block that has tripped its health checks: reset, then wait out
+    /// the warm-up. Blocking by nature, which is why [`Self::try_word`] does
+    /// not call it.
     fn ensure_healthy(&self) -> Result<(), RngError> {
         if self.health_ok() {
             return Ok(());

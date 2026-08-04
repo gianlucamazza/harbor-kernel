@@ -211,6 +211,66 @@ llvm-objcopy -O binary target/aarch64-unknown-none-softfloat/release/harbor-kern
   target/aarch64-unknown-none-softfloat/release/kernel8-bringup.img
 ```
 
+## RNG200 and SPI0 (hardware)
+
+| Check | Status | Evidence |
+| --- | --- | --- |
+| RNG200 polled word + soft fail on absence | **closed (HW)** | Pi 4B 2026-08-05 — `rng200: ok word=…`; QEMU — `unavailable (NotPresent)` via `arch::probe` |
+| SPI0 pinmux + FIFO self-test + resident handle | **closed (HW)** | Pi 4B `--features debug-display`, 2026-08-05 — `SPI0 ready  cdiv=32  bit_clk=15625000 Hz` (no HAT) |
+| ILI9486 fill / status surface / HAT glass | open | needs panel + driver (ADR-0009 phase C–D) |
+
+### Silicon transcript (debug-display, no HAT)
+
+Pi 4B, CP2104 @ 115200, image built with `--features debug-display`, 2026-08-05.
+`CNTFRQ=54000000` is silicon. Guard address moves with `.text` and is not tracked
+as an invariant.
+
+```
+Harbor: hello
+EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+DTB at 0x2eff1f00
+MMU on  (W^X, guard page at 0xa4000, 40960 B of table arena left)
+DTB mapped: 61440 bytes at 0x2eff1000
+heap remaining = 67108864 bytes
+rng200: ok word=0xdc62f9e3
+SPI0 ready  cdiv=32  bit_clk=15625000 Hz (debug-display)
+CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+IRQs enabled (timer + UART RX)
+idle: WFI when no RX/tick work
+heap: … fully reclaimed …
+unmap: remapped and freed
+split: page at 0x200000 split 1, remapped
+sched: spawned task-a
+sched: spawned task-b
+arena: 1 splits, 8 tables free
+task-a 0
+task-b 0
+…
+ticks=10
+…
+```
+
+What those lines claim:
+
+- **`rng200: ok word=`** — presence probe succeeded, warm-up completed, FIFO
+  produced a 32-bit sample. Not a CSPRNG claim (see `hardware.md`).
+- **`SPI0 ready  cdiv=32  bit_clk=15625000`** — 500 MHz core / 16 MHz ceiling →
+  even CDIV 32; controller framed self-test under panel reset; handle installed
+  for later ILI9486 work. No glass, no fill, no status surface yet.
+- **M3 / unmap / split** still healthy on the same boot (regression check).
+
+QEMU counterpart (default image, no feature): after MMU,
+`rng200: unavailable (NotPresent)` — `arch::probe` recovered the external abort
+instead of panicking. That path is documented in the table at the top of this
+file; it is not a silicon pass for entropy.
+
+Deploy lab image without the featureless rebuild trap:
+
+```bash
+make FEATURES=debug-display img
+make FEATURES=debug-display deploy SD_MOUNT=/run/media/$USER/bootfs
+```
+
 ## Hardware evidence: stack split (closed)
 
 The stack split (`SP_EL0` for the kernel, `SP_EL1` for exceptions) changed the

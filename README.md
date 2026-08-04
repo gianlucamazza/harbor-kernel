@@ -125,6 +125,7 @@ EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
 no DTB (x0 was 0x100); board constants are compiled in
 MMU on  (W^X, guard page at 0xa3000, 40960 B of table arena left)
 heap remaining = 67108864 bytes
+rng200: unavailable (NotPresent)
 CNTFRQ=62500000 Hz  timer=10 Hz  PPI=30
 IRQs enabled (timer + UART RX)
 idle: WFI when no RX/tick work
@@ -153,18 +154,22 @@ ticks=20
 Addresses in that transcript move whenever `.text` grows, so they are a sample
 of one build rather than a promise. The lines are what matter: `fully
 reclaimed`, `split 1` (a 2 MiB block really was rebuilt as a table), and the
-two workers alternating.
+two workers alternating. `rng200: unavailable (NotPresent)` is expected on
+QEMU: the SoC block is not modelled; presence is soft-failed via `arch::probe`.
 
-**Hardware** (Pi 4B, same tree, 2026-08-04) differs in the ways that matter for
-“is this silicon?”:
+**Hardware** (Pi 4B) differs in the ways that matter for “is this silicon?”:
 
 | Signal | Board |
 | ------ | ----- |
 | DTB | Present, then mapped RO (e.g. `DTB mapped: 61440 bytes at 0x2eff1000`) |
 | `CNTFRQ` | `54000000` Hz (not TCG’s 62.5 MHz) |
+| RNG200 | `rng200: ok word=…` (raw sample; not a CSPRNG claim) |
+| SPI0 (`FEATURES=debug-display`) | `SPI0 ready  cdiv=32  bit_clk=15625000 Hz` (no HAT needed for that line) |
 
-Full HW evidence (boot, overflow probe, W^X) lives in
-[`docs/verification.md`](docs/verification.md#hardware-evidence-stack-split-closed).
+Full HW evidence: stack split in
+[`docs/verification.md`](docs/verification.md#hardware-evidence-stack-split-closed);
+RNG + SPI0 in
+[`docs/verification.md`](docs/verification.md#rng200-and-spi0-hardware).
 
 Typed characters are echoed via the RX IRQ ring (main idles with `WFI` between
 events). `fully reclaimed` is the line that distinguishes a real allocator from
