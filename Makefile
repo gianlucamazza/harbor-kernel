@@ -2,7 +2,7 @@
 #
 #   make            release kernel8.img
 #   make debug      debug kernel8.img
-#   make check      fmt --check + clippy (-D warnings) + host tests + no-SIMD
+#   make check      fmt + tests + no-SIMD + pre-MMU + QEMU boot + clippy
 #   make test       host unit tests for the pure-logic crate
 #   make fmt        rustfmt
 #   make qemu       boot the image under QEMU (PL011 on stdio)
@@ -29,6 +29,9 @@ QEMU        ?= qemu-system-aarch64
 QEMU_MACHINE ?= raspi4b
 QEMU_FLAGS  ?= -M $(QEMU_MACHINE) -kernel $(IMG) -serial mon:stdio -display none
 
+# Long enough for the boot assertions (two tick reports at 10 Hz) with margin.
+BOOT_CHECK_SECONDS ?= 15
+
 # Host tests cover the pure-logic crate only: the kernel binary carries its own
 # `#[panic_handler]`, which collides with the one the test harness links in.
 TEST_PKG    := kernel-core
@@ -39,7 +42,7 @@ ifeq ($(PROFILE),release)
   CARGO_FLAGS += --release
 endif
 
-.PHONY: all debug img elf check test no-simd no-early-exclusives fmt fmt-check qemu qemu-gdb blobs deploy serial clean
+.PHONY: all debug img elf check test no-simd no-early-exclusives boot-check fmt fmt-check qemu qemu-gdb blobs deploy serial clean
 
 all: img
 
@@ -55,9 +58,17 @@ img: elf
 	@echo "built $(IMG)"
 	@ls -la $(IMG)
 
-check: fmt-check test no-simd no-early-exclusives
+# Deliberately a superset of what CI runs: a green here has to predict a green
+# there, or it is not worth running locally.
+check: fmt-check test no-simd no-early-exclusives boot-check
 	cargo clippy --target $(TARGET) -- -D warnings
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
+
+# Boot the image under QEMU and assert it reaches a healthy steady state.
+# The assertions live in the script, not here and not in the CI workflow, so
+# the two cannot drift apart.
+boot-check: img
+	./scripts/qemu-boot-check.sh $(IMG) $(BOOT_CHECK_SECONDS)
 
 test:
 	cargo test -p $(TEST_PKG) --target $(HOST_TARGET)

@@ -47,16 +47,16 @@ jobs:
       - name: Build kernel image
         run: make img
 
-      # The boot must reach the timer IRQ path and keep going: `ticks=` only
-      # appears if the MMU came up, the GIC delivers PPI 30, the atomic tick
-      # counter is observed by the main loop, and the WFI idle loop still
-      # wakes. A regression in any of those prints nothing at all.
-      - name: Boot under QEMU and require ticks
+      # Same script `make check` runs locally, so the two gates cannot drift.
+      # It fails loudly if QEMU cannot provide the machine, rather than passing
+      # with no coverage.
+      - name: Boot under QEMU and assert a healthy run
+        run: make boot-check
+
+      # The script skips when QEMU is missing, which is right for a developer
+      # machine and wrong here: CI installs it, so a skip means the install
+      # broke and the job would otherwise report coverage it does not have.
+      - name: Fail if the boot check was skipped
         run: |
-          timeout 20 qemu-system-aarch64 -M raspi4b \
-            -kernel target/aarch64-unknown-none-softfloat/release/kernel8.img \
-            -serial mon:stdio -display none < /dev/null > boot.log 2>&1 || true
-          cat boot.log
-          grep -q 'MMU on' boot.log || { echo "::error::MMU did not come up"; exit 1; }
-          grep -q 'ticks=20' boot.log || { echo "::error::timer IRQ / idle loop stalled"; exit 1; }
-          ! grep -q 'irq: unhandled' boot.log || { echo "::error::unhandled interrupts"; exit 1; }
+          command -v qemu-system-aarch64 >/dev/null \
+            || { echo "::error::qemu-system-aarch64 missing — boot check did not run"; exit 1; }

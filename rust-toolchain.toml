@@ -1,4 +1,12 @@
+# Pinned, not "stable". The gate runs `clippy -- -D warnings`, so a clippy
+# release that adds a lint breaks the build with nothing in the repo having
+# changed — and a green from yesterday says nothing about today. A pin also
+# means CI and a developer machine compile with the same compiler, which is
+# what makes a local green predictive of the remote one.
+#
+# Updating is a deliberate commit: bump the version, run `make check`, and the
+# gate validates the new toolchain before it reaches anyone else.
 [toolchain]
-channel = "stable"
+channel = "1.96.0"
 components = ["rustfmt", "clippy"]
 targets = ["aarch64-unknown-none-softfloat"]
