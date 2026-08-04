@@ -119,7 +119,7 @@ are the first two pieces; the third is tasks under that ADR.
 | P2  | Early MMU, softfloat, build-enforced gates               | **done** (HW)               |
 | P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)               |
 | P4  | Exception stack, refused frees, fatal map failure         | **done** (HW, fault-probed) |
-| M3  | Cooperative tasks                                        | **HW boot** (guard probe pending) |
+| M3  | Cooperative tasks                                        | **done** (HW, fault-probed) |
 | M4  | IPC + capabilities                                       | planned                     |
 | M5  | EL0 agents                                               | planned                     |
 | M6  | Driver-as-agent                                          | planned                     |

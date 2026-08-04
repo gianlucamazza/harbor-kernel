@@ -108,11 +108,11 @@ went stale together the moment the layout moved.
 | Check | Status | Evidence |
 | --- | --- | --- |
 | Interleaved yield + unmap smoke | **closed (HW)** | Pi 4B serial, 2026-08-04 — transcript below |
-| Task-stack guard fault | **open** | need bringup image + ESR row |
+| Task-stack guard fault | **closed (HW)** | bringup image, 2026-08-05 — ESR table below |
 | Review | desk done | [2026-08-04-m3-incremental.md](reviews/2026-08-04-m3-incremental.md) |
 
-QEMU remains gated by `boot-check`. Do not mark M3 `done (HW)` until the guard
-fault row is filled (same standard as P4).
+QEMU remains gated by `boot-check`. Both silicon rows above are closed: M3 may
+be marked `done (HW)`.
 
 ### Boot + cooperative yield (closed)
 
