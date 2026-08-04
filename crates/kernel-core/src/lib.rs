@@ -13,6 +13,7 @@
 pub mod bump;
 pub mod gic;
 pub mod heap;
+pub mod layout;
 pub mod paging;
 pub mod ring;
 pub mod uart;

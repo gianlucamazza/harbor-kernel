@@ -67,12 +67,23 @@ pub fn run() -> ! {
     // The heap bound is decided before the map is built, because the heap is
     // one of the regions being mapped.
     let heap_end = (mm::heap_start() + HEAP_SIZE).min(board::memmap::IDENTITY_RAM_END);
-    let regions = mm::layout::kernel_regions(heap_end as u64);
+    let mut region_buffer = [mm::layout::empty_region(); mm::layout::MAX_REGIONS];
+    let regions = match mm::layout::kernel_regions(heap_end as u64, &mut region_buffer) {
+        Ok(regions) => regions,
+        Err(error) => {
+            // The layout itself is inconsistent — overlapping regions, a
+            // mapped guard page, a W+X region. Mapping it would produce
+            // something that boots and protects nothing.
+            println!(uart, "LAYOUT INVALID: {error:?}");
+            println!(uart, "staying on the early map — no W^X, no guard page");
+            shell::run(&mut uart)
+        }
+    };
 
     // Swap the coarse early map for the real one. On failure the early map
     // stays active, so the report below still reaches the console.
     // SAFETY: single core, IRQs masked, early map active.
-    match unsafe { mmu::activate(&regions) } {
+    match unsafe { mmu::activate(regions) } {
         Ok(()) => {
             println!(
                 uart,

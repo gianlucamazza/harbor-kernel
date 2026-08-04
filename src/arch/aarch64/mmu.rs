@@ -19,6 +19,7 @@
 //! so [`activate`]'s caller supplies them. The bit encodings and the region
 //! splitting live in [`kernel_core::paging`] and are unit-tested on the host.
 
+use kernel_core::layout::Region;
 use kernel_core::paging::{self, Level, MemKind, Perms};
 
 use crate::arch::aarch64::cache;
@@ -129,17 +130,6 @@ pub enum MmuError {
     /// Splitting an existing block is possible but never needed here: regions
     /// are mapped once, in address order, at boot.
     BlockAlreadyMapped(u64),
-}
-
-/// A region to identity-map.
-#[derive(Clone, Copy, Debug)]
-pub struct Region {
-    pub base: u64,
-    pub len: u64,
-    pub kind: MemKind,
-    pub perms: Perms,
-    /// Shown in diagnostics when mapping fails.
-    pub name: &'static str,
 }
 
 /// Build the kernel map from `regions` and switch `TTBR0_EL1` to it.

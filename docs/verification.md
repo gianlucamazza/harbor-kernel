@@ -96,6 +96,7 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Trap frame coupling                                              | grow `TrapFrame` by 16 bytes            | the stub's reservation moved `0x110` → `0x120`                 |
 | Blob integrity                                                   | corrupt an expected hash                | refused to install, exit 1                                     |
 | Miri                                                             | publish `head` before writing the slot  | `Undefined Behavior: Data race detected between (1) non-atomic write and (2) non-atomic read` |
+| Layout validator                                                 | `GUARD_PAGE_SIZE = 0` in `link.ld`      | `LAYOUT INVALID: GuardIneffective` — and the first attempt at that check passed, which is how the linker-symbol fold below was found |
 
 ## What Miri adds over the two-thread test
 
@@ -113,6 +114,25 @@ not the volume.
 It runs on nightly, which is why it is a separate CI job and not part of
 `make check` — the toolchain pin is deliberately stable, and a nightly
 requirement must not leak into the gate everything else runs under.
+
+## Two linker symbols can share an address; the compiler assumes they cannot
+
+`__guard_end` and `__stack_bottom` name the same address by construction — the
+guard page ends exactly where the stack begins. Declared as `static X: u8`,
+each claims to be a one-byte object, and LLVM correctly derives from that claim
+that distinct objects occupy distinct storage. So `guard_end == stack_bottom`
+folded to `false`, and the layout validator rejected a perfectly good map.
+
+Casting to an integer does not help — the fold happens on the `ptrtoint`
+operands. `core::hint::black_box` suppresses it and is the wrong tool: its own
+documentation says the behaviour is unspecified and must not be relied on for
+correctness. The addresses are now materialised with an `asm!` `sym` operand,
+which states what is actually meant — *the number the linker chose* — and which
+the compiler cannot fold because it cannot see through it.
+
+The symptom is worth remembering: every address printed correctly, while a
+comparison built from those same addresses came out wrong. Deduction kept
+saying the code was right; printing the comparison itself is what found it.
 
 ## Serial capture
 
