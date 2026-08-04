@@ -5,57 +5,59 @@ status: proposed
 date: 2026-08-04
 ---
 
-# ADR-0005: Arena statica per le tabelle invece di un frame allocator
+# ADR-0005: Static page-table arena instead of a frame allocator
 
-## Contesto
+## Context
 
-`arch::mmu` alloca le tabelle di traduzione da un'arena di 64 KiB riservata in
-`link.ld` (`PAGE_TABLE_ARENA_SIZE`). Sei tabelle sono usate dalla mappa del kernel;
-ne restano dieci, e `tables_remaining()` è stampato a ogni boot.
+`arch::mmu` allocates translation tables from a 64 KiB arena reserved in
+`link.ld` (`PAGE_TABLE_ARENA_SIZE`). Six tables are used by the kernel map; ten
+remain, and `tables_remaining()` is printed on every boot.
 
-La tentazione, dovendo mappare a runtime (`mmu::map`), è costruire subito un frame
-allocator. Sarebbe infrastruttura speculativa: il kernel mappa se stesso una volta,
-più regioni singole che il firmware assegna, e non libera mai una tabella.
+The temptation, once runtime mapping (`mmu::map`) exists, is to build a frame
+allocator straight away. That would be speculative infrastructure: the kernel
+maps itself once, plus individual regions the firmware assigns, and never frees a
+table.
 
-## Decisione
+## Decision
 
-Arena a dimensione fissa, dimensionata a build time, con lo spazio residuo riportato
-al boot e `MmuError::OutOfTables` come fallimento esplicito.
+A fixed-size arena, sized at build time, with the remaining space reported at
+boot and `MmuError::OutOfTables` as an explicit failure.
 
-È ciò che fa anche Linux con `init_pg_dir`: un pool riservato staticamente per
-mappare il kernel, distinto dall'allocatore di frame che serve agli address space.
+This is also what Linux does with `init_pg_dir`: a statically reserved pool for
+mapping the kernel, distinct from the frame allocator that address spaces need.
 
-## Conseguenze
+## Consequences
 
-**Positive** — nessun allocatore da avere pronto prima della prima mappatura, cioè
-nessuna dipendenza circolare fra heap e tabelle; esaurimento visibile prima che
-diventi un fallimento (`40960 B of table arena left` a ogni boot).
+**Positive** — no allocator has to be ready before the first mapping, so there is
+no circular dependency between heap and tables; exhaustion is visible before it
+becomes a failure (`40960 B of table arena left` on every boot).
 
-**Negative** — non regge address space dinamici. Un `MAX_REGIONS` o un numero di
-chiamate a `mmu::map` che cresce va accompagnato dalla verifica del residuo.
+**Negative** — it does not support dynamic address spaces. A growing
+`MAX_REGIONS`, or a growing number of `mmu::map` callers, must be accompanied by
+checking the remainder.
 
-## Alternative considerate
+## Alternatives considered
 
-| Alternativa | Perché no |
-| --- | --- |
-| Frame allocator adesso | Serve quando gli address space vanno e vengono, cioè da M5. Costruirlo prima significa progettarlo senza il suo caso d'uso |
-| Tabelle dallo heap | Circolare: lo heap è mappato dalle tabelle che si vorrebbe allocare da lui |
-| Arena più grande e non pensarci | Sposta il limite senza renderlo visibile; il residuo stampato è ciò che rende il limite osservabile |
+| Alternative                       | Why not                                                                                                                 |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| A frame allocator now             | It is needed when address spaces come and go, i.e. from M5. Building it earlier means designing it without its use case |
+| Tables from the heap              | Circular: the heap is mapped by the tables one would allocate from it                                                   |
+| A bigger arena, and stop worrying | Moves the limit without making it visible; the printed remainder is what makes the limit observable                     |
 
-## Gate che protegge questa decisione
+## The gate that protects this decision
 
-Nessun gate automatico: il segnale è `tables_remaining()` sulla console e
-`MmuError::OutOfTables`, che è un `Result` e non un panic. **Questo è un punto
-debole dichiarato** — l'esaurimento verrebbe notato da chi legge il boot, non da
-un controllo. Un'asserzione nel boot-check sul residuo minimo sarebbe il modo di
-chiuderlo, e non è ancora fatta.
+None. The signal is `tables_remaining()` on the console and
+`MmuError::OutOfTables`, which is a `Result` rather than a panic. **This is a
+declared weakness** — exhaustion would be noticed by whoever reads the boot
+output, not by a check. An assertion in the boot check on a minimum remainder
+would close it, and has not been written.
 
-## Quando rivalutare
+## When to revisit
 
-A M5, o prima se `mmu::map` acquisisce molti chiamanti. Il trigger concreto è il
-primo address space che nasce e muore.
+At M5, or earlier if `mmu::map` acquires many callers. The concrete trigger is
+the first address space that is created and destroyed.
 
-## Riferimenti
+## References
 
 `link.ld` (`PAGE_TABLE_ARENA_SIZE`), `src/arch/aarch64/mmu.rs`,
 [`mmu.md`](../mmu.md).

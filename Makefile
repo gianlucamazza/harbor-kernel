@@ -44,7 +44,7 @@ ifeq ($(PROFILE),release)
   CARGO_FLAGS += --release
 endif
 
-.PHONY: all debug img elf check test miri bringup-builds no-simd no-early-exclusives boot-check fmt fmt-check qemu qemu-gdb blobs deploy serial clean
+.PHONY: all debug img elf check test miri bringup-builds no-simd no-early-exclusives boot-check doc-claims fmt fmt-check qemu qemu-gdb blobs deploy serial clean
 
 all: img
 
@@ -64,9 +64,14 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds miri
+check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds miri doc-claims
 	cargo clippy --target $(TARGET) -- -D warnings
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
+
+# The README's two machine-checkable claims: the gate list and the test count.
+# Both have drifted, the gate list twice — once on the commit that added a gate.
+doc-claims:
+	./scripts/check-doc-claims.sh
 
 # Boot the image under QEMU and assert it reaches a healthy steady state.
 # The assertions live in the script, not here and not in the CI workflow, so

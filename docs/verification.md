@@ -6,15 +6,16 @@ covered.
 
 ## The layers
 
-| Layer                                     | Runs                                  | Covers                                                                                     | Blind to                                                                 |
-| ----------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| Host unit tests (`make test`)             | `cargo test -p kernel-core`           | Register encodings, allocator arithmetic, GIC index maths, region splitting, the SPSC ring | Anything that touches hardware, and any _use_ of these functions         |
-| Miri (`make miri`)                        | Interprets the host tests             | Aliasing, provenance and data races in the crate's only `unsafe` — the ring's `UnsafeCell` buffer and `Sync` assertion | The kernel crate's 51 `unsafe` sites, which touch MMIO and cannot be interpreted |
-| Bring-up build (`make bringup-builds`)    | Compiles and lints `--features bringup` | A configuration nothing else builds, and the one you reach for when the board will not talk | Anything the gates do not *run* — it compiles, it is not executed |
-| No-SIMD guard (`make no-simd`)            | Disassembles the linked image         | A build that silently regains FP/SIMD                                                      | FP that never reaches the image                                          |
-| Pre-MMU path (`make no-early-exclusives`) | Disassembles `_start` and its callees | Atomic read-modify-write before translation is on, and the path growing                    | Exclusives reached indirectly through a function pointer                 |
-| QEMU boot (`make boot-check`)             | Boots the image, asserts on the log   | MMU activation, allocator reclaim, timer IRQ, WFI idle, unhandled interrupts, panics       | **Memory attributes.** Also cache behaviour, real clocks, firmware state |
-| Hardware                                  | A Pi 4B on a serial console           | Everything above, for real                                                                 | Only what you actually boot and look at                                  |
+| Layer                                     | Runs                                    | Covers                                                                                                                 | Blind to                                                                                       |
+| ----------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Host unit tests (`make test`)             | `cargo test -p kernel-core`             | Register encodings, allocator arithmetic, GIC index maths, region splitting, the SPSC ring                             | Anything that touches hardware, and any _use_ of these functions                               |
+| Miri (`make miri`)                        | Interprets the host tests               | Aliasing, provenance and data races in the crate's only `unsafe` — the ring's `UnsafeCell` buffer and `Sync` assertion | The kernel crate's `unsafe`, which touches MMIO and system registers and cannot be interpreted |
+| Bring-up build (`make bringup-builds`)    | Compiles and lints `--features bringup` | A configuration nothing else builds, and the one you reach for when the board will not talk                            | Anything the gates do not _run_ — it compiles, it is not executed                              |
+| No-SIMD guard (`make no-simd`)            | Disassembles the linked image           | A build that silently regains FP/SIMD                                                                                  | FP that never reaches the image                                                                |
+| Pre-MMU path (`make no-early-exclusives`) | Disassembles `_start` and its callees   | Atomic read-modify-write before translation is on, and the path growing                                                | Exclusives reached indirectly through a function pointer                                       |
+| QEMU boot (`make boot-check`)             | Boots the image, asserts on the log     | MMU activation, allocator reclaim, timer IRQ, WFI idle, unhandled interrupts, panics                                   | **Memory attributes.** Also cache behaviour, real clocks, firmware state                       |
+| Doc claims (`make doc-claims`)            | Compares README against the Makefile    | The two README claims a machine can settle: the `make check` gate list and the host test count                         | Every other sentence in the docs, which is prose and stays prose                               |
+| Hardware                                  | A Pi 4B on a serial console             | Everything above, for real                                                                                             | Only what you actually boot and look at                                                        |
 
 `make check` runs every layer above except the hardware one, and is deliberately
 a superset of CI: each CI job has a target here, so a green locally predicts a
@@ -25,10 +26,10 @@ absent, because someone relies on it.
 
 Two escape hatches, both explicit:
 
-| Situation | Behaviour |
-| --------- | --------- |
-| QEMU missing | `boot-check` **fails**; `ALLOW_BOOT_SKIP=1` to opt out |
-| nightly missing | `miri` skips with a message |
+| Situation       | Behaviour                                              |
+| --------------- | ------------------------------------------------------ |
+| QEMU missing    | `boot-check` **fails**; `ALLOW_BOOT_SKIP=1` to opt out |
+| nightly missing | `miri` skips with a message                            |
 
 Skipping is never silent. A check that passes when it cannot run reports
 coverage it does not have, and "skipped" scrolls past in a log that ends in a
@@ -54,6 +55,25 @@ identity map before any Rust runs, so the window does not exist, and
 **Rule of thumb:** if a change concerns memory attributes, cache maintenance,
 exclusive access, or the state the firmware leaves behind, a green QEMU boot is
 not evidence.
+
+## What is still not falsifiable: TLB maintenance
+
+`mmu::map` issues `tlbi vaae1is` per page, or `vmalle1` past the threshold, and
+the operand encoding is unit-tested (`tlbi_plan`, and the mutation that dropped
+the `>> 12`). Hardware has exercised the per-page branch for real — the DTB is
+15 pages, so a live boot takes the branch QEMU never does, since its 2 MiB
+region always resolves to `Everything`.
+
+That is coverage of the _encoding_, not of the _necessity_. Every mapping this
+kernel makes is invalid→valid, and an invalid entry is not architecturally
+permitted to be cached, so removing the invalidation entirely would very likely
+change nothing observable. The maintenance is correct by construction and
+untested by consequence.
+
+A `remap` — changing the permissions or output address of a live mapping — is
+the first operation that would make it falsifiable. Until one exists, no green
+result here should be read as "the TLB handling works"; it means "nothing has
+contradicted it".
 
 ## Protections are only verified when you have seen them fire
 
@@ -100,23 +120,25 @@ is observable too.
 A test that has never failed has not been shown to test anything. Each of these
 was confirmed by breaking the thing on purpose and watching the gate go red:
 
-| Check                                                            | Mutation                                | Observed                                                       |
-| ---------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------- |
-| PL011 divisors, bump alignment, `TCR.EPD1`, descriptor alignment | original implementations                | 10 red tests before the fixes                                  |
-| SPSC ring ordering                                               | publish `head` before writing the slot  | `out of sequence at 8572`                                      |
-| Allocator coalescing                                             | drop the backward merge                 | `arena must be whole again`, `churn left the arena fragmented` |
-| L3 descriptor encoding                                           | encode an L3 leaf as a block            | `L3 leaf must be 0b11`                                         |
-| No-SIMD guard                                                    | the pre-softfloat image                 | `dup v0.4h` in `memset`                                        |
-| Pre-MMU path                                                     | a Rust `fetch_add` called from `_start` | named the symbol and explained the fix                         |
-| QEMU boot check                                                  | remove `irq::enable(TIMER_IRQ)`         | missing tick reports                                           |
-| Trap frame coupling                                              | grow `TrapFrame` by 16 bytes            | the stub's reservation moved `0x110` → `0x120`                 |
-| Blob integrity                                                   | corrupt an expected hash                | refused to install, exit 1                                     |
-| Miri                                                             | publish `head` before writing the slot  | `Undefined Behavior: Data race detected between (1) non-atomic write and (2) non-atomic read` |
-| `mmu::map` overwrite refusal                                     | map the same region twice              | `AlreadyMapped(0x8000000)` instead of a silent replacement |
-| Bring-up build gate                                              | rename a function used only there      | `make bringup-builds` red, `E0425` |
+| Check                                                            | Mutation                                | Observed                                                                                                                             |
+| ---------------------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| PL011 divisors, bump alignment, `TCR.EPD1`, descriptor alignment | original implementations                | 10 red tests before the fixes                                                                                                        |
+| SPSC ring ordering                                               | publish `head` before writing the slot  | `out of sequence at 8572`                                                                                                            |
+| Allocator coalescing                                             | drop the backward merge                 | `arena must be whole again`, `churn left the arena fragmented`                                                                       |
+| L3 descriptor encoding                                           | encode an L3 leaf as a block            | `L3 leaf must be 0b11`                                                                                                               |
+| No-SIMD guard                                                    | the pre-softfloat image                 | `dup v0.4h` in `memset`                                                                                                              |
+| Pre-MMU path                                                     | a Rust `fetch_add` called from `_start` | named the symbol and explained the fix                                                                                               |
+| QEMU boot check                                                  | remove `irq::enable(TIMER_IRQ)`         | missing tick reports                                                                                                                 |
+| Trap frame coupling                                              | grow `TrapFrame` by 16 bytes            | the stub's reservation moved `0x110` → `0x120`                                                                                       |
+| Blob integrity                                                   | corrupt an expected hash                | refused to install, exit 1                                                                                                           |
+| Miri                                                             | publish `head` before writing the slot  | `Undefined Behavior: Data race detected between (1) non-atomic write and (2) non-atomic read`                                        |
+| `mmu::map` overwrite refusal                                     | map the same region twice               | `AlreadyMapped(0x8000000)` instead of a silent replacement                                                                           |
+| Bring-up build gate                                              | rename a function used only there       | `make bringup-builds` red, `E0425`                                                                                                   |
 | Layout validator                                                 | `GUARD_PAGE_SIZE = 0` in `link.ld`      | `LAYOUT INVALID: GuardIneffective` — and the first attempt at that check passed, which is how the linker-symbol fold below was found |
-| TLBI operand shift                                               | drop the `>> 12`                       | three tests red — the operand became the address, invalidating a different page |
-| Runtime mapping (`mmu::map`)                                     | skip the call, keep the read           | `ESR=0x96000006` level-2 translation fault at the blob address; with the call, `0xd00dfeed` |
+| Doc claims (test count)                                          | restore the stale `54 host unit tests`  | `README claims 54 host unit tests, there are 77` — the exact drift it was written for                                                |
+| Doc claims (gate list)                                           | drop `bringup-builds` from the README   | printed both lists side by side; this is F27, which had already happened twice for real                                              |
+| TLBI operand shift                                               | drop the `>> 12`                        | three tests red — the operand became the address, invalidating a different page                                                      |
+| Runtime mapping (`mmu::map`)                                     | skip the call, keep the read            | `ESR=0x96000006` level-2 translation fault at the blob address; with the call, `0xd00dfeed`                                          |
 
 ## What Miri adds over the two-thread test
 
@@ -147,7 +169,7 @@ Casting to an integer does not help — the fold happens on the `ptrtoint`
 operands. `core::hint::black_box` suppresses it and is the wrong tool: its own
 documentation says the behaviour is unspecified and must not be relied on for
 correctness. The addresses are now materialised with an `asm!` `sym` operand,
-which states what is actually meant — *the number the linker chose* — and which
+which states what is actually meant — _the number the linker chose_ — and which
 the compiler cannot fold because it cannot see through it.
 
 The symptom is worth remembering: every address printed correctly, while a

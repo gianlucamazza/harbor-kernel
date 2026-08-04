@@ -7,68 +7,70 @@ date: 2026-08-04
 
 # ADR-0003: MMU enabled before any Rust runs
 
-## Contesto
+## Context
 
-La board caricava il kernel e restava muta: LED ACT acceso durante la lettura
-della SD e poi spento — la firma di un caricamento *riuscito* — e nessun output.
+The board loaded the kernel and stayed silent: the ACT LED lit while the card was
+read and then went out — the signature of a _successful_ load — and no output.
 
-La causa era un `AtomicBool::swap` in `console::acquire`, la prima istruzione di
-`bootstrap::run`. Una read-modify-write atomica compila in una coppia
-`LDXR`/`STXR`, e con la traduzione spenta ogni accesso è Device-nGnRnE, dove gli
-esclusivi non progrediscono su Cortex-A72: il retry loop gira per sempre. Nessun
-fault, nessun output.
+The cause was an `AtomicBool::swap` in `console::acquire`, the first statement of
+`bootstrap::run`. An atomic read-modify-write compiles to an `LDXR`/`STXR` pair,
+and with translation off every access is Device-nGnRnE, where exclusives make no
+forward progress on a Cortex-A72: the retry loop spins forever. No fault, no
+output.
 
-QEMU bootava l'immagine senza problemi, perché il monitor di esclusività di TCG
-ignora gli attributi di memoria. **L'emulazione non può intercettare questa classe.**
+QEMU booted the image without trouble, because TCG's exclusive monitor ignores
+memory attributes. **Emulation cannot catch this class at all.**
 
-Il progetto aveva già questa lezione scritta come gotcha di M1. È stata ritirata
-per un ragionamento incompleto — "vale solo prima di M2" — e reintrodotta lo
-stesso giorno, con la nota davanti agli occhi.
+The project already had this lesson written down as an M1 gotcha. It was
+withdrawn on incomplete reasoning — "it only applies before M2" — and
+reintroduced the same day, with the note in plain sight.
 
-## Decisione
+## Decision
 
-`boot.s` abilita la traduzione **prima di chiamare `kernel_main`**, con una mappa
-identità grossolana valutata a compile time (`arch::mmu::EARLY_L1`): tre blocchi da
-1 GiB di RAM più la finestra device.
+`boot.s` enables translation **before calling `kernel_main`**, using a coarse
+identity map evaluated at compile time (`arch::mmu::EARLY_L1`): three 1 GiB
+blocks of RAM plus the device window.
 
-Lo scopo non è la mappa — è che **nessun codice del kernel giri senza attributi di
-memoria**. La mappa fine W^X diventa uno switch di `TTBR0` (`mmu::activate`).
+The point is not the map — it is that **no kernel code runs without memory
+attributes**. The fine-grained W^X map becomes a `TTBR0` switch
+(`mmu::activate`).
 
-È la sequenza di Linux arm64 (`__create_page_tables` + `__enable_mmu` in `head.S`
-prima di `start_kernel`), di ARM Trusted Firmware, di Zephyr e di seL4.
+This is the arm64 Linux sequence (`__create_page_tables` + `__enable_mmu` in
+`head.S`, before `start_kernel`), and that of ARM Trusted Firmware, Zephyr and
+seL4.
 
-## Conseguenze
+## Consequences
 
-**Positive** — la finestra in cui valgono regole diverse non esiste più, quindi non
-può essere dimenticata; atomici leciti ovunque; cache attive da subito; lo switch a
-mappa viva è più semplice di un'accensione a freddo (le scritture delle tabelle e le
-letture del walker passano per le stesse cache, quindi serve una barriera invece di
-invalidare tutto).
+**Positive** — the window in which different rules apply no longer exists, so it
+cannot be forgotten; atomics are legal everywhere; caches are on from the start;
+and switching a live map is simpler than a cold enable (table writes and walker
+reads go through the same caches, so a barrier suffices where otherwise
+everything would need invalidating).
 
-**Negative** — la mappa iniziale è RWX su 3 GiB finché `activate` non la sostituisce.
-È necessario: senza attributi non si arriva nemmeno alla console. Se `activate`
-fallisce si resta lì, ed è un rischio dichiarato (finding F14).
+**Negative** — the initial map is RWX over 3 GiB until `activate` replaces it.
+That is necessary: without attributes you cannot even reach the console. If
+`activate` fails you stay there, which is a declared risk (finding F14).
 
-## Alternative considerate
+## Alternatives considered
 
-| Alternativa | Perché no |
-| --- | --- |
-| Tenere la finestra e vietare le RMW | È la regola che è già stata dimenticata una volta, da chi l'aveva scritta |
-| `SyncCell` al posto degli atomici lì | Correttezza per assunzione invece che per costruzione: rompe al primo secondo core |
-| Costruire la mappa fine subito in `boot.s` | Serve il layout dal linker e un percorso d'errore, cioè una console, che non esiste ancora |
+| Alternative                             | Why not                                                                                               |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Keep the window, forbid RMW inside it   | That is the rule that has already been forgotten once, by the person who wrote it                     |
+| `SyncCell` instead of atomics there     | Correctness by assumption rather than by construction: it breaks on the first secondary core          |
+| Build the fine map directly in `boot.s` | It needs the layout from the linker and an error path — that is, a console — which does not exist yet |
 
-## Gate che protegge questa decisione
+## The gate that protects this decision
 
-`scripts/check-pre-mmu-path.sh` deriva dall'immagine il percorso `_start` → gate,
-fallisce se compare un esclusivo o se il percorso si allunga. **Visto rosso**
-piantando un `fetch_add` chiamato da `_start` prima del gate.
+`scripts/check-pre-mmu-path.sh` derives the `_start` → gate path from the image
+and fails if an exclusive appears or if the path grows. **Seen red** by planting
+a `fetch_add` called from `_start` before the gate.
 
-## Quando rivalutare
+## When to revisit
 
-Al primo core secondario: ognuno dovrà eseguire il proprio `early_mmu_enable`
-prima di toccare qualunque stato condiviso.
+At the first secondary core: each will have to run its own `early_mmu_enable`
+before touching any shared state.
 
-## Riferimenti
+## References
 
 `src/boot.s`, `src/arch/aarch64/mmu.rs`, [`mmu.md`](../mmu.md),
 [`verification.md`](../verification.md).

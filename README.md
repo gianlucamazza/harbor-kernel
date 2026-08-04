@@ -10,14 +10,14 @@ that goal and the current tree.
 Boot to EL1, a mapped and protected address space, interrupts, a heap, and an
 interactive serial console.
 
-| Area         | State                                                            |
-| ------------ | ---------------------------------------------------------------- |
-| Boot         | EL2→EL1, softfloat, DTB pointer captured (not parsed)            |
-| Memory       | Multi-level identity map, **W^X**, unmapped stack guard page     |
-| Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work      |
-| Interrupts   | GICv2, arch timer PPI, PL011 RX via SPI, dispatch counters       |
-| Console      | Polled TX, interrupt-driven RX into a lock-free ring, `WFI` idle |
-| Verification | 54 host unit tests, build-enforced invariants, QEMU boot gate, fault-probed on hardware |
+| Area         | State                                                                                                                               |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Boot         | EL2→EL1, softfloat, DTB pointer captured (not parsed)                                                                               |
+| Memory       | Multi-level identity map, **W^X**, unmapped stack guard page, runtime `map` with TLB maintenance                                    |
+| Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
+| Interrupts   | GICv2, arch timer PPI, PL011 RX via SPI, dispatch counters                                                                          |
+| Console      | Polled TX, interrupt-driven RX into a lock-free ring, `WFI` idle                                                                    |
+| Verification | 77 host unit tests, Miri over the `unsafe`, a layout validator, build-enforced invariants, QEMU boot gate, fault-probed on hardware |
 
 ## What does not exist yet
 
@@ -64,7 +64,7 @@ target, so `rustup` installs what is needed on first build.
 
 ```bash
 make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
-make check        # fmt, host tests, Miri, no-SIMD, pre-MMU path, QEMU boot, clippy
+make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds miri doc-claims, then clippy
 make test         # host unit tests only
 make fmt
 ```
@@ -130,17 +130,17 @@ cargo build --release --features bringup
 
 ## Docs
 
-| Doc                                            | Content                         |
-| ---------------------------------------------- | ------------------------------- |
-| [`docs/architecture.md`](docs/architecture.md) | Layers, agent model, milestones |
-| [`docs/mmu.md`](docs/mmu.md)                   | Two maps, regions, W^X, guard page |
+| Doc                                            | Content                                          |
+| ---------------------------------------------- | ------------------------------------------------ |
+| [`docs/architecture.md`](docs/architecture.md) | Layers, agent model, milestones                  |
+| [`docs/mmu.md`](docs/mmu.md)                   | Two maps, regions, W^X, guard page               |
 | [`docs/verification.md`](docs/verification.md) | What is checked, and what each check is blind to |
-| [`docs/interrupts.md`](docs/interrupts.md)     | VBAR, GIC, timer, HW evidence   |
-| [`docs/boot-chain.md`](docs/boot-chain.md)     | ROM → EEPROM → start4 → kernel  |
-| [`docs/blobs.md`](docs/blobs.md)               | Closed firmware policy          |
-| [`docs/hardware.md`](docs/hardware.md)         | Pinout, GIC bases               |
-| [`docs/adr/`](docs/adr/README.md)              | Architecture decisions (ADRs)   |
-| [`docs/reviews/`](docs/reviews/)               | Multi-role analysis reports     |
+| [`docs/interrupts.md`](docs/interrupts.md)     | VBAR, GIC, timer, HW evidence                    |
+| [`docs/boot-chain.md`](docs/boot-chain.md)     | ROM → EEPROM → start4 → kernel                   |
+| [`docs/blobs.md`](docs/blobs.md)               | Closed firmware policy                           |
+| [`docs/hardware.md`](docs/hardware.md)         | Pinout, GIC bases                                |
+| [`docs/adr/`](docs/adr/README.md)              | Architecture decisions (ADRs)                    |
+| [`docs/reviews/`](docs/reviews/)               | Multi-role analysis reports                      |
 
 ## License
 

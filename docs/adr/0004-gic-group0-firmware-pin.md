@@ -5,65 +5,66 @@ status: proposed
 date: 2026-08-04
 ---
 
-# ADR-0004: GIC Group 0 con IAR/EOIR, e il pin del firmware da cui dipende
+# ADR-0004: GIC Group 0 with IAR/EOIR, and the firmware pin it depends on
 
-## Contesto
+## Context
 
-`drivers/gicv2.rs` programma le PPI in **Group 0** e claim/EOI via **`IAR`/`EOIR`**,
-non tramite i registri aliasati di Group 1.
+`drivers/gicv2.rs` programs the PPIs in **Group 0** and claims/EOIs through
+**`IAR`/`EOIR`**, not through the Group 1 aliased registers.
 
-Questa scelta è **empirica**, non derivata dal manuale: durante il bring-up di M1,
-`HPPIR` riportava la PPI 30 come pending ma la claim via Group 1 non faceva
-avanzare i tick. Nella vista Non-Secure di GICv2 il bit 0 di `GICD_CTLR` è
-`EnableGrp1`, quindi la sequenza che funziona dipende dallo stato in cui
-`start4.elf` lascia il distributore.
+This choice is **empirical**, not derived from the manual: during M1 bring-up,
+`HPPIR` reported PPI 30 as pending but claiming through Group 1 did not advance
+the ticks. In the Non-Secure view of GICv2, bit 0 of `GICD_CTLR` is
+`EnableGrp1`, so the sequence that works depends on the state `start4.elf` leaves
+the distributor in.
 
-È l'unica dipendenza dal firmware chiuso che il kernel ha nel path caldo, ed è
-**passiva**: stato ereditato, non un protocollo. Le altre due della stessa natura
-sono `CNTFRQ_EL0` (letto, non impostato) e il clock del PL011 (48 MHz assunti, con
-`enable_uart=1` e `core_freq_min=500`).
+It is the only dependency on closed firmware the kernel has on the hot path, and
+it is **passive**: inherited state, not a protocol. The other two of the same
+nature are `CNTFRQ_EL0` (read, not set) and the PL011 clock (48 MHz assumed, with
+`enable_uart=1` and `core_freq_min=500`).
 
-## Decisione
+## Decision
 
-Mantenere Group 0 + `IAR`/`EOIR`, e **legare esplicitamente questa scelta al pin del
-firmware**: `firmware_tag=1.20250430`, con gli hash in `EXPECTED.sha256` verificati
-prima dell'installazione.
+Keep Group 0 + `IAR`/`EOIR`, and **tie this choice explicitly to the firmware
+pin**: `firmware_tag=1.20250430`, with the hashes in `EXPECTED.sha256` verified
+before installation.
 
-Un bump del tag è una modifica deliberata che richiede di **rieseguire i gate di
-bring-up su hardware**, perché una regressione qui non produce un errore: produce
-un boot che arriva alla console e non stampa mai `ticks=`.
+Bumping the tag is a deliberate change that requires **re-running the bring-up
+gates on hardware**, because a regression here does not produce an error: it
+produces a boot that reaches the console and never prints `ticks=`.
 
-## Conseguenze
+## Consequences
 
-**Positive** — il path è verificato sul silicio con questo firmware (`HPPIR=30`,
-`IAR=0x1e id=30`, `ticks 0 -> 2`, `selftest: OK`), non solo assunto.
+**Positive** — the path is verified on silicon with this firmware (`HPPIR=30`,
+`IAR=0x1e id=30`, `ticks 0 -> 2`, `selftest: OK`), not merely assumed.
 
-**Negative** — il kernel non è portabile a un firmware arbitrario senza rivalidare.
-Il vincolo è documentato in [`blobs.md`](../blobs.md) invece che implicito nel driver.
+**Negative** — the kernel is not portable to arbitrary firmware without
+re-validation. The constraint is documented in [`blobs.md`](../blobs.md) rather
+than left implicit in the driver.
 
-## Alternative considerate
+## Alternatives considered
 
-| Alternativa | Perché no |
-| --- | --- |
-| Group 1 + `AIAR`/`AEOIR` | Provata durante M1: `HPPIR` vedeva la PPI, la claim non avanzava i tick |
-| Riprogrammare il distributore da zero | Richiede di conoscere lo stato del lato secure, che non possediamo |
-| Non pinnare il firmware | Renderebbe questa dipendenza invisibile finché non si rompe |
+| Alternative                            | Why not                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| Group 1 + `AIAR`/`AEOIR`               | Tried during M1: `HPPIR` saw the PPI, the claim did not advance the ticks |
+| Reprogram the distributor from scratch | Requires knowing the secure-side state, which we do not have              |
+| Do not pin the firmware                | Would keep this dependency invisible until it breaks                      |
 
-## Gate che protegge questa decisione
+## The gate that protects this decision
 
-I gate `--features bringup` (`make bringup-builds` ne garantisce la compilazione;
-l'esecuzione richiede hardware). Verificati su Pi 4B Rev 1.5 il 2026-08-04, dopo il
-passaggio alla MMU precoce che ha cambiato il regime di memoria sotto di loro.
+The `--features bringup` gates (`make bringup-builds` guarantees they compile;
+running them requires hardware). Verified on a Pi 4B Rev 1.5 on 2026-08-04, after
+the move to an early MMU changed the memory regime underneath them.
 
-`scripts/fetch-blobs.sh` rifiuta blob i cui hash non corrispondono a quelli
-committati — **visto rosso** corrompendo un hash atteso.
+`scripts/fetch-blobs.sh` refuses blobs whose hashes do not match the committed
+ones — **seen red** by corrupting an expected hash.
 
-## Quando rivalutare
+## When to revisit
 
-A ogni bump di `firmware_tag`, e su qualunque board il cui EEPROM lasci il GIC in
-uno stato diverso. Il segnale di regressione è l'assenza di `ticks=`, non un errore.
+On every `firmware_tag` bump, and on any board whose EEPROM leaves the GIC in a
+different state. The regression signal is the absence of `ticks=`, not an error.
 
-## Riferimenti
+## References
 
 `src/drivers/gicv2.rs`, `src/bootstrap/selftest.rs`, [`blobs.md`](../blobs.md),
 [`interrupts.md`](../interrupts.md).

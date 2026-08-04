@@ -7,125 +7,128 @@ date: 2026-08-04
 
 # ADR-0001: Multi-role analysis as project gate before M3
 
-## Contesto
+## Context
 
-`rpi_minimal_agentic` ha superato i milestone di bring-up fino a P2 (early MMU,
-softfloat, gate build-enforced, heap free-list, W^X, idle WFI) ed è pronto, sul
-piano delle dipendenze dichiarate, per M3 (cooperative tasks).
+`rpi_minimal_agentic` has passed the bring-up milestones up to P2 (early MMU,
+softfloat, build-enforced gates, free-list heap, W^X, WFI idle) and is ready, as
+far as declared dependencies go, for M3 (cooperative tasks).
 
-La superficie di fallimento del kernel bare-metal è asimmetrica:
+The failure surface of a bare-metal kernel is asymmetric:
 
-- QEMU/TCG non riproduce il comportamento degli esclusivi su Device-nGnRnE; un
-  green `make boot-check` non è prova su memory attributes, cache o stato
-  firmware (vedi [`verification.md`](../verification.md)).
-- Le protezioni (W^X, guard page) valgono solo se qualcuno le ha viste sparare
-  su hardware; un map che “si attiva” non dimostra enforcement.
-- Le regole di layering in [`architecture.md`](../architecture.md) sono
-  esplicite ma non enforce-ate da tooling: restano disciplina + review umana.
-- Prima di introdurre un’astrazione di esecuzione (task / yield / scheduler),
-  scelte non riesaminate rischiano di solidificarsi sotto M3.
+- QEMU/TCG does not reproduce the behaviour of exclusives on Device-nGnRnE; a
+  green `make boot-check` is not evidence about memory attributes, caches or
+  firmware state (see [`verification.md`](../verification.md)).
+- Protections (W^X, guard page) hold only if someone has seen them fire on
+  hardware; a map that "activates" does not demonstrate enforcement.
+- The layering rules in [`architecture.md`](../architecture.md) are explicit but
+  not enforced by tooling: they remain discipline plus human review.
+- Before introducing an execution abstraction (task / yield / scheduler),
+  unexamined choices risk solidifying underneath M3.
 
-I gate automatici restano necessari e insufficienti. Serve un inventario
-multi-prospettiva, ripetibile, che produca azioni o *accepted risk* espliciti —
-non una code review monolitica one-off.
+The automated gates remain necessary and insufficient. What is needed is a
+repeatable, multi-perspective inventory producing actions or explicit _accepted
+risk_ — not a one-off monolithic code review.
 
-## Decisione
+## Decision
 
-Adottare una **review multi-ruolo a ruoli fissi** come disciplina di progetto.
+Adopt a **fixed-role multi-role review** as a project discipline.
 
-### Cadenza
+### Cadence
 
-1. **Baseline completa** prima di M3 (prima esecuzione: report in
+1. **Full baseline** before M3 (first pass: report in
    [`docs/reviews/`](../reviews/)).
-2. **Re-run incrementale** sui diff che toccano memoria, IRQ/`unsafe`, boot
-   chain o confini di layering, prima di marcare un milestone `done (HW)`.
-3. Findings di tipo *architectural boundary* (confini, modello di sicurezza,
-   ABI) → **ADR dedicato** prima del codice che li implementa.
+2. **Incremental re-run** on diffs touching memory, IRQ/`unsafe`, the boot chain
+   or layering boundaries, before marking a milestone `done (HW)`.
+3. Findings of the _architectural boundary_ kind (boundaries, security model,
+   ABI) → a **dedicated ADR** before the code that implements them.
 
-### Ruoli fissi
+### Fixed roles
 
-| ID | Ruolo | Focus |
-| --- | --- | --- |
-| R1 | Architetto di layering | Regole arch/`bsp`/`drivers`/`irq`/`exception` |
-| R2 | Memoria / MMU | Early map, W^X, layout, heap, tabelle |
-| R3 | Interrupt / concorrenza / idle | GIC, timer, ring, atomics, WFI |
-| R4 | Audit `unsafe` e panic | Inventario, invarianti, halt path |
-| R5 | Verifica e blind spot | Gate, CI, cosa un green non prova |
-| R6 | Boot chain e firmware | EL2→EL1, blobs, DTB, deploy |
-| R7 | Prestazioni e footprint | Size, latenza, idle, alloc (misurate) |
-| R8 | Tooling / CI / DX | Makefile, script, toolchain, onboarding |
-| R9 | Sicurezza pre-agent | Superficie EL1, MMIO, prerequisiti cap |
-| R10 | Roadmap agent (M3–M6) | Gap readiness, non design fantasy |
-| R11 | Documentazione | Drift docs↔code, honest claims |
-| R12 | API `kernel-core` | Pure logic, testabilità, confini |
+| ID  | Role                            | Focus                                        |
+| --- | ------------------------------- | -------------------------------------------- |
+| R1  | Layering architect              | arch/`bsp`/`drivers`/`irq`/`exception` rules |
+| R2  | Memory / MMU                    | Early map, W^X, layout, heap, tables         |
+| R3  | Interrupts / concurrency / idle | GIC, timer, ring, atomics, WFI               |
+| R4  | `unsafe` and panic audit        | Inventory, invariants, halt path             |
+| R5  | Verification and blind spots    | Gates, CI, what a green does not prove       |
+| R6  | Boot chain and firmware         | EL2→EL1, blobs, DTB, deploy                  |
+| R7  | Performance and footprint       | Size, latency, idle, alloc (measured)        |
+| R8  | Tooling / CI / DX               | Makefile, scripts, toolchain, onboarding     |
+| R9  | Pre-agent security              | EL1 surface, MMIO, capability prerequisites  |
+| R10 | Agent roadmap (M3–M6)           | Readiness gaps, not design fantasy           |
+| R11 | Documentation                   | docs↔code drift, honest claims               |
+| R12 | `kernel-core` API               | Pure logic, testability, boundaries          |
 
-### Tassonomia findings
+### Finding taxonomy
 
-Per ogni ruolo: **problemi**, **migliorie**, **ottimizzazioni** (queste ultime
-solo con metrica o ipotesi falsificabile).
+Per role: **problems**, **improvements**, **optimisations** (the last only with a
+metric or a falsifiable hypothesis).
 
-Severità:
+Severity:
 
-| Tag | Significato |
-| --- | --- |
-| `P0` | Correttezza, hang HW, safety |
-| `P1` | Debito che blocca M3+ o regredisce un gate |
-| `P2` | Qualità / DX |
-| `P3` | Nice-to-have |
-| `Risk-accepted` | Visto, deliberatamente non fixato, motivato |
+| Tag             | Meaning                                      |
+| --------------- | -------------------------------------------- |
+| `P0`            | Correctness, hardware hang, safety           |
+| `P1`            | Debt that blocks M3+ or regresses a gate     |
+| `P2`            | Quality / DX                                 |
+| `P3`            | Nice-to-have                                 |
+| `Risk-accepted` | Seen, deliberately not fixed, with rationale |
 
-### Artefatti
+### Artefacts
 
-| Cosa | Dove |
-| --- | --- |
-| Questa decisione | `docs/adr/0001-…` (immutabile una volta `accepted`) |
-| Indice ADR | [`README.md`](README.md) |
-| Esito di una passata | `docs/reviews/YYYY-MM-DD-multi-role.md` |
-| Decisioni strutturali derivate | ADR `0002+` |
+| What                         | Where                                         |
+| ---------------------------- | --------------------------------------------- |
+| This decision                | `docs/adr/0001-…` (immutable once `accepted`) |
+| ADR index                    | [`README.md`](README.md)                      |
+| Outcome of a pass            | `docs/reviews/YYYY-MM-DD-multi-role.md`       |
+| Derived structural decisions | ADRs `0002+`                                  |
 
-L’ADR di processo **non** elenca i bug. I findings vivono nel report; se un
-finding cambia un confine o un modello, diventa un ADR successivo.
+The process ADR does **not** list bugs. Findings live in the report; if a finding
+changes a boundary or a model, it becomes a subsequent ADR.
 
-### Formato finding (nel report)
+### Finding format (in the report)
 
 ```markdown
-### [P1] R2 — titolo corto
-- **Aspetto:** problema | miglioria | ottimizzazione
-- **Evidenza:** path:line o citazione doc / comportamento osservato
-- **Impatto:** …
-- **Azione proposta:** fix | ADR | test | risk-accepted
+### [P1] R2 — short title
+
+- **Aspect:** problem | improvement | optimisation
+- **Evidence:** path:line, or a doc quotation / observed behaviour
+- **Impact:** …
+- **Proposed action:** fix | ADR | test | risk-accepted
 - **Effort:** S | M | L
 ```
 
-## Conseguenze
+## Consequences
 
 **Positive**
 
-- Tracciabilità: ogni finding ha ruolo, evidenza, severità, next step.
-- Allinea la review umana ai blind spot già documentati dei gate automatici.
-- Istituzionalizza un checkpoint pre-milestone (in particolare pre-M3).
-- Separa processo (questo ADR) da esito (report) e da decisioni puntuali (ADR
-  successori).
+- Traceability: every finding has a role, evidence, severity and next step.
+- Aligns human review with the already-documented blind spots of the automated
+  gates.
+- Institutionalises a pre-milestone checkpoint (in particular pre-M3).
+- Separates process (this ADR) from outcome (the report) and from individual
+  decisions (successor ADRs).
 
-**Negative / costi**
+**Negative / costs**
 
-- Costo tempo (ordine di 1–2 sessioni per passata completa); mitigato da
-  checklist per ruolo e da re-run solo sui diff rilevanti.
-- Rischio *review theater*: tanti finding senza backlog. Mitigazione: ogni
-  `P0`/`P1` richiede azione o `Risk-accepted` esplicito; un ruolo può chiudere
-  con “nessun finding materiale” + rationale.
+- Time cost (order of 1–2 sessions for a full pass); mitigated by per-role
+  checklists and by re-running only on relevant diffs.
+- Risk of _review theatre_: many findings, no backlog. Mitigation: every `P0`/`P1`
+  requires an action or an explicit `Risk-accepted`; a role may close with "no
+  material findings" plus rationale.
 
-## Alternative considerate
+## Alternatives considered
 
-| Alternativa | Perché non scelta |
-| --- | --- |
-| Solo CI / gate automatici | Ciechi su attributes, cache, firmware, layering, roadmap |
-| Code review monolitica single-role | Perde prospettive (sicurezza vs size vs latenza IRQ) |
-| Audit esterno una tantum | Non istituzionalizza la disciplina pre-milestone |
-| Formal methods / model checking ora | ROI basso pre-M3; host tests + Miri su `kernel-core` bastano come base |
+| Alternative                         | Why not chosen                                                                |
+| ----------------------------------- | ----------------------------------------------------------------------------- |
+| Automated gates / CI only           | Blind to attributes, caches, firmware, layering, roadmap                      |
+| Monolithic single-role code review  | Loses perspectives (security vs size vs IRQ latency)                          |
+| A one-off external audit            | Does not institutionalise the pre-milestone discipline                        |
+| Formal methods / model checking now | Low ROI pre-M3; host tests plus Miri on `kernel-core` suffice as a foundation |
 
-## Riferimenti
+## References
 
-- [`docs/architecture.md`](../architecture.md) — layering e milestone
-- [`docs/verification.md`](../verification.md) — gate e blind spot
-- Prima passata: [`docs/reviews/2026-08-04-multi-role.md`](../reviews/2026-08-04-multi-role.md)
+- [`docs/architecture.md`](../architecture.md) — layering and milestones
+- [`docs/verification.md`](../verification.md) — gates and blind spots
+- First pass:
+  [`docs/reviews/2026-08-04-multi-role.md`](../reviews/2026-08-04-multi-role.md)
