@@ -96,14 +96,20 @@ pub unsafe fn init_heap(end: usize) -> bool {
 }
 
 /// Run `f` against the heap with interrupts masked.
-fn with_heap<R>(f: impl FnOnce(&mut FreeList, &mut [u8]) -> R) -> Option<R> {
+///
+/// `f` receives the arena base as well, so callers that need to turn an offset
+/// into a pointer can do it inside the same critical section instead of taking
+/// a second one — two sections in a row read as a protection the code does not
+/// actually provide.
+fn with_heap<R>(f: impl FnOnce(&mut FreeList, &mut [u8], usize) -> R) -> Option<R> {
     cpu::without_irqs(|| {
         // SAFETY: interrupts are masked and this is the only accessor path, so
         // no second `&mut` to the heap or its arena can exist.
         unsafe {
             let heap = &mut *HEAP.get();
             let mut list = heap.list?;
-            let result = f(&mut list, heap.arena());
+            let base = heap.base;
+            let result = f(&mut list, heap.arena(), base);
             heap.list = Some(list);
             Some(result)
         }
@@ -112,22 +118,20 @@ fn with_heap<R>(f: impl FnOnce(&mut FreeList, &mut [u8]) -> R) -> Option<R> {
 
 /// Bytes still free in the kernel heap.
 pub fn heap_remaining() -> usize {
-    with_heap(|list, arena| list.free_bytes(arena)).unwrap_or(0)
+    with_heap(|list, arena, _| list.free_bytes(arena)).unwrap_or(0)
 }
 
 /// Free blocks in the kernel heap — rising counts mean fragmentation.
 pub fn heap_fragments() -> usize {
-    with_heap(|list, arena| list.free_blocks(arena)).unwrap_or(0)
+    with_heap(|list, arena, _| list.free_blocks(arena)).unwrap_or(0)
 }
 
 /// Allocate `size` bytes aligned to `align` (power of two).
 pub fn alloc(size: usize, align: usize) -> Option<*mut u8> {
-    let base = cpu::without_irqs(|| {
-        // SAFETY: read of an initialised field under the critical section.
-        unsafe { (*HEAP.get()).base }
-    });
-    let offset = with_heap(|list, arena| list.alloc(arena, size, align))??;
-    Some((base + offset) as *mut u8)
+    with_heap(|list, arena, base| {
+        let offset = list.alloc(arena, size, align)?;
+        Some((base + offset) as *mut u8)
+    })?
 }
 
 /// Return memory from [`alloc`].
@@ -135,15 +139,14 @@ pub fn alloc(size: usize, align: usize) -> Option<*mut u8> {
 /// # Safety
 /// `ptr` must have come from [`alloc`] on this heap and not been freed since.
 pub unsafe fn dealloc(ptr: *mut u8) {
-    let base = cpu::without_irqs(|| {
-        // SAFETY: read of an initialised field under the critical section.
-        unsafe { (*HEAP.get()).base }
-    });
     let addr = ptr as usize;
-    if addr < base {
-        return;
-    }
-    with_heap(|list, arena| list.dealloc(arena, addr - base));
+    with_heap(|list, arena, base| {
+        // A pointer below the arena is not ours; dropping it silently is the
+        // least bad option, since there is nobody to report it to.
+        if let Some(offset) = addr.checked_sub(base) {
+            list.dealloc(arena, offset);
+        }
+    });
 }
 
 // There is no `alloc_zeroed` helper here on purpose: with a `GlobalAlloc`

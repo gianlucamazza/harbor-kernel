@@ -37,13 +37,15 @@ pub fn run() -> ! {
 
     exception::init();
 
-    // Report what the firmware handed us. Everything the BSP hard-codes — RAM
-    // size, UART clock, peripheral base — is in here; consuming it is future
-    // work, but losing the pointer is not recoverable.
+    // Inspect what the firmware handed us while every physical address is
+    // still readable, and cache the answer. Everything the BSP hard-codes —
+    // RAM size, UART clock, peripheral base — is in that blob; parsing it is
+    // future work, but the pointer is unrecoverable once lost.
     //
-    // Must stay above `mmu::activate`: the early map covers 3 GiB of RAM so the
-    // blob is readable wherever the firmware put it, while the kernel map
-    // deliberately covers far less.
+    // SAFETY: the coarse early map is active and this runs once.
+    unsafe {
+        bootinfo::survey();
+    }
     match bootinfo::device_tree() {
         Some(dtb) => println!(uart, "DTB at {dtb:#x}"),
         None => println!(

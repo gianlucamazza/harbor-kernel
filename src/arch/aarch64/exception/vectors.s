@@ -11,7 +11,8 @@
 //   [sp+0x108] pad
 // Total 0x110 = 272.
 
-.equ TRAP_FRAME_SIZE, 0x110
+// TRAP_FRAME_SIZE is substituted by `global_asm!` from `frame.rs`, so the
+// struct and the stack reservation cannot disagree.
 
 .macro kernel_entry
     sub     sp, sp, #TRAP_FRAME_SIZE
