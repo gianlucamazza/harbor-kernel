@@ -53,8 +53,29 @@ const ICR_RTIC: u32 = 1 << 6;
 /// diagnostic that follows it.
 const BUSY_SPIN_LIMIT: u32 = 100_000;
 
-/// PL011 instance (TX polled; RX polled or IRQ).
+/// The console owner: configuration plus transmit.
+///
+/// Deliberately cannot receive. The receive half is a separate type handed to
+/// the IRQ path by [`Pl011::receiver`], so the two capabilities are disjoint by
+/// construction rather than by a comment asking each side to behave.
+///
+/// The hardware register block is still shared — that is what the PL011 is —
+/// but the sharing is exactly what the device supports: a `DR` write pushes
+/// the transmit FIFO, a `DR` read pops the receive FIFO, and `FR` is
+/// read-only status. What the split removes is the ability of the IRQ handler
+/// to transmit (rule 6 in docs/architecture.md, previously enforced only by
+/// convention) and of the transmitter to disturb interrupt configuration.
 pub struct Pl011 {
+    regs: Mmio,
+}
+
+/// The receive half: drains the FIFO and acknowledges, nothing else.
+///
+/// `Copy` so it can be reconstructed in the IRQ handler from a base address
+/// published atomically — the handler must not chase a pointer the main loop
+/// could be halfway through writing.
+#[derive(Clone, Copy)]
+pub struct Pl011Rx {
     regs: Mmio,
 }
 
@@ -74,21 +95,13 @@ impl Pl011 {
         uart
     }
 
-    /// Wrap an already-programmed PL011 MMIO window (no register writes).
+    /// The receive half of this UART, for the IRQ path.
     ///
-    /// # Safety
-    ///
-    /// `mmio` must address a live PL011 that another owner initialised; used
-    /// for a second handle (RX IRQ path) on the same hardware.
+    /// Safe: the returned type can only drain and acknowledge receive, which
+    /// is disjoint from everything this handle does.
     #[inline]
-    pub const unsafe fn from_mmio(mmio: Mmio) -> Self {
-        Self { regs: mmio }
-    }
-
-    /// MMIO window (Copy) for a second owner such as the RX IRQ path.
-    #[inline]
-    pub fn mmio(&self) -> Mmio {
-        self.regs
+    pub fn receiver(&self) -> Pl011Rx {
+        Pl011Rx { regs: self.regs }
     }
 
     fn configure(&self, divisors: Divisors) {
@@ -121,11 +134,6 @@ impl Pl011 {
         self.regs.write32(IMSC, IMSC_RXIM | IMSC_RTIM);
     }
 
-    /// Clear RX and receive-timeout interrupt status bits.
-    pub fn clear_rx_interrupt(&self) {
-        self.regs.write32(ICR, ICR_RXIC | ICR_RTIC);
-    }
-
     /// Transmit one byte, blocking while the TX FIFO is full.
     pub fn write_byte(&self, byte: u8) {
         while self.regs.read32(FR) & FR_TXFF != 0 {}
@@ -138,12 +146,40 @@ impl Pl011 {
             self.write_byte(byte);
         }
     }
+}
+
+impl Pl011Rx {
+    /// Rebuild the receive half from a base address.
+    ///
+    /// # Safety
+    ///
+    /// `base` must be a PL011 register block already programmed by a
+    /// [`Pl011`] owner. Exists because the IRQ handler reads the base from an
+    /// atomic rather than from a shared handle it could observe half-written.
+    #[inline]
+    pub const unsafe fn from_base(base: usize) -> Self {
+        Self {
+            // SAFETY: forwarded from the caller's obligation.
+            regs: unsafe { Mmio::new(base) },
+        }
+    }
+
+    /// Base address of the register block, for publishing through an atomic.
+    #[inline]
+    pub fn base(&self) -> usize {
+        self.regs.base()
+    }
+
+    /// Clear RX and receive-timeout interrupt status bits.
+    fn clear_interrupt(&self) {
+        self.regs.write32(ICR, ICR_RXIC | ICR_RTIC);
+    }
 
     /// Non-blocking receive: `None` if the RX FIFO is empty or the character
     /// arrived with a framing/parity/break/overrun error.
     ///
-    /// Production RX is interrupt-driven ([`Self::drain_rx`]); this is the
-    /// polled path the bring-up soft console falls back to.
+    /// Production RX is interrupt-driven ([`Self::drain`]); this is the polled
+    /// path the bring-up soft console falls back to.
     #[cfg(feature = "bringup")]
     pub fn read_byte(&self) -> Option<u8> {
         if self.regs.read32(FR) & FR_RXFE != 0 {
@@ -163,15 +199,15 @@ impl Pl011 {
     /// `false` (e.g. ring full), the byte is dropped and draining continues so
     /// a level-triggered line does not re-fire forever. Clears RX/RT status.
     ///
-    /// Safe for the IRQ path: no TX, no formatting.
-    pub fn drain_rx(&self, mut push: impl FnMut(u8) -> bool) {
+    /// Safe for the IRQ path: this type cannot transmit or format.
+    pub fn drain(&self, mut push: impl FnMut(u8) -> bool) {
         while self.regs.read32(FR) & FR_RXFE == 0 {
             let dr = self.regs.read32(DR);
             if dr & DR_ERRORS == 0 {
                 let _ = push((dr & 0xFF) as u8);
             }
         }
-        self.clear_rx_interrupt();
+        self.clear_interrupt();
     }
 }
 

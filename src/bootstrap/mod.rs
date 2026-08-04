@@ -13,6 +13,7 @@ mod shell;
 use crate::arch::{bootinfo, cpu, exception, mmu, timer};
 use crate::bsp::board;
 use crate::console;
+use crate::irq;
 use crate::mm;
 use crate::println;
 
@@ -111,6 +112,10 @@ pub fn run() -> ! {
         println!(uart, "SELFTEST FAIL — soft console (IRQs masked)");
         selftest::soft_console(&mut uart);
     }
+
+    // No further handlers are registered: freeze the dispatch table so the IRQ
+    // path reads state nothing can mutate under it.
+    irq::seal();
 
     // Arm PL011 RX IRQ into the console ring (GIC line already enabled).
     // SAFETY: exclusive console; IRQs still masked.

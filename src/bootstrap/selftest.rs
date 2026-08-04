@@ -138,6 +138,7 @@ fn software_inject_timer(uart: &mut Pl011) -> bool {
 /// Fallback console for a board whose IRQ path failed the gates: poll the
 /// timer and the UART FIFO directly, with interrupts still masked.
 pub fn soft_console(uart: &mut Pl011) -> ! {
+    let rx = uart.receiver();
     let mut soft: u64 = 0;
     let mut last = 0u64;
     loop {
@@ -149,7 +150,7 @@ pub fn soft_console(uart: &mut Pl011) -> ! {
                 last = soft - (soft % TICK_PRINT_EVERY);
             }
         }
-        if let Some(byte) = uart.read_byte() {
+        if let Some(byte) = rx.read_byte() {
             match byte {
                 b'\r' => uart.write_bytes(b"\r\n"),
                 byte => uart.write_byte(byte),

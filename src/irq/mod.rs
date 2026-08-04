@@ -7,10 +7,17 @@
 //! alternative is a level-triggered line re-firing forever — but they are
 //! counted. A silently EOI-ed interrupt storm looks exactly like an idle
 //! system from the console, which is the worst way to lose an afternoon.
+//!
+//! # Sealing
+//!
+//! The dispatch table is mutable during bring-up and frozen afterwards. That
+//! is what makes the IRQ path's shared read sound: after [`seal`] there is no
+//! writer left to race with, so it is an invariant the code enforces rather
+//! than a rule the reader has to keep. [`register`] after sealing fails.
 
 mod chip;
 
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 pub use chip::{Ack, IrqChip};
 
@@ -41,6 +48,9 @@ static STATE: SyncCell<IrqState> = SyncCell::new(IrqState {
     handlers: [None; MAX_IRQ],
 });
 
+/// Set once bring-up finishes; the dispatch table is read-only from then on.
+static SEALED: AtomicBool = AtomicBool::new(false);
+
 /// Interrupts claimed with no registered handler.
 static UNHANDLED: AtomicU32 = AtomicU32::new(0);
 /// Interrupts claimed with an id beyond [`MAX_IRQ`].
@@ -68,11 +78,20 @@ pub fn counters() -> Counters {
 /// Read-only view of the state, for the IRQ path and the safe accessors.
 ///
 /// # Safety
-/// Caller must not hold a `&mut` to `STATE` at the same time; all mutation
-/// goes through [`init`] / [`register`], which run with IRQs masked.
+/// Caller must not hold a `&mut` to `STATE` at the same time. Before [`seal`]
+/// that is guaranteed by every mutator running inside `cpu::without_irqs`;
+/// after it, by there being no mutator at all.
 #[inline]
 unsafe fn state() -> &'static IrqState {
     unsafe { &*STATE.get() }
+}
+
+/// Freeze the dispatch table. Call once bring-up has registered everything.
+///
+/// After this the IRQ path is the only reader of immutable state, so no
+/// discipline is required of anyone to keep it sound.
+pub fn seal() {
+    SEALED.store(true, Ordering::Release);
 }
 
 /// Install the platform irqchip. Call once before [`register`] / [`enable`].
@@ -90,7 +109,8 @@ pub unsafe fn init(chip: &'static dyn IrqChip) {
 
 /// Register a handler for `irq`. Overwrites any previous handler.
 ///
-/// Returns `false` if `irq` is beyond the dispatch table.
+/// Returns `false` if `irq` is beyond the dispatch table, or if the table has
+/// already been sealed.
 ///
 /// # Safety
 /// Call only while IRQs that use this id are masked or not yet enabled.
@@ -98,7 +118,7 @@ pub unsafe fn init(chip: &'static dyn IrqChip) {
 pub unsafe fn register(irq: u32, handler: Handler) -> bool {
     unsafe {
         let id = irq as usize;
-        if id >= MAX_IRQ {
+        if id >= MAX_IRQ || SEALED.load(Ordering::Acquire) {
             return false;
         }
         cpu::without_irqs(|| {

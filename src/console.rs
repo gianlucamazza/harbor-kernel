@@ -11,9 +11,8 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use kernel_core::ring::ByteRing;
 
-use crate::arch::mmio::Mmio;
 use crate::bsp::board;
-use crate::drivers::pl011::Pl011;
+use crate::drivers::pl011::{Pl011, Pl011Rx};
 
 /// RX ring capacity (usable = CAP − 1). Power of two.
 const RX_CAP: usize = 256;
@@ -89,7 +88,7 @@ unsafe fn reprogram() -> Pl011 {
 /// `uart` must be the live console PL011; exclusive TX + IRQ-only RX for the
 /// rest of the boot.
 pub unsafe fn enable_rx_irq(uart: &Pl011) {
-    RX_MMIO_BASE.store(uart.mmio().base(), Ordering::Release);
+    RX_MMIO_BASE.store(uart.receiver().base(), Ordering::Release);
     uart.enable_rx_interrupt();
 }
 
@@ -101,12 +100,12 @@ pub fn on_uart_rx_irq() {
     if base == 0 {
         return;
     }
-    // SAFETY: base was published by `enable_rx_irq` from the live console
-    // PL011. Sharing the block with the TX owner is sound because the two
-    // touch disjoint behaviour: TX writes DR, this path reads DR/FR and
-    // acknowledges via ICR.
-    let uart = unsafe { Pl011::from_mmio(Mmio::new(base)) };
-    uart.drain_rx(|b| RX_RING.push(b));
+    // SAFETY: base was published by `enable_rx_irq` from the live console.
+    // `Pl011Rx` can only drain and acknowledge receive — it has no transmit
+    // path — so this cannot violate the "IRQ handlers do not transmit" rule
+    // even by mistake.
+    let rx = unsafe { Pl011Rx::from_base(base) };
+    rx.drain(|b| RX_RING.push(b));
 }
 
 /// Pop one RX byte from the IRQ-filled ring (`None` if empty).
