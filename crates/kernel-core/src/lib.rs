@@ -21,5 +21,6 @@ pub mod layout;
 pub mod paging;
 pub mod poll;
 pub mod ring;
+pub mod runqueue;
 pub mod timer;
 pub mod uart;

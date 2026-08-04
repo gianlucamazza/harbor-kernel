@@ -29,7 +29,7 @@ interactive serial console.
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
 | Interrupts   | GICv2, arch timer PPI, PL011 RX via SPI, dispatch counters                                                                          |
 | Console      | Polled TX, interrupt-driven RX into a lock-free ring, `WFI` idle                                                                    |
-| Verification | 91 host unit tests, Miri over the `unsafe`, a layout validator, build-enforced invariants, QEMU boot gate, fault-probed on hardware |
+| Verification | 102 host unit tests, Miri over the `unsafe`, a layout validator, build-enforced invariants, QEMU boot gate, fault-probed on hardware |
 
 ## What does not exist yet
 
@@ -50,7 +50,7 @@ words describe is the roadmap in
 
 ```
 crates/kernel-core/  pure logic, unit-tested on the host:
-                     paging encodings, allocators, GIC register maths, SPSC ring
+                     paging, allocators, GIC maths, SPSC ring, runqueue (M3)
 src/
   arch/aarch64/   MMIO, CPU/DAIF, cache maintenance, vectors, MMU, CNTP, bootinfo
   irq/            IrqChip trait, dispatch table, counters
