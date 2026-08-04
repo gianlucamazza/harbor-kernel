@@ -104,15 +104,34 @@ went stale together the moment the layout moved.
 
 ## Open: what has not been run on hardware
 
-The stack split (`SP_EL0` for the kernel, `SP_EL1` for exceptions) has only been
-exercised under QEMU. It changes the boot sequence and the vector group the
-hardware enters through — both in the category this project has already been
-burned by, where emulation agrees and silicon does not.
+The stack split (`SP_EL0` for the kernel, `SP_EL1` for exceptions) changes the
+boot sequence and the vector group the hardware enters through — both in the
+category this project has already been burned by, where emulation agrees and
+silicon does not.
 
-To close it, on a Pi 4B: a normal boot to `ticks=`, then re-run the W^X and
-guard-page probes above at their new addresses, then the small-frame overflow
-that should report `FAR` at the top of the guard page. Until then the rows above
-say `QEMU only`, and that is the honest reading of them.
+**The boot half is now closed.** On a Pi 4B, 2026-08-04:
+
+```
+MMU on  (W^X, guard page at 0xa1000, 40960 B of table arena left)
+DTB mapped: 61440 bytes at 0x2eff1000
+heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+ticks=10 … ticks=70
+```
+
+`CNTFRQ=54000000` says this is silicon, not TCG; `0xa1000` says it is the split
+layout and not a stale card. Timer IRQs arrive, which is the part worth
+insisting on: they can only arrive through the **EL1t** vector entries, so the
+vector group moved correctly and the hardware really does switch to `SP_EL1`.
+
+**The fault half is still open.** What a clean boot cannot show is the overflow
+behaviour the split exists for. Still to run, one deliberate-fault image each:
+
+- the small-frame recursion, which must report `FAR` at the *top* of the guard
+  page (`0xa1ff8` under QEMU) rather than walking down through it;
+- the guard-page write probe, at its new address.
+
+The W^X probe needs no re-run: `.text` and `.rodata` were not touched by the
+split, and its recorded ESR does not depend on an address that moved.
 
 ## Bring-up gates
 

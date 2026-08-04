@@ -108,7 +108,7 @@ does not exist yet.
 | P1  | W^X + guard page + free-list `GlobalAlloc`               | **done** (HW, fault-probed) |
 | P2  | Early MMU, softfloat, build-enforced gates               | **done** (HW)               |
 | P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)               |
-| P4  | Exception stack, refused frees, fatal map failure        | QEMU only — **open**        |
+| P4  | Exception stack, refused frees, fatal map failure         | boots on HW; fault probes **open** |
 | M3  | Cooperative tasks                                        | planned, blocked            |
 | M4  | IPC + capabilities                                       | planned                     |
 | M5  | EL0 agents                                               | planned                     |
@@ -123,10 +123,10 @@ work that would be invisible in a demo.
 "done (HW)" means the deliverable was observed working on a Raspberry Pi 4B, not
 merely in QEMU. The distinction earned its place: emulation booted a kernel that
 hung on silicon, because TCG's exclusive monitor ignores memory attributes. See
-[`verification.md`](verification.md). P4 is `open` for exactly this reason — it
-works under emulation, and it changes the boot sequence and the vector group the
-hardware enters through, which is the category emulation has already been wrong
-about here.
+[`verification.md`](verification.md). P4 is half closed on that standard: the
+board boots with the split stacks and takes timer IRQs, which they can only do
+through the EL1t vector entries. What a clean boot cannot show is the overflow
+behaviour the split exists for, so the fault probes stay open.
 
 ### What each planned milestone needs, and how it is judged done
 
