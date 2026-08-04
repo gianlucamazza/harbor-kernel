@@ -9,6 +9,7 @@ covered.
 | Layer                                     | Runs                                  | Covers                                                                                     | Blind to                                                                 |
 | ----------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | Host unit tests (`make test`)             | `cargo test -p kernel-core`           | Register encodings, allocator arithmetic, GIC index maths, region splitting, the SPSC ring | Anything that touches hardware, and any _use_ of these functions         |
+| Miri (`make miri`)                        | Interprets the host tests             | Aliasing, provenance and data races in the crate's only `unsafe` — the ring's `UnsafeCell` buffer and `Sync` assertion | The kernel crate's 51 `unsafe` sites, which touch MMIO and cannot be interpreted |
 | No-SIMD guard (`make no-simd`)            | Disassembles the linked image         | A build that silently regains FP/SIMD                                                      | FP that never reaches the image                                          |
 | Pre-MMU path (`make no-early-exclusives`) | Disassembles `_start` and its callees | Atomic read-modify-write before translation is on, and the path growing                    | Exclusives reached indirectly through a function pointer                 |
 | QEMU boot (`make boot-check`)             | Boots the image, asserts on the log   | MMU activation, allocator reclaim, timer IRQ, WFI idle, unhandled interrupts, panics       | **Memory attributes.** Also cache behaviour, real clocks, firmware state |
@@ -94,6 +95,24 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | QEMU boot check                                                  | remove `irq::enable(TIMER_IRQ)`         | missing tick reports                                           |
 | Trap frame coupling                                              | grow `TrapFrame` by 16 bytes            | the stub's reservation moved `0x110` → `0x120`                 |
 | Blob integrity                                                   | corrupt an expected hash                | refused to install, exit 1                                     |
+| Miri                                                             | publish `head` before writing the slot  | `Undefined Behavior: Data race detected between (1) non-atomic write and (2) non-atomic read` |
+
+## What Miri adds over the two-thread test
+
+Both catch the same mutation, and they say different things. Publishing `head`
+before writing the slot makes the native test report `out of sequence at 8572`
+— a symptom, found by sampling one interleaving out of many. Miri names the
+cause: a data race between a non-atomic write and a non-atomic read. One tells
+you a value was wrong; the other tells you the program is undefined.
+
+Miri interprets rather than executes, at roughly 100x the cost, so the two
+long-running tests carry `#[cfg(miri)]` bounds: 512 items instead of 200 000,
+150 churn rounds instead of 2000. The shape of these tests is what finds bugs,
+not the volume.
+
+It runs on nightly, which is why it is a separate CI job and not part of
+`make check` — the toolchain pin is deliberately stable, and a nightly
+requirement must not leak into the gate everything else runs under.
 
 ## Serial capture
 

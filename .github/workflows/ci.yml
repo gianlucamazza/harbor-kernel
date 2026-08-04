@@ -60,3 +60,23 @@ jobs:
         run: |
           command -v qemu-system-aarch64 >/dev/null \
             || { echo "::error::qemu-system-aarch64 missing — boot check did not run"; exit 1; }
+
+  # The only `unsafe` in kernel-core is the SPSC ring's `UnsafeCell` buffer and
+  # its `Sync` assertion. The two-thread test finds coarse mistakes; Miri checks
+  # the aliasing and provenance rules that no amount of running can sample.
+  #
+  # Separate job on nightly: Miri needs it, and the pin in rust-toolchain.toml
+  # is deliberately stable — a nightly requirement must not leak into the gate
+  # everything else runs under.
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nightly with Miri
+        run: |
+          rustup toolchain install nightly --component miri
+          cargo +nightly miri setup
+
+      - name: Miri
+        run: cargo +nightly miri test -p kernel-core --target x86_64-unknown-linux-gnu

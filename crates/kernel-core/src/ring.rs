@@ -183,10 +183,19 @@ mod tests {
         use std::sync::Arc;
         use std::thread;
 
+        // Miri interprets rather than executes, at roughly 100x the cost. The
+        // shape of the test is what finds bugs here, not the volume: keep the
+        // long run for the native build and a representative one under Miri.
+        #[cfg(miri)]
+        const COUNT: usize = 512;
+        #[cfg(not(miri))]
         const COUNT: usize = 200_000;
         // Bounded so a broken ring fails the run instead of hanging it: if one
         // side dies the other would otherwise spin on a permanently full or
         // permanently empty queue forever.
+        #[cfg(miri)]
+        const SPIN_LIMIT: usize = 1_000_000;
+        #[cfg(not(miri))]
         const SPIN_LIMIT: usize = 10_000_000;
 
         let ring = Arc::new(ByteRing::<64>::new());

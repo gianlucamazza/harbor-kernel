@@ -4,6 +4,7 @@
 #   make debug      debug kernel8.img
 #   make check      fmt + tests + no-SIMD + pre-MMU + QEMU boot + clippy
 #   make test       host unit tests for the pure-logic crate
+#   make miri       run those tests under Miri (nightly; checks the unsafe)
 #   make fmt        rustfmt
 #   make qemu       boot the image under QEMU (PL011 on stdio)
 #   make qemu-gdb   same, halted, waiting for gdb on :1234
@@ -42,7 +43,7 @@ ifeq ($(PROFILE),release)
   CARGO_FLAGS += --release
 endif
 
-.PHONY: all debug img elf check test no-simd no-early-exclusives boot-check fmt fmt-check qemu qemu-gdb blobs deploy serial clean
+.PHONY: all debug img elf check test miri no-simd no-early-exclusives boot-check fmt fmt-check qemu qemu-gdb blobs deploy serial clean
 
 all: img
 
@@ -90,6 +91,17 @@ no-simd: elf
 # path grows.
 no-early-exclusives: elf
 	./scripts/check-pre-mmu-path.sh $(ELF)
+
+# Miri interprets the host tests and checks the aliasing and provenance rules
+# that running the code cannot sample. It covers the only `unsafe` in
+# kernel-core: the SPSC ring's `UnsafeCell` buffer and its `Sync` assertion.
+#
+# Not part of `make check`: it needs nightly, and the toolchain pin is
+# deliberately stable. Run it when touching the ring or the allocator.
+miri:
+	@rustup toolchain list | grep -q nightly \
+	  || { echo "error: nightly not installed (rustup toolchain install nightly --component miri)" >&2; exit 1; }
+	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET)
 
 fmt:
 	cargo fmt --all

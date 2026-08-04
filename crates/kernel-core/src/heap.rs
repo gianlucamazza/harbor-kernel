@@ -347,7 +347,13 @@ mod tests {
             seed
         };
 
-        for round in 0..2000 {
+        // See the note in `ring.rs`: Miri trades volume for scrutiny.
+        #[cfg(miri)]
+        const ROUNDS: usize = 150;
+        #[cfg(not(miri))]
+        const ROUNDS: usize = 2000;
+
+        for round in 0..ROUNDS {
             let free_it = !live.is_empty() && (round % 3 == 0 || live.len() > 12);
             if free_it {
                 let index = (next() as usize) % live.len();

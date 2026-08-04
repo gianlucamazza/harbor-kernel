@@ -142,4 +142,6 @@ cargo build --release --features bringup
 
 ## License
 
-MIT OR Apache-2.0 (`Cargo.toml`). Platform blobs stay under upstream licenses.
+MIT ([`LICENSE-MIT`](LICENSE-MIT)) or Apache-2.0
+([`LICENSE-APACHE`](LICENSE-APACHE)), at your option. Platform blobs stay under
+upstream licenses — see [`docs/blobs.md`](docs/blobs.md).
