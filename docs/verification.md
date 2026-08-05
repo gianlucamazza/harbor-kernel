@@ -546,6 +546,35 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Table-arena reserve (M3)                                         | raise `MIN_SPARE_TABLES` to 40              | `BOOT REFUSED: table arena nearly exhausted: 10 tables left, need 40 (raise PAGE_TABLE_ARENA_SIZE in link.ld)` and then nothing       |
 | SPI divisor overflow                                             | range-check after rounding instead of before | `left: Ok(0)` against `right: Err(TargetTooSlow …)` — a wrapped divider is a *legal* encoding, so the fastest request became the slowest clock |
 | MMIO probe window (`FAR` match)                                  | drop the `far != expected` check, and fault twice inside one probe | without it both aborts are swallowed and the boot continues (`rng200: unavailable`); with it the second is fatal — `ESR=0x96000050 FAR=0xfe105000`, the injected address |
+| Table-arena reserve, derived                                     | restore `PAGE_TABLE_ARENA_SIZE = 16 * 0x1000` under the reserve now derived from `MAX_TASKS` | `BOOT REFUSED: table arena nearly exhausted: 9 tables left, need 14` — the arena had been sized against a reserve of six that assumed `MAX_TASKS = 4`, long after the scheduler raised it to 12 |
+
+## Four defects no gate caught (2026-08-05)
+
+The table above records checks proven to work. This section records the
+opposite, which is the more useful half: a multi-role review found five
+correctness defects, and **`make check` stayed green through all of them**.
+Four were invisible to every gate; only the fifth had a check waiting for it,
+and that check had been sized against a stale constant so it never fired.
+
+| Defect | Why no gate saw it |
+| ------ | ------------------ |
+| `sched::init` / `spawn` unmasked IRQs unconditionally instead of `irq_save` / `irq_restore`, re-enabling them after bootstrap deliberately left them masked on a failed `board::irq::init()` | The boot-check oracle only reads a healthy boot. Nothing exercises the degraded path where the GIC never binds, so the line promising "interrupts stay masked" is never checked against `DAIF`. |
+| `task_trampoline` never drained `pending_free`, so an exit followed by a never-yet-run task dropped a `TaskStack` whose `Drop` is a deliberate no-op — 20 KiB of heap and an unmapped guard page inside a live heap block, uncounted | `abandoned_stacks()` counts only stacks whose guard could not be remapped. A stack that is silently *dropped* never reaches `release()`, so the one counter watching this class could not see it. `src/sched` has no host tests. |
+| `AddressSpace::poke_user` validated against the whole 16 KiB user window while writing from `user_base_phys`, the physical address of page 0 alone | Latent: every caller passes 28 bytes or fewer at offset 0. A bound that is wrong only for inputs nobody sends is exactly what a boot-log oracle cannot distinguish from a bound that is right. |
+| `console::suspend_rx` disarmed the IRQ view before masking `IMSC`, leaving a window where a byte makes the handler return without popping `DR` or writing `ICR` — an unclearable level-triggered storm | The window is one instruction pair wide and needs a byte to arrive inside it. The QEMU boot check types nothing during the handover, so the race has no way to happen. `resume_rx` held the mirror-image inversion. |
+
+What these share is the shape named at the top of this document: the oracle is
+one healthy boot. It is strong at proving the good path stays good, and blind to
+degraded paths, to bounds nobody currently exceeds, and to races too narrow to
+hit by accident. The cheapest way to close the class is to move the bookkeeping
+in `src/sched`, `src/mm/aspace.rs` and `src/ipc` down into `kernel-core`, where
+it can be tested on the host — today `src/` is 8.5 kLOC with zero `#[test]`, and
+every one of these four lived there.
+
+`sched::pending_overwrites()` was added with the second fix for the same reason:
+the single-slot invariant behind `pending_free` was documented as true and was
+not. The idle loop now reports it (`sched: PENDING-OVERWRITE n`) rather than the
+comment asserting it.
 
 ## What Miri adds over the two-thread test
 
