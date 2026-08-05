@@ -16,9 +16,9 @@ memory attributes the way Cortex-A72 does).
 **Status:** bring-up through M0–M2 and P0–P4; **M3**, **M4**, and **M5**
 **done (HW)** on Pi 4B (tasks, IPC/caps, EL0 private AS —
 [`docs/verification.md`](docs/verification.md#m5-el0--address-spaces)).
-**M5-P1…P3** and **M6 v1** (scheduled EL0, `SVC` decode, dual AS, PL011
-page-agent) **done (QEMU)**; [ADR-0013](docs/adr/0013-narrow-device-windows.md)
-**accepted**. HW stamp for P/M6 open. Roadmap:
+**M5-P1…P3**, **M6 v1** (PL011 page-agent), and concurrent multi-agent shell
+**done (HW)** on Pi 4B; [ADR-0013](docs/adr/0013-narrow-device-windows.md)
+**accepted**. Next: EL0 resume / IRQ agent (optional product). Roadmap:
 [`docs/architecture.md`](docs/architecture.md).
 
 ## What exists
@@ -33,9 +33,9 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
 | Frames (M5)  | Named phys pool (ADR-0012); `AddressSpace` clone + user VA window; destroy returns frames                                           |
 | EL0 (M5)     | One-shot trampoline (`arch::el0`), own `TTBR0`, SVC + kernel-store fault probes (**done HW**) — ADR-0014                             |
-| EL0 shell (M5-P) | Scheduled task EL0 session + `kernel_core::syscall` ping/refuse; dual-AS smoke (**done QEMU**; HW open)                          |
-| Agent shell | `src/agent::Agent` owns AS; concurrent two-TCB EL0 (**done QEMU**; HW open) — no EL0 resume yet                                 |
-| PL011 agent (M6 v1) | Page-only Device map (`map_device_page`, ADR-0013); EL0 `UART_FR` + kill AS (**done QEMU**; HW open)                          |
+| EL0 shell (M5-P) | Scheduled task EL0 session + `kernel_core::syscall` ping/refuse; dual-AS smoke (**done HW**)                                     |
+| Agent shell | `src/agent::Agent` owns AS; concurrent two-TCB EL0 (**done HW**) — no EL0 resume yet                                            |
+| PL011 agent (M6 v1) | Page-only Device map (`map_device_page`, ADR-0013); EL0 `UART_FR` + kill AS (**done HW**)                                     |
 | Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
 | IPC (M4)     | Mailboxes + CapId send/recv; refuse counter; IRQ wake queue (ADR-0008); demo sender/receiver/forger                                 |
 | Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters                                                          |
@@ -48,9 +48,8 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 
 No preemption, no SMP, no high-half/`TTBR1` kernel, no EL0 IRQ delivery, no
 console-RX-owned-by-agent (M6 v1 only maps PL011 and reads `FR`), no EL0
-**resume** after SVC (sessions are one-shot), no ASID production. HW stamp for
-M5-P / M6 / concurrent agents is still open. Longer product surface:
-[`docs/architecture.md`](docs/architecture.md).
+**resume** after SVC (sessions are one-shot), no ASID production. Longer
+product surface: [`docs/architecture.md`](docs/architecture.md).
 
 ## Design
 

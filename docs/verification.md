@@ -195,17 +195,29 @@ Protocol notes load-bearing for silicon:
 | `kernel_core::syscall::decode` | **closed** | host unit tests (160 total suite) |
 | ADR-0013 accepted | **yes** | agent page-sized PL011 only |
 | PL011 agent map + FR load + kill | **closed (QEMU)** | `pl011-agent: FR read + svc ok` / `killed ok` |
-| Concurrent multi-agent shell | **closed (QEMU)** | `agents: concurrent ok` (`src/agent`) |
-| Silicon (M5-P / M6 / agents) | **open** | needs Pi PL011 transcript of the oracles below |
+| Concurrent multi-agent shell | **closed (QEMU + HW)** | `agents: concurrent ok` (`src/agent`) |
+| Silicon (M5-P / M6 / agents) | **closed (HW)** | Pi 4B + CP2104, `FEATURES=debug-display`, 2026-08-05 — transcript below |
 
 M6 v1 does **not** move console RX into the agent: the agent proves a **minimal
 Device map** and revocation; kernel idle still owns echo and ticks. EL0
 **resume** after SVC is not implemented (one-shot sessions only).
 
-Expected fragment (after `el0: FAULT ok` / dual AS, once sched runs):
+### Silicon transcript (M5-P / M6 v1 / concurrent agents)
+
+Pi 4B, PL011 via CP2104 @ 115200, image `d674792` + `debug-display`, 2026-08-05.
+`CNTFRQ=54000000` is silicon. Same oracles as QEMU `boot-check`.
 
 ```
-aspace: dual create/destroy ok  pool=…
+Harbor: hello
+MMU on  (W^X, guard page at 0xac000, …)
+frames: 512 free / 512  base=0x40bd000  (2048 KiB pool)
+aspace: prepare ok  held=14 (empty=1)  root=0x40bd000
+el0: SVC ok  imm=0
+el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+aspace: create/destroy ok  pool=512
+aspace: dual create/destroy ok  pool=512
+rng200: ok word=…
+display: ILI9486 up  cdiv=64  bit_clk=7812500 Hz  status
 …
 sched: spawned el0-task
 sched: spawned pl011-agent
@@ -216,11 +228,15 @@ el0-task: svc ping
 el0-task: svc refuse imm=0x99
 el0-task: ok
 pl011-agent: FR read + svc ok
-pl011-agent: killed ok  pool=…
-agent-a: svc ping
+pl011-agent: killed ok  pool=512
 agent-b: svc ping
-agents: concurrent ok  pool=…
-ticks=20
+agent-a: svc ping
+agents: concurrent ok  pool=512
+ipc: sent tag=1 a=42
+ipc: got tag=1 a=42
+ipc: refuse count=1
+ticks=10
+…
 ```
 
 ### Boot + cooperative yield (closed)

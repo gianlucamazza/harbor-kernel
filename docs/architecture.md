@@ -17,7 +17,7 @@ parts exist.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Agents (M5 HW; M6 v1 page-agent QEMU; multi-agent open) │
+│  Agents (M5–M6 v1 + concurrent shell done HW)            │
 │  message passing · capability-mediated resources         │
 └────────────────────────────▲─────────────────────────────┘
                              │ SVC / IPC / (EL0 IRQ later)
@@ -124,7 +124,7 @@ today versus roadmap.
 | M3  | Cooperative tasks                                        | **done** (HW, fault-probed) |
 | M4  | IPC + capabilities                                       | **done (HW)**               |
 | M5  | EL0 agents                                               | **done (HW)**               |
-| M6  | Driver-as-agent                                          | **done (QEMU)** (PL011 page agent; HW stamp open) |
+| M6  | Driver-as-agent                                          | **done (HW)** (PL011 page agent v1) |
 
 **M** milestones add capability. **P** milestones add protection or evidence and
 add no capability at all: they are numbered separately because "the kernel can
@@ -176,27 +176,28 @@ show the same oracles
 
 | Slice | Status | Evidence |
 | ----- | ------ | -------- |
-| **M5-P1** scheduled EL0 task | **done (QEMU)** | `el0-task: svc ping` / `ok` |
-| **M5-P2** minimal `SVC` dispatch | **done (QEMU)** | `kernel_core::syscall::decode`; refuse `0x99` |
-| **M5-P3** dual AS create/destroy | **done (QEMU)** | `aspace: dual create/destroy ok` |
+| **M5-P1** scheduled EL0 task | **done (HW)** | `el0-task: svc ping` / `ok` |
+| **M5-P2** minimal `SVC` dispatch | **done (HW)** | `kernel_core::syscall::decode`; refuse `0x99` |
+| **M5-P3** dual AS create/destroy | **done (HW)** | `aspace: dual create/destroy ok` |
 | **M6-D0** [ADR-0013](adr/0013-narrow-device-windows.md) | **accepted** | 2026-08-05 |
-| **M6 v1** PL011 page agent + kill | **done (QEMU)** | `pl011-agent: FR read + svc ok` / `killed ok` |
+| **M6 v1** PL011 page agent + kill | **done (HW)** | `pl011-agent: FR read + svc ok` / `killed ok` |
 
 ### Closed (multi-agent shell v1)
 
 | Slice | Status | Evidence |
 | ----- | ------ | -------- |
-| **Agent shell** (`src/agent`) | **done (QEMU)** | `Agent` owns AS; one-shot EL0; no fake resume |
-| **Concurrent dual agent** | **done (QEMU)** | `agents: concurrent ok` — two TCBs, both AS live, each EL0 once |
+| **Agent shell** (`src/agent`) | **done (HW)** | `Agent` owns AS; one-shot EL0; no fake resume |
+| **Concurrent dual agent** | **done (HW)** | `agents: concurrent ok` — two TCBs, both AS live, each EL0 once |
+
+Pi 4B stamp: [verification.md §M5-P / M6](verification.md#m5-p--m6-v1-qemu) (2026-08-05).
 
 ### Next (ordered)
 
 | # | Work | Done when |
 | - | ---- | --------- |
-| 1 | **HW stamp M5-P + M6 v1 + concurrent agents** | Pi PL011 transcript; update [verification.md](verification.md#m5-p--m6-v1-qemu) |
-| 2 | **EL0 resume after SVC** (optional product) | Explicit design/ADR; save user GPRs; continue at `ELR+4` — not one-shot only |
-| 3 | **EL0 IRQ / full RX agent** | Successor design; agent owns RX without breaking kernel panic console |
-| 4 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
+| 1 | **EL0 resume after SVC** (optional product) | Explicit design/ADR; save user GPRs; continue at `ELR+4` — not one-shot only |
+| 2 | **EL0 IRQ / full RX agent** | Successor design; agent owns RX without breaking kernel panic console |
+| 3 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer.
 
