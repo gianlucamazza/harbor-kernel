@@ -554,9 +554,15 @@ fn el0_scheduled_task() {
     }
 }
 
-/// M6 v1 + RX poll: PL011 page-only agent (ADR-0013); destroy = kill.
+/// M6: PL011 page agent (ADR-0013) + RX ownership (poll) with real bytes.
+///
+/// Ownership window: kernel drain suspended, PL011 RX IRQs masked, agent maps
+/// the page and polls `DR`. Self-test uses PL011 loopback (no host typing) so
+/// QEMU and silicon share the same oracle. Yields so idle can still tick.
+/// Destroy = kill (unmap); drain restored before return.
 fn pl011_agent_task() {
     use crate::bsp::board::memmap::{FRAME_SIZE, UART0_BASE, UART0_REG_BYTES, USER_PL011_VA};
+    use kernel_core::a64;
 
     if UART0_REG_BYTES != FRAME_SIZE {
         crate::kprintln!("pl011-agent: UART0_REG_BYTES must be one page");
@@ -581,13 +587,16 @@ fn pl011_agent_task() {
         return;
     }
 
-    let movz: u32 = 0xD2A0_0000 | (0x5000u32 << 5);
-    let movz_b = movz.to_le_bytes();
-    let prog = [
-        movz_b[0], movz_b[1], movz_b[2], movz_b[3], 0x01, 0x18, 0x40, 0xB9, 0x01, 0x00, 0x00, 0xD4,
-    ];
+    // FR load + ping (map liveness).
+    let mut fr_prog = [0u8; 12];
+    let w0 = a64::le_bytes(a64::movz_x_lsl16(0, 0x5000));
+    let w1 = a64::le_bytes(a64::ldr_w_imm(1, 0, 0x18));
+    let w2 = a64::le_bytes(a64::svc(0));
+    fr_prog[0..4].copy_from_slice(&w0);
+    fr_prog[4..8].copy_from_slice(&w1);
+    fr_prog[8..12].copy_from_slice(&w2);
 
-    match agent.run_user_prog(&prog) {
+    match agent.run_user_prog(&fr_prog) {
         Ok(el0::El0Outcome::Svc { imm }) if matches!(syscall::decode(imm), Syscall::Ping) => {
             crate::kprintln!("pl011-agent: FR read + svc ok");
         }
@@ -595,17 +604,64 @@ fn pl011_agent_task() {
         Err(e) => crate::kprintln!("pl011-agent: el0 FAILED {e:?}"),
     }
 
-    // RX poll with kernel drain suspended (agent owns DR for this session).
-    // Empty FIFO is an honest outcome (no invented RX data). A pending byte
-    // yields putcs=1 via SYS_PUTC. Full RX ownership is a later slice.
+    // --- RX ownership (poll) with real bytes via PL011 loopback ---
     let rx_base = console::suspend_rx();
+    crate::kprintln!("pl011-agent: rx own begin");
+    crate::sched::yield_now();
+
+    // Empty path first (honest): no invented data.
     match agent.run_user_prog_resuming(&agent::encode_pl011_rx_poll_exit()) {
         Ok(s) if s.putcs == 0 => crate::kprintln!("pl011-agent: rx poll empty"),
-        Ok(s) if s.putcs == 1 => crate::kprintln!("pl011-agent: rx poll data"),
         Ok(s) => crate::kprintln!("pl011-agent: rx poll unexpected putcs={}", s.putcs),
         Err(e) => crate::kprintln!("pl011-agent: rx poll FAILED {e:?}"),
     }
+    crate::sched::yield_now();
+
+    // Inject two bytes through hardware loopback (kernel TX → internal RX).
+    const OWN_BYTES: &[u8] = b"RX";
+    let injected = console::with_tx(|uart| {
+        uart.set_loopback(true);
+        uart.receiver().discard_and_ack();
+        let ok = uart.write_bytes(OWN_BYTES);
+        uart.set_loopback(false);
+        ok
+    });
+    if injected != Some(true) {
+        crate::kprintln!("pl011-agent: rx own inject FAILED");
+        console::resume_rx(rx_base);
+        agent.destroy();
+        return;
+    }
+
+    let mut got = 0u32;
+    for _ in 0..OWN_BYTES.len() {
+        crate::sched::yield_now();
+        match agent.run_user_prog_resuming(&agent::encode_pl011_rx_poll_exit()) {
+            Ok(s) if s.putcs == 1 => got = got.saturating_add(1),
+            Ok(s) if s.putcs == 0 => {
+                crate::kprintln!("pl011-agent: rx own short putcs=0 after {got}");
+                break;
+            }
+            Ok(s) => {
+                crate::kprintln!("pl011-agent: rx own unexpected putcs={}", s.putcs);
+                break;
+            }
+            Err(e) => {
+                crate::kprintln!("pl011-agent: rx own FAILED {e:?}");
+                break;
+            }
+        }
+    }
+
+    if got == OWN_BYTES.len() as u32 {
+        crate::kprintln!("pl011-agent: rx own bytes={got}");
+    } else {
+        crate::kprintln!("pl011-agent: rx own incomplete got={got}");
+    }
+
     console::resume_rx(rx_base);
+    crate::kprintln!("pl011-agent: rx own end");
+    crate::sched::yield_now();
 
     agent.destroy();
     let free_after = mm::frames::free_count();

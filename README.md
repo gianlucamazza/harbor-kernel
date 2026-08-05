@@ -26,9 +26,9 @@ memory attributes the way Cortex-A72 does).
 **M5-P1…P3**, **M6 v1** (PL011 page-agent), and concurrent multi-agent shell
 **done (HW)** on Pi 4B; [ADR-0013](docs/adr/0013-narrow-device-windows.md)
 **accepted**; multi-SVC resume **done (HW)**; EL0 IRQ resume + `SYS_PUTC` +
-EL0 IRQ resume (architectural) + `SYS_PUTC` + RX poll path **done (QEMU)**
-([issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1) v1).
-Next: HW stamp + long-lived RX-owned agent. Roadmap:
+EL0 IRQ resume + `SYS_PUTC` + **RX-owned agent** (poll + LBE self-test)
+**done (QEMU)** ([issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1)).
+Next: HW stamp on Pi 4B. Roadmap:
 [`docs/architecture.md`](docs/architecture.md).
 
 ## What exists
@@ -45,7 +45,7 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | EL0 (M5)     | One-shot trampoline (`arch::el0`), own `TTBR0`, SVC + kernel-store fault probes (**done HW**) — ADR-0014                             |
 | EL0 shell (M5-P) | Scheduled task EL0 session + `kernel_core::syscall` ping/refuse; dual-AS smoke (**done HW**)                                     |
 | Agent shell | `src/agent::Agent` owns AS; multi-SVC + IRQ resume; `SYS_PUTC` (**done QEMU**; multi-SVC also HW)                              |
-| PL011 agent (M6 v1) | Page-only Device map (`map_device_page`, ADR-0013); FR load + RX poll session + kill (**done QEMU**)                        |
+| PL011 agent (M6) | Page map (ADR-0013); FR; RX **own** (drain off, poll, LBE bytes, kill restores) (**done QEMU**)                            |
 | Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
 | IPC (M4)     | Mailboxes + CapId send/recv; refuse counter; IRQ wake queue (ADR-0008); demo sender/receiver/forger                                 |
 | Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters                                                          |
@@ -56,9 +56,9 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 
 ## What does not exist yet
 
-No preemption, no SMP, no high-half/`TTBR1` kernel, no long-lived
-console-RX-owned-by-agent (poll session only; kernel drain resumes after), no
-ASID production. Longer product surface: [`docs/architecture.md`](docs/architecture.md).
+No preemption, no SMP, no high-half/`TTBR1` kernel, no ASID production, no
+UART-IRQ-to-EL0 as the steady console path (ownership is poll-based). Longer
+product surface: [`docs/architecture.md`](docs/architecture.md).
 
 ## Design
 

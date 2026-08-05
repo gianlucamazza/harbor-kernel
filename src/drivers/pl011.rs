@@ -34,6 +34,8 @@ const DR_ERRORS: u32 = 0b1111 << 8;
 
 // CR bits.
 const CR_UARTEN: u32 = 1 << 0;
+/// Loopback enable (DDI 0183): TX is fed to RX inside the block.
+const CR_LBE: u32 = 1 << 7;
 const CR_TXE: u32 = 1 << 8;
 const CR_RXE: u32 = 1 << 9;
 
@@ -139,6 +141,25 @@ impl Pl011 {
     /// Enable RX data + receive-timeout interrupts (FIFO-friendly single char).
     pub fn enable_rx_interrupt(&self) {
         self.regs.write32(IMSC, IMSC_RXIM | IMSC_RTIM);
+    }
+
+    /// Mask all PL011 IRQs (agent poll ownership; kernel drain is off).
+    pub fn disable_rx_interrupt(&self) {
+        self.regs.write32(IMSC, 0);
+    }
+
+    /// Enable or clear internal TX→RX loopback (self-test without host input).
+    ///
+    /// Does not touch baud/format. Caller must own exclusive use of RX for the
+    /// window (kernel drain suspended) so looped bytes are not stolen by IRQ.
+    pub fn set_loopback(&self, on: bool) {
+        let mut cr = self.regs.read32(CR);
+        if on {
+            cr |= CR_LBE;
+        } else {
+            cr &= !CR_LBE;
+        }
+        self.regs.write32(CR, cr);
     }
 
     /// Transmit one byte, waiting for room in the TX FIFO.

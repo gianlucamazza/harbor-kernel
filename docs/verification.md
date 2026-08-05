@@ -199,14 +199,15 @@ Protocol notes load-bearing for silicon:
 | Multi-SVC resume (`enter`/`resume`) | **closed (QEMU + HW)** | `el0-task: resume pings=2` (`SYS_EXIT` ends session) |
 | `SYS_PUTC` (imm 2) | **closed (QEMU)** | `el0-task: putc bytes=2` (bytes also appear on serial) |
 | EL0 IRQ save/resume (re-execute) | **closed (QEMU)** | `el0-task: irq resume irqs=N` (N≥1); no software ELR skip |
-| PL011 RX poll path | **closed (QEMU)** | `pl011-agent: rx poll empty` or `… data` (`suspend_rx` for the session) |
+| PL011 RX poll empty path | **closed (QEMU)** | `pl011-agent: rx poll empty` |
+| PL011 RX ownership + real bytes | **closed (QEMU)** | LBE inject; `pl011-agent: rx own bytes=2`; `rx own begin/end`; kill ok |
 | Silicon (M5-P / M6 / agents / resume) | **closed (HW)** | Pi 4B + CP2104, `FEATURES=debug-display`, 2026-08-05 — transcript below |
-| Silicon (IRQ / putc / RX poll) | **open** | same QEMU oracles on Pi 4B |
+| Silicon (IRQ / putc / RX own) | **open** | same QEMU oracles on Pi 4B |
 
-M6 v1 maps PL011 and reads `FR`; the RX-poll session briefly suspends the kernel
-RX drain so the agent may poll `DR` without racing, then restores it. Kernel
-idle still owns long-term echo and ticks. Multi-SVC and IRQ resume are live
-(`enter` / `resume` / `end_session`).
+RX ownership: kernel drain suspended and PL011 RX IRQs masked; agent maps the
+UART page and polls `DR`. Real bytes come from **PL011 loopback** (kernel TX
+with `LBE`), not invented ring writes. `resume_rx` re-arms IMSC and republishes
+the drain base. Multi-SVC and IRQ resume remain live.
 
 ### Silicon transcript (M5-P / M6 v1 / concurrent agents)
 

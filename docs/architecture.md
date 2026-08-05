@@ -204,18 +204,26 @@ Pi 4B stamp: [verification.md §M5-P / M6](verification.md#m5-p--m6-v1-qemu) (20
 | ----- | ------ | -------- |
 | **EL0 IRQ save/resume** | **done (QEMU)** | lower-EL IRQ → `El0Outcome::Irq`; `handle_cpu_irq` + **architectural re-execute** resume; `el0-task: irq resume irqs=N` |
 | **`SYS_PUTC`** | **done (QEMU)** | imm 2; saved `x0` → kernel TX; `el0-task: putc bytes=2` |
-| **PL011 RX poll path** | **done (QEMU)** | `suspend_rx` + user FR/DR poll; `pl011-agent: rx poll empty` (no invented RX data) |
-| Kernel panic/TX console | preserved | TX stays kernel-owned; RX drain suspended only for the poll session |
+| **PL011 RX poll path** | **done (QEMU)** | `suspend_rx` + user FR/DR poll; `pl011-agent: rx poll empty` |
 
-**Non-goals in v1 (not deferred hacks):** software ELR skip after IRQ, treating empty
-FIFO as “received”, long-lived agent-owned console RX.
+### Closed (RX-owned agent — issue #1 v2)
+
+| Slice | Status | Evidence |
+| ----- | ------ | -------- |
+| **Agent owns RX (poll)** | **done (QEMU)** | drain suspended + IMSC masked; map live; `pl011-agent: rx own begin/end` |
+| **Real bytes (no host type)** | **done (QEMU)** | PL011 **LBE** loopback inject; EL0 poll + `SYS_PUTC`; `rx own bytes=2` |
+| **Kill restores kernel** | **done (QEMU)** | `resume_rx` + destroy; `pl011-agent: killed ok`; idle ticks continue |
+| Kernel TX / panic | preserved | TX never handed to agent |
+
+**Non-goals yet:** UART IRQ delivered to EL0 as the steady-state path (poll ownership
+is complete and honest); long-running interactive echo agent as the idle body.
 
 ### Next (ordered)
 
 | # | Work | Done when |
 | - | ---- | --------- |
-| 1 | **HW stamp** for IRQ / putc / RX poll | Same oracles on Pi 4B serial |
-| 2 | **Full RX-owned agent** | Agent owns RX long-term with real bytes; idle still ticks; kill restores kernel drain |
+| 1 | **HW stamp** for IRQ / putc / RX own | Same oracles on Pi 4B serial |
+| 2 | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without kernel draining `DR` |
 | 3 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer.

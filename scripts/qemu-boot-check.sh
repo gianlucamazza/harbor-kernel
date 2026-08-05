@@ -138,9 +138,14 @@ grep -q 'el0-task: ok' "${log}" ||
 # M6 v1: PL011 page-only agent + kill (ADR-0013).
 grep -q 'pl011-agent: FR read + svc ok' "${log}" ||
 	fail "pl011 EL0 agent did not read FR and svc"
-# Empty is the honest QEMU path (no typed input). `rx poll data` is HW/input.
-grep -qE 'pl011-agent: rx poll (empty|data)' "${log}" ||
-	fail "pl011 EL0 RX poll session failed"
+grep -q 'pl011-agent: rx poll empty' "${log}" ||
+	fail "pl011 EL0 RX empty-poll path failed"
+grep -q 'pl011-agent: rx own begin' "${log}" ||
+	fail "pl011 RX ownership window did not start"
+grep -q 'pl011-agent: rx own bytes=2' "${log}" ||
+	fail "pl011 RX ownership did not receive loopback bytes"
+grep -q 'pl011-agent: rx own end' "${log}" ||
+	fail "pl011 RX ownership window did not end (drain not restored path)"
 grep -q 'pl011-agent: killed ok' "${log}" ||
 	fail "pl011 agent AS destroy / kill path failed"
 # Multi-agent shell: two TCBs with AS live together, each EL0 once.

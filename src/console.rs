@@ -135,26 +135,42 @@ pub unsafe fn enable_rx_irq(uart: &Pl011) {
     uart.enable_rx_interrupt();
 }
 
-/// Pause the kernel RX drain so an EL0 agent can poll `DR` without racing.
+/// Pause the kernel RX drain so an EL0 agent can own `DR` (poll).
 ///
-/// Discards any FIFO contents and ACKs the UART line first so a level-
-/// triggered SPI does not storm while the handler base is zero. Returns the
-/// previous MMIO base (0 if already suspended).
+/// Masks PL011 RX/RT IRQs and ACKs the line so a level-triggered SPI cannot
+/// storm into a no-op handler. Discards any FIFO bytes still pending for the
+/// kernel ring. Returns the previous MMIO base (0 if already suspended).
+///
+/// While suspended, the agent maps the PL011 page and polls; the idle task
+/// sees an empty ring (no echo). TX / panic paths stay kernel-owned.
 pub fn suspend_rx() -> usize {
     let base = RX_MMIO_BASE.swap(0, Ordering::AcqRel);
-    if base != 0 {
-        // SAFETY: base was published by enable_rx_irq from the live console.
-        let rx = unsafe { Pl011Rx::from_base(base) };
-        rx.discard_and_ack();
-    }
+    let _ = with_tx(|uart| {
+        uart.disable_rx_interrupt();
+        uart.receiver().discard_and_ack();
+    });
     base
 }
 
 /// Restore kernel RX drain after [`suspend_rx`]. No-op if `base == 0`.
+///
+/// Drops any leftover FIFO data from the agent window, re-arms RX IRQs, and
+/// republishes the MMIO base for [`on_uart_rx_irq`].
 pub fn resume_rx(base: usize) {
-    if base != 0 {
-        RX_MMIO_BASE.store(base, Ordering::Release);
+    if base == 0 {
+        return;
     }
+    let _ = with_tx(|uart| {
+        uart.receiver().discard_and_ack();
+        uart.enable_rx_interrupt();
+    });
+    RX_MMIO_BASE.store(base, Ordering::Release);
+}
+
+/// `true` when kernel RX drain is suspended (agent may own the line).
+#[inline]
+pub fn rx_drain_suspended() -> bool {
+    RX_MMIO_BASE.load(Ordering::Acquire) == 0
 }
 
 /// IRQ handler for the platform UART RX line (BSP supplies the GIC id).

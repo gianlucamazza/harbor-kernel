@@ -237,18 +237,20 @@ pub fn run() -> ! {
         // ADR-0008: drain IRQ wake posts before scheduling work.
         crate::sched::poll_wakes();
 
-        // 1. Echo all bytes the UART RX IRQ pushed into the ring.
-        let _ = console::with_tx(|uart| {
-            while let Some(byte) = console::pop_rx() {
-                let sent = match byte {
-                    b'\r' => uart.write_bytes(b"\r\n"),
-                    byte => uart.write_byte(byte),
-                };
-                if !sent {
-                    break;
+        // 1. Echo RX ring when kernel owns the drain (not while an agent does).
+        if !console::rx_drain_suspended() {
+            let _ = console::with_tx(|uart| {
+                while let Some(byte) = console::pop_rx() {
+                    let sent = match byte {
+                        b'\r' => uart.write_bytes(b"\r\n"),
+                        byte => uart.write_byte(byte),
+                    };
+                    if !sent {
+                        break;
+                    }
                 }
-            }
-        });
+            });
+        }
 
         // TFT status surface: rate-limited ticks/heap (never from IRQ).
         #[cfg(feature = "debug-display")]
