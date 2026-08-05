@@ -165,7 +165,7 @@ roadmap:
 
 | Next | Needs first | Notes |
 | ---- | ----------- | ----- |
-| M5 | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md); [m5-prep](reviews/2026-08-05-m5-prep.md); TTBR (M5-D1) | S0–S2 done; next EL0 trampoline (S3) after TTBR decision |
+| M5 | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md); [ADR-0014](adr/0014-ttbr-split-m5.md) (**accepted**); [m5-prep](reviews/2026-08-05-m5-prep.md) | S0–S2 done; S3 = EL0 trampoline under TTBR0 + shared kernel maps |
 | M6 | M5 done (HW); [ADR-0013](adr/0013-narrow-device-windows.md) **accept** | Narrow MMIO caps; PL011 as EL0 agent |
 
 ### Open findings, against the milestone they block
@@ -217,6 +217,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in; closes F15 (**accepted**) |
 | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) | Frame allocator for user AS; M5 needs-first (**accepted**) |
 | [ADR-0013](adr/0013-narrow-device-windows.md) | Narrow device MMIO for agents; F26/M6 (**proposed**) |
+| [ADR-0014](adr/0014-ttbr-split-m5.md) | TTBR regime M5 v1 (TTBR0 + kernel maps in user AS) (**accepted**) |
 | [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
 
 ## Non-goals
