@@ -57,7 +57,7 @@ pub fn dtb_address() -> u64 {
 /// [`crate::arch::mmu::activate`] narrows the map. Call once.
 pub unsafe fn survey() {
     let address = dtb_address();
-    if address == 0 || address % 8 != 0 {
+    if address == 0 || !address.is_multiple_of(8) {
         return;
     }
 

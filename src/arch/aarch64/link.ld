@@ -27,7 +27,9 @@ ENTRY(_start)
 GUARD_PAGE_SIZE = 0x1000;
 
 /* Root table + one L2 per mapped GiB + one L3 per 2 MiB window that is not a
-   whole block. Six are used by `activate`, and the boot prints the remainder.
+   whole block. How many that is moves with `.text`, so it is not written down
+   here — the boot line prints what is left, and `bootstrap` refuses to boot if
+   the remainder falls under its reserve.
 
    Two things consume tables after that, both permanently: `mmu::map` for the
    DTB, and every `mmu::unmap` that has to split a 2 MiB block to punch out a

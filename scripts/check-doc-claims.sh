@@ -32,13 +32,17 @@ if [[ "${makefile_gates}" != "${readme_gates}" ]]; then
 	exit 1
 fi
 
-# 2. The host test count. `make test` prints one result line per target; only
-#    the unit-test binary has tests, so the counts are summed rather than
-#    assuming which line carries them.
-actual="$(make test 2>/dev/null |
-	sed -n 's/^test result: ok\. \([0-9]\+\) passed.*/\1/p' |
+# 2. The host test count. Counted from the source rather than by running the
+#    suite: `make check` has already run `make test` by the time it gets here,
+#    and re-running it doubled the cheapest gate while `2>/dev/null` swallowed
+#    any build error into a generic "could not read a test count".
+#
+#    `#[test]` attributes are counted directly. That is a different claim from
+#    "tests that passed" — but `make check` runs `test` before `doc-claims`, so
+#    a red suite has already stopped the gate before this line is reached.
+actual="$(grep -rhc '^\s*#\[test\]' crates/kernel-core/src/*.rs |
 	awk '{ n += $1 } END { print n + 0 }')"
-[[ "${actual}" -gt 0 ]] || fail "could not read a test count from 'make test'"
+[[ "${actual}" -gt 0 ]] || fail "found no #[test] attributes under crates/kernel-core/src"
 
 claimed="$(sed -n 's/^| Verification | \([0-9]\+\) host unit tests.*/\1/p' README.md)"
 [[ -n "${claimed}" ]] || fail "README has no 'N host unit tests' claim to check"

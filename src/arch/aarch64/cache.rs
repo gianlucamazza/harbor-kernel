@@ -6,6 +6,12 @@
 //! invalidating them first lets a stale line shadow real memory — including
 //! the page table the walker is about to read.
 
+// Audit debt (2026-08-06): 5 unsafe blocks here predate
+// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
+// This comes off when the audit reaches this module and the SAFETY comments can
+// state something checkable rather than restate the code. See Cargo.toml.
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use core::arch::asm;
 
 /// Invalidate the entire instruction cache and the branch predictor.

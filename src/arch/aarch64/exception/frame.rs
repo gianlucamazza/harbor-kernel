@@ -29,4 +29,4 @@ pub const TRAP_FRAME_SIZE: usize = size_of::<TrapFrame>().next_multiple_of(16);
 const _: () = assert!(core::mem::offset_of!(TrapFrame, gpr) == 0);
 const _: () = assert!(core::mem::offset_of!(TrapFrame, elr) == 31 * 8);
 const _: () = assert!(core::mem::offset_of!(TrapFrame, spsr) == 32 * 8);
-const _: () = assert!(TRAP_FRAME_SIZE % 16 == 0);
+const _: () = assert!(TRAP_FRAME_SIZE.is_multiple_of(16));

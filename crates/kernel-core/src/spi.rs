@@ -57,7 +57,7 @@ pub const fn clock_divisor(core_hz: u32, target_hz: u32) -> Result<u32, ClockDiv
     }
 
     // Force even. Safe by the check above: 65 535 + 1 == 65 536, the maximum.
-    if div % 2 != 0 {
+    if !div.is_multiple_of(2) {
         div += 1;
     }
 
@@ -76,7 +76,7 @@ pub const fn clock_divisor(core_hz: u32, target_hz: u32) -> Result<u32, ClockDiv
 pub const fn effective_hz(core_hz: u32, cdiv: u32) -> u32 {
     let div = if cdiv == 0 {
         65_536
-    } else if cdiv % 2 != 0 {
+    } else if !cdiv.is_multiple_of(2) {
         cdiv + 1
     } else {
         cdiv

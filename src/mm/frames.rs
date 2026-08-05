@@ -38,7 +38,7 @@ static OWNER: SyncCell<Owner> = SyncCell::new(Owner::uninitialised());
 /// Returns `(base, end)` exclusive end, or `None` if the pool would not fit
 /// under [`IDENTITY_RAM_END`] or would be smaller than [`FRAME_POOL_FRAMES`].
 pub fn range_after_heap(heap_end: usize) -> Option<(usize, usize)> {
-    if heap_end % FRAME_SIZE != 0 {
+    if !heap_end.is_multiple_of(FRAME_SIZE) {
         return None;
     }
     let base = heap_end;
@@ -63,7 +63,7 @@ pub fn range_after_heap(heap_end: usize) -> Option<(usize, usize)> {
 /// `[base, end)` must be identity-mapped writable RAM, exclusive of the heap
 /// and other owners. Call once after the MMU map includes the frame pool.
 pub unsafe fn init(base: usize, end: usize) -> bool {
-    if end <= base || (end - base) < FRAME_SIZE || base % FRAME_SIZE != 0 {
+    if end <= base || (end - base) < FRAME_SIZE || !base.is_multiple_of(FRAME_SIZE) {
         return false;
     }
     let n = ((end - base) / FRAME_SIZE).min(MAX_FRAMES) as u32;

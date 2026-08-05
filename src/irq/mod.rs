@@ -20,6 +20,12 @@
 //! Handlers are [`Handler`] = `fn(IrqCookie)`. The cookie is assigned at
 //! registration and is what a future capability names — not a raw GIC id.
 
+// Audit debt (2026-08-06): 3 unsafe blocks here predate
+// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
+// This comes off when the audit reaches this module and the SAFETY comments can
+// state something checkable rather than restate the code. See Cargo.toml.
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 mod chip;
 
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};

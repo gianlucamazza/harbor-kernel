@@ -4,6 +4,12 @@
 //! coverage into it and maps the private user window. Destroy frees every
 //! tracked frame. EL0 entry is [`crate::arch::el0`].
 
+// Audit debt (2026-08-06): 4 unsafe blocks here predate
+// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
+// This comes off when the audit reaches this module and the SAFETY comments can
+// state something checkable rather than restate the code. See Cargo.toml.
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use kernel_core::frame::{FrameId, FrameLedger, LedgerFull};
 use kernel_core::paging::{
     self, ENTRIES_PER_TABLE, Level, MemKind, PAGE_SIZE, Perms, table_descriptor,
@@ -121,7 +127,7 @@ impl AddressSpace {
         if !self.prepared {
             return Err(AsError::BadTable);
         }
-        if va % PAGE_SIZE != 0 || pa % PAGE_SIZE != 0 {
+        if !va.is_multiple_of(PAGE_SIZE) || !pa.is_multiple_of(PAGE_SIZE) {
             return Err(AsError::Unaligned);
         }
         // SAFETY: exclusive AS tables; pa is a named BSP device page.

@@ -14,6 +14,12 @@
 //! Default entry masks IRQs in EL0. Call [`el0::set_entry_irqs_unmasked`] before
 //! a session that should take lower-EL IRQs.
 
+// Audit debt (2026-08-06): 4 unsafe blocks here predate
+// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
+// This comes off when the audit reaches this module and the SAFETY comments can
+// state something checkable rather than restate the code. See Cargo.toml.
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use kernel_core::a64;

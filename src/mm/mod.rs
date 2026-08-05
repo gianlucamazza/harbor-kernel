@@ -13,6 +13,12 @@
 //! linker symbol, the single instance, the interrupt discipline, and the
 //! conversion between offsets and raw pointers.
 
+// Audit debt (2026-08-06): 1 unsafe block here predate
+// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
+// This comes off when the audit reaches this module and the SAFETY comments can
+// state something checkable rather than restate the code. See Cargo.toml.
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 pub mod aspace;
 pub mod frames;
 pub mod layout;

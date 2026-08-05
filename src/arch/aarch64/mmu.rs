@@ -19,6 +19,12 @@
 //! so [`activate`]'s caller supplies them. The bit encodings and the region
 //! splitting live in [`kernel_core::paging`] and are unit-tested on the host.
 
+// Audit debt (2026-08-06): 16 unsafe blocks here predate
+// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
+// This comes off when the audit reaches this module and the SAFETY comments can
+// state something checkable rather than restate the code. See Cargo.toml.
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use kernel_core::layout::Region;
@@ -239,7 +245,10 @@ pub unsafe fn unmap(base: u64, len: u64) -> Result<(), MmuError> {
         if root == 0 {
             return Err(MmuError::NotActivated);
         }
-        if base % paging::PAGE_SIZE != 0 || len % paging::PAGE_SIZE != 0 || len == 0 {
+        if !base.is_multiple_of(paging::PAGE_SIZE)
+            || !len.is_multiple_of(paging::PAGE_SIZE)
+            || len == 0
+        {
             return Err(MmuError::Unaligned {
                 va: base,
                 pa: base,

@@ -17,16 +17,23 @@
 #   make serial     open serial console (SERIAL_DEV=...)
 #   make clean
 #
-# Multi-arch scaffold (ADR-0015): only one product combo is supported.
-# ARCH/BOARD document that combo; overrides fail rather than half-work.
-
-ARCH        ?= aarch64
-BOARD       ?= rpi4
-ifneq ($(ARCH),aarch64)
-$(error unsupported ARCH=$(ARCH); only aarch64 is product-supported — see docs/porting.md)
+# Multi-arch scaffold (ADR-0015): exactly one product combo is supported.
+#
+# These are a refusal, not a selection. Nothing below is derived from them —
+# `TARGET` and the linker-script path are written out, and deriving them from a
+# single case would be an abstraction shaped by one example. They exist so that
+# `make ARCH=riscv64` says why it will not work instead of building an aarch64
+# image and looking like it worked. The port that adds a second ISA replaces
+# this block with real selection, and ADR-0015 says as much.
+SUPPORTED_ARCH  := aarch64
+SUPPORTED_BOARD := rpi4
+ARCH        ?= $(SUPPORTED_ARCH)
+BOARD       ?= $(SUPPORTED_BOARD)
+ifneq ($(ARCH),$(SUPPORTED_ARCH))
+$(error unsupported ARCH=$(ARCH); only $(SUPPORTED_ARCH) is product-supported — see docs/porting.md)
 endif
-ifneq ($(BOARD),rpi4)
-$(error unsupported BOARD=$(BOARD); only rpi4 is product-supported — see docs/porting.md)
+ifneq ($(BOARD),$(SUPPORTED_BOARD))
+$(error unsupported BOARD=$(BOARD); only $(SUPPORTED_BOARD) is product-supported — see docs/porting.md)
 endif
 
 TARGET      := aarch64-unknown-none-softfloat
@@ -39,6 +46,9 @@ SD_MOUNT    ?= /run/media/$(USER)/boot
 SERIAL_DEV  ?= /dev/ttyUSB0
 BAUD        ?= 115200
 OBJCOPY     ?= llvm-objcopy
+# Parametric so the "refusing to report clean" branch of `no-simd` is reachable
+# in a test, and so a distro that ships versioned LLVM binaries can point at one.
+OBJDUMP     ?= llvm-objdump
 
 # QEMU models the BCM2711 as `raspi4b`: PL011 UART0 is chardev serial0, so
 # `-serial mon:stdio` lands on the same console the board prints to.
@@ -53,6 +63,9 @@ BOOT_CHECK_SECONDS ?= 15
 # `#[panic_handler]`, which collides with the one the test harness links in.
 TEST_PKG    := kernel-core
 HOST_TARGET ?= $(shell rustc -vV | sed -n 's/^host: //p')
+ifeq ($(strip $(HOST_TARGET)),)
+$(error could not determine the host triple from 'rustc -vV' — is rustc on PATH?)
+endif
 
 # Optional cargo features for img/deploy (e.g. FEATURES=debug-display).
 # Default images stay featureless so QEMU boot-check and production match.
@@ -66,7 +79,9 @@ ifneq ($(strip $(FEATURES)),)
   CARGO_FLAGS += --features $(FEATURES)
 endif
 
-.PHONY: all debug img elf check test miri bringup-builds no-simd no-early-exclusives boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy restore-rpios serial clean
+.PHONY: all debug img elf check test miri bringup-builds debug-display-builds \
+	debug-builds board-guard no-simd no-early-exclusives boot-check doc-claims \
+	layering fmt fmt-check qemu qemu-gdb blobs deploy restore-rpios serial clean
 
 all: img
 
@@ -86,7 +101,7 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds miri doc-claims layering
+check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering
 	cargo clippy --target $(TARGET) -- -D warnings
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
 
@@ -95,7 +110,7 @@ check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debu
 layering:
 	./scripts/check-layering.sh
 
-# The README's two machine-checkable claims: the gate list and the test count.
+# The README claims a machine can settle, plus the arch facade against its contract.
 # Both have drifted, the gate list twice — once on the commit that added a gate.
 doc-claims:
 	./scripts/check-doc-claims.sh
@@ -112,9 +127,23 @@ test:
 # The kernel is built softfloat: no FP/SIMD register may appear in the image.
 # A silent switch back to a NEON-enabled target would otherwise only show up as
 # a synchronous exception on the board, since CPACR_EL1.FPEN is never set.
+# The register set is the whole point, so the pattern covers the scalar FP
+# registers (d/s/h) as well as the vector ones (q/v): a non-softfloat target
+# emits `fmov d0, …` and `scvtf s1, w0` long before it reaches a `v` register,
+# and the earlier pattern would have watched those go past. `x`/`w` are the
+# general-purpose registers and are of course everywhere.
+#
+# The tool check is not decoration. Without it a missing `llvm-objdump` makes
+# the pipeline produce nothing, `grep .` fail, `!` invert that into success,
+# and the target print `no-simd: clean` having disassembled nothing at all —
+# the exact failure `scripts/check-pre-mmu-path.sh` refuses by design.
 no-simd: elf
-	@! llvm-objdump -d --no-show-raw-insn $(ELF) \
-	  | grep -oE '\b[qv][0-9]+(\.[0-9]+[bhsd])?\b' \
+	@command -v $(OBJDUMP) >/dev/null || { \
+	  echo "no-simd: FAIL — $(OBJDUMP) not found; refusing to report clean" >&2; \
+	  echo "  install it (pacman -S llvm) — this gate inspects the linked ELF" >&2; \
+	  exit 1; }
+	@! $(OBJDUMP) -d --no-show-raw-insn $(ELF) \
+	  | grep -oE '\b([qv][0-9]+(\.[0-9]+[bhsd])?|[dsh][0-9]+)\b' \
 	  | head -5 | grep . \
 	  || { echo "error: FP/SIMD registers found in $(ELF)" >&2; exit 1; }
 	@echo "no-simd: clean"
@@ -154,6 +183,28 @@ debug-display-builds:
 	cargo build $(CARGO_FLAGS) --features debug-display
 	cargo clippy --target $(TARGET) --features debug-display -- -D warnings
 	@echo "debug-display-builds: clean"
+
+# `make debug` is what someone reaches for with gdb, and the dev profile has a
+# different opt-level and different codegen from the one every other gate
+# builds. Nothing else compiles it, so nothing else would notice it breaking.
+debug-builds:
+	cargo build --target $(TARGET)
+	cargo clippy --target $(TARGET) -- -D warnings
+	@echo "debug-builds: clean"
+
+# ADR-0015 puts board selection behind a feature and backs it with a
+# `compile_error!`. An error message is a claim like any other: this asserts the
+# build fails, and fails *saying why*, rather than with a cascade about a
+# missing `bsp::board`.
+board-guard:
+	@if cargo build --target $(TARGET) --no-default-features 2>&1 \
+	   | grep -q 'no board selected'; then \
+	  echo "board-guard: clean (refused with the intended message)"; \
+	else \
+	  echo "board-guard: FAIL — building with --no-default-features did not refuse" >&2; \
+	  echo "  expected the compile_error! in src/bsp/mod.rs to name the missing feature" >&2; \
+	  exit 1; \
+	fi
 
 fmt:
 	cargo fmt --all

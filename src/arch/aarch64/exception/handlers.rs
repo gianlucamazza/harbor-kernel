@@ -3,6 +3,12 @@
 //! Sync EL1t may return when [`crate::arch::probe`] consumes a deliberate MMIO
 //! presence fault; the vector path then `eret`s (see `vectors.s`).
 
+// Audit debt (2026-08-06): 2 unsafe blocks here predate
+// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
+// This comes off when the audit reaches this module and the SAFETY comments can
+// state something checkable rather than restate the code. See Cargo.toml.
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use super::frame::TrapFrame;
 use crate::arch::probe;
 use crate::irq;

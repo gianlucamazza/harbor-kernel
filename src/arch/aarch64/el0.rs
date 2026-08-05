@@ -15,6 +15,12 @@
 //! EL0 (`SPSR` DAIF.I); sessions that need timer/UART while user runs call
 //! [`set_entry_irqs_unmasked`] before [`enter`].
 
+// Audit debt (2026-08-06): 18 unsafe blocks here predate
+// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
+// This comes off when the audit reaches this module and the SAFETY comments can
+// state something checkable rather than restate the code. See Cargo.toml.
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use crate::arch::exception::TrapFrame;
 use crate::arch::mmu;
 

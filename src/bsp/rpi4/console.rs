@@ -1,5 +1,11 @@
 //! Board-level serial console: pinmux + PL011 UART0.
 
+// Audit debt (2026-08-06): 1 unsafe block here predate
+// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
+// This comes off when the audit reaches this module and the SAFETY comments can
+// state something checkable rather than restate the code. See Cargo.toml.
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use kernel_core::uart::{BaudConfig, Divisors};
 
 use crate::arch::mmio::Mmio;

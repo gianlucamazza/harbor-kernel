@@ -8,6 +8,12 @@
 //! did not advance ticks. Group 0 + IAR is the classic bare-metal sequence used
 //! by working RPi4 examples.
 
+// Audit debt (2026-08-06): 3 unsafe blocks here predate
+// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
+// This comes off when the audit reaches this module and the SAFETY comments can
+// state something checkable rather than restate the code. See Cargo.toml.
+#![allow(clippy::undocumented_unsafe_blocks)]
+
 use kernel_core::gic;
 
 use crate::arch::mmio::Mmio;
