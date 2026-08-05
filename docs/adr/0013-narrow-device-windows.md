@@ -94,13 +94,18 @@ Device mapping for panic/console.
 
 ## Implementation note
 
-M6 v1 smoke (2026-08-05): scheduled `pl011-agent` maps `USER_PL011_VA` →
-`UART0_BASE` (one page), EL0 loads `UART_FR`, `SVC #0`, AS destroy. Evidence:
-[verification.md](../verification.md).
+M6 v1 smoke (2026-08-05, **HW**): scheduled `pl011-agent` maps `USER_PL011_VA` →
+`UART0_BASE` (one page), EL0 loads `UART_FR`, `SVC #0`, AS destroy.
+
+Post-M6 product (issue #1, **QEMU**): same page map; kernel RX drain suspended
+and PL011 RX IRQs masked while the agent polls `DR`; real bytes via PL011
+**LBE** loopback; kill restores drain (`resume_rx`) and returns pool frames.
+Oracles: `pl011-agent: rx own bytes=2`, `killed ok`. Evidence:
+[verification.md §M5-P / M6 post](../verification.md#m5-p--m6-post).
 
 ## Related
 
-- [architecture.md](../architecture.md) — M6 done-when; F26
+- [architecture.md](../architecture.md) — M6 done-when; [Roadmap](../architecture.md#roadmap)
 - [ADR-0011](0011-dtb-mapped-board-constants-risk-accept.md) — board constants
 - [ADR-0012](0012-frame-allocator-for-address-spaces.md) — RAM frames (not MMIO)
 - Multi-role 2026-08-04 — F26

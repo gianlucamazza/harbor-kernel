@@ -39,7 +39,7 @@ the bare-metal image). Lab path:
 | Clock (assumed) | 48 MHz with `enable_uart=1` |
 | Baud | 115200 |
 | Frame | 8N1 |
-| Mode | TX polled; RX IRQ → kernel ring + WFI idle (P0) |
+| Mode | TX polled (kernel-owned). Default: RX IRQ → kernel ring + WFI idle. Agent RX own: drain suspended, PL011 RX IRQs masked, EL0 polls `DR` (LBE self-test on QEMU). |
 
 Host example:
 

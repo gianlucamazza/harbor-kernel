@@ -8,23 +8,23 @@ through message passing and capabilities.
 
 It is not a finished agent OS yet. What runs today is a single-core kernel at
 EL1 with a protected identity map, interrupts, a heap, **cooperative tasks
-(M3)**, **IPC/caps (M4)**, and **M5 address spaces + one-shot EL0** — all
-**done on Pi 4B hardware**. The product “agent shell” (scheduled EL0,
-syscalls, driver agents) is still the target; the milestone table says which
-parts exist.
+(M3)**, **IPC/caps (M4)**, **EL0 address spaces (M5)**, and a **PL011 driver
+agent (M6)** — through multi-SVC resume and concurrent agents **done on Pi 4B**.
+Post-M6 slices (EL0 IRQ resume, `SYS_PUTC`, RX ownership with real bytes) are
+**done on QEMU**; silicon stamp for those is open. See [Roadmap](#roadmap).
 
 ## Layering
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Agents (M5–M6 v1 + concurrent shell done HW)            │
+│  Agents (M5–M6 + shell done HW; IRQ/PUTC/RX-own QEMU)    │
 │  message passing · capability-mediated resources         │
 └────────────────────────────▲─────────────────────────────┘
-                             │ SVC / IPC / (EL0 IRQ later)
+                             │ SVC / IPC / EL0 IRQ (session)
 ┌────────────────────────────┴─────────────────────────────┐
 │  Kernel policy                                           │
 │  bootstrap · console_loop · sched · ipc · time · console │
-│  mm (frames, aspace) · status (debug-display TFT)        │
+│  agent · mm (frames, aspace) · status (debug-display)  │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
@@ -49,8 +49,10 @@ parts exist.
 3. Arch never names board peripherals (Generic Timer + CPU only).
 4. `exception` does not import drivers, BSP, or time — only `irq::handle_cpu_irq`.
 5. One irqchip owner via `irq::init(&'static dyn IrqChip)`.
-6. IRQ handlers do not **transmit** on the console (`println` / TX). The UART
-   RX handler may only drain the FIFO into the kernel ring.
+6. IRQ handlers do not **transmit** on the console (`println` / TX). When the
+   kernel owns RX, the UART RX handler may only drain the FIFO into the kernel
+   ring. When an agent owns RX, PL011 RX IRQs are **masked** and the agent
+   polls `DR` (no IRQ-side drain race).
 7. State shared between the IRQ path and the main loop uses `core::sync::atomic`
    — never `static mut`. State that is _not_ producer/consumer uses `SyncCell`
    and is mutated inside `cpu::without_irqs`.
@@ -86,26 +88,24 @@ an agreed register value) is still review-only — see
 | Irqchip     | `drivers/gicv2` | enable, claim/EOI, SPI target CPU0 |
 | Dispatch    | `irq`           | id → handler                       |
 | Tick policy | `time`          | `on_timer_irq`, `ticks()`          |
-| Console RX  | `console`       | ring, `on_uart_rx_irq`, `pop_rx`   |
+| Console RX  | `console`       | ring / `suspend_rx`·`resume_rx`; agent poll when owned |
 | Bind        | `bsp/rpi4/irq`  | TIMER=30, UART=153, static GIC     |
 | Layout      | `mm/layout`     | regions and their permissions      |
 | Allocation  | `mm`            | free list + `GlobalAlloc`          |
 | Scheduler   | `sched`         | cooperative spawn / yield / exit   |
 | Task stacks | `mm/task_stack` | heap stack + unmapped guard        |
 
-## Agent model (target beyond M3)
+## Agent model
 
-**Tasks exist** (M3): cooperative EL1 scheduling per
-[ADR-0006](adr/0006-cooperative-execution-model.md). There is still no
-address-space separation and no user mode. The table below marks what is code
-today versus roadmap.
+**Tasks** (M3), **messages/caps** (M4), **private AS + EL0** (M5), and a
+**PL011 driver agent** (M6) are in tree. Cooperative only ([ADR-0006](adr/0006-cooperative-execution-model.md)).
 
 | Concept    | Role                                                  | Status        |
 | ---------- | ----------------------------------------------------- | ------------- |
-| Task (M3)  | Schedulable EL1 entity + private stack; see ADR-0006  | **done (HW)** |
-| Agent      | Task + mailbox + private AS at EL0; multi-SVC + IRQ resume; SYS_PUTC; PL011 RX poll | **done (QEMU)**; HW stamp open |
-| Message    | Sole interaction channel (M4)                         | **done** (fixed `Message` + mailbox) |
-| Capability | Unforgeable handle (send/recv; future: IRQ notification) | **done** (CapId + hold table; IRQ caps later) |
+| Task (M3)  | Schedulable EL1 entity + private stack                | **done (HW)** |
+| Agent      | Task + AS at EL0; multi-SVC (**HW**); IRQ resume + `SYS_PUTC` + PL011 RX own (**QEMU**) | **hybrid** — [Roadmap](#roadmap) |
+| Message    | Sole interaction channel (M4)                         | **done (HW)** |
+| Capability | Unforgeable handle (send/recv; future: IRQ notification) | **done (HW)** (IRQ caps later) |
 
 `irq::register` is the hook for later capability mediation.
 
@@ -124,7 +124,7 @@ today versus roadmap.
 | M3  | Cooperative tasks                                        | **done** (HW, fault-probed) |
 | M4  | IPC + capabilities                                       | **done (HW)**               |
 | M5  | EL0 agents                                               | **done (HW)**               |
-| M6  | Driver-as-agent                                          | **done (HW)** (PL011 page agent v1) |
+| M6  | Driver-as-agent                                          | **done (HW)** page map+FR+kill; **RX own done (QEMU)** |
 
 **M** milestones add capability. **P** milestones add protection or evidence and
 add no capability at all: they are numbered separately because "the kernel can
@@ -149,7 +149,7 @@ applies forwards, or it is not the same standard.
 | M3  | [ADR-0006](adr/0006-cooperative-execution-model.md) (F12 done); per-task heap stack + unmapped guard  | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack |
 | M4  | [ADR-0008](adr/0008-irq-handler-policy.md) (**accepted**): cookie handlers + wake queue; mailbox ABI  | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console; IRQ wakes use the ADR-0008 queue only      |
 | M5  | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) + [ADR-0014](adr/0014-ttbr-split-m5.md) (TTBR0 v1); multi-role prep | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
-| M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**accepted**); F26                              | EL0 agent maps **only** the PL011 page, touches the device, is destroyed (kill); kernel console/ticks continue                                                                                                            |
+| M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**accepted**); F26                              | EL0 agent maps **only** the PL011 page, touches the device, is destroyed (kill); kernel console/ticks continue. RX ownership (poll + real bytes) is a post-v1 product slice gated on QEMU, HW stamp open. |
 
 M3 is **done (HW)**. [ADR-0006](adr/0006-cooperative-execution-model.md) is
 **accepted**. Observed on **Pi 4B silicon**: interleaved `task-a`/`task-b`,
@@ -172,61 +172,46 @@ probes, destroy without pool leak. QEMU `boot-check` and Pi 4B PL011 (2026-08-05
 show the same oracles
 ([verification.md](verification.md#m5-el0--address-spaces)).
 
-### Closed slices (post-M5)
+<a id="roadmap"></a>
+
+## Roadmap
+
+### Closed (HW) — through multi-SVC / M6 v1 map
 
 | Slice | Status | Evidence |
 | ----- | ------ | -------- |
-| **M5-P1** scheduled EL0 task | **done (HW)** | `el0-task: svc ping` / `ok` |
-| **M5-P2** minimal `SVC` dispatch | **done (HW)** | `kernel_core::syscall::decode`; refuse `0x99` |
-| **M5-P3** dual AS create/destroy | **done (HW)** | `aspace: dual create/destroy ok` |
+| **M5-P1…P3** | **done (HW)** | scheduled EL0, SVC refuse, dual AS |
 | **M6-D0** [ADR-0013](adr/0013-narrow-device-windows.md) | **accepted** | 2026-08-05 |
-| **M6 v1** PL011 page agent + kill | **done (HW)** | `pl011-agent: FR read + svc ok` / `killed ok` |
+| **M6 v1** PL011 page + FR + kill | **done (HW)** | `pl011-agent: FR read + svc ok` / `killed ok` |
+| **Agent shell** + concurrent dual agent | **done (HW)** | `agents: concurrent ok` |
+| **SVC resume** | **done (HW)** | `enter`/`resume`/`end_session`; `el0-task: resume pings=2` |
+| Preferred ELR for SVC | documented | AArch64 ELR already past SVC — no software `+4` |
 
-### Closed (multi-agent shell v1)
+Pi 4B stamp detail: [verification.md §M5-P / M6](verification.md#m5-p--m6-post).
 
-| Slice | Status | Evidence |
-| ----- | ------ | -------- |
-| **Agent shell** (`src/agent`) | **done (HW)** | `Agent` owns AS; one-shot EL0; no fake resume |
-| **Concurrent dual agent** | **done (HW)** | `agents: concurrent ok` — two TCBs, both AS live, each EL0 once |
-
-Pi 4B stamp: [verification.md §M5-P / M6](verification.md#m5-p--m6-v1-qemu) (2026-08-05).
-
-### Closed (EL0 multi-SVC resume)
+### Closed (QEMU) — issue #1 (EL0 IRQ / putc / RX own)
 
 | Slice | Status | Evidence |
 | ----- | ------ | -------- |
-| **SVC resume** | **done (HW)** | `enter`/`resume`/`end_session`; `SYS_EXIT`; `el0-task: resume pings=2` |
-| Preferred ELR for SVC | documented | AArch64 ELR is already past SVC — no software +4 |
-
-### Closed (EL0 IRQ / putc / RX poll — issue #1 v1)
-
-| Slice | Status | Evidence |
-| ----- | ------ | -------- |
-| **EL0 IRQ save/resume** | **done (QEMU)** | lower-EL IRQ → `El0Outcome::Irq`; `handle_cpu_irq` + **architectural re-execute** resume; `el0-task: irq resume irqs=N` |
-| **`SYS_PUTC`** | **done (QEMU)** | imm 2; saved `x0` → kernel TX; `el0-task: putc bytes=2` |
-| **PL011 RX poll path** | **done (QEMU)** | `suspend_rx` + user FR/DR poll; `pl011-agent: rx poll empty` |
-
-### Closed (RX-owned agent — issue #1 v2)
-
-| Slice | Status | Evidence |
-| ----- | ------ | -------- |
-| **Agent owns RX (poll)** | **done (QEMU)** | drain suspended + IMSC masked; map live; `pl011-agent: rx own begin/end` |
-| **Real bytes (no host type)** | **done (QEMU)** | PL011 **LBE** loopback inject; EL0 poll + `SYS_PUTC`; `rx own bytes=2` |
-| **Kill restores kernel** | **done (QEMU)** | `resume_rx` + destroy; `pl011-agent: killed ok`; idle ticks continue |
+| **EL0 IRQ save/resume** | **done (QEMU)** | architectural re-execute; `el0-task: irq resume irqs=N` |
+| **`SYS_PUTC`** | **done (QEMU)** | imm 2; `el0-task: putc bytes=2` |
+| **RX poll empty** | **done (QEMU)** | `pl011-agent: rx poll empty` |
+| **RX-owned agent (poll)** | **done (QEMU)** | drain off + IMSC mask; `rx own begin/end` |
+| **Real RX bytes** | **done (QEMU)** | PL011 **LBE** inject; `rx own bytes=2` |
+| **Kill restores kernel drain** | **done (QEMU)** | `resume_rx` + `killed ok`; idle ticks continue |
 | Kernel TX / panic | preserved | TX never handed to agent |
 
-**Non-goals yet:** UART IRQ delivered to EL0 as the steady-state path (poll ownership
-is complete and honest); long-running interactive echo agent as the idle body.
+QEMU gate: `make boot-check` / `scripts/qemu-boot-check.sh` (all of the above oracles).
 
 ### Next (ordered)
 
 | # | Work | Done when |
 | - | ---- | --------- |
-| 1 | **HW stamp** for IRQ / putc / RX own | Same oracles on Pi 4B serial |
+| 1 | **HW stamp** (issue #1 QEMU oracles on Pi 4B) | Serial transcript matches putc / irq resume / rx own / kill |
 | 2 | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without kernel draining `DR` |
 | 3 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
 
-**Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer.
+**Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 
 ### Open findings, against the milestone they block
 

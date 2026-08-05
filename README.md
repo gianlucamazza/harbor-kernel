@@ -20,16 +20,13 @@ fault probes on real silicon — with known blind spots documented in
 [`docs/verification.md`](docs/verification.md) (notably: QEMU does not model
 memory attributes the way Cortex-A72 does).
 
-**Status:** bring-up through M0–M2 and P0–P4; **M3**, **M4**, and **M5**
-**done (HW)** on Pi 4B (tasks, IPC/caps, EL0 private AS —
-[`docs/verification.md`](docs/verification.md#m5-el0--address-spaces)).
-**M5-P1…P3**, **M6 v1** (PL011 page-agent), and concurrent multi-agent shell
-**done (HW)** on Pi 4B; [ADR-0013](docs/adr/0013-narrow-device-windows.md)
-**accepted**; multi-SVC resume **done (HW)**; EL0 IRQ resume + `SYS_PUTC` +
-EL0 IRQ resume + `SYS_PUTC` + **RX-owned agent** (poll + LBE self-test)
-**done (QEMU)** ([issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1)).
-Next: HW stamp on Pi 4B. Roadmap:
-[`docs/architecture.md`](docs/architecture.md).
+**Status:** M0–M6 core **done (HW)** on Pi 4B through multi-agent shell and
+multi-SVC resume
+([`docs/verification.md`](docs/verification.md)). Post-M6 product slices —
+EL0 IRQ resume, `SYS_PUTC`, PL011 **RX-owned agent** (poll + LBE) — **done
+(QEMU)**; **HW stamp open**
+([issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1)).
+Roadmap: [`docs/architecture.md`](docs/architecture.md#roadmap).
 
 ## What exists
 
@@ -42,17 +39,17 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | Memory       | Multi-level identity map, **W^X**, guarded kernel + exception stacks, runtime `map`/`unmap` (block split), TLB maintenance                                    |
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
 | Frames (M5)  | Named phys pool (ADR-0012); `AddressSpace` clone + user VA window; destroy returns frames                                           |
-| EL0 (M5)     | One-shot trampoline (`arch::el0`), own `TTBR0`, SVC + kernel-store fault probes (**done HW**) — ADR-0014                             |
-| EL0 shell (M5-P) | Scheduled task EL0 session + `kernel_core::syscall` ping/refuse; dual-AS smoke (**done HW**)                                     |
-| Agent shell | `src/agent::Agent` owns AS; multi-SVC + IRQ resume; `SYS_PUTC` (**done QEMU**; multi-SVC also HW)                              |
-| PL011 agent (M6) | Page map (ADR-0013); FR; RX **own** (drain off, poll, LBE bytes, kill restores) (**done QEMU**)                            |
+| EL0 (M5)     | `enter`/`resume`/`end_session`, own `TTBR0`, SVC + fault probes (**done HW**) — ADR-0014                                           |
+| EL0 shell    | Scheduled agent: ping/refuse/exit, multi-SVC resume (**done HW**); `SYS_PUTC`, IRQ resume (**done QEMU**)                           |
+| Agent shell  | `src/agent::Agent` owns AS; concurrent dual-TCB (**done HW**)                                                                      |
+| PL011 agent  | Page map (ADR-0013); FR; RX own (drain off, LBE inject, poll, kill restores) — M6 v1 **HW**, own **QEMU**                           |
 | Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
 | IPC (M4)     | Mailboxes + CapId send/recv; refuse counter; IRQ wake queue (ADR-0008); demo sender/receiver/forger                                 |
-| Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters                                                          |
+| Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters; lower-EL IRQ → agent when session unmasks              |
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
-| Console      | Shared TX (`install_tx` / `kprintln`), interrupt-driven RX ring, idle `WFI` when no ready work                                      |
+| Console      | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                   |
 | TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
-| Verification | 160 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
+| Verification | 168 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
 
 ## What does not exist yet
 

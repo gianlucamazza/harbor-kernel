@@ -39,8 +39,12 @@ exception_irq_el1
     → irq::handle_cpu_irq()
          chip.claim() → handlers[id]() → chip.end()
 
+exception_irq_el0        ← lower-EL IRQ during an unmasked EL0 session
+    → save user context → El0Outcome::Irq
+    → agent: irq::handle_cpu_irq() then el0::resume (re-execute)
+
 time::on_timer_irq       ← TIMER_IRQ (PPI 30)
-console::on_uart_rx_irq  ← UART_IRQ  (SPI 153) → RX ring only
+console::on_uart_rx_irq  ← UART_IRQ  (SPI 153) → RX ring only (when kernel owns drain)
 arch/timer               ← CNTP only (no GIC)
 drivers/gicv2            ← IrqChip (+ SPI target/level)
 bsp/rpi4                 ← static GIC + bind
@@ -60,14 +64,15 @@ Requires `enable_gic=1` in `config.txt`.
 ARM Generic Timer physical: `CNTP_*`, IRQ **PPI 30**, frequency from
 `CNTFRQ_EL0` (~54 MHz on the tested board).
 
-## UART0 (P0)
+## UART0 (P0 + agent RX own)
 
 | Item          | Value                                   |
 | ------------- | --------------------------------------- |
 | GIC id        | **SPI 153** (VC IRQ 57 + SPI base 96)   |
-| PL011 sources | `RXIM` + `RTIM` (single-char with FIFO) |
-| Handler       | `console::on_uart_rx_irq` → `ByteRing`  |
-| Consumer      | main / idle loop (`pop_rx`, TX poll)    |
+| PL011 sources | `RXIM` + `RTIM` (single-char with FIFO) when kernel owns RX |
+| Handler       | `console::on_uart_rx_irq` → `ByteRing` (kernel drain) |
+| Consumer      | idle (`pop_rx`) when drain live; EL0 poll of `DR` when agent owns RX |
+| Agent own     | `suspend_rx` clears IMSC + base; LBE inject for self-test; `resume_rx` re-arms |
 
 ## Production bring-up
 

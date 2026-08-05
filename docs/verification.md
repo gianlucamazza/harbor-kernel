@@ -185,34 +185,58 @@ Protocol notes load-bearing for silicon:
 - Bootstrap still runs the one-shot SVC/fault probes; **M5-P1** adds a
   scheduled task (`el0-task:` lines).
 
-## M5-P / M6 v1 (QEMU)
+## M5-P / M6 post
+
+<a id="m5-p--m6-post"></a>
+<a id="m5-p--m6-v1-qemu"></a>
+
+### Matrix
 
 | Check | Status | Evidence |
 | --- | --- | --- |
-| Dual AS create/destroy | **closed (QEMU)** | `aspace: dual create/destroy ok` |
-| Scheduled EL0 + `svc #0` ping | **closed (QEMU)** | `el0-task: svc ping` / `el0-task: ok` |
-| Unknown `SVC` imm refused | **closed (QEMU)** | `el0-task: svc refuse imm=0x99` |
-| `kernel_core::syscall::decode` | **closed** | host unit tests (160 total suite) |
+| Dual AS create/destroy | **closed (QEMU + HW)** | `aspace: dual create/destroy ok` |
+| Scheduled EL0 + `svc #0` ping | **closed (QEMU + HW)** | `el0-task: svc ping` / `el0-task: ok` |
+| Unknown `SVC` imm refused | **closed (QEMU + HW)** | `el0-task: svc refuse imm=0x99` |
+| `kernel_core::syscall::decode` (+ `SYS_PUTC`) | **closed** | host unit tests (168 total suite) |
 | ADR-0013 accepted | **yes** | agent page-sized PL011 only |
-| PL011 agent map + FR load + kill | **closed (QEMU)** | `pl011-agent: FR read + svc ok` / `killed ok` |
+| PL011 agent map + FR load + kill | **closed (QEMU + HW)** | `pl011-agent: FR read + svc ok` / `killed ok` |
 | Concurrent multi-agent shell | **closed (QEMU + HW)** | `agents: concurrent ok` (`src/agent`) |
-| Multi-SVC resume (`enter`/`resume`) | **closed (QEMU + HW)** | `el0-task: resume pings=2` (`SYS_EXIT` ends session) |
-| `SYS_PUTC` (imm 2) | **closed (QEMU)** | `el0-task: putc bytes=2` (bytes also appear on serial) |
-| EL0 IRQ save/resume (re-execute) | **closed (QEMU)** | `el0-task: irq resume irqs=N` (N≥1); no software ELR skip |
+| Multi-SVC resume (`enter`/`resume`) | **closed (QEMU + HW)** | `el0-task: resume pings=2` |
+| `SYS_PUTC` (imm 2) | **closed (QEMU)** | `el0-task: putc bytes=2` |
+| EL0 IRQ save/resume (re-execute) | **closed (QEMU)** | `el0-task: irq resume irqs=N` (N≥1) |
 | PL011 RX poll empty path | **closed (QEMU)** | `pl011-agent: rx poll empty` |
-| PL011 RX ownership + real bytes | **closed (QEMU)** | LBE inject; `pl011-agent: rx own bytes=2`; `rx own begin/end`; kill ok |
-| Silicon (M5-P / M6 / agents / resume) | **closed (HW)** | Pi 4B + CP2104, `FEATURES=debug-display`, 2026-08-05 — transcript below |
+| PL011 RX ownership + real bytes | **closed (QEMU)** | LBE inject; `rx own bytes=2`; `rx own begin/end` |
+| Silicon (through multi-SVC / M6 v1 map) | **closed (HW)** | Pi 4B transcript below |
 | Silicon (IRQ / putc / RX own) | **open** | same QEMU oracles on Pi 4B |
 
-RX ownership: kernel drain suspended and PL011 RX IRQs masked; agent maps the
-UART page and polls `DR`. Real bytes come from **PL011 loopback** (kernel TX
-with `LBE`), not invented ring writes. `resume_rx` re-arms IMSC and republishes
-the drain base. Multi-SVC and IRQ resume remain live.
+**RX ownership (QEMU):** kernel drain suspended, PL011 RX IRQs masked; agent
+maps the UART page and polls `DR`. Real bytes via **PL011 LBE** (kernel TX
+looped to RX) — not invented ring writes. `resume_rx` re-arms IMSC. Roadmap:
+[architecture.md §Roadmap](architecture.md#roadmap).
 
-### Silicon transcript (M5-P / M6 v1 / concurrent agents)
+### Expected QEMU boot-check lines (post–issue #1)
+
+In addition to earlier M3–M6 oracles, a clean `boot-check` includes:
+
+```
+el0-task: resume pings=2
+el0-task: putc bytes=2
+el0-task: irq resume irqs=…
+el0-task: ok
+pl011-agent: FR read + svc ok
+pl011-agent: rx own begin
+pl011-agent: rx poll empty
+pl011-agent: rx own bytes=2
+pl011-agent: rx own end
+pl011-agent: killed ok  pool=…
+agents: concurrent ok  pool=…
+```
+
+### Silicon transcript (M5-P / M6 v1 map / concurrent / multi-SVC)
 
 Pi 4B, PL011 via CP2104 @ 115200, image `d674792` + `debug-display`, 2026-08-05.
-`CNTFRQ=54000000` is silicon. Same oracles as QEMU `boot-check`.
+`CNTFRQ=54000000` is silicon. Closed **through multi-SVC resume**; does **not**
+include putc / IRQ resume / RX own (those are QEMU-only until the next HW stamp).
 
 ```
 Harbor: hello
@@ -247,8 +271,7 @@ ticks=10
 …
 ```
 
-Same boot also closed **multi-SVC resume** (`resume pings=2`) on silicon with the
-`223e34f` image.
+Multi-SVC also closed on silicon with image `223e34f`.
 
 ### Boot + cooperative yield (closed)
 
