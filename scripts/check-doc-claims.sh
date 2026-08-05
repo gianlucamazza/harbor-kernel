@@ -47,4 +47,26 @@ if [[ "${claimed}" != "${actual}" ]]; then
 	fail "README claims ${claimed} host unit tests, there are ${actual}"
 fi
 
-echo "doc-claims: clean (${actual} tests, ${#makefile_gates} chars of gate list agree)"
+# 3. The arch facade's re-export list, which ADR-0015 duplicates as a table in
+#    `arch-contract.md`. The contract is what a port is checked against, so a
+#    module that leaves the facade and stays in the table is a port built to a
+#    surface that no longer exists. `docs/mmu.md` records what happens to a fact
+#    kept in two files with nothing comparing them: both copies go stale
+#    together.
+facade="$(sed -n 's/^pub use aarch64::{\(.*\)};$/\1/p' src/arch/mod.rs |
+	tr ',' '\n' | tr -d ' ' | grep . | sort -u)"
+[[ -n "${facade}" ]] || fail "no 'pub use aarch64::{…}' re-export list found in src/arch/mod.rs"
+
+# One direction only: every facade module must appear in the contract. The
+# reverse would fire on the BSP table in the same file, which names modules the
+# arch facade has no business re-exporting.
+contract="$(sed -n 's/^| `\([a-z0-9_]\+\)` |.*/\1/p' docs/arch-contract.md | sort -u)"
+missing="$(comm -23 <(echo "${facade}") <(echo "${contract}"))"
+if [[ -n "${missing}" ]]; then
+	echo "doc-claims: the arch facade re-exports modules arch-contract.md does not list" >&2
+	sed 's/^/  missing from the contract: /' <<<"${missing}" >&2
+	exit 1
+fi
+
+echo "doc-claims: clean (${actual} tests, ${#makefile_gates} chars of gate list agree, \
+$(wc -l <<<"${facade}") facade modules in the contract)"

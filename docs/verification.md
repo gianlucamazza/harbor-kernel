@@ -548,6 +548,7 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | MMIO probe window (`FAR` match)                                  | drop the `far != expected` check, and fault twice inside one probe | without it both aborts are swallowed and the boot continues (`rng200: unavailable`); with it the second is fatal — `ESR=0x96000050 FAR=0xfe105000`, the injected address |
 | Table-arena reserve, derived                                     | restore `PAGE_TABLE_ARENA_SIZE = 16 * 0x1000` under the reserve now derived from `MAX_TASKS` | `BOOT REFUSED: table arena nearly exhausted: 9 tables left, need 14` — the arena had been sized against a reserve of six that assumed `MAX_TASKS = 4`, long after the scheduler raised it to 12 |
 | Facade isolation (ADR-0015)                                      | `use crate::arch::riscv64::cpu`, `use crate::{arch::aarch64::cpu, bsp}`, `use crate::bsp::rpi4::memmap` in one file outside both trees | three violations named with their line numbers — the first two were invisible to the gate as first written, which listed `aarch64` literally and looked for the `crate::` prefix a grouped import does not carry |
+| Arch contract vs facade                                          | delete the `probe` row from `arch-contract.md`                                                | `missing from the contract: probe` — the surface a port is written against and the surface the facade actually re-exports had nothing comparing them |
 
 ## Four defects no gate caught (2026-08-05)
 
