@@ -127,14 +127,13 @@ be marked `done (HW)`.
 
 | Check | Status | Evidence |
 | --- | --- | --- |
-| ADR-0008 cookie handlers + wake queue | **in tree** | `Handler = fn(IrqCookie)`; `WakeQueue` host-tested; `poll_wakes` in idle |
-| Message across tasks (no shared payload) | **closed (QEMU)** | `ipc: sent` / `ipc: got tag=1 a=42` — `make boot-check` |
-| Send without hold refused + counted | **closed (QEMU)** | forger with raw CapId bits → `ipc: refuse count=N` (N≥1) |
-| Silicon re-verify | **open** | Pi 4B transcript not yet recorded |
+| ADR-0008 cookie handlers + wake queue | **closed** | `Handler = fn(IrqCookie)`; `WakeQueue` host-tested; `poll_wakes` in idle |
+| Message across tasks (no shared payload) | **closed (QEMU + HW)** | `ipc: sent` / `ipc: got tag=1 a=42` — `make boot-check`; Pi 4B user-confirmed 2026-08-05 |
+| Send without hold refused + counted | **closed (QEMU + HW)** | forger → `ipc: refuse count=N` (N≥1); same boot on Pi 4B |
+| Silicon | **closed (HW)** | Pi 4B, `FEATURES=debug-display` image, 2026-08-05 — boot OK (ipc + status path) |
 
-M4 is **done** against the architecture done-when on the QEMU gate. Mark
-`done (HW)` only after a Pi 4B serial transcript shows the same three `ipc:`
-lines.
+M4 is **done (HW)**. QEMU remains gated by `boot-check` (includes the three
+`ipc:` lines).
 
 ### Boot + cooperative yield (closed)
 

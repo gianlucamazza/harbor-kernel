@@ -120,9 +120,9 @@ today versus roadmap.
 | P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)               |
 | P4  | Exception stack, refused frees, fatal map failure         | **done** (HW, fault-probed) |
 | M3  | Cooperative tasks                                        | **done** (HW, fault-probed) |
-| M4  | IPC + capabilities                                       | **done** (QEMU gate; HW re-verify open) |
-| M5  | EL0 agents                                               | planned                     |
-| M6  | Driver-as-agent                                          | planned                     |
+| M4  | IPC + capabilities                                       | **done (HW)**               |
+| M5  | EL0 agents                                               | planned (needs ADR-0012)    |
+| M6  | Driver-as-agent                                          | planned (needs M5 + ADR-0013) |
 
 **M** milestones add capability. **P** milestones add protection or evidence and
 add no capability at all: they are numbered separately because "the kernel can

@@ -13,9 +13,10 @@ fault probes on real silicon — with known blind spots documented in
 [`docs/verification.md`](docs/verification.md) (notably: QEMU does not model
 memory attributes the way Cortex-A72 does).
 
-**Status:** bring-up complete through M0–M2 and P0–P4; **M3 cooperative tasks
-done (HW)** (interleaved workers + task-stack guard fault-probed on Pi 4B —
-[`docs/verification.md`](docs/verification.md#m3-cooperative-tasks-hardware)).
+**Status:** bring-up through M0–M2 and P0–P4; **M3** and **M4** **done (HW)**
+on Pi 4B (tasks + IPC/caps —
+[`docs/verification.md`](docs/verification.md#m4-ipc--capabilities)). Next: M5
+EL0 (needs [ADR-0012](docs/adr/0012-frame-allocator-for-address-spaces.md)).
 Roadmap: [`docs/architecture.md`](docs/architecture.md).
 
 ## What exists

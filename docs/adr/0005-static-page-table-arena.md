@@ -14,7 +14,9 @@ accepted: 2026-08-04
 `tables_remaining()` and mapping failures surface as `MmuError::OutOfTables` /
 boot refusal rather than a silent hang. The weak gate (console remainder, no
 automated minimum) remains as declared in this ADR — acceptance does not invent
-coverage. Supersede at M5 when address spaces come and go.
+coverage. User address spaces at M5 use a **separate** frame pool
+([ADR-0012](0012-frame-allocator-for-address-spaces.md)); this arena is **not**
+replaced for kernel tables.
 
 ## Context
 

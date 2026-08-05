@@ -24,6 +24,8 @@ the code that follows.
 | [0009](0009-optional-spi-tft-debug-console.md) | Optional SPI TFT status surface (ILI9486 HAT) | accepted |
 | [0010](0010-spi-transaction-and-dbi-panel.md) | SPI transactions and DBI panel streaming | accepted |
 | [0011](0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in (F15) | accepted |
+| [0012](0012-frame-allocator-for-address-spaces.md) | Frame allocator for user address spaces (M5) | accepted |
+| [0013](0013-narrow-device-windows.md) | Narrow device MMIO windows (F26 / M6) | proposed |
 
 Operational reviews (findings, not decisions): [`../reviews/`](../reviews/).
 
