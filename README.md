@@ -15,9 +15,10 @@ memory attributes the way Cortex-A72 does).
 
 **Status:** bring-up through M0–M2 and P0–P4; **M3**, **M4**, and **M5**
 **done (HW)** on Pi 4B (tasks, IPC/caps, EL0 private AS —
-[`docs/verification.md`](docs/verification.md#m5-el0--address-spaces)). Next: M6
-driver-as-agent (needs [ADR-0013](docs/adr/0013-narrow-device-windows.md)
-accept). Roadmap: [`docs/architecture.md`](docs/architecture.md).
+[`docs/verification.md`](docs/verification.md#m5-el0--address-spaces)). Next:
+**M5-P1+P2** (scheduled EL0 task + minimal `SVC`), then dual-AS smoke, then M6
+after [ADR-0013](docs/adr/0013-narrow-device-windows.md) accept. Roadmap:
+[`docs/architecture.md`](docs/architecture.md).
 
 ## What exists
 

@@ -172,12 +172,19 @@ probes, destroy without pool leak. QEMU `boot-check` and Pi 4B PL011 (2026-08-05
 show the same oracles
 ([verification.md](verification.md#m5-el0--address-spaces)).
 
-Remaining roadmap:
+Remaining roadmap (ordered):
 
-| Next | Needs first | Notes |
-| ---- | ----------- | ----- |
-| M5-P1…P3 | M5 done (HW) | Scheduled EL0 task; minimal SVC table; multi-AS create (desk productization) |
-| M6 | M5 done (HW) ✓; [ADR-0013](adr/0013-narrow-device-windows.md) **accept** | Narrow MMIO caps; PL011 as EL0 agent |
+| Slice | Needs first | Done when |
+| ----- | ----------- | --------- |
+| **M5-P1** EL0 from a scheduled task | M5 done (HW) ✓ | A runqueue task (not only bootstrap smoke) enters EL0 in its own `TTBR0`; console shows a dedicated line (e.g. `el0-task: …`); no pool leak |
+| **M5-P2** Minimal `SVC` dispatch | M5-P1 (or same PR) | Documented imm → EL1 handler (at least `svc #0` ping); unknown imm refused/visible; `boot-check` oracle |
+| **M5-P3** Dual AS create/destroy | M5 done (HW) ✓ | Two prepare/destroy cycles; `frames free` restored; `aspace: dual … ok` (or equivalent) on boot-check |
+| **M6-D0** Accept [ADR-0013](adr/0013-narrow-device-windows.md) | Desk multi-role on F26 | ADR status **accepted**; no agent MMIO code before this |
+| **M6** PL011 as EL0 agent | M5-P1/P2; ADR-0013 accepted | RX path (or minimal echo) at EL0 with **page-sized** UART window only; kill agent → unmap; kernel still ticks |
+
+**Default sequence:** M5-P1+P2 together (one demo task + `svc #0`) → M5-P3 → accept ADR-0013 → M6 implementation.
+
+**Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer.
 
 ### Open findings, against the milestone they block
 
