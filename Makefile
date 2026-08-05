@@ -133,6 +133,14 @@ test:
 # and the earlier pattern would have watched those go past. `x`/`w` are the
 # general-purpose registers and are of course everywhere.
 #
+# Data directives are dropped before matching. `objdump` prints the raw bytes of
+# a literal pool even under `--no-show-raw-insn`, and a byte that happens to be
+# `d0`..`d9` reads as the register `d0`. A `ldr x0, =0x30d00800` in `boot.s` is
+# what found this: the gate went red on a change that emits no FP at all. The
+# earlier `[qv]` pattern could not hit it, because `q` and `v` are not hex
+# digits — widening the pattern is what made the disassembly's data sections
+# start to matter.
+#
 # The tool check is not decoration. Without it a missing `llvm-objdump` makes
 # the pipeline produce nothing, `grep .` fail, `!` invert that into success,
 # and the target print `no-simd: clean` having disassembled nothing at all —
@@ -143,6 +151,7 @@ no-simd: elf
 	  echo "  install it (pacman -S llvm) — this gate inspects the linked ELF" >&2; \
 	  exit 1; }
 	@! $(OBJDUMP) -d --no-show-raw-insn $(ELF) \
+	  | grep -vE '^\s*[0-9a-f]+:.*\.(word|byte|short|long)\b' \
 	  | grep -oE '\b([qv][0-9]+(\.[0-9]+[bhsd])?|[dsh][0-9]+)\b' \
 	  | head -5 | grep . \
 	  || { echo "error: FP/SIMD registers found in $(ELF)" >&2; exit 1; }

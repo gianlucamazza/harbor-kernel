@@ -43,15 +43,32 @@ _start:
     b       .L_park
 
 .L_primary:
-    // CurrentEL[3:2] — drop EL2 → EL1 when required.
+    // CurrentEL[3:2]. Only EL2 and EL1 are handled: platform firmware
+    // (start4.elf) enters at EL2, and a firmware that has already dropped to
+    // EL1 is equally fine. EL3 is neither — the code below would program
+    // EL1/EL2 state that has no effect from there and then `eret` into a
+    // configuration nobody set up. This used to fall through to `.L_el1` and
+    // continue as though it were already at EL1, which is a wrong answer rather
+    // than a missing one, so it parks instead. There is no console yet to say
+    // why; `docs/boot-chain.md` carries the note.
     mrs     x0, CurrentEL
     lsr     x0, x0, #2
     cmp     x0, #2
-    b.ne    .L_el1
+    b.gt    .L_park
+    b.lt    .L_el1
+
+    // SCTLR_EL1 starts from a known state — but not from zero. Bits 11, 20, 22,
+    // 23, 28 and 29 are RES1 on ARMv8.0-A (the Cortex-A72's architecture), and
+    // writing 0 to a RES1 field is UNPREDICTABLE. `msr sctlr_el1, xzr` cleared
+    // all six, and nothing put them back: `enable_translation` only
+    // read-modify-writes M/C/I on top, so the kernel ran with SCTLR_EL1 =
+    // 0x1005, measured under QEMU. The reset value would have had them set;
+    // this write is what took them away, so this write is what restores them.
+    ldr     x0, =0x30d00800
+    msr     sctlr_el1, x0
 
     // EL1 is AArch64 (HCR_EL2.RW = 1).
     // IMO/FMO/AMO cleared so physical IRQ/FIQ/SError route to EL1, not EL2.
-    msr     sctlr_el1, xzr
     mov     x0, #(1 << 31)
     msr     hcr_el2, x0
 
@@ -61,7 +78,13 @@ _start:
     msr     cnthctl_el2, x0
     msr     cntvoff_el2, xzr
 
-    // Do not trap FP/SIMD to EL2 (CPTR_EL2.TFP = bit 10).
+    // Do not trap FP/SIMD to EL2 (CPTR_EL2.TFP = bit 10). Not a step towards
+    // using FP — the kernel is softfloat and `CPACR_EL1.FPEN` is left trapping
+    // on purpose. It is about *where* a stray FP instruction lands: with TFP
+    // set the trap is taken to EL2, which after the `eret` below has no vector
+    // table installed and no code to run. Clearing it means such a fault
+    // reaches the EL1 handler, which can name it, rather than a level this
+    // kernel has abandoned.
     mrs     x0, cptr_el2
     bic     x0, x0, #(1 << 10)
     msr     cptr_el2, x0
