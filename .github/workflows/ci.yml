@@ -9,32 +9,49 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      # rust-toolchain.toml pins the channel, the components and the
-      # `-softfloat` target, so there is nothing to configure here.
+      # rust-toolchain.toml pins the channel, components, and softfloat target.
       - name: Show toolchain
         run: rustc -vV && cargo -V
 
-      # `make check` includes the QEMU boot and Miri. Installing both here is
-      # what makes the "local check is a superset of CI" claim in
-      # docs/verification.md true rather than aspirational: without QEMU the
-      # boot check would refuse to run, and the job would fail — which is the
-      # intended behaviour, not a nuisance.
-      - name: Install llvm and QEMU
-        run: sudo apt-get update && sudo apt-get install -y llvm qemu-system-arm
+      # Ubuntu's qemu-system-arm (even 8.2 on 24.04) does **not** ship the
+      # `raspi4b` machine Harbor boots under. Local Arch/QEMU ≥9 does. CI
+      # therefore builds a thin Arch image once and wraps qemu-system-aarch64 so
+      # `make boot-check` / `make check` keep a single path.
+      - name: Install llvm
+        run: sudo apt-get update && sudo apt-get install -y llvm
+
+      - name: QEMU with raspi4b (Arch container wrapper)
+        run: |
+          set -euo pipefail
+          docker build -t harbor-qemu-raspi4b - <<'Dockerfile'
+          FROM archlinux:latest
+          RUN pacman -Syu --noconfirm qemu-system-aarch64
+          ENTRYPOINT ["qemu-system-aarch64"]
+          Dockerfile
+          sudo tee /usr/local/bin/qemu-system-aarch64 >/dev/null <<'WRAP'
+          #!/usr/bin/env bash
+          # Forward host paths into the container (kernel image, cwd).
+          set -euo pipefail
+          exec docker run --rm -i \
+            -v /home/runner:/home/runner \
+            -v /tmp:/tmp \
+            -w "${PWD}" \
+            harbor-qemu-raspi4b \
+            "$@"
+          WRAP
+          sudo chmod +x /usr/local/bin/qemu-system-aarch64
+          qemu-system-aarch64 -version
+          qemu-system-aarch64 -machine help | grep -E '^raspi4b\b'
 
       - name: Install nightly with Miri
         run: |
           rustup toolchain install nightly --component miri
           cargo +nightly miri setup
 
-      # fmt --check, host tests, the no-SIMD guard on the linked image, and
-      # clippy for both targets. The no-SIMD step is the one that matters most:
-      # a silent switch back to a NEON-enabled target would otherwise surface
-      # only as a synchronous exception on the board.
       - name: make check
         run: make check
 
@@ -47,18 +64,35 @@ jobs:
           path: target/aarch64-unknown-none-softfloat/release/kernel8.img
 
   qemu-boot:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install QEMU and llvm
-        run: sudo apt-get update && sudo apt-get install -y qemu-system-arm llvm
+      - name: Install llvm
+        run: sudo apt-get update && sudo apt-get install -y llvm
+
+      - name: QEMU with raspi4b (Arch container wrapper)
+        run: |
+          set -euo pipefail
+          docker build -t harbor-qemu-raspi4b - <<'Dockerfile'
+          FROM archlinux:latest
+          RUN pacman -Syu --noconfirm qemu-system-aarch64
+          ENTRYPOINT ["qemu-system-aarch64"]
+          Dockerfile
+          sudo tee /usr/local/bin/qemu-system-aarch64 >/dev/null <<'WRAP'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker run --rm -i \
+            -v /home/runner:/home/runner \
+            -v /tmp:/tmp \
+            -w "${PWD}" \
+            harbor-qemu-raspi4b \
+            "$@"
+          WRAP
+          sudo chmod +x /usr/local/bin/qemu-system-aarch64
 
       - name: Build kernel image
         run: make img
 
-      # Same script `make check` runs, so the two cannot drift. Kept as its own
-      # job so a boot regression is legible at a glance instead of buried in
-      # the middle of a longer gate.
       - name: Boot under QEMU and assert a healthy run
         run: make boot-check
