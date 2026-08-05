@@ -134,6 +134,12 @@ grep -q 'pl011-agent: FR read + svc ok' "${log}" ||
 	fail "pl011 EL0 agent did not read FR and svc"
 grep -q 'pl011-agent: killed ok' "${log}" ||
 	fail "pl011 agent AS destroy / kill path failed"
+# Multi-agent shell: two TCBs with AS live together, each EL0 once.
+grep -q 'agents: concurrent ok' "${log}" ||
+	fail "concurrent multi-agent shell smoke failed"
+if grep -q 'agents: concurrent LEAK' "${log}"; then
+	fail "concurrent multi-agent shell leaked frames"
+fi
 # M4 IPC (ADR-0008 shape + mailbox): message delivered; forge refuse counted.
 grep -q 'ipc: sent tag=1 a=42' "${log}" ||
 	fail "ipc sender did not deliver"

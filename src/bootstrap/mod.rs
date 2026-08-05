@@ -10,6 +10,7 @@ mod console_loop;
 #[cfg(feature = "bringup")]
 mod selftest;
 
+use crate::agent::{self, Agent};
 use crate::arch::{bootinfo, cpu, el0, exception, mmu, timer};
 use kernel_core::layout::Region;
 use kernel_core::paging::{MemKind, Perms};
@@ -330,6 +331,16 @@ pub fn run() -> ! {
         Err(e) => crate::kprintln!("sched: spawn pl011-agent FAILED {e:?}"),
     }
 
+    // Multi-agent shell: two TCBs, two AS live together, each EL0 once.
+    match crate::sched::spawn(agent::concurrent_agent_alpha) {
+        Ok(_) => crate::kprintln!("sched: spawned agent-a"),
+        Err(e) => crate::kprintln!("sched: spawn agent-a FAILED {e:?}"),
+    }
+    match crate::sched::spawn(agent::concurrent_agent_beta) {
+        Ok(_) => crate::kprintln!("sched: spawned agent-b"),
+        Err(e) => crate::kprintln!("sched: spawn agent-b FAILED {e:?}"),
+    }
+
     // M4: mailbox + caps. Message path only — no shared payload static.
     match crate::ipc::create_channel() {
         Ok(ch) => {
@@ -478,67 +489,28 @@ fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
     }
 }
 
-/// A64: `svc #imm` ; `b .`
-fn encode_svc_imm(imm: u16) -> [u8; 8] {
-    // SVC encoding: 0xD4000001 | (imm16 << 5)
-    let word = 0xD400_0001u32 | ((imm as u32) << 5);
-    let b = word.to_le_bytes();
-    [b[0], b[1], b[2], b[3], 0x00, 0x00, 0x00, 0x14]
-}
-
-/// M5-P1/P2: scheduled task owns an AS, enters EL0, dispatches `SVC`.
+/// M5-P1/P2: scheduled task via [`Agent`] shell + SVC decode.
 fn el0_scheduled_task() {
     let free_before = mm::frames::free_count();
-    let mut aspace = match mm::AddressSpace::create() {
+    let mut agent = match Agent::create_prepared() {
         Ok(a) => a,
         Err(e) => {
             crate::kprintln!("el0-task: create FAILED {e:?}");
             return;
         }
     };
-    if let Err(e) = aspace.prepare_for_el0() {
-        crate::kprintln!("el0-task: prepare FAILED {e:?}");
-        aspace.destroy();
-        return;
+
+    match agent.run_user_prog(&agent::encode_svc_imm(0)) {
+        Ok(out) => agent::report_svc("el0-task", out),
+        Err(e) => crate::kprintln!("el0-task: el0 FAILED {e:?}"),
     }
 
-    // Known syscall: svc #0
-    if aspace.poke_user(0, &encode_svc_imm(0)).is_err() {
-        crate::kprintln!("el0-task: poke FAILED");
-        aspace.destroy();
-        return;
-    }
-    let outcome = cpu::without_irqs(|| unsafe {
-        el0::run(aspace.root_phys(), aspace.user_entry_va(), aspace.user_sp())
-    });
-    match outcome {
-        el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
-            Syscall::Ping => crate::kprintln!("el0-task: svc ping"),
-            Syscall::Unknown { imm } => crate::kprintln!("el0-task: svc refuse imm={imm}"),
-        },
-        other => crate::kprintln!("el0-task: unexpected {other:?}"),
+    match agent.run_user_prog(&agent::encode_svc_imm(0x99)) {
+        Ok(out) => agent::report_svc("el0-task", out),
+        Err(e) => crate::kprintln!("el0-task: refuse path FAILED {e:?}"),
     }
 
-    // Unknown imm must not be treated as success.
-    if aspace.poke_user(0, &encode_svc_imm(0x99)).is_err() {
-        crate::kprintln!("el0-task: poke2 FAILED");
-        aspace.destroy();
-        return;
-    }
-    let outcome = cpu::without_irqs(|| unsafe {
-        el0::run(aspace.root_phys(), aspace.user_entry_va(), aspace.user_sp())
-    });
-    match outcome {
-        el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
-            Syscall::Unknown { imm: 0x99 } => {
-                crate::kprintln!("el0-task: svc refuse imm={:#x}", 0x99u16)
-            }
-            other => crate::kprintln!("el0-task: refuse unexpected {other:?}"),
-        },
-        other => crate::kprintln!("el0-task: refuse path unexpected {other:?}"),
-    }
-
-    aspace.destroy();
+    agent.destroy();
     let free_after = mm::frames::free_count();
     if free_after == free_before {
         crate::kprintln!("el0-task: ok");
@@ -547,62 +519,48 @@ fn el0_scheduled_task() {
     }
 }
 
-/// M6 v1: agent maps **only** the PL011 page (ADR-0013), reads `UART_FR`, SVCs, dies.
-///
-/// Kernel keeps console TX/RX on its own coarse Device map. Destroying the AS
-/// revokes the agent map — kill-agent done-when for the map half.
+/// M6 v1: PL011 page-only agent (ADR-0013) via shell; destroy = kill.
 fn pl011_agent_task() {
     use crate::bsp::board::memmap::{FRAME_SIZE, UART0_BASE, UART0_REG_BYTES, USER_PL011_VA};
 
-    // ADR-0013: agent window is exactly one Stage-1 page, not a peripheral blanket.
     if UART0_REG_BYTES != FRAME_SIZE {
         crate::kprintln!("pl011-agent: UART0_REG_BYTES must be one page");
         return;
     }
 
     let free_before = mm::frames::free_count();
-    let mut aspace = match mm::AddressSpace::create() {
+    let mut agent = match Agent::create_prepared() {
         Ok(a) => a,
         Err(e) => {
             crate::kprintln!("pl011-agent: create FAILED {e:?}");
             return;
         }
     };
-    if let Err(e) = aspace.prepare_for_el0() {
-        crate::kprintln!("pl011-agent: prepare FAILED {e:?}");
-        aspace.destroy();
-        return;
-    }
-    // Page-sized window only — not the 16 MiB peripheral blanket.
-    if let Err(e) = aspace.map_device_page(USER_PL011_VA, UART0_BASE as u64, Perms::USER_RW) {
+    if let Err(e) =
+        agent
+            .aspace_mut()
+            .map_device_page(USER_PL011_VA, UART0_BASE as u64, Perms::USER_RW)
+    {
         crate::kprintln!("pl011-agent: map FAILED {e:?}");
-        aspace.destroy();
+        agent.destroy();
         return;
     }
 
-    // movz x0, #0x5000, LSL#16 ; ldr w1, [x0, #0x18] ; svc #0
     let movz: u32 = 0xD2A0_0000 | (0x5000u32 << 5);
     let movz_b = movz.to_le_bytes();
     let prog = [
         movz_b[0], movz_b[1], movz_b[2], movz_b[3], 0x01, 0x18, 0x40, 0xB9, 0x01, 0x00, 0x00, 0xD4,
     ];
 
-    if aspace.poke_user(0, &prog).is_err() {
-        crate::kprintln!("pl011-agent: poke FAILED");
-        aspace.destroy();
-        return;
-    }
-    let outcome = cpu::without_irqs(|| unsafe {
-        el0::run(aspace.root_phys(), aspace.user_entry_va(), aspace.user_sp())
-    });
-    match outcome {
-        el0::El0Outcome::Svc { imm } if matches!(syscall::decode(imm), Syscall::Ping) => {
+    match agent.run_user_prog(&prog) {
+        Ok(el0::El0Outcome::Svc { imm }) if matches!(syscall::decode(imm), Syscall::Ping) => {
             crate::kprintln!("pl011-agent: FR read + svc ok");
         }
-        other => crate::kprintln!("pl011-agent: unexpected {other:?}"),
+        Ok(other) => crate::kprintln!("pl011-agent: unexpected {other:?}"),
+        Err(e) => crate::kprintln!("pl011-agent: el0 FAILED {e:?}"),
     }
 
-    aspace.destroy();
+    agent.destroy();
     let free_after = mm::frames::free_count();
     if free_after == free_before {
         crate::kprintln!("pl011-agent: killed ok  pool={free_after}");

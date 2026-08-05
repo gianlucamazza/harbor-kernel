@@ -34,6 +34,7 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | Frames (M5)  | Named phys pool (ADR-0012); `AddressSpace` clone + user VA window; destroy returns frames                                           |
 | EL0 (M5)     | One-shot trampoline (`arch::el0`), own `TTBR0`, SVC + kernel-store fault probes (**done HW**) — ADR-0014                             |
 | EL0 shell (M5-P) | Scheduled task EL0 session + `kernel_core::syscall` ping/refuse; dual-AS smoke (**done QEMU**; HW open)                          |
+| Agent shell | `src/agent::Agent` owns AS; concurrent two-TCB EL0 (**done QEMU**; HW open) — no EL0 resume yet                                 |
 | PL011 agent (M6 v1) | Page-only Device map (`map_device_page`, ADR-0013); EL0 `UART_FR` + kill AS (**done QEMU**; HW open)                          |
 | Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
 | IPC (M4)     | Mailboxes + CapId send/recv; refuse counter; IRQ wake queue (ADR-0008); demo sender/receiver/forger                                 |
@@ -46,10 +47,9 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 ## What does not exist yet
 
 No preemption, no SMP, no high-half/`TTBR1` kernel, no EL0 IRQ delivery, no
-console-RX-owned-by-agent (M6 v1 only maps PL011 and reads `FR`), no multi-TCB
-“live at EL0” resume shell, no ASID production. HW stamp for M5-P / M6 v1 is
-still open (QEMU is gated). Concurrency remains cooperative EL1 tasks that may
-drop into one-shot EL0 sessions. Longer product surface:
+console-RX-owned-by-agent (M6 v1 only maps PL011 and reads `FR`), no EL0
+**resume** after SVC (sessions are one-shot), no ASID production. HW stamp for
+M5-P / M6 / concurrent agents is still open. Longer product surface:
 [`docs/architecture.md`](docs/architecture.md).
 
 ## Design

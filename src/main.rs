@@ -7,6 +7,7 @@
 // of `alloc` are available to the rest of the kernel.
 extern crate alloc;
 
+mod agent;
 mod arch;
 mod bootstrap;
 mod bsp;

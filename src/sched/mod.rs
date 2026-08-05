@@ -24,12 +24,9 @@ use crate::sync::SyncCell;
 
 /// Maximum concurrent tasks including idle.
 ///
-/// Eight rather than four: a `--features bringup` image runs idle, both demo
-/// workers and the guard probe, which fills a table of four exactly. A limit
-/// with no margin turns the next spawn into a `Full` that reads as a scheduler
-/// bug rather than a sizing decision. Slots are never reused before a task
-/// exits, so this bounds concurrency, not lifetime spawns.
-pub const MAX_TASKS: usize = 8;
+/// Sized for idle + M3 demos + M4 IPC trio + M5-P/M6 agents + concurrent
+/// agent peers + bringup probe margin. Slots are not reused before exit.
+pub const MAX_TASKS: usize = 12;
 
 /// Caps a task may hold (M4 local table — not shared globals).
 pub const MAX_CAPS_PER_TASK: usize = 4;

@@ -182,12 +182,19 @@ show the same oracles
 | **M6-D0** [ADR-0013](adr/0013-narrow-device-windows.md) | **accepted** | 2026-08-05 |
 | **M6 v1** PL011 page agent + kill | **done (QEMU)** | `pl011-agent: FR read + svc ok` / `killed ok` |
 
+### Closed (multi-agent shell v1)
+
+| Slice | Status | Evidence |
+| ----- | ------ | -------- |
+| **Agent shell** (`src/agent`) | **done (QEMU)** | `Agent` owns AS; one-shot EL0; no fake resume |
+| **Concurrent dual agent** | **done (QEMU)** | `agents: concurrent ok` — two TCBs, both AS live, each EL0 once |
+
 ### Next (ordered)
 
 | # | Work | Done when |
 | - | ---- | --------- |
-| 1 | **HW stamp M5-P + M6 v1** | Pi PL011 transcript matches the QEMU oracles above; update [verification.md](verification.md#m5-p--m6-v1-qemu) |
-| 2 | **Product multi-agent shell** | Multiple TCBs with AS; optional EL0 resume after SVC (shape doc/ADR if non-one-shot) |
+| 1 | **HW stamp M5-P + M6 v1 + concurrent agents** | Pi PL011 transcript; update [verification.md](verification.md#m5-p--m6-v1-qemu) |
+| 2 | **EL0 resume after SVC** (optional product) | Explicit design/ADR; save user GPRs; continue at `ELR+4` — not one-shot only |
 | 3 | **EL0 IRQ / full RX agent** | Successor design; agent owns RX without breaking kernel panic console |
 | 4 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
 
