@@ -217,8 +217,8 @@ llvm-objcopy -O binary target/aarch64-unknown-none-softfloat/release/harbor-kern
 | --- | --- | --- |
 | RNG200 polled word + soft fail on absence | **closed (HW)** | Pi 4B 2026-08-05 — `rng200: ok word=…`; QEMU — `unavailable (NotPresent)` via `arch::probe` |
 | SPI0 pinmux + FIFO self-test + resident handle | **closed (HW)** | Pi 4B `--features debug-display`, 2026-08-05 — bus line before panel bring-up |
-| ILI9486 init + full-screen fill | **closed (user OK on HAT)** | navy fill; CS session stream (ADR-0010) |
-| Status surface (text slots + idle ticks) | **in tree; re-verify on HAT** | 8×8 grid, dirty cells, boot + 1 Hz idle + panic banner |
+| ILI9486 init + fill (regwidth-16 wire) | **closed (HW)** | Pi 4B + Waveshare-class HAT, 2026-08-05 — bare 8-bit cmds → noise/lines; **reg16** framing (`0x00,op`) + RGB565 pixels → clear colour bars; SPI 8 MHz; CS session (ADR-0010) |
+| Status surface (banner + slots) | **closed (HW)** | Same session: banner readable; product boot = `HARBOR` fill + status text (colour bars kept as lab API only) |
 
 
 ### Silicon transcript (debug-display, no HAT)
@@ -256,9 +256,14 @@ What those lines claim:
 
 - **`rng200: ok word=`** — presence probe succeeded, warm-up completed, FIFO
   produced a 32-bit sample. Not a CSPRNG claim (see `hardware.md`).
-- **`SPI0 ready  cdiv=32  bit_clk=15625000`** — 500 MHz core / 16 MHz ceiling →
-  even CDIV 32; controller framed self-test under panel reset; handle installed
-  for later ILI9486 work. No glass, no fill, no status surface yet.
+- **`SPI0 ready  cdiv=32  bit_clk=15625000`** — early no-HAT bus self-test
+  (500 MHz core / 16 MHz ceiling → CDIV 32). HAT product image logs
+  `display: ILI9486 up  cdiv=…  bit_clk=… Hz  status` after panel bring-up
+  (lab ceiling 8 MHz until raised with glass re-check).
+- **Panel on glass (HAT):** PiScreen-class **regwidth=16 / buswidth=8** is
+  required. Logical cmd/param bytes expand to BE `u16` (`0x00,b`); RAMWR
+  payload stays raw RGB565. User-confirmed 2026-08-05: distinct colour bars +
+  status banner (proof); product path is navy + status text only.
 - **M3 / unmap / split** still healthy on the same boot (regression check).
 
 QEMU counterpart (default image, no feature): after MMU,
@@ -442,3 +447,9 @@ powers down, and the EEPROM does not restart: every "power cycle" after the
 first is a no-op, and the board sits silent with a perfectly good card in it.
 Do not wire the adapter's VCC line; if the back-feed persists through TX/RX,
 unplug the adapter from USB as part of each cycle.
+
+**Dual dongle (PC + Pi USB):** plugging a second USB–serial into a Pi USB port
+(or null-modeming two adapters together) does not give Harbor a second console.
+The kernel only drives PL011 on GPIO 14/15; bare metal has no USB host/CDC.
+Keep the lab path as PC adapter ↔ header UART ([`hardware.md`](hardware.md#serial-console)).
+The on-Pi dongle is for Linux-side work only.

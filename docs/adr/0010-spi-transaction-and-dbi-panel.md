@@ -91,9 +91,20 @@ panel.
 
 - DMA SPI (separate decision when measured);
 - embedded-graphics / full compositor;
-- 16-bit SPI mode unless a named SKU profile proves 8-bit insufficient;
+- **SPI controller 16-bit mode** (BCM word size / mode bits) unless a named SKU
+  proves 8-bit buswidth insufficient — do not confuse with **regwidth-16
+  framing** below;
 - Feature-gating around missing silicon (use `arch::probe` where absence is
   expected, as for RNG200).
+
+### SKU wire framing (Waveshare / PiScreen)
+
+fbtft `piscreen` uses `regwidth=16` on `buswidth=8`: every **command** and
+**parameter** byte is sent as a big-endian `u16` with high byte zero
+(`0x00, opcode`). Pixel RGB565 words are raw 16-bit colour (not zero-padded).
+That is still SPI mode 0, 8-bit words on the BCM block. Bare 8-bit commands on
+that HAT class produce noise / faint lines on glass (observed 2026-08-05);
+reg16 framing is part of the Waveshare BSP profile, not a protocol workaround.
 
 ## Consequences
 
@@ -109,6 +120,7 @@ panel.
 - Ili9486 fill needs a path to `with_bus` (concrete `ExclusiveDevice` or a thin
   session trait). Generic `SpiDevice` alone is not enough for multi-write
   under one CS — that is intentional: the short-write trait stays simple.
+- Register writes expand each logical byte to two wire bytes (SKU profile).
 
 ### Gate that would catch a reversal
 
@@ -118,9 +130,10 @@ panel.
 | Full-frame alloc for solid fill | ~300 KiB heap spike at boot |
 | CS toggled inside `ili9486` | Layering / ADR-0009 hard rule |
 | Silent panel failure | No `display: …` line; boot still continues |
+| Drop reg16 framing on Waveshare HAT | Gray noise / faint lines instead of solid colours |
 
 ## Related
 
 - [0009](0009-optional-spi-tft-debug-console.md) — overall display side-track
 - [`../hardware.md`](../hardware.md) — pinout and SKU notes
-- Linux `fb_ili9486` — init table cross-check only
+- Linux `fb_ili9486` / fbtft `piscreen` — init + regwidth cross-check only

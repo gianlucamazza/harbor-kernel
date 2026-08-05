@@ -23,6 +23,7 @@ the code that follows.
 | [0008](0008-irq-handler-policy.md)          | IRQ handler policy for cooperative wakes (F13/M4)| proposed |
 | [0009](0009-optional-spi-tft-debug-console.md) | Optional SPI TFT status surface (ILI9486 HAT) | accepted |
 | [0010](0010-spi-transaction-and-dbi-panel.md) | SPI transactions and DBI panel streaming | accepted |
+| [0011](0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in (F15) | accepted |
 
 Operational reviews (findings, not decisions): [`../reviews/`](../reviews/).
 

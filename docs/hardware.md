@@ -12,6 +12,18 @@
 
 ## Serial console
 
+Harbor’s console is **only** the on-chip **PL011 UART0** on the 40-pin header.
+There is no USB host / CDC stack in the kernel today, so a USB–serial dongle
+plugged into a **Pi USB port is not a console** for Harbor (it is invisible to
+the bare-metal image). Lab path:
+
+```text
+[PC] USB ──► 3.3 V adapter ── TX ──► Pi header 10 (GPIO 15 RX)
+                           ── RX ◄── Pi header 8  (GPIO 14 TX)
+                           ── GND ── Pi GND
+                           (do not wire adapter VCC → back-feed)
+```
+
 | Signal | Header pin | BCM GPIO | Function |
 |--------|------------|----------|----------|
 | TX (Pi → host) | 8 | GPIO 14 | PL011 UART0 TXD |
@@ -35,6 +47,12 @@ Host example:
 make serial SERIAL_DEV=/dev/ttyUSB0
 # or: picocom -b 115200 /dev/ttyUSB0
 ```
+
+A second, identical dongle on the Pi’s USB port (or two dongles null-modemed
+to each other) does **not** replace the GPIO path above. That second device is
+only useful under an OS with USB host drivers (e.g. Raspberry Pi OS), not under
+Harbor. Capture gotchas (one reader, no VCC, unplug on power cycle):
+[`verification.md`](verification.md#serial-capture).
 
 ## Interrupt controller (M1)
 
@@ -117,19 +135,24 @@ sits inside the existing 16 MiB peripheral Device map (`0xFE00_0000`).
 
 ## Optional status display — Waveshare-class 3.5″ SPI TFT
 
-**Status:** side-track in progress (not an M-milestone). Policy:
-[ADR-0009](adr/0009-optional-spi-tft-debug-console.md) (**accepted**). Foundation
-in tree behind `--features debug-display` (or `make FEATURES=debug-display img`):
-GPIO claim API, `SpiBus`/`SpiDevice`, polled SPI0 with FIFO chunking, BSP bind,
-resident handle after boot self-test **with the panel held in reset**. **SPI0 + ILI9486 fill** ship behind `debug-display` (solid navy `HARBOR` colour
-so the glass is not left white). Bus path closed on silicon; re-check fill with
-HAT seated — see [`verification.md`](verification.md#rng200-and-spi0-hardware).
-Status surface (8×8 text slots, idle ticks/heap, panic banner) ships behind
-the same feature; UART remains the full log.
+**Status:** lab side-track **silicon-closed** for v1 status surface (not an
+M-milestone). Policy: [ADR-0009](adr/0009-optional-spi-tft-debug-console.md)
+(**accepted**), streaming CS [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md).
+
+Behind `--features debug-display` (`make FEATURES=debug-display img`):
+
+- GPIO claim, `SpiBus` / `SpiDevice` / `with_bus`, polled SPI0
+- ILI9486 PiScreen init + **regwidth-16** wire framing
+- Boot: full-screen navy `HARBOR` + dirty-cell status text (8×8 slots, idle
+  ticks/heap, panic banner)
+- UART remains the full log (no serial mirror on glass)
+
+Evidence: [`verification.md`](verification.md#rng200-and-spi0-hardware). Touch
+and higher SPI rates are open. Default (feature-off) images stay HAT-free.
 
 This is **not** HDMI, DSI, or a VideoCore framebuffer. It is a GPIO HAT that
-drives a TFT over **SPI0** with an **ILI9486** controller. Harbor will talk to
-the panel from EL1 through a generic SPI + panel stack; the HAT is a **BSP
+drives a TFT over **SPI0** with an **ILI9486** controller. Harbor talks to the
+panel from EL1 through a generic SPI + panel stack; the HAT is a **BSP
 profile**, not the architecture name.
 
 ### Target SKU
@@ -142,12 +165,14 @@ profile**, not the architecture name.
 | Colour | RGB565 (65 536 colours) |
 | LCD controller | ILI9486 |
 | Touch controller | XPT2046 (phase 2 only — second `SpiDevice` on the same bus) |
-| Bus | SPI0, mode 0; start ≤16 MHz; raise only with silicon evidence (Fmax often quoted ~32 MHz) |
-| v1 paint model | Cell/window updates — **not** a required full-frame 300 KiB buffer |
+| Bus | SPI0, mode 0; **8 MHz** closed on silicon (raise toward 16–32 MHz only with glass re-check) |
+| SPI framing | **regwidth=16 / buswidth=8** (fbtft `piscreen`): cmd/param as BE `u16` (`0x00,b`); pixels raw RGB565 — *not* “16-bit SPI mode” |
+| v1 paint model | Dirty cells / window streams — **no** mandatory full-frame 300 KiB buffer |
+| Product boot | `HARBOR` fill + status text; colour bars are lab API only |
 
 **A / B / C:** same pin class for documentation; **not** drop-in for init or
 MADCTL. Each letter is a named BSP profile with its own declarative init table.
-Model **C** high SPI rates are an optimisation after status text works.
+Higher SPI rates are an optimisation after status text is closed (done).
 
 ### HAT pinout (physical 40-pin header numbers)
 

@@ -22,21 +22,22 @@ the target; the milestone table says which parts exist.
 ┌────────────────────────────┴─────────────────────────────┐
 │  Kernel policy                                           │
 │  bootstrap · console_loop (idle) · sched · time · console│
-│  mm (heap + task stacks)                                 │
+│  mm (heap + task stacks) · status (debug-display TFT)    │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
 │  irq                  │     │  drivers                   │
 │  dispatch · IrqChip   │     │  gicv2 · pl011 · rng200    │
+│                       │     │  spi · ili9486 (feature)   │
 └───────────▲───────────┘     └───────────▲────────────────┘
             │ claim/eoi                   │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
-│  arch/exception       │     │  arch/{timer,mmu,switch}   │
-│  VBAR · frame · entry │     │  CNTP · map/unmap · yield  │
+│  arch/exception       │     │  arch/{timer,mmu,switch,   │
+│  VBAR · frame · entry │     │         probe}             │
 └───────────────────────┘     └────────────────────────────┘
             ▲                              ▲
             │         bsp/rpi4             │
-            └──── memmap · IRQ bind ───────┘
+            └─ memmap · IRQ · gpio · display (feature) ─┘
 ```
 
 ### Rules
@@ -168,20 +169,22 @@ listed here block nothing and are tracked in that report alone.
 | F18     | — (resolved)        | Absolute `CNTP_CVAL` deadlines + missed-tick counter; pure cooperative yield never depended on it                                                        |
 | F13     | M4                  | `Handler = fn()` cannot carry a capability — see [ADR-0008](adr/0008-irq-handler-policy.md)                                                              |
 | F26     | M6                  | Device windows are 16 MiB blankets; an agent-owned driver would receive all of it                                                                        |
-| F15     | none                | The DTB is mapped and never parsed, so board truth stays hard-coded. Parse it or risk-accept it in an ADR — today it is neither                          |
+| F15     | — (resolved)        | Risk-accepted: board truth is BSP constants; DTB mapped RO for a future parser — [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)           |
 | F24     | — (resolved)        | Layering rules 1–4 are enforced by `make layering`; non-import coupling remains review-only (gate blind spots in verification)                           |
 
 ### Side-track (not an M/P milestone)
 
 Optional lab **SPI TFT status surface** (Waveshare-class 3.5″ / ILI9486) is
-specified in [ADR-0009](adr/0009-optional-spi-tft-debug-console.md) and
+specified in [ADR-0009](adr/0009-optional-spi-tft-debug-console.md),
+[ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md), and
 [`hardware.md`](hardware.md). It is observability, not agent capability: UART
 stays primary; the panel is a structured status sink behind a default-off
-feature (`debug-display`). **SPI0 + RNG200 foundations are silicon-closed**
-([verification](verification.md#rng200-and-spi0-hardware)); ILI fill / status
-surface remain open. Missing peripherals soft-fail via `arch::probe` (QEMU
-RNG hole) rather than a feature gate. Must not block or redefine M4–M6; M6 may
-later *reuse* those drivers as agents.
+feature (`debug-display`). **SPI0, regwidth-16 ILI bring-up, and the status
+surface are silicon-closed**
+([verification](verification.md#rng200-and-spi0-hardware)). Missing
+peripherals soft-fail via `arch::probe` (QEMU RNG hole) rather than a feature
+gate. Must not block or redefine M4–M6; M6 may later *reuse* those drivers as
+agents.
 
 ## Decisions and reviews
 
@@ -197,8 +200,11 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0004](adr/0004-gic-group0-firmware-pin.md) | GIC Group 0 with IAR/EOIR, and the firmware pin (**accepted**)              |
 | [ADR-0005](adr/0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator (**accepted**)         |
 | [ADR-0006](adr/0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks); closes F12 (**accepted**) |
+| [ADR-0007](adr/0007-project-identity-harbor-kernel.md) | Project identity Harbor / `harbor-kernel` (**accepted**) |
 | [ADR-0008](adr/0008-irq-handler-policy.md)      | IRQ handler shape for M4 wakes / caps; closes F13 process (**proposed**) |
 | [ADR-0009](adr/0009-optional-spi-tft-debug-console.md) | Optional SPI TFT status surface; lab side-track (**accepted**) |
+| [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md) | SPI sessions + DBI stream; regwidth-16 SKU note (**accepted**) |
+| [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in; closes F15 (**accepted**) |
 | [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
 
 ## Non-goals

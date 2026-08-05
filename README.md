@@ -25,14 +25,15 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 
 | Area         | State                                                                                                                               |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Boot         | EL2→EL1, softfloat, DTB pointer captured (not parsed)                                                                               |
+| Boot         | EL2→EL1, softfloat, DTB pointer captured (mapped RO; board truth is BSP constants — ADR-0011)                                       |
 | Memory       | Multi-level identity map, **W^X**, guarded kernel + exception stacks, runtime `map`/`unmap` (block split), TLB maintenance                                    |
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
 | Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
 | Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters                                                          |
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Shared TX (`install_tx` / `kprintln`), interrupt-driven RX ring, idle `WFI` when no ready work                                      |
-| Verification | 142 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware               |
+| TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
+| Verification | 144 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
 
 ## What does not exist yet
 
@@ -53,19 +54,21 @@ Agents, mailboxes, and caps are the roadmap in
 
 ```
 crates/kernel-core/  pure logic, unit-tested on the host:
-                     paging, allocators, GIC maths, SPSC ring, runqueue (M3)
+                     paging, allocators, GIC maths, SPSC ring, runqueue (M3),
+                     display/textgrid (debug-display math)
 src/
-  arch/aarch64/   MMIO, CPU/DAIF, cache, vectors, MMU, unmap, switch, CNTP, bootinfo
+  arch/aarch64/   MMIO, CPU/DAIF, cache, vectors, MMU, unmap, switch, CNTP, probe, bootinfo
   irq/            IrqChip trait, dispatch table, counters
-  drivers/        PL011, GICv2, RNG200
-  bsp/rpi4/       memmap, GPIO, console, IRQ bind, RNG bind
+  drivers/        PL011, GICv2, RNG200; spi + ili9486 (+ delay/pin) behind debug-display
+  bsp/rpi4/       memmap, GPIO, console, IRQ bind, RNG bind; display bind (feature)
   bootstrap/      mod: boot sequence · console_loop: idle body · selftest: gates
   sched/          cooperative TCB, spawn, yield, exit (ADR-0006)
   mm/             heap + GlobalAlloc, layout, task stacks + guard unmap
   time/           tick counter
+  status.rs       TFT status slots (debug-display only)
   console.rs      TX claim/install + RX ring + print / kprintln
   sync.rs         SyncCell for globals the IRQ path shares
-  panic.rs        mask IRQ → steal console → halt
+  panic.rs        mask IRQ → steal console → halt (+ TFT banner if feature)
   boot.s          DTB pointer, EL2→EL1, early MMU, BSS, stack
   main.rs         → bootstrap::run()
 boot/config.txt   arm_64bit, enable_uart, enable_gic
@@ -164,11 +167,11 @@ QEMU: the SoC block is not modelled; presence is soft-failed via `arch::probe`.
 | DTB | Present, then mapped RO (e.g. `DTB mapped: 61440 bytes at 0x2eff1000`) |
 | `CNTFRQ` | `54000000` Hz (not TCG’s 62.5 MHz) |
 | RNG200 | `rng200: ok word=…` (raw sample; not a CSPRNG claim) |
-| SPI0 (`FEATURES=debug-display`) | `SPI0 ready  cdiv=32  bit_clk=15625000 Hz` (no HAT needed for that line) |
+| TFT (`FEATURES=debug-display` + HAT) | `display: ILI9486 up  cdiv=…  bit_clk=… Hz  status` — navy fill + status banner (regwidth-16) |
 
 Full HW evidence: stack split in
 [`docs/verification.md`](docs/verification.md#hardware-evidence-stack-split-closed);
-RNG + SPI0 in
+RNG + SPI0 + panel in
 [`docs/verification.md`](docs/verification.md#rng200-and-spi0-hardware).
 
 Typed characters are echoed via the RX IRQ ring (main idles with `WFI` between
