@@ -26,7 +26,8 @@ memory attributes the way Cortex-A72 does).
 **M5-P1…P3**, **M6 v1** (PL011 page-agent), and concurrent multi-agent shell
 **done (HW)** on Pi 4B; [ADR-0013](docs/adr/0013-narrow-device-windows.md)
 **accepted**; multi-SVC resume **done (HW)**; EL0 IRQ resume + `SYS_PUTC` +
-PL011 RX poll **done (QEMU)** ([issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1) v1).
+EL0 IRQ resume (architectural) + `SYS_PUTC` + RX poll path **done (QEMU)**
+([issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1) v1).
 Next: HW stamp + long-lived RX-owned agent. Roadmap:
 [`docs/architecture.md`](docs/architecture.md).
 

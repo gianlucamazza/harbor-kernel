@@ -79,6 +79,22 @@ pub fn init(hz: u32) -> Result<(), TimerError> {
     Ok(())
 }
 
+/// Bring the next absolute deadline forward to roughly `counts` after *now*.
+///
+/// Updates [`DEADLINE`] so the next [`on_interrupt`] keeps the absolute phase
+/// series (not a one-shot detour). Used when an EL0 session must observe a
+/// timer IRQ promptly without waiting a full idle period.
+///
+/// **Caller must hold the EL1 IRQ mask** if the intent is for lower-EL to see
+/// the tick: with DAIF.I clear at EL1 the line is claimed by
+/// `exception_irq_el1` before `el0::enter` runs.
+pub fn accelerate_next_tick(counts: u64) {
+    let d = physical_count().saturating_add(counts.max(1));
+    DEADLINE.store(d, Ordering::Relaxed);
+    write_cval(d);
+    write_ctl(0b001);
+}
+
 /// Re-arm the next deadline. Called from the IRQ path only.
 ///
 /// Returns the number of periods that expired unserviced, which is normally

@@ -1,0 +1,124 @@
+//! AArch64 user-text instruction words (little-endian host encoding helpers).
+//!
+//! Pure bit patterns for smoke programs and agent payloads. Host-tested so the
+//! kernel does not invent SVC/branch encodings by hand in multiple places.
+
+/// `svc #imm` (A64).
+#[inline]
+pub const fn svc(imm: u16) -> u32 {
+    0xD400_0001 | ((imm as u32) << 5)
+}
+
+/// `movz xd, #imm16` (LSL #0).
+#[inline]
+pub const fn movz_x(rd: u8, imm16: u16) -> u32 {
+    0xD280_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
+}
+
+/// `movz xd, #imm16, lsl #16`.
+#[inline]
+pub const fn movz_x_lsl16(rd: u8, imm16: u16) -> u32 {
+    0xD2A0_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
+}
+
+/// `b .` — branch to self (infinite wait until interrupted or replaced).
+#[inline]
+pub const fn b_self() -> u32 {
+    0x1400_0000
+}
+
+/// `sub xd, xn, #imm12` (64-bit, shift 0).
+#[inline]
+pub const fn sub_x_imm(rd: u8, rn: u8, imm12: u16) -> u32 {
+    0xD100_0000 | ((imm12 as u32 & 0xFFF) << 10) | ((rn as u32 & 0x1F) << 5) | (rd as u32 & 0x1F)
+}
+
+/// `cbnz xt, label` — `offset_words` is a signed PC-relative word offset.
+#[inline]
+pub const fn cbnz_x(rt: u8, offset_words: i32) -> u32 {
+    let imm19 = (offset_words as u32) & 0x7_FFFF;
+    0xB500_0000 | (imm19 << 5) | (rt as u32 & 0x1F)
+}
+
+/// `ldr wt, [xn, #pimm]` — unsigned offset, `pimm` byte offset (multiple of 4).
+#[inline]
+pub const fn ldr_w_imm(rt: u8, rn: u8, pimm: u16) -> u32 {
+    let imm12 = (pimm as u32) / 4;
+    0xB940_0000 | (imm12 << 10) | ((rn as u32 & 0x1F) << 5) | (rt as u32 & 0x1F)
+}
+
+/// `ldrb wt, [xn]` — zero offset.
+#[inline]
+pub const fn ldrb_w(rt: u8, rn: u8) -> u32 {
+    0x3940_0000 | ((rn as u32 & 0x1F) << 5) | (rt as u32 & 0x1F)
+}
+
+/// `tbnz rt, #bit, label` — 32-bit form; `offset_words` signed PC-relative.
+#[inline]
+pub const fn tbnz_w(rt: u8, bit: u8, offset_words: i32) -> u32 {
+    let imm14 = (offset_words as u32) & 0x3FFF;
+    0x3700_0000 | ((bit as u32 & 0x1F) << 19) | (imm14 << 5) | (rt as u32 & 0x1F)
+}
+
+/// Little-endian bytes of one A64 word.
+#[inline]
+pub const fn le_bytes(word: u32) -> [u8; 4] {
+    word.to_le_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn svc_encodings() {
+        assert_eq!(svc(0), 0xD400_0001);
+        assert_eq!(svc(1), 0xD400_0021);
+        assert_eq!(svc(2), 0xD400_0041);
+    }
+
+    #[test]
+    fn movz_x0_ascii() {
+        assert_eq!(movz_x(0, u16::from(b'H')), 0xD280_0000 | ((u16::from(b'H') as u32) << 5));
+    }
+
+    #[test]
+    fn movz_pl011_va_half() {
+        // USER_PL011_VA = 0x5000_0000 → movz x0, #0x5000, lsl #16
+        assert_eq!(movz_x_lsl16(0, 0x5000), 0xD2A0_0000 | (0x5000 << 5));
+    }
+
+    #[test]
+    fn ldr_fr_offset() {
+        // ldr w1, [x0, #0x18]
+        assert_eq!(ldr_w_imm(1, 0, 0x18), 0xB940_1801);
+    }
+
+    #[test]
+    fn tbnz_rxfe_skip_two_insns() {
+        // tbnz w1, #4, +3 words (skip ldrb + svc putc → exit)
+        assert_eq!(tbnz_w(1, 4, 3), 0x3700_0000 | (4 << 19) | (3 << 5) | 1);
+    }
+
+    #[test]
+    fn spin_loop_back_edge() {
+        // sub; cbnz x0, 1b → offset is −1 word (not −2: PC is the cbnz itself).
+        // Matches gas: `sub x0,x0,#1; cbnz x0, .-4` → 0xb5ffffe0
+        assert_eq!(cbnz_x(0, -1), 0xB5FF_FFE0);
+    }
+
+    #[test]
+    fn spin_program_words_match_gas() {
+        // movz x0, #64; sub x0,x0,#1; cbnz x0,1b; svc #1; b .
+        assert_eq!(movz_x(0, 64), 0xD280_0800);
+        assert_eq!(sub_x_imm(0, 0, 1), 0xD100_0400);
+        assert_eq!(cbnz_x(0, -1), 0xB5FF_FFE0);
+        assert_eq!(svc(1), 0xD400_0021);
+        assert_eq!(b_self(), 0x1400_0000);
+    }
+
+    #[test]
+    fn b_self_is_infinite() {
+        assert_eq!(b_self(), 0x1400_0000);
+    }
+}

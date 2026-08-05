@@ -198,8 +198,8 @@ Protocol notes load-bearing for silicon:
 | Concurrent multi-agent shell | **closed (QEMU + HW)** | `agents: concurrent ok` (`src/agent`) |
 | Multi-SVC resume (`enter`/`resume`) | **closed (QEMU + HW)** | `el0-task: resume pings=2` (`SYS_EXIT` ends session) |
 | `SYS_PUTC` (imm 2) | **closed (QEMU)** | `el0-task: putc bytes=2` (bytes also appear on serial) |
-| EL0 IRQ save/resume | **closed (QEMU)** | `el0-task: irq resume irqs=N` (N≥1) |
-| PL011 RX poll session | **closed (QEMU)** | `pl011-agent: rx poll ok` (`suspend_rx` for the session) |
+| EL0 IRQ save/resume (re-execute) | **closed (QEMU)** | `el0-task: irq resume irqs=N` (N≥1); no software ELR skip |
+| PL011 RX poll path | **closed (QEMU)** | `pl011-agent: rx poll empty` or `… data` (`suspend_rx` for the session) |
 | Silicon (M5-P / M6 / agents / resume) | **closed (HW)** | Pi 4B + CP2104, `FEATURES=debug-display`, 2026-08-05 — transcript below |
 | Silicon (IRQ / putc / RX poll) | **open** | same QEMU oracles on Pi 4B |
 

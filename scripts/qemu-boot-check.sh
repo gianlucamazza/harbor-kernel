@@ -138,7 +138,8 @@ grep -q 'el0-task: ok' "${log}" ||
 # M6 v1: PL011 page-only agent + kill (ADR-0013).
 grep -q 'pl011-agent: FR read + svc ok' "${log}" ||
 	fail "pl011 EL0 agent did not read FR and svc"
-grep -q 'pl011-agent: rx poll ok' "${log}" ||
+# Empty is the honest QEMU path (no typed input). `rx poll data` is HW/input.
+grep -qE 'pl011-agent: rx poll (empty|data)' "${log}" ||
 	fail "pl011 EL0 RX poll session failed"
 grep -q 'pl011-agent: killed ok' "${log}" ||
 	fail "pl011 agent AS destroy / kill path failed"

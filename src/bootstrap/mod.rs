@@ -532,9 +532,13 @@ fn el0_scheduled_task() {
         Err(e) => crate::kprintln!("el0-task: putc FAILED {e:?}"),
     }
 
-    // EL0 IRQ wake: branch-wait with IRQs unmasked; timer → handle → skip → exit.
+    // EL0 IRQ resume (architectural re-execute): arm the next tick under the
+    // EL1 IRQ mask so EL1 does not claim it first; finite spin with EL0 IRQs
+    // open; handle + resume re-executes; GPRs survive; SYS_EXIT ends.
     el0::set_entry_irqs_unmasked();
-    match agent.run_user_prog_irq_wake(&agent::encode_branch_wait_exit()) {
+    match agent.run_user_prog_resuming_prep(&agent::encode_spin_exit(0x800), || {
+        timer::accelerate_next_tick(1);
+    }) {
         Ok(s) if s.irqs >= 1 => crate::kprintln!("el0-task: irq resume irqs={}", s.irqs),
         Ok(s) => crate::kprintln!("el0-task: irq resume unexpected irqs={}", s.irqs),
         Err(e) => crate::kprintln!("el0-task: irq resume FAILED {e:?}"),
@@ -592,17 +596,13 @@ fn pl011_agent_task() {
     }
 
     // RX poll with kernel drain suspended (agent owns DR for this session).
+    // Empty FIFO is an honest outcome (no invented RX data). A pending byte
+    // yields putcs=1 via SYS_PUTC. Full RX ownership is a later slice.
     let rx_base = console::suspend_rx();
     match agent.run_user_prog_resuming(&agent::encode_pl011_rx_poll_exit()) {
-        Ok(s) => {
-            // QEMU boot has no typed input: empty FIFO → putcs=0 is success.
-            // With a character pending, putcs=1 proves DR read + SYS_PUTC.
-            crate::kprintln!(
-                "pl011-agent: rx poll ok  putcs={} irqs={}",
-                s.putcs,
-                s.irqs
-            );
-        }
+        Ok(s) if s.putcs == 0 => crate::kprintln!("pl011-agent: rx poll empty"),
+        Ok(s) if s.putcs == 1 => crate::kprintln!("pl011-agent: rx poll data"),
+        Ok(s) => crate::kprintln!("pl011-agent: rx poll unexpected putcs={}", s.putcs),
         Err(e) => crate::kprintln!("pl011-agent: rx poll FAILED {e:?}"),
     }
     console::resume_rx(rx_base);

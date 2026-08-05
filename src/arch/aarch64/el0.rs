@@ -81,7 +81,7 @@ pub unsafe fn enter(ttbr0_phys: usize, entry: u64, user_sp: u64) -> El0Outcome {
 /// Continue after [`El0Outcome::Svc`] or [`El0Outcome::Irq`].
 ///
 /// After SVC, `ELR` already points past the insn. After IRQ, `ELR` is the
-/// interrupted insn (unless the agent advanced it).
+/// interrupted insn — architectural re-execute on resume (no software skip).
 ///
 /// # Safety
 /// Prior event was resumable; IRQs masked at EL1; session not ended.
@@ -128,21 +128,6 @@ fn unpack(packed: u64) -> El0Outcome {
 #[inline]
 pub fn saved_x0() -> u64 {
     unsafe { EL0_SAVED.gpr[0] }
-}
-
-/// Advance saved `ELR` by `delta` bytes (e.g. skip a `WFI` after IRQ wake).
-///
-/// # Safety
-/// Session must be resumable; `delta` must land on a valid user insn.
-#[inline]
-pub unsafe fn advance_saved_elr(delta: u64) {
-    unsafe { EL0_SAVED.elr = EL0_SAVED.elr.wrapping_add(delta) };
-}
-
-/// Set DAIF.I in the saved `SPSR` so the next [`resume`] runs EL0 with IRQs masked.
-#[inline]
-pub fn mask_saved_irqs() {
-    unsafe { EL0_SAVED.spsr |= 1 << 7 };
 }
 
 #[unsafe(no_mangle)]

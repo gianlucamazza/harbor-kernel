@@ -4,23 +4,26 @@
 //! enter EL0 through [`crate::arch::el0`] sessions. Matches ADR-0006
 //! (cooperative) and ADR-0014 (kernel `TTBR0` on lower-EL return).
 //!
-//! Sessions support **SVC resume** and **IRQ resume**:
+//! Sessions support **SVC resume** and **IRQ resume** (architectural):
 //! - `svc #0` ([`kernel_core::syscall::SYS_PING`]) — count and resume
 //! - `svc #1` ([`kernel_core::syscall::SYS_EXIT`]) — end session
 //! - `svc #2` ([`kernel_core::syscall::SYS_PUTC`]) — TX low 8 bits of saved `x0`
-//! - [`el0::El0Outcome::Irq`] — run [`crate::irq::handle_cpu_irq`], then resume
+//! - [`el0::El0Outcome::Irq`] — [`crate::irq::handle_cpu_irq`], then resume at
+//!   the interrupted insn (no software ELR skip)
 //!
 //! Default entry masks IRQs in EL0. Call [`el0::set_entry_irqs_unmasked`] before
-//! a session that should take lower-EL IRQs (e.g. timer while user waits).
+//! a session that should take lower-EL IRQs.
 
 use core::sync::atomic::{AtomicU32, Ordering};
+
+use kernel_core::a64;
+use kernel_core::syscall::{self, Syscall};
 
 use crate::arch::{cpu, el0};
 use crate::console;
 use crate::irq;
 use crate::mm::{self, AddressSpace, AsError};
 use crate::sched;
-use kernel_core::syscall::{self, Syscall};
 
 /// Why agent create / EL0 entry failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,15 +44,6 @@ pub struct SessionStats {
     pub pings: u32,
     pub putcs: u32,
     pub irqs: u32,
-}
-
-/// How [`Agent::run_session`] treats [`el0::El0Outcome::Irq`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum IrqResume {
-    /// `handle_cpu_irq` then [`el0::resume`] (re-execute interrupted insn).
-    Plain,
-    /// First IRQ: handle, skip one insn, mask EL0 IRQs, resume (WFI wake).
-    WakeSkipInsn,
 }
 
 /// EL1-owned user address space ready for one-shot EL0 entry.
@@ -86,22 +80,24 @@ impl Agent {
     }
 
     /// Multi-event session: resume after Ping / Putc / Irq; stop on Exit / fault.
-    pub fn run_user_prog_resuming(&mut self, prog: &[u8]) -> Result<SessionStats, AgentError> {
-        self.run_session(prog, IrqResume::Plain)
-    }
-
-    /// Like [`run_user_prog_resuming`], but the first IRQ is treated as a wake:
-    /// handle the IRQ, skip one user insn (typically `WFI`), mask EL0 IRQs, resume.
     ///
-    /// Use with [`encode_wfi_exit`] so the session reaches `SYS_EXIT` after one tick.
-    pub fn run_user_prog_irq_wake(&mut self, prog: &[u8]) -> Result<SessionStats, AgentError> {
-        self.run_session(prog, IrqResume::WakeSkipInsn)
+    /// IRQ resume re-executes the interrupted instruction (architectural). User
+    /// text must make forward progress itself (e.g. a finite spin whose GPRs
+    /// survive the save/restore).
+    pub fn run_user_prog_resuming(&mut self, prog: &[u8]) -> Result<SessionStats, AgentError> {
+        self.run_user_prog_resuming_prep(prog, || {})
     }
 
-    fn run_session(
+    /// Like [`run_user_prog_resuming`], but runs `before_enter` with EL1 IRQs
+    /// already masked, immediately before [`el0::enter`].
+    ///
+    /// Required for setups that arm a soon timer deadline: if that ran with
+    /// IRQs open at EL1, the tick would be claimed by `exception_irq_el1` and
+    /// never observed as [`el0::El0Outcome::Irq`].
+    pub fn run_user_prog_resuming_prep(
         &mut self,
         prog: &[u8],
-        irq_policy: IrqResume,
+        before_enter: impl FnOnce(),
     ) -> Result<SessionStats, AgentError> {
         self.aspace
             .poke_user(0, prog)
@@ -110,6 +106,7 @@ impl Agent {
         let entry = self.aspace.user_entry_va();
         let sp = self.aspace.user_sp();
         cpu::without_irqs(|| {
+            before_enter();
             // SAFETY: prepared AS; sole session; IRQs masked at EL1 around enter/resume.
             let mut event = unsafe { el0::enter(root, entry, sp) };
             let mut stats = SessionStats::default();
@@ -136,14 +133,8 @@ impl Agent {
                         }
                     },
                     el0::El0Outcome::Irq => {
-                        // Same path as same-EL IRQ: claim → dispatch → EOI.
                         irq::handle_cpu_irq();
                         stats.irqs = stats.irqs.saturating_add(1);
-                        if matches!(irq_policy, IrqResume::WakeSkipInsn) && stats.irqs == 1 {
-                            // Skip WFI; mask further EL0 IRQs so exit SVC runs.
-                            unsafe { el0::advance_saved_elr(4) };
-                            el0::mask_saved_irqs();
-                        }
                         event = unsafe { el0::resume() };
                     }
                     _ => {
@@ -161,25 +152,20 @@ impl Agent {
     }
 }
 
+#[inline]
+fn push_word(out: &mut [u8], at: &mut usize, word: u32) {
+    let b = a64::le_bytes(word);
+    out[*at..*at + 4].copy_from_slice(&b);
+    *at += 4;
+}
+
 /// A64: `svc #imm` ; `b .`
 pub fn encode_svc_imm(imm: u16) -> [u8; 8] {
-    let word = 0xD400_0001u32 | ((imm as u32) << 5);
-    let b = word.to_le_bytes();
-    [b[0], b[1], b[2], b[3], 0x00, 0x00, 0x00, 0x14]
-}
-
-/// A64: `movz x0, #imm16` (LSL #0).
-#[inline]
-pub fn encode_movz_x0(imm16: u16) -> [u8; 4] {
-    let word = 0xD280_0000u32 | ((imm16 as u32) << 5);
-    word.to_le_bytes()
-}
-
-/// A64: `svc #imm` only (no trailing branch).
-#[inline]
-pub fn encode_svc_word(imm: u16) -> [u8; 4] {
-    let word = 0xD400_0001u32 | ((imm as u32) << 5);
-    word.to_le_bytes()
+    let mut out = [0u8; 8];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::svc(imm));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
 }
 
 /// Dispatch a returned `SVC` outcome for demo agents.
@@ -197,82 +183,70 @@ pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
 
 /// A64: `svc #0; svc #0; svc #1; b .` — two pings then exit (resume path).
 pub fn encode_ping_ping_exit() -> [u8; 16] {
-    let s0 = encode_svc_word(0);
-    let s1 = encode_svc_word(1);
-    [
-        s0[0], s0[1], s0[2], s0[3], // svc #0
-        s0[0], s0[1], s0[2], s0[3], // svc #0
-        s1[0], s1[1], s1[2], s1[3], // svc #1
-        0x00, 0x00, 0x00, 0x14, // b .
-    ]
+    let mut out = [0u8; 16];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::svc(0));
+    push_word(&mut out, &mut i, a64::svc(0));
+    push_word(&mut out, &mut i, a64::svc(1));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
 }
 
 /// A64: `movz x0, #'H'; svc #2; movz x0, #'!'; svc #2; svc #1; b .`
 pub fn encode_putc_hi_exit() -> [u8; 24] {
-    let m_h = encode_movz_x0(u16::from(b'H'));
-    let m_b = encode_movz_x0(u16::from(b'!'));
-    let putc = encode_svc_word(2);
-    let exit = encode_svc_word(1);
-    [
-        m_h[0], m_h[1], m_h[2], m_h[3],
-        putc[0], putc[1], putc[2], putc[3],
-        m_b[0], m_b[1], m_b[2], m_b[3],
-        putc[0], putc[1], putc[2], putc[3],
-        exit[0], exit[1], exit[2], exit[3],
-        0x00, 0x00, 0x00, 0x14,
-    ]
+    let mut out = [0u8; 24];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, u16::from(b'H')));
+    push_word(&mut out, &mut i, a64::svc(2));
+    push_word(&mut out, &mut i, a64::movz_x(0, u16::from(b'!')));
+    push_word(&mut out, &mut i, a64::svc(2));
+    push_word(&mut out, &mut i, a64::svc(1));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
 }
 
-/// A64: `b .; svc #1; b .` — tight wait for IRQ, then exit.
-///
-/// Pair with [`Agent::run_user_prog_irq_wake`] + [`el0::set_entry_irqs_unmasked`]:
-/// the first IRQ skips the branch and runs `SYS_EXIT`. Prefer this over EL0
-/// `WFI` (QEMU often falls through) and over long counted spins (starve the
-/// cooperative scheduler under TCG).
-pub fn encode_branch_wait_exit() -> [u8; 12] {
-    let exit = encode_svc_word(1);
-    [
-        0x00, 0x00, 0x00, 0x14, // b .
-        exit[0], exit[1], exit[2], exit[3],
-        0x00, 0x00, 0x00, 0x14, // b .
-    ]
-}
-
-/// PL011 RX poll once at `USER_PL011_VA`: if RX not empty, `SYS_PUTC` the byte; then exit.
+/// Finite spin then `SYS_EXIT` — GPRs survive IRQ save/restore, so this makes
+/// forward progress under plain (architectural) IRQ resume.
 ///
 /// ```text
-/// movz x0, #0x5000, lsl #16     // USER_PL011_VA
-/// ldr  w1, [x0, #0x18]          // FR
-/// tbnz w1, #4, 1f               // RXFE set → empty
-/// ldrb w0, [x0]                 // DR
-/// svc  #2                       // putc
-/// 1: svc #1                     // exit
+/// movz x0, #iters          // low 16 bits; high half zero
+/// 1: sub  x0, x0, #1
+///    cbnz x0, 1b            // offset −1 word from the cbnz (gas-checked)
+/// svc #1
 /// b .
 /// ```
+///
+/// Pair with [`el0::set_entry_irqs_unmasked`] and
+/// [`crate::arch::timer::accelerate_next_tick`] so a timer IRQ arrives while
+/// the counter is still non-zero.
+pub fn encode_spin_exit(iters: u16) -> [u8; 20] {
+    let mut out = [0u8; 20];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, iters));
+    push_word(&mut out, &mut i, a64::sub_x_imm(0, 0, 1));
+    push_word(&mut out, &mut i, a64::cbnz_x(0, -1));
+    push_word(&mut out, &mut i, a64::svc(1));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
+/// PL011 RX poll once at `USER_PL011_VA` (`0x5000_0000`):
+/// if RX not empty, `SYS_PUTC` the byte; always `SYS_EXIT`.
+///
+/// Empty FIFO → zero putcs (honest “no data” path). A pending character → one
+/// putc. Does not invent receive data.
 pub fn encode_pl011_rx_poll_exit() -> [u8; 28] {
-    // movz x0, #0x5000, lsl #16
-    let movz: u32 = 0xD2A0_0000 | (0x5000u32 << 5);
-    let movz_b = movz.to_le_bytes();
-    // ldr w1, [x0, #0x18]  — Rn=x0, Rt=w1, imm12=6 (byte offset 0x18)
-    let ldr_fr: u32 = 0xB940_0000 | (6u32 << 10) | 1;
-    let ldr_fr_b = ldr_fr.to_le_bytes();
-    // tbnz w1, #4, +3 words → svc #1 when RXFE set (empty).
-    // PC-relative word offset from this insn; skip ldrb + svc #2.
-    let tbnz: u32 = 0x3700_0000 | (4u32 << 19) | ((3u32 & 0x3FFF) << 5) | 1;
-    let tbnz_b = tbnz.to_le_bytes();
-    // ldrb w0, [x0]  — Rn=x0, Rt=w0
-    let ldrb_b = 0x3940_0000u32.to_le_bytes();
-    let putc = encode_svc_word(2);
-    let exit = encode_svc_word(1);
-    [
-        movz_b[0], movz_b[1], movz_b[2], movz_b[3],
-        ldr_fr_b[0], ldr_fr_b[1], ldr_fr_b[2], ldr_fr_b[3],
-        tbnz_b[0], tbnz_b[1], tbnz_b[2], tbnz_b[3],
-        ldrb_b[0], ldrb_b[1], ldrb_b[2], ldrb_b[3],
-        putc[0], putc[1], putc[2], putc[3],
-        exit[0], exit[1], exit[2], exit[3],
-        0x00, 0x00, 0x00, 0x14,
-    ]
+    let mut out = [0u8; 28];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x_lsl16(0, 0x5000));
+    push_word(&mut out, &mut i, a64::ldr_w_imm(1, 0, 0x18));
+    // RXFE (bit 4) set → empty → skip ldrb + putc
+    push_word(&mut out, &mut i, a64::tbnz_w(1, 4, 3));
+    push_word(&mut out, &mut i, a64::ldrb_w(0, 0));
+    push_word(&mut out, &mut i, a64::svc(2));
+    push_word(&mut out, &mut i, a64::svc(1));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
 }
 
 // --- Concurrent two-agent barrier (cooperative) ---
@@ -310,7 +284,6 @@ pub fn concurrent_agent_alpha() {
     CONC.fetch_or(A_PREP, Ordering::Release);
     wait_bits(A_PREP | B_PREP);
 
-    // Both AS live — free count is the dual-live baseline (ignore other tasks).
     let free_live = mm::frames::free_count();
     FREE_AT_DUAL_LIVE.store(free_live, Ordering::Release);
 
@@ -327,7 +300,6 @@ pub fn concurrent_agent_alpha() {
 
     let free_after = mm::frames::free_count();
     let free_live = FREE_AT_DUAL_LIVE.load(Ordering::Acquire);
-    // Both AS gone ⇒ pool free must rise strictly above the dual-live mark.
     if free_after > free_live {
         crate::kprintln!("agents: concurrent ok  pool={free_after}");
     } else {
@@ -356,6 +328,5 @@ pub fn concurrent_agent_beta() {
 
     agent.destroy();
     CONC.fetch_or(B_DIE, Ordering::Release);
-    // Alpha owns the pool check; yield so it can observe post-destroy free.
     sched::yield_now();
 }

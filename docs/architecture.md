@@ -202,17 +202,20 @@ Pi 4B stamp: [verification.md §M5-P / M6](verification.md#m5-p--m6-v1-qemu) (20
 
 | Slice | Status | Evidence |
 | ----- | ------ | -------- |
-| **EL0 IRQ save/resume** | **done (QEMU)** | lower-EL IRQ → `El0Outcome::Irq`; `handle_cpu_irq` + resume; `el0-task: irq resume irqs=N` |
+| **EL0 IRQ save/resume** | **done (QEMU)** | lower-EL IRQ → `El0Outcome::Irq`; `handle_cpu_irq` + **architectural re-execute** resume; `el0-task: irq resume irqs=N` |
 | **`SYS_PUTC`** | **done (QEMU)** | imm 2; saved `x0` → kernel TX; `el0-task: putc bytes=2` |
-| **PL011 RX poll** | **done (QEMU)** | `suspend_rx` + user FR/DR poll + optional putc; `pl011-agent: rx poll ok` |
+| **PL011 RX poll path** | **done (QEMU)** | `suspend_rx` + user FR/DR poll; `pl011-agent: rx poll empty` (no invented RX data) |
 | Kernel panic/TX console | preserved | TX stays kernel-owned; RX drain suspended only for the poll session |
+
+**Non-goals in v1 (not deferred hacks):** software ELR skip after IRQ, treating empty
+FIFO as “received”, long-lived agent-owned console RX.
 
 ### Next (ordered)
 
 | # | Work | Done when |
 | - | ---- | --------- |
 | 1 | **HW stamp** for IRQ / putc / RX poll | Same oracles on Pi 4B serial |
-| 2 | **Full RX-owned agent** | Agent owns RX long-term; idle still ticks; kill restores kernel drain |
+| 2 | **Full RX-owned agent** | Agent owns RX long-term with real bytes; idle still ticks; kill restores kernel drain |
 | 3 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer.
