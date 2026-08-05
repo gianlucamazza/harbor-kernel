@@ -2,6 +2,13 @@
 
 **A verified Rust kernel for Raspberry Pi 4** — package `harbor-kernel`.
 
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![CI](https://github.com/gianlucamazza/harbor-kernel/actions/workflows/ci.yml/badge.svg)](https://github.com/gianlucamazza/harbor-kernel/actions)
+
+Repository: **https://github.com/gianlucamazza/harbor-kernel** · Tracking:
+[issues](https://github.com/gianlucamazza/harbor-kernel/issues) ·
+[project](https://github.com/users/gianlucamazza/projects/3)
+
 A bare-metal AArch64 kernel for the **Raspberry Pi 4 Model B**, written in Rust
 (`no_std`), booting under the platform firmware. The long-term target is an
 agent-based microkernel; see _What exists_ below for the difference between
@@ -18,7 +25,8 @@ memory attributes the way Cortex-A72 does).
 [`docs/verification.md`](docs/verification.md#m5-el0--address-spaces)).
 **M5-P1…P3**, **M6 v1** (PL011 page-agent), and concurrent multi-agent shell
 **done (HW)** on Pi 4B; [ADR-0013](docs/adr/0013-narrow-device-windows.md)
-**accepted**. Next: EL0 resume / IRQ agent (optional product). Roadmap:
+**accepted**; multi-SVC resume **done (HW)**. Next: [EL0 IRQ / full RX
+agent](https://github.com/gianlucamazza/harbor-kernel/issues/1). Roadmap:
 [`docs/architecture.md`](docs/architecture.md).
 
 ## What exists
