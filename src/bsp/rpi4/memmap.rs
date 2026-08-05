@@ -6,11 +6,25 @@
 /// Start of the low peripheral MMIO window.
 pub const PERIPHERAL_BASE: usize = 0xFE00_0000;
 
+/// Granule for page tables, frame pool, and agent MMIO maps (4 KiB).
+pub const FRAME_SIZE: usize = 0x1000;
+
 /// GPIO controller.
 pub const GPIO_BASE: usize = PERIPHERAL_BASE + 0x0020_0000;
 
 /// PL011 UART0.
 pub const UART0_BASE: usize = PERIPHERAL_BASE + 0x0020_1000;
+
+/// PL011 register block size for **agent** Stage-1 maps (ADR-0013).
+///
+/// The hardware block is smaller; one 4 KiB page is the Stage-1 granule. Kernel
+/// EL1 may still sit inside the coarse peripherals window — agents must not.
+pub const UART0_REG_BYTES: usize = FRAME_SIZE;
+
+/// User VA where an EL0 agent maps the PL011 page (identity PA = [`UART0_BASE`]).
+///
+/// Disjoint from [`USER_VA_BASE`] stack/text window and from kernel identity RAM.
+pub const USER_PL011_VA: u64 = 0x0000_0000_5000_0000;
 
 /// RNG200 (iproc-rng200) register block — 0x28 bytes.
 ///
@@ -68,9 +82,6 @@ pub const UART0_SPI: u32 = 153;
 /// at those addresses. Two 1 GiB blocks are mapped, so allocation stops at
 /// 2 GiB even on 4/8 GB boards until the memory map is discovered at runtime.
 pub const IDENTITY_RAM_END: usize = 0x8000_0000;
-
-/// Granule of the ADR-0012 frame pool (matches 4 KiB page tables).
-pub const FRAME_SIZE: usize = 0x1000;
 
 /// Frames in the named user/AS phys pool (512 × 4 KiB = 2 MiB).
 ///

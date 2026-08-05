@@ -182,7 +182,23 @@ Protocol notes load-bearing for silicon:
 
 - User text: `poke_user` + D-cache clean to PoU / I invalidate.
 - Lower-EL paths never install a null `TTBR0`; missing session panics.
-- M5 smoke is a **bootstrap one-shot**, not a scheduled EL0 agent.
+- Bootstrap still runs the one-shot SVC/fault probes; **M5-P1** adds a
+  scheduled task (`el0-task:` lines).
+
+## M5-P / M6 v1 (QEMU)
+
+| Check | Status | Evidence |
+| --- | --- | --- |
+| Dual AS create/destroy | **closed (QEMU)** | `aspace: dual create/destroy ok` |
+| Scheduled EL0 + `svc #0` ping | **closed (QEMU)** | `el0-task: svc ping` / `el0-task: ok` |
+| Unknown `SVC` imm refused | **closed (QEMU)** | `el0-task: svc refuse imm=0x99` |
+| `kernel_core::syscall::decode` | **closed** | host unit tests |
+| ADR-0013 accepted | **yes** | agent page-sized PL011 only |
+| PL011 agent map + FR load + kill | **closed (QEMU)** | `pl011-agent: FR read + svc ok` / `killed ok` |
+| Silicon (M5-P / M6) | **open** | re-flash after code land |
+
+M6 v1 does **not** move console RX into the agent: the agent proves a **minimal
+Device map** and revocation; kernel idle still owns echo and ticks.
 
 ### Boot + cooperative yield (closed)
 

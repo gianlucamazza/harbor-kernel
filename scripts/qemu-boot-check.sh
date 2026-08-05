@@ -117,6 +117,23 @@ grep -q 'aspace: create/destroy ok' "${log}" ||
 if grep -q 'aspace: LEAK' "${log}"; then
 	fail "address-space leaked frames on destroy"
 fi
+grep -q 'aspace: dual create/destroy ok' "${log}" ||
+	fail "dual address-space create/destroy smoke failed"
+if grep -q 'aspace: dual LEAK' "${log}"; then
+	fail "dual address-space leaked frames"
+fi
+# M5-P1/P2: scheduled EL0 task + SVC dispatch.
+grep -q 'el0-task: svc ping' "${log}" ||
+	fail "scheduled el0-task did not complete svc ping"
+grep -q 'el0-task: svc refuse imm=0x99' "${log}" ||
+	fail "scheduled el0-task did not refuse unknown svc imm"
+grep -q 'el0-task: ok' "${log}" ||
+	fail "scheduled el0-task leaked frames or failed teardown"
+# M6 v1: PL011 page-only agent + kill (ADR-0013).
+grep -q 'pl011-agent: FR read + svc ok' "${log}" ||
+	fail "pl011 EL0 agent did not read FR and svc"
+grep -q 'pl011-agent: killed ok' "${log}" ||
+	fail "pl011 agent AS destroy / kill path failed"
 # M4 IPC (ADR-0008 shape + mailbox): message delivered; forge refuse counted.
 grep -q 'ipc: sent tag=1 a=42' "${log}" ||
 	fail "ipc sender did not deliver"

@@ -1,18 +1,18 @@
 ---
 id: 0013
 title: Narrow device MMIO windows for driver agents (F26 / M6)
-status: proposed
+status: accepted
 date: 2026-08-05
+accepted: 2026-08-05
 ---
 
-# ADR-0013: Narrow device MMIO windows (proposed)
+# ADR-0013: Narrow device MMIO windows (accepted)
 
 ## Acceptance status
 
-**Proposed.** Records finding **F26** and the shape M6 must follow. **Do not
-implement agent MMIO maps until this ADR is accepted** (possibly refined).
-Kernel EL1 may keep large Device regions for bring-up; **capability-mediated
-maps must not**.
+**Accepted** (2026-08-05). Closes finding **F26** for M6 design. Binding for
+any EL0 agent MMIO map. Kernel EL1 may keep large Device regions for bring-up;
+**capability-mediated / agent maps must not**.
 
 ## Context
 
@@ -21,83 +21,82 @@ class blankets** (plus GIC). That is acceptable while only EL1 kernel code
 touches MMIO. For **M6 driver-as-agent**, an EL0 agent that receives “the UART
 window” must not also receive neighbouring peripherals in the same blanket.
 
-M6 done-when: PL011 RX path as EL0 agent; console still echoes; **killing that
-agent leaves the kernel ticking** — implies the agent’s map is revocable and
-**minimal**.
+M6 done-when: PL011 path usable from EL0 with a **minimal** map; console still
+works on the kernel path; **killing that agent** unmaps the window and leaves
+the kernel ticking.
 
-## Decision (proposed)
+## Decision
 
 ### 1. Named sub-windows in the BSP
 
-`bsp/rpi4/memmap` (or equivalent) exports **per-device** `(base, size)` for at
-least:
+`bsp/rpi4/memmap` exports **per-device** base and agent map size, at least:
 
-| Device | Purpose |
+| Symbol | Purpose |
 | ------ | ------- |
-| PL011 UART0 | Console TX/RX |
-| GICD / GICC | Only if an agent ever owns IRQ chip pieces (likely never for M6 v1) |
-| SPI0 | Optional; only if an SPI agent exists |
-| RNG200 | Optional |
+| `UART0_BASE` + `UART0_REG_BYTES` | PL011 register page for agents |
+| `USER_PL011_VA` | Fixed user VA for that page in agent AS |
+| GICD/GICC, SPI0, RNG200 | Named when an agent needs them — not bulk peripherals |
 
-Sizes are **register block** sized (rounded up to page for Stage-1 map), not
-16 MiB.
+Sizes are **page-rounded Stage-1 granules**, not 16 MiB.
 
 ### 2. Two layers of mapping
 
 | Layer | Who | Window size |
 | ----- | --- | ----------- |
-| Kernel EL1 identity / Device map | Kernel only | May remain coarse (today’s F26) until a P-milestone tightens it |
-| Agent / capability map | EL0 driver agent | **Only** the named sub-window(s) for that device |
+| Kernel EL1 identity / Device map | Kernel only | May remain coarse (F26) until a separate P-milestone |
+| Agent AS map | EL0 driver agent | **Only** the named sub-window(s) for that device |
 
-M6 v1 grants the PL011 agent **only** the UART register page(s).
+M6 v1 grants the PL011 agent **only** the UART register page via
+`AddressSpace::map_device_page`.
 
 ### 3. Revocation
 
-Destroying the agent (or revoking the MMIO capability) **unmaps** those pages
-from its AS and must not leave executable or writable aliases. Kernel keeps
-its own mapping for panic/steal console paths as today.
+Destroying the agent AS **frees intermediate tables and drops the MMIO leaf**.
+No RAM frame was owned for the MMIO leaf (PA is device). Kernel keeps its own
+Device mapping for panic/console.
 
 ### 4. What this ADR does not decide
 
 | Concern | Where |
 | ------- | ----- |
 | Frame allocator for RAM pages | [ADR-0012](0012-frame-allocator-for-address-spaces.md) |
-| IRQ delivery to agents | successor / M6 design |
-| Tightening kernel EL1 Device blankets | optional P-milestone; not required for M6 v1 |
+| IRQ delivery to agents | successor |
+| Tightening kernel EL1 Device blankets | optional P-milestone |
 
 ## Consequences
 
 ### Positive
 
-- F26 has a recorded shape before M6 code.
-- Kill-agent done-when is implementable (small map, clear unmap).
-- BSP remains the source of base/size (ADR-0011 board constants).
+- F26 has a binding shape before agent MMIO code.
+- Kill-agent is implementable (small map, destroy AS).
+- BSP remains the source of base/size (ADR-0011).
 
 ### Costs
 
-- memmap becomes more verbose (many named constants).
-- Kernel coarse map vs agent fine map must not be confused in reviews.
+- memmap carries more named constants.
+- Kernel coarse map vs agent fine map must stay distinct in reviews.
 
 ### Gate that would catch a reversal
 
 | Reversal | Signal |
 | -------- | ------ |
-| Agent receives 16 MiB Device | Review / map dump in bringup; multi-role |
-| Agent keeps MMIO after kill | M6 done-when fails; kernel still ticks but agent map remains |
-| Bases hard-coded in agent binary | Layering: agent gets caps, not `memmap` imports |
+| Agent receives 16 MiB Device | Review / map dump; multi-role |
+| Agent keeps MMIO after kill | M6 oracle `pl011-agent: killed ok` fails or leak |
+| Bases hard-coded only in agent .text | Agent uses fixed **VA**; **PA** comes from BSP at map time |
 
 ## Alternatives considered
 
 | Alternative | Why not |
 | ----------- | ------- |
 | Keep 16 MiB agent maps “for simplicity” | Defeats isolation; F26 stands |
-| Remap entire kernel Device tree to 4 KiB before M6 | Large risk; not needed for M6 v1 done-when |
+| Remap entire kernel Device tree to 4 KiB before M6 | Large risk; not needed for M6 v1 |
 | IOMMU | Wrong platform scope for Pi 4B lab |
 
-## When to accept
+## Implementation note
 
-- Immediately before the first PR that maps MMIO into an EL0 agent AS.
-- After M5 EL0 + AS machinery exists (needs ADR-0012 implemented).
+M6 v1 smoke (2026-08-05): scheduled `pl011-agent` maps `USER_PL011_VA` →
+`UART0_BASE` (one page), EL0 loads `UART_FR`, `SVC #0`, AS destroy. Evidence:
+[verification.md](../verification.md).
 
 ## Related
 

@@ -124,7 +124,7 @@ today versus roadmap.
 | M3  | Cooperative tasks                                        | **done** (HW, fault-probed) |
 | M4  | IPC + capabilities                                       | **done (HW)**               |
 | M5  | EL0 agents                                               | **done (HW)**               |
-| M6  | Driver-as-agent                                          | planned (needs M5 + ADR-0013) |
+| M6  | Driver-as-agent                                          | **done (QEMU)** (PL011 page agent; HW stamp open) |
 
 **M** milestones add capability. **P** milestones add protection or evidence and
 add no capability at all: they are numbered separately because "the kernel can
@@ -149,7 +149,7 @@ applies forwards, or it is not the same standard.
 | M3  | [ADR-0006](adr/0006-cooperative-execution-model.md) (F12 done); per-task heap stack + unmapped guard  | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack |
 | M4  | [ADR-0008](adr/0008-irq-handler-policy.md) (**accepted**): cookie handlers + wake queue; mailbox ABI  | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console; IRQ wakes use the ADR-0008 queue only      |
 | M5  | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) + [ADR-0014](adr/0014-ttbr-split-m5.md) (TTBR0 v1); multi-role prep | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
-| M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**proposed** → accept before code); F26            | The PL011 RX path runs as an EL0 agent and the console still echoes; killing that agent leaves the kernel ticking                                                                                                       |
+| M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**accepted**); F26                              | EL0 agent maps **only** the PL011 page, touches the device, is destroyed (kill); kernel console/ticks continue                                                                                                            |
 
 M3 is **done (HW)**. [ADR-0006](adr/0006-cooperative-execution-model.md) is
 **accepted**. Observed on **Pi 4B silicon**: interleaved `task-a`/`task-b`,
@@ -176,15 +176,13 @@ Remaining roadmap (ordered):
 
 | Slice | Needs first | Done when |
 | ----- | ----------- | --------- |
-| **M5-P1** EL0 from a scheduled task | M5 done (HW) ✓ | A runqueue task (not only bootstrap smoke) enters EL0 in its own `TTBR0`; console shows a dedicated line (e.g. `el0-task: …`); no pool leak |
-| **M5-P2** Minimal `SVC` dispatch | M5-P1 (or same PR) | Documented imm → EL1 handler (at least `svc #0` ping); unknown imm refused/visible; `boot-check` oracle |
-| **M5-P3** Dual AS create/destroy | M5 done (HW) ✓ | Two prepare/destroy cycles; `frames free` restored; `aspace: dual … ok` (or equivalent) on boot-check |
-| **M6-D0** Accept [ADR-0013](adr/0013-narrow-device-windows.md) | Desk multi-role on F26 | ADR status **accepted**; no agent MMIO code before this |
-| **M6** PL011 as EL0 agent | M5-P1/P2; ADR-0013 accepted | RX path (or minimal echo) at EL0 with **page-sized** UART window only; kill agent → unmap; kernel still ticks |
+| **M5-P1** EL0 from a scheduled task | M5 done (HW) ✓ | **done (QEMU)** — `el0-task: svc ping` / `ok` |
+| **M5-P2** Minimal `SVC` dispatch | M5-P1 | **done (QEMU)** — `kernel_core::syscall::decode`; refuse unknown imm |
+| **M5-P3** Dual AS create/destroy | M5 done (HW) ✓ | **done (QEMU)** — `aspace: dual create/destroy ok` |
+| **M6-D0** Accept [ADR-0013](adr/0013-narrow-device-windows.md) | F26 desk | **accepted** 2026-08-05 |
+| **M6** PL011 as EL0 agent | M5-P1/P2; ADR-0013 | **done (QEMU)** — `pl011-agent: FR read + svc ok` / `killed ok`; HW stamp open |
 
-**Default sequence:** M5-P1+P2 together (one demo task + `svc #0`) → M5-P3 → accept ADR-0013 → M6 implementation.
-
-**Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer.
+**Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer, EL0 IRQ delivery, product multi-agent shell.
 
 ### Open findings, against the milestone they block
 
@@ -196,7 +194,7 @@ listed here block nothing and are tracked in that report alone.
 | F12     | — (resolved)        | Closed by [ADR-0006](adr/0006-cooperative-execution-model.md); the ADR was the deliverable                                                               |
 | F18     | — (resolved)        | Absolute `CNTP_CVAL` deadlines + missed-tick counter; pure cooperative yield never depended on it                                                        |
 | F13     | — (resolved)        | Shape accepted: `Handler = fn(IrqCookie)` + IRQ→voluntary wake queue — [ADR-0008](adr/0008-irq-handler-policy.md); code lands with first M4 PR           |
-| F26     | M6                  | Device windows are 16 MiB blankets — shape in [ADR-0013](adr/0013-narrow-device-windows.md) (**proposed**); accept before agent MMIO maps                  |
+| F26     | — (resolved M6 v1)  | [ADR-0013](adr/0013-narrow-device-windows.md) **accepted**; agent maps are page-sized named windows only; kernel coarse Device may remain until a P-pass  |
 | F15     | — (resolved)        | Risk-accepted: board truth is BSP constants; DTB mapped RO for a future parser — [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)           |
 | F24     | — (resolved)        | Layering rules 1–4 are enforced by `make layering`; non-import coupling remains review-only (gate blind spots in verification)                           |
 

@@ -29,6 +29,8 @@ pub enum AsError {
     BadTable,
     /// Already prepared for EL0.
     AlreadyPrepared,
+    /// VA/PA/len not page-aligned or zero.
+    Unaligned,
 }
 
 /// User address space: own TTBR0 root, not necessarily live.
@@ -102,6 +104,26 @@ impl AddressSpace {
     #[inline]
     pub fn user_entry_va(&self) -> u64 {
         if self.prepared { USER_VA_BASE } else { 0 }
+    }
+
+    /// Map one page of **device** MMIO into this AS (ADR-0013 agent windows).
+    ///
+    /// `va` and `pa` must be page-aligned. Does not allocate a RAM frame for
+    /// the leaf — only intermediate page-table frames. Leaves are
+    /// Device-nGnRnE with the given EL0-capable `perms` (typically
+    /// [`Perms::USER_RW`] for a UART agent).
+    ///
+    /// Call after [`prepare_for_el0`] so the user root already holds kernel
+    /// coverage; `va` must not collide with an existing leaf.
+    pub fn map_device_page(&mut self, va: u64, pa: u64, perms: Perms) -> Result<(), AsError> {
+        if !self.prepared {
+            return Err(AsError::BadTable);
+        }
+        if va % PAGE_SIZE != 0 || pa % PAGE_SIZE != 0 {
+            return Err(AsError::Unaligned);
+        }
+        // SAFETY: exclusive AS tables; pa is a named BSP device page.
+        unsafe { self.map_l3_page(va, pa, MemKind::Device, perms) }
     }
 
     /// Write raw bytes into the user window (kernel identity access to phys).

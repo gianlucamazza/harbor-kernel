@@ -15,9 +15,10 @@ memory attributes the way Cortex-A72 does).
 
 **Status:** bring-up through M0–M2 and P0–P4; **M3**, **M4**, and **M5**
 **done (HW)** on Pi 4B (tasks, IPC/caps, EL0 private AS —
-[`docs/verification.md`](docs/verification.md#m5-el0--address-spaces)). Next:
-**M5-P1+P2** (scheduled EL0 task + minimal `SVC`), then dual-AS smoke, then M6
-after [ADR-0013](docs/adr/0013-narrow-device-windows.md) accept. Roadmap:
+[`docs/verification.md`](docs/verification.md#m5-el0--address-spaces)).
+**M5-P1…P3** and **M6 v1** (scheduled EL0, `SVC` decode, dual AS, PL011
+page-agent) **done (QEMU)**; [ADR-0013](docs/adr/0013-narrow-device-windows.md)
+**accepted**. HW stamp for P/M6 open. Roadmap:
 [`docs/architecture.md`](docs/architecture.md).
 
 ## What exists
@@ -38,7 +39,7 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Shared TX (`install_tx` / `kprintln`), interrupt-driven RX ring, idle `WFI` when no ready work                                      |
 | TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
-| Verification | 158 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
+| Verification | 160 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
 
 ## What does not exist yet
 
