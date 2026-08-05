@@ -145,7 +145,7 @@ applies forwards, or it is not the same standard.
 | ID  | Needs first                                                                                           | Done when                                                                                                                                                                                                               |
 | --- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | M3  | [ADR-0006](adr/0006-cooperative-execution-model.md) (F12 done); per-task heap stack + unmapped guard  | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack |
-| M4  | An IRQ/handler-policy ADR (F13) — `Handler = fn()` has nowhere to carry a capability                  | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console                                             |
+| M4  | [ADR-0008](adr/0008-irq-handler-policy.md) (**accepted**): cookie handlers + wake queue; mailbox ABI  | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console; IRQ wakes use the ADR-0008 queue only      |
 | M5  | A frame allocator (ADR-0005 is the wrong shape for this); more than one address space; EL0 entry/exit | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
 | M6  | M4 and M5; narrower device windows (F26) — a driver agent must not receive 16 MiB of MMIO             | The PL011 RX path runs as an EL0 agent and the console still echoes; killing that agent leaves the kernel ticking                                                                                                       |
 
@@ -201,7 +201,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0005](adr/0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator (**accepted**)         |
 | [ADR-0006](adr/0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks); closes F12 (**accepted**) |
 | [ADR-0007](adr/0007-project-identity-harbor-kernel.md) | Project identity Harbor / `harbor-kernel` (**accepted**) |
-| [ADR-0008](adr/0008-irq-handler-policy.md)      | IRQ handler shape for M4 wakes / caps; closes F13 process (**proposed**) |
+| [ADR-0008](adr/0008-irq-handler-policy.md)      | IRQ handler shape for M4 wakes / caps; closes F13 (**accepted**) |
 | [ADR-0009](adr/0009-optional-spi-tft-debug-console.md) | Optional SPI TFT status surface; lab side-track (**accepted**) |
 | [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md) | SPI sessions + DBI stream; regwidth-16 SKU note (**accepted**) |
 | [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in; closes F15 (**accepted**) |
