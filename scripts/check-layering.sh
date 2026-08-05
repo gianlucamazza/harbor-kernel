@@ -75,26 +75,44 @@ done
 # Facade isolation (ADR-0015): outside the owning tree, never name an ISA or a
 # concrete board path. Policy uses `crate::arch::*` and `crate::bsp::board::*`.
 # Without this, layering only sees the first path segment (`arch` / `bsp`) and
-# a future `use crate::arch::aarch64::cpu` would pass silently.
+# a `use crate::arch::aarch64::cpu` would pass silently.
+#
+# The names come from the tree, never from a list written here. A gate that
+# enumerates what exists today goes quiet exactly when the second ISA arrives —
+# which is the only moment it was written for. `check-pre-mmu-path.sh` refuses
+# to inspect nothing for the same reason.
+isa_alt="$(find src/arch -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | paste -sd'|' -)"
+board_alt="$(find src/bsp -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | paste -sd'|' -)"
+if [[ -z "${isa_alt}" || -z "${board_alt}" ]]; then
+	echo "layering: no ISA or board directory found under src/ — refusing to report clean" >&2
+	exit 1
+fi
+
+# Matched without the `crate::` prefix on purpose: `use crate::{arch::aarch64::cpu,
+# bsp}` carries the same edge and does not contain the literal `crate::arch`.
+# Bounded on both sides so `march::aarch64` or `aarch64_foo` cannot match.
+edge='(^|[^A-Za-z0-9_])%s::(%s)([^A-Za-z0-9_]|$)'
+isa_re="$(printf "${edge}" arch "${isa_alt}")"
+board_re="$(printf "${edge}" bsp "${board_alt}")"
+
+report_facade() {
+	# $1 file, $2 regex, $3 message
+	local hits
+	hits="$(grep -nE "$2" <<<"${body}" || true)"
+	[[ -z "${hits}" ]] && return 0
+	echo "layering: $1 $3" >&2
+	sed 's/^/  /' <<<"${hits}" >&2
+	violations=$((violations + 1))
+}
+
 for file in $(find src -name '*.rs' | sort); do
 	# Strip line comments; do not treat doc prose as imports.
 	body="$(sed 's|//.*||' "${file}")"
 	if [[ "${file}" != src/arch/* ]]; then
-		if grep -qE 'crate::arch::[a-zA-Z0-9_]+' <<<"${body}"; then
-			# `crate::arch::cpu` is the facade — only a second segment that is an
-			# ISA directory (today: aarch64) is forbidden. Match known ISAs and
-			# any future sibling that is not a listed facade module.
-			if grep -nE 'crate::arch::(aarch64)(::|[[:space:]]|;|,|})' <<<"${body}" >&2; then
-				echo "layering: ${file} imports crate::arch::<isa> — use the facade crate::arch::*" >&2
-				violations=$((violations + 1))
-			fi
-		fi
+		report_facade "${file}" "${isa_re}" "names an ISA directly — use the facade crate::arch::*"
 	fi
-	if [[ "${file}" != src/bsp/rpi4/* && "${file}" != src/bsp/mod.rs ]]; then
-		if grep -nE 'crate::bsp::(rpi4)(::|[[:space:]]|;|,|})' <<<"${body}" >&2; then
-			echo "layering: ${file} imports crate::bsp::<board> — use crate::bsp::board" >&2
-			violations=$((violations + 1))
-		fi
+	if [[ "${file}" != src/bsp/* ]]; then
+		report_facade "${file}" "${board_re}" "names a board directly — use crate::bsp::board"
 	fi
 done
 
