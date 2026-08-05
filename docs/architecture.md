@@ -103,7 +103,7 @@ today versus roadmap.
 | Concept    | Role                                                  | Status        |
 | ---------- | ----------------------------------------------------- | ------------- |
 | Task (M3)  | Schedulable EL1 entity + private stack; see ADR-0006  | **done (HW)** |
-| Agent      | Task + mailbox + private AS at EL0; cooperative shell + multi-SVC resume | **done (HW)**; EL0 IRQ / RX-console agent open |
+| Agent      | Task + mailbox + private AS at EL0; multi-SVC + IRQ resume; SYS_PUTC; PL011 RX poll | **done (QEMU)**; HW stamp open |
 | Message    | Sole interaction channel (M4)                         | **done** (fixed `Message` + mailbox) |
 | Capability | Unforgeable handle (send/recv; future: IRQ notification) | **done** (CapId + hold table; IRQ caps later) |
 
@@ -198,12 +198,22 @@ Pi 4B stamp: [verification.md §M5-P / M6](verification.md#m5-p--m6-v1-qemu) (20
 | **SVC resume** | **done (HW)** | `enter`/`resume`/`end_session`; `SYS_EXIT`; `el0-task: resume pings=2` |
 | Preferred ELR for SVC | documented | AArch64 ELR is already past SVC — no software +4 |
 
+### Closed (EL0 IRQ / putc / RX poll — issue #1 v1)
+
+| Slice | Status | Evidence |
+| ----- | ------ | -------- |
+| **EL0 IRQ save/resume** | **done (QEMU)** | lower-EL IRQ → `El0Outcome::Irq`; `handle_cpu_irq` + resume; `el0-task: irq resume irqs=N` |
+| **`SYS_PUTC`** | **done (QEMU)** | imm 2; saved `x0` → kernel TX; `el0-task: putc bytes=2` |
+| **PL011 RX poll** | **done (QEMU)** | `suspend_rx` + user FR/DR poll + optional putc; `pl011-agent: rx poll ok` |
+| Kernel panic/TX console | preserved | TX stays kernel-owned; RX drain suspended only for the poll session |
+
 ### Next (ordered)
 
 | # | Work | Done when |
 | - | ---- | --------- |
-| 1 | **EL0 IRQ / full RX agent** | Successor design; agent owns RX without breaking kernel panic console |
-| 2 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
+| 1 | **HW stamp** for IRQ / putc / RX poll | Same oracles on Pi 4B serial |
+| 2 | **Full RX-owned agent** | Agent owns RX long-term; idle still ticks; kill restores kernel drain |
+| 3 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer.
 

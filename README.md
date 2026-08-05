@@ -25,8 +25,9 @@ memory attributes the way Cortex-A72 does).
 [`docs/verification.md`](docs/verification.md#m5-el0--address-spaces)).
 **M5-P1…P3**, **M6 v1** (PL011 page-agent), and concurrent multi-agent shell
 **done (HW)** on Pi 4B; [ADR-0013](docs/adr/0013-narrow-device-windows.md)
-**accepted**; multi-SVC resume **done (HW)**. Next: [EL0 IRQ / full RX
-agent](https://github.com/gianlucamazza/harbor-kernel/issues/1). Roadmap:
+**accepted**; multi-SVC resume **done (HW)**; EL0 IRQ resume + `SYS_PUTC` +
+PL011 RX poll **done (QEMU)** ([issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1) v1).
+Next: HW stamp + long-lived RX-owned agent. Roadmap:
 [`docs/architecture.md`](docs/architecture.md).
 
 ## What exists
@@ -42,8 +43,8 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | Frames (M5)  | Named phys pool (ADR-0012); `AddressSpace` clone + user VA window; destroy returns frames                                           |
 | EL0 (M5)     | One-shot trampoline (`arch::el0`), own `TTBR0`, SVC + kernel-store fault probes (**done HW**) — ADR-0014                             |
 | EL0 shell (M5-P) | Scheduled task EL0 session + `kernel_core::syscall` ping/refuse; dual-AS smoke (**done HW**)                                     |
-| Agent shell | `src/agent::Agent` owns AS; concurrent two-TCB EL0 + multi-SVC resume (**done HW**)                                              |
-| PL011 agent (M6 v1) | Page-only Device map (`map_device_page`, ADR-0013); EL0 `UART_FR` + kill AS (**done HW**)                                     |
+| Agent shell | `src/agent::Agent` owns AS; multi-SVC + IRQ resume; `SYS_PUTC` (**done QEMU**; multi-SVC also HW)                              |
+| PL011 agent (M6 v1) | Page-only Device map (`map_device_page`, ADR-0013); FR load + RX poll session + kill (**done QEMU**)                        |
 | Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
 | IPC (M4)     | Mailboxes + CapId send/recv; refuse counter; IRQ wake queue (ADR-0008); demo sender/receiver/forger                                 |
 | Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters                                                          |
@@ -54,9 +55,9 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 
 ## What does not exist yet
 
-No preemption, no SMP, no high-half/`TTBR1` kernel, no EL0 IRQ delivery, no
-console-RX-owned-by-agent (M6 v1 only maps PL011 and reads `FR`), no ASID
-production. Longer product surface: [`docs/architecture.md`](docs/architecture.md).
+No preemption, no SMP, no high-half/`TTBR1` kernel, no long-lived
+console-RX-owned-by-agent (poll session only; kernel drain resumes after), no
+ASID production. Longer product surface: [`docs/architecture.md`](docs/architecture.md).
 
 ## Design
 

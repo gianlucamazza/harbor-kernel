@@ -201,6 +201,17 @@ impl Pl011Rx {
         self.regs.write32(ICR, ICR_RXIC | ICR_RTIC);
     }
 
+    /// Drop any pending RX bytes and clear the RX/RT interrupt line.
+    ///
+    /// Used when kernel drain is suspended so an EL0 agent can poll `DR`
+    /// without a level-triggered UART SPI re-firing into a no-op handler.
+    pub fn discard_and_ack(&self) {
+        while self.regs.read32(FR) & FR_RXFE == 0 {
+            let _ = self.regs.read32(DR);
+        }
+        self.clear_interrupt();
+    }
+
     /// Non-blocking receive: `None` if the RX FIFO is empty or the character
     /// arrived with a framing/parity/break/overrun error.
     ///

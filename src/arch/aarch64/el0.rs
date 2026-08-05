@@ -11,11 +11,17 @@
 //! 3. [`resume`] re-installs the user root and `ERET`s with the saved state.
 //! 4. [`end_session`] clears the published kernel root.
 //!
-//! [`run`] is one-shot: `enter` + [`end_session`]. IRQs stay masked for the
-//! whole session.
+//! [`run`] is one-shot: `enter` + [`end_session`]. Default entry masks IRQs in
+//! EL0 (`SPSR` DAIF.I); sessions that need timer/UART while user runs call
+//! [`set_entry_irqs_unmasked`] before [`enter`].
 
 use crate::arch::exception::TrapFrame;
 use crate::arch::mmu;
+
+/// `SPSR_EL1` for EL0t with DAIF all masked (default session contract).
+const SPSR_EL0_IRQS_MASKED: u64 = 0x3c0;
+/// `SPSR_EL1` for EL0t with DAIF.I clear — IRQs may take lower-EL IRQ vectors.
+const SPSR_EL0_IRQS_OPEN: u64 = 0x340;
 
 /// Result of one EL0 stretch (enter or resume until the next lower-EL sync).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,8 +30,22 @@ pub enum El0Outcome {
     Svc { imm: u16 },
     /// Data abort from lower EL. Session ends.
     DataAbort { esr: u64, far: u64 },
+    /// IRQ while EL0 ran with IRQs unmasked. Session may [`resume`] after handle.
+    Irq,
     /// Other sync from lower EL. Session ends.
     OtherSync { esr: u64, far: u64 },
+}
+
+/// Next [`enter`] uses EL0 `SPSR` with IRQs masked (default after boot / end).
+#[inline]
+pub fn set_entry_irqs_masked() {
+    unsafe { EL0_ENTRY_SPSR = SPSR_EL0_IRQS_MASKED };
+}
+
+/// Next [`enter`] uses EL0 `SPSR` with DAIF.I clear (IRQ → [`El0Outcome::Irq`]).
+#[inline]
+pub fn set_entry_irqs_unmasked() {
+    unsafe { EL0_ENTRY_SPSR = SPSR_EL0_IRQS_OPEN };
 }
 
 /// One-shot: enter EL0 until the first sync, then end the session.
@@ -58,13 +78,16 @@ pub unsafe fn enter(ttbr0_phys: usize, entry: u64, user_sp: u64) -> El0Outcome {
     }
 }
 
-/// Continue after [`El0Outcome::Svc`] (`ELR` already points past the SVC).
+/// Continue after [`El0Outcome::Svc`] or [`El0Outcome::Irq`].
+///
+/// After SVC, `ELR` already points past the insn. After IRQ, `ELR` is the
+/// interrupted insn (unless the agent advanced it).
 ///
 /// # Safety
-/// Prior event was `Svc`; IRQs masked; session not ended.
+/// Prior event was resumable; IRQs masked at EL1; session not ended.
 pub unsafe fn resume() -> El0Outcome {
     if unsafe { EL0_CAN_RESUME } == 0 {
-        panic!("el0::resume: no resumable SVC session");
+        panic!("el0::resume: no resumable session");
     }
     if unsafe { el0_kernel_ttbr0 } == 0 {
         panic!("el0::resume: session kernel TTBR cleared");
@@ -79,6 +102,7 @@ pub fn end_session() {
         el0_kernel_ttbr0 = 0;
         EL0_CAN_RESUME = 0;
         EL0_USER_TTBR = 0;
+        EL0_ENTRY_SPSR = SPSR_EL0_IRQS_MASKED;
     }
 }
 
@@ -92,11 +116,33 @@ fn unpack(packed: u64) -> El0Outcome {
             esr: unsafe { EL0_ESR },
             far: unsafe { EL0_FAR },
         },
+        4 => El0Outcome::Irq,
         _ => El0Outcome::OtherSync {
             esr: unsafe { EL0_ESR },
             far: unsafe { EL0_FAR },
         },
     }
+}
+
+/// Low 64 bits of user `x0` at the last SVC/IRQ (for `SYS_PUTC`, etc.).
+#[inline]
+pub fn saved_x0() -> u64 {
+    unsafe { EL0_SAVED.gpr[0] }
+}
+
+/// Advance saved `ELR` by `delta` bytes (e.g. skip a `WFI` after IRQ wake).
+///
+/// # Safety
+/// Session must be resumable; `delta` must land on a valid user insn.
+#[inline]
+pub unsafe fn advance_saved_elr(delta: u64) {
+    unsafe { EL0_SAVED.elr = EL0_SAVED.elr.wrapping_add(delta) };
+}
+
+/// Set DAIF.I in the saved `SPSR` so the next [`resume`] runs EL0 with IRQs masked.
+#[inline]
+pub fn mask_saved_irqs() {
+    unsafe { EL0_SAVED.spsr |= 1 << 7 };
 }
 
 #[unsafe(no_mangle)]
@@ -134,6 +180,10 @@ static mut EL0_SAVED: SavedUser = SavedUser {
 #[unsafe(no_mangle)]
 static mut EL0_SAVED_SP_EL0: u64 = 0;
 
+/// `SPSR_EL1` installed on the next [`enter`] (resume restores saved SPSR).
+#[unsafe(no_mangle)]
+static mut EL0_ENTRY_SPSR: u64 = SPSR_EL0_IRQS_MASKED;
+
 unsafe extern "C" {
     fn el0_run(user_ttbr: u64, entry: u64, user_sp: u64, kernel_ttbr: u64) -> u64;
     fn el0_resume() -> u64;
@@ -167,9 +217,22 @@ pub extern "C" fn exception_sync_el0(frame: &mut TrapFrame) {
     }
 }
 
+/// IRQ from EL0: save user context for [`resume`] (ELR is the interrupted insn).
+///
+/// Vectors restore kernel `TTBR0` first. Caller should run the IRQ subsystem
+/// then [`resume`]. Sessions that keep IRQs masked never reach here.
 #[unsafe(no_mangle)]
-pub extern "C" fn exception_irq_el0() -> ! {
-    panic!("IRQ from EL0 during session (IRQs must stay masked)");
+pub extern "C" fn exception_irq_el0(frame: &mut TrapFrame) {
+    unsafe {
+        EL0_KIND = 4;
+        EL0_ESR = 0;
+        EL0_FAR = 0;
+        EL0_SAVED.gpr = frame.gpr;
+        EL0_SAVED.elr = frame.elr;
+        EL0_SAVED.spsr = frame.spsr;
+        EL0_SAVED_SP_EL0 = read_sp_el0();
+        EL0_CAN_RESUME = 1;
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -210,7 +273,9 @@ core::arch::global_asm!(
         bl switch_ttbr0
         msr sp_el0, x20
         msr elr_el1, x19
-        mov x4, #0x3c0
+        adrp x4, EL0_ENTRY_SPSR
+        add x4, x4, :lo12:EL0_ENTRY_SPSR
+        ldr x4, [x4]
         msr spsr_el1, x4
 
         mov x0, xzr
@@ -220,7 +285,7 @@ core::arch::global_asm!(
         mov x4, xzr
         eret
 
-    // Resume after SVC: user TTBR + EL0_SAVED → ERET.
+    // Resume after SVC/IRQ: user TTBR + EL0_SAVED → ERET.
     el0_resume:
         stp x29, x30, [sp, #-96]!
         mov x29, sp

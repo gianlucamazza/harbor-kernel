@@ -197,11 +197,16 @@ Protocol notes load-bearing for silicon:
 | PL011 agent map + FR load + kill | **closed (QEMU)** | `pl011-agent: FR read + svc ok` / `killed ok` |
 | Concurrent multi-agent shell | **closed (QEMU + HW)** | `agents: concurrent ok` (`src/agent`) |
 | Multi-SVC resume (`enter`/`resume`) | **closed (QEMU + HW)** | `el0-task: resume pings=2` (`SYS_EXIT` ends session) |
+| `SYS_PUTC` (imm 2) | **closed (QEMU)** | `el0-task: putc bytes=2` (bytes also appear on serial) |
+| EL0 IRQ save/resume | **closed (QEMU)** | `el0-task: irq resume irqs=N` (N≥1) |
+| PL011 RX poll session | **closed (QEMU)** | `pl011-agent: rx poll ok` (`suspend_rx` for the session) |
 | Silicon (M5-P / M6 / agents / resume) | **closed (HW)** | Pi 4B + CP2104, `FEATURES=debug-display`, 2026-08-05 — transcript below |
+| Silicon (IRQ / putc / RX poll) | **open** | same QEMU oracles on Pi 4B |
 
-M6 v1 does **not** move console RX into the agent: the agent proves a **minimal
-Device map** and revocation; kernel idle still owns echo and ticks. EL0
-**resume** after SVC is not implemented (one-shot sessions only).
+M6 v1 maps PL011 and reads `FR`; the RX-poll session briefly suspends the kernel
+RX drain so the agent may poll `DR` without racing, then restores it. Kernel
+idle still owns long-term echo and ticks. Multi-SVC and IRQ resume are live
+(`enter` / `resume` / `end_session`).
 
 ### Silicon transcript (M5-P / M6 v1 / concurrent agents)
 

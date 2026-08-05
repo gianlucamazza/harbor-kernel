@@ -435,6 +435,7 @@ fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
         el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
             Syscall::Ping => println!(uart, "el0: SVC ok  imm=0"),
             Syscall::Exit => println!(uart, "el0: SVC unexpected exit"),
+            Syscall::Putc => println!(uart, "el0: SVC unexpected putc"),
             Syscall::Unknown { imm } => println!(uart, "el0: SVC unexpected imm={imm}"),
         },
         other => println!(uart, "el0: SVC unexpected {other:?}"),
@@ -490,7 +491,7 @@ fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
     }
 }
 
-/// M5-P1/P2: scheduled task via [`Agent`] shell + SVC decode.
+/// M5-P1/P2 + resume/putc/IRQ: scheduled task via [`Agent`] shell.
 fn el0_scheduled_task() {
     let free_before = mm::frames::free_count();
     let mut agent = match Agent::create_prepared() {
@@ -513,10 +514,32 @@ fn el0_scheduled_task() {
 
     // Multi-SVC resume: two pings then SYS_EXIT.
     match agent.run_user_prog_resuming(&agent::encode_ping_ping_exit()) {
-        Ok(2) => crate::kprintln!("el0-task: resume pings=2"),
-        Ok(n) => crate::kprintln!("el0-task: resume unexpected pings={n}"),
+        Ok(s) if s.pings == 2 && s.putcs == 0 => {
+            crate::kprintln!("el0-task: resume pings=2");
+        }
+        Ok(s) => crate::kprintln!(
+            "el0-task: resume unexpected pings={} putcs={}",
+            s.pings,
+            s.putcs
+        ),
         Err(e) => crate::kprintln!("el0-task: resume FAILED {e:?}"),
     }
+
+    // SYS_PUTC: two bytes via kernel TX, then exit.
+    match agent.run_user_prog_resuming(&agent::encode_putc_hi_exit()) {
+        Ok(s) if s.putcs == 2 => crate::kprintln!("el0-task: putc bytes=2"),
+        Ok(s) => crate::kprintln!("el0-task: putc unexpected putcs={}", s.putcs),
+        Err(e) => crate::kprintln!("el0-task: putc FAILED {e:?}"),
+    }
+
+    // EL0 IRQ wake: branch-wait with IRQs unmasked; timer → handle → skip → exit.
+    el0::set_entry_irqs_unmasked();
+    match agent.run_user_prog_irq_wake(&agent::encode_branch_wait_exit()) {
+        Ok(s) if s.irqs >= 1 => crate::kprintln!("el0-task: irq resume irqs={}", s.irqs),
+        Ok(s) => crate::kprintln!("el0-task: irq resume unexpected irqs={}", s.irqs),
+        Err(e) => crate::kprintln!("el0-task: irq resume FAILED {e:?}"),
+    }
+    el0::set_entry_irqs_masked();
 
     agent.destroy();
     let free_after = mm::frames::free_count();
@@ -527,7 +550,7 @@ fn el0_scheduled_task() {
     }
 }
 
-/// M6 v1: PL011 page-only agent (ADR-0013) via shell; destroy = kill.
+/// M6 v1 + RX poll: PL011 page-only agent (ADR-0013); destroy = kill.
 fn pl011_agent_task() {
     use crate::bsp::board::memmap::{FRAME_SIZE, UART0_BASE, UART0_REG_BYTES, USER_PL011_VA};
 
@@ -567,6 +590,22 @@ fn pl011_agent_task() {
         Ok(other) => crate::kprintln!("pl011-agent: unexpected {other:?}"),
         Err(e) => crate::kprintln!("pl011-agent: el0 FAILED {e:?}"),
     }
+
+    // RX poll with kernel drain suspended (agent owns DR for this session).
+    let rx_base = console::suspend_rx();
+    match agent.run_user_prog_resuming(&agent::encode_pl011_rx_poll_exit()) {
+        Ok(s) => {
+            // QEMU boot has no typed input: empty FIFO → putcs=0 is success.
+            // With a character pending, putcs=1 proves DR read + SYS_PUTC.
+            crate::kprintln!(
+                "pl011-agent: rx poll ok  putcs={} irqs={}",
+                s.putcs,
+                s.irqs
+            );
+        }
+        Err(e) => crate::kprintln!("pl011-agent: rx poll FAILED {e:?}"),
+    }
+    console::resume_rx(rx_base);
 
     agent.destroy();
     let free_after = mm::frames::free_count();

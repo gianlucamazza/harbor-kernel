@@ -129,11 +129,17 @@ grep -q 'el0-task: svc refuse imm=0x99' "${log}" ||
 	fail "scheduled el0-task did not refuse unknown svc imm"
 grep -q 'el0-task: resume pings=2' "${log}" ||
 	fail "EL0 SVC resume session did not complete two pings + exit"
+grep -q 'el0-task: putc bytes=2' "${log}" ||
+	fail "EL0 SYS_PUTC session did not emit two bytes"
+grep -qE 'el0-task: irq resume irqs=[1-9]' "${log}" ||
+	fail "EL0 IRQ save/resume path did not handle at least one IRQ"
 grep -q 'el0-task: ok' "${log}" ||
 	fail "scheduled el0-task leaked frames or failed teardown"
 # M6 v1: PL011 page-only agent + kill (ADR-0013).
 grep -q 'pl011-agent: FR read + svc ok' "${log}" ||
 	fail "pl011 EL0 agent did not read FR and svc"
+grep -q 'pl011-agent: rx poll ok' "${log}" ||
+	fail "pl011 EL0 RX poll session failed"
 grep -q 'pl011-agent: killed ok' "${log}" ||
 	fail "pl011 agent AS destroy / kill path failed"
 # Multi-agent shell: two TCBs with AS live together, each EL0 once.

@@ -135,6 +135,28 @@ pub unsafe fn enable_rx_irq(uart: &Pl011) {
     uart.enable_rx_interrupt();
 }
 
+/// Pause the kernel RX drain so an EL0 agent can poll `DR` without racing.
+///
+/// Discards any FIFO contents and ACKs the UART line first so a level-
+/// triggered SPI does not storm while the handler base is zero. Returns the
+/// previous MMIO base (0 if already suspended).
+pub fn suspend_rx() -> usize {
+    let base = RX_MMIO_BASE.swap(0, Ordering::AcqRel);
+    if base != 0 {
+        // SAFETY: base was published by enable_rx_irq from the live console.
+        let rx = unsafe { Pl011Rx::from_base(base) };
+        rx.discard_and_ack();
+    }
+    base
+}
+
+/// Restore kernel RX drain after [`suspend_rx`]. No-op if `base == 0`.
+pub fn resume_rx(base: usize) {
+    if base != 0 {
+        RX_MMIO_BASE.store(base, Ordering::Release);
+    }
+}
+
 /// IRQ handler for the platform UART RX line (BSP supplies the GIC id).
 ///
 /// Drains the PL011 RX FIFO into the kernel ring. Must not transmit or format.

@@ -146,8 +146,11 @@ exc_sync_el0:
 exc_irq_el0:
     kernel_entry
     restore_kernel_ttbr0_require_session
-    // Does not return (session contract: IRQs masked around el0::run).
+    mov     x0, sp
     bl      exception_irq_el0
+    // Same epilogue as sync: drop trap frame, return into el0_run / el0_resume.
+    add     sp, sp, #TRAP_FRAME_SIZE
+    b       el0_run_finish
 
 // FIQ / SError (and AArch32) from lower EL: restore if a session is live so
 // the panic path runs under the kernel root, then same unexpected handler.
