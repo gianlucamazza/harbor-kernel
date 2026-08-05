@@ -41,8 +41,9 @@ allowed_for() {
 	bsp*) echo "arch bsp console drivers irq time" ;;
 	# Policy sits on top of everything and is allowed to.
 	bootstrap* | main) echo "agent arch bsp console drivers ipc irq mm sched status time" ;;
-	# Agent shell: AS + EL0 sessions; no drivers/board (BSP constants only via mm/bootstrap demos).
-	agent*) echo "arch mm sched" ;;
+	# Agent shell: AS + EL0 sessions; SYS_PUTC via console TX; Irq → irq::handle_cpu_irq.
+	# No drivers/board (device PA/VA come from bootstrap demos / BSP constants via mm).
+	agent*) echo "arch console irq mm sched" ;;
 	# TFT status surface: policy only; paints via BSP display handle.
 	status*) echo "arch bsp drivers mm time" ;;
 	*) echo "" ;;

@@ -80,6 +80,10 @@ every `crate::` import edge. Coupling that is not an import (a shared constant,
 an agreed register value) is still review-only — see
 [`verification.md`](verification.md).
 
+**Agent shell imports** (policy, not a lower layer): `arch`, `mm`, `sched`, plus
+`console` (`SYS_PUTC` TX) and `irq` (lower-EL IRQ → `handle_cpu_irq` then resume).
+No `drivers` / `bsp` from `agent` — board PA/VA for demos live in bootstrap.
+
 ## Interrupt / timer / console contract
 
 | Role        | Module          | Responsibility                     |

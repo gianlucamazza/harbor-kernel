@@ -15,10 +15,14 @@ accepted: 2026-08-05
 and done-when probes).
 
 **Implementation (2026-08-05):** S3/S4 landed — deep-clone of kernel coverage
-into the user root, private user window, one-shot `arch::el0::run`, sole
-`mmu::switch_ttbr0` for entry and lower-EL restore (kernel `TTBR0` preferred
-when the session ends). Probes **closed on QEMU and Pi 4B**:
-[verification.md §M5](../verification.md#m5-el0--address-spaces).
+into the user root, private user window, `arch::el0::run` / `enter` /
+`resume` / `end_session`, sole `mmu::switch_ttbr0` for entry and lower-EL
+restore (kernel `TTBR0` preferred when the session ends). Probes **closed on
+QEMU and Pi 4B**: [verification.md §M5](../verification.md#m5-el0--address-spaces).
+
+**Later (same ADR regime):** multi-SVC and IRQ resume re-use the published
+kernel root and saved user context; they do **not** change the TTBR0-only
+clone model. High-half / `TTBR1` remains a successor ADR.
 
 ## Context
 
