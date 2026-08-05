@@ -17,10 +17,10 @@ parts exist.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Agents (EL0 AS done HW; product shell / M6 open)        │
+│  Agents (M5 HW; M6 v1 page-agent QEMU; multi-agent open) │
 │  message passing · capability-mediated resources         │
 └────────────────────────────▲─────────────────────────────┘
-                             │ SVC / IPC / cap_irq (M6+)
+                             │ SVC / IPC / (EL0 IRQ later)
 ┌────────────────────────────┴─────────────────────────────┐
 │  Kernel policy                                           │
 │  bootstrap · console_loop · sched · ipc · time · console │
@@ -172,17 +172,26 @@ probes, destroy without pool leak. QEMU `boot-check` and Pi 4B PL011 (2026-08-05
 show the same oracles
 ([verification.md](verification.md#m5-el0--address-spaces)).
 
-Remaining roadmap (ordered):
+### Closed slices (post-M5)
 
-| Slice | Needs first | Done when |
-| ----- | ----------- | --------- |
-| **M5-P1** EL0 from a scheduled task | M5 done (HW) ✓ | **done (QEMU)** — `el0-task: svc ping` / `ok` |
-| **M5-P2** Minimal `SVC` dispatch | M5-P1 | **done (QEMU)** — `kernel_core::syscall::decode`; refuse unknown imm |
-| **M5-P3** Dual AS create/destroy | M5 done (HW) ✓ | **done (QEMU)** — `aspace: dual create/destroy ok` |
-| **M6-D0** Accept [ADR-0013](adr/0013-narrow-device-windows.md) | F26 desk | **accepted** 2026-08-05 |
-| **M6** PL011 as EL0 agent | M5-P1/P2; ADR-0013 | **done (QEMU)** — `pl011-agent: FR read + svc ok` / `killed ok`; HW stamp open |
+| Slice | Status | Evidence |
+| ----- | ------ | -------- |
+| **M5-P1** scheduled EL0 task | **done (QEMU)** | `el0-task: svc ping` / `ok` |
+| **M5-P2** minimal `SVC` dispatch | **done (QEMU)** | `kernel_core::syscall::decode`; refuse `0x99` |
+| **M5-P3** dual AS create/destroy | **done (QEMU)** | `aspace: dual create/destroy ok` |
+| **M6-D0** [ADR-0013](adr/0013-narrow-device-windows.md) | **accepted** | 2026-08-05 |
+| **M6 v1** PL011 page agent + kill | **done (QEMU)** | `pl011-agent: FR read + svc ok` / `killed ok` |
 
-**Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer, EL0 IRQ delivery, product multi-agent shell.
+### Next (ordered)
+
+| # | Work | Done when |
+| - | ---- | --------- |
+| 1 | **HW stamp M5-P + M6 v1** | Pi PL011 transcript matches the QEMU oracles above; update [verification.md](verification.md#m5-p--m6-v1-qemu) |
+| 2 | **Product multi-agent shell** | Multiple TCBs with AS; optional EL0 resume after SVC (shape doc/ADR if non-one-shot) |
+| 3 | **EL0 IRQ / full RX agent** | Successor design; agent owns RX without breaking kernel panic console |
+| 4 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
+
+**Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer.
 
 ### Open findings, against the milestone they block
 
@@ -232,7 +241,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md) | SPI sessions + DBI stream; regwidth-16 SKU note (**accepted**) |
 | [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in; closes F15 (**accepted**) |
 | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) | Frame allocator for user AS; M5 needs-first (**accepted**) |
-| [ADR-0013](adr/0013-narrow-device-windows.md) | Narrow device MMIO for agents; F26/M6 (**proposed**) |
+| [ADR-0013](adr/0013-narrow-device-windows.md) | Narrow device MMIO for agents; F26/M6 v1 (**accepted**) |
 | [ADR-0014](adr/0014-ttbr-split-m5.md) | TTBR regime M5 v1 (TTBR0 + kernel maps in user AS) (**accepted**) |
 | [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
 

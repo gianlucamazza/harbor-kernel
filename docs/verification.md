@@ -192,13 +192,29 @@ Protocol notes load-bearing for silicon:
 | Dual AS create/destroy | **closed (QEMU)** | `aspace: dual create/destroy ok` |
 | Scheduled EL0 + `svc #0` ping | **closed (QEMU)** | `el0-task: svc ping` / `el0-task: ok` |
 | Unknown `SVC` imm refused | **closed (QEMU)** | `el0-task: svc refuse imm=0x99` |
-| `kernel_core::syscall::decode` | **closed** | host unit tests |
+| `kernel_core::syscall::decode` | **closed** | host unit tests (160 total suite) |
 | ADR-0013 accepted | **yes** | agent page-sized PL011 only |
 | PL011 agent map + FR load + kill | **closed (QEMU)** | `pl011-agent: FR read + svc ok` / `killed ok` |
-| Silicon (M5-P / M6) | **open** | re-flash after code land |
+| Silicon (M5-P / M6) | **open** | lab SD may already carry the image; stamp only with Pi transcript |
 
 M6 v1 does **not** move console RX into the agent: the agent proves a **minimal
 Device map** and revocation; kernel idle still owns echo and ticks.
+
+Expected fragment (after `el0: FAULT ok` / dual AS, once sched runs):
+
+```
+aspace: dual create/destroy ok  pool=…
+…
+sched: spawned el0-task
+sched: spawned pl011-agent
+…
+el0-task: svc ping
+el0-task: svc refuse imm=0x99
+el0-task: ok
+pl011-agent: FR read + svc ok
+pl011-agent: killed ok  pool=…
+ticks=20
+```
 
 ### Boot + cooperative yield (closed)
 

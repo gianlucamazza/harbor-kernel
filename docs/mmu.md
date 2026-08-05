@@ -240,10 +240,13 @@ caller's head.
   for the **kernel** map only. User AS tables and data pages come from the
   **separate** frame pool ([ADR-0012](adr/0012-frame-allocator-for-address-spaces.md))
   owned by `mm::frames` / `mm::aspace` — not from this arena.
-- **Product multi-AS scheduling / ASID / SMP TLB.** M5 v1 can create a user
-  `TTBR0` (clone + user window at `USER_VA_BASE`), run a one-shot EL0 session,
-  and tear down without leak. There is no ASID namespace, no multi-core
-  maintenance, and no EL0-scheduled agent loop yet.
+- **Product multi-AS scheduling / ASID / SMP TLB.** M5/M5-P can create user
+  `TTBR0` roots, dual-AS teardown, and scheduled one-shot EL0 sessions. There is
+  no ASID namespace, no multi-core maintenance, and no multi-TCB “live at EL0”
+  resume loop yet.
 - **High-half kernel / `TTBR1`.** Deliberately deferred
   ([ADR-0014](adr/0014-ttbr-split-m5.md) successor).
-- **Fine-grained device pages for EL0 agents** — M6 / [ADR-0013](adr/0013-narrow-device-windows.md).
+- **Agent Device maps** are **in tree** for M6 v1: one PL011 page via
+  `AddressSpace::map_device_page` ([ADR-0013](adr/0013-narrow-device-windows.md)).
+  Still out of scope: shrinking the **kernel** EL1 16 MiB peripheral blanket,
+  multi-page device caps, IOMMU.
