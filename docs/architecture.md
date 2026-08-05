@@ -167,7 +167,7 @@ listed here block nothing and are tracked in that report alone.
 | ------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | F12     | — (resolved)        | Closed by [ADR-0006](adr/0006-cooperative-execution-model.md); the ADR was the deliverable                                                               |
 | F18     | — (resolved)        | Absolute `CNTP_CVAL` deadlines + missed-tick counter; pure cooperative yield never depended on it                                                        |
-| F13     | M4                  | `Handler = fn()` cannot carry a capability — see [ADR-0008](adr/0008-irq-handler-policy.md)                                                              |
+| F13     | — (resolved)        | Shape accepted: `Handler = fn(IrqCookie)` + IRQ→voluntary wake queue — [ADR-0008](adr/0008-irq-handler-policy.md); code lands with first M4 PR           |
 | F26     | M6                  | Device windows are 16 MiB blankets; an agent-owned driver would receive all of it                                                                        |
 | F15     | — (resolved)        | Risk-accepted: board truth is BSP constants; DTB mapped RO for a future parser — [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)           |
 | F24     | — (resolved)        | Layering rules 1–4 are enforced by `make layering`; non-import coupling remains review-only (gate blind spots in verification)                           |

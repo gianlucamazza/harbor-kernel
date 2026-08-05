@@ -1,22 +1,29 @@
 ---
 id: 0008
 title: IRQ handler policy for cooperative wakes (F13 / M4)
-status: proposed
+status: accepted
 date: 2026-08-04
+accepted: 2026-08-05
 ---
 
 # ADR-0008: IRQ handler policy for cooperative wakes (F13 / M4)
 
 ## Acceptance status
 
-**Proposed.** No running code is constrained yet: M3 handlers remain
-`fn()` sealed at boot. Accepting this ADR (or a refined successor) is a
-**needs-first** for [M4](../architecture.md) so mailbox wake and later
-`cap_irq` do not invent a shape under the first implementation that compiles.
+**Accepted** (2026-08-05). This is the **needs-first** design for
+[M4](../architecture.md) (IPC + cooperative wakes). It closes finding **F13**
+as a *decision*: M4 code must not invent a handler shape under the first
+mailbox that compiles.
+
+**Code today:** M3 still uses sealed `Handler = fn()` with no cookie. That is
+allowed only as the pre-migration state. The **first M4 implementation PR**
+must land cookie handlers + a host-tested wake queue matching this ADR; it
+must not ship mailboxes that wake by mutating TCBs from IRQ context or by
+keying only on raw GIC ids without a cookie registry.
 
 ## Context
 
-Today:
+At acceptance:
 
 - `irq::Handler = fn()` — no cookie, no object, no capability id.
 - Dispatch is sealed after bootstrap; registration is bring-up only.
@@ -32,11 +39,11 @@ review blocked M4 because `fn()` cannot carry a capability or a wait-queue key.
 
 ### Handler shape (M4 minimum)
 
-Replace the bare function with a **static handler plus an opaque cookie**:
+One signature for all registered lines:
 
 ```text
 type IrqCookie = u32;           // index or generation-tagged id; not a pointer
-type Handler = fn(IrqCookie);   // or fn() still allowed for cookie-less lines
+type Handler = fn(IrqCookie);
 ```
 
 - Cookies are assigned at **registration** (still before `seal` in M4, or via a
@@ -44,6 +51,8 @@ type Handler = fn(IrqCookie);   // or fn() still allowed for cookie-less lines
   capabilities exist; until then they are kernel-internal indices.
 - The cookie is what a future capability **names** (an IRQ notification object),
   not a raw GIC id handed to agents.
+- Lines that need no wake (e.g. pure accounting) still take a cookie; the
+  handler may ignore it. No second `fn()` type — dual shapes invite drift.
 
 ### Wake policy (with ADR-0006)
 
@@ -85,14 +94,18 @@ driver agents is **M6** and needs a successor ADR (capability-mediated
 separated; pure wake-queue arithmetic is testable; caps can later wrap the same
 cookie.
 
-**Negative** — every handler signature changes once; cookies need a registry;
-wake queue capacity is a new fixed limit.
+**Negative** — every handler signature changes once at M4 land; cookies need a
+registry; wake queue capacity is a new fixed limit.
+
+**Transitional** — until the M4 PR lands, sealed `fn()` handlers remain; they
+are not a second accepted design.
 
 ## Alternatives considered
 
 | Alternative | Why not |
 | --- | --- |
 | Keep `fn()` and use global tables keyed by IRQ id only | No room for cap_irq; forces one waiter per line |
+| Dual `fn()` / `fn(IrqCookie)` forever | Two paths drift; cookie is free to ignore |
 | Switch to the waiter from the IRQ handler | Violates ADR-0006; races multi-claim IRQ entry |
 | Full async executor in IRQ | Hides stacks; fails M3/M4 overflow story |
 | Dynamic `register` without seal for M4 | Reopens RMW/race surface; not required for two demos |
@@ -104,6 +117,7 @@ wake queue capacity is a new fixed limit.
 | Process | Multi-role review before M4 `done (HW)` |
 | Code (when implemented) | Host tests on wake queue; layering: `exception` still only `irq`; `sched` not imported from `irq` |
 | Mutation | A `sched::yield_now` call from an IRQ handler path must fail review / future grep gate |
+| Reversal | M4 mailbox that wakes without cookie/wake-queue shape |
 
 ## When to revisit
 
@@ -115,5 +129,5 @@ wake queue capacity is a new fixed limit.
 
 - [ADR-0006](0006-cooperative-execution-model.md) — no IRQ-side switch
 - [architecture.md](../architecture.md) — M4 done-when; F13
-- `src/irq/mod.rs` — `Handler = fn()`, `seal`
+- `src/irq/mod.rs` — current `Handler = fn()`, `seal` (pre-M4)
 - `src/bootstrap/console_loop.rs` — idle as wake consumer template
