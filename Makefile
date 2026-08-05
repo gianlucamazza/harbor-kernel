@@ -16,6 +16,18 @@
 #   make restore-rpios  put Pi OS kernel+config back on the SD
 #   make serial     open serial console (SERIAL_DEV=...)
 #   make clean
+#
+# Multi-arch scaffold (ADR-0015): only one product combo is supported.
+# ARCH/BOARD document that combo; overrides fail rather than half-work.
+
+ARCH        ?= aarch64
+BOARD       ?= rpi4
+ifneq ($(ARCH),aarch64)
+$(error unsupported ARCH=$(ARCH); only aarch64 is product-supported — see docs/porting.md)
+endif
+ifneq ($(BOARD),rpi4)
+$(error unsupported BOARD=$(BOARD); only rpi4 is product-supported — see docs/porting.md)
+endif
 
 TARGET      := aarch64-unknown-none-softfloat
 PROFILE     ?= release

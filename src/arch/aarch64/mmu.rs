@@ -24,7 +24,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use kernel_core::layout::Region;
 use kernel_core::paging::{self, Level, MemKind, Perms};
 
-use crate::arch::aarch64::cache;
+use crate::arch::cache;
 use crate::sync::SyncCell;
 
 /// Blocks split into next-level tables since boot. See [`splits`].

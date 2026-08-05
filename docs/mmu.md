@@ -11,7 +11,7 @@
 
 ## Two maps
 
-Translation is enabled **before any Rust runs**, from `boot.s`, using a coarse
+Translation is enabled **before any Rust runs**, from `arch/aarch64/boot.s`, using a coarse
 identity map resolved at compile time (`arch::mmu::EARLY_L1`): 1 GiB blocks
 covering 3 GiB of RAM plus the device window. Its purpose is not the mapping —
 it is that no kernel code ever executes without memory attributes, because
@@ -187,7 +187,7 @@ by hand after any change to `link.ld` or to the region list, following
 | `mm/layout.rs`                     | Regions and their permissions, from the linker                   |
 | `mm/mod.rs`                        | Kernel heap + `GlobalAlloc`                                      |
 | `bsp/rpi4/memmap.rs`               | Device windows                                                   |
-| `link.ld`                          | Page-aligned region boundaries, table arena, guard page          |
+| `src/arch/aarch64/link.ld`         | Page-aligned region boundaries, table arena, guard page          |
 
 `activate` takes the region list from the caller and returns `Result`: which
 physical ranges are RAM is board knowledge, and a failure reports over the

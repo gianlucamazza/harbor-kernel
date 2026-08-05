@@ -27,6 +27,10 @@ the code that follows.
 | [0012](0012-frame-allocator-for-address-spaces.md) | Frame allocator for user address spaces (M5) | accepted |
 | [0013](0013-narrow-device-windows.md) | Narrow device MMIO windows (F26 / M6) | accepted |
 | [0014](0014-ttbr-split-m5.md) | TTBR regime for M5 (TTBR0 + shared kernel maps v1) | accepted |
+| [0015](0015-multi-arch-scaffold.md) | Multi-arch scaffold (cfg facade, board features) | accepted |
+
+Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
+[`../porting.md`](../porting.md).
 
 Operational reviews (findings, not decisions): [`../reviews/`](../reviews/).
 

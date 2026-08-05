@@ -11,7 +11,7 @@ target = "aarch64-unknown-none-softfloat"
 [target.aarch64-unknown-none-softfloat]
 rustflags = [
   "-C",
-  "link-arg=--script=link.ld",
+  "link-arg=--script=src/arch/aarch64/link.ld",
   "-C",
   "relocation-model=static",
   "-C",

@@ -24,13 +24,13 @@ _start (EL2 or EL1) → drop to EL1h if needed → kernel_main
 ## Load address
 
 AArch64 kernels are loaded at physical address **`0x80000`**. The linker
-script (`link.ld`) places `.text.boot` there. `ENTRY(_start)` must remain the
-first executable symbol in the image.
+script (`src/arch/aarch64/link.ld`) places `.text.boot` there.
+`ENTRY(_start)` must remain the first executable symbol in the image.
 
 ## Exception level
 
 With current platform firmware, the ARM cores typically enter the kernel in
-**EL2**. `src/boot.s` detects `CurrentEL` and, when at EL2:
+**EL2**. `src/arch/aarch64/boot.s` detects `CurrentEL` and, when at EL2:
 
 1. Sets `HCR_EL2.RW` (EL1 is AArch64)
 2. Allows EL1 physical timer/counter access via `CNTHCTL_EL2` (`EL1PCTEN|EL1PCEN`)

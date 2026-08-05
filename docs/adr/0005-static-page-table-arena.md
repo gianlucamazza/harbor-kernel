@@ -94,5 +94,5 @@ already names ADR-0005 as the wrong shape for M5.
 
 ## References
 
-`link.ld` (`PAGE_TABLE_ARENA_SIZE`), `src/arch/aarch64/mmu.rs`,
+`src/arch/aarch64/link.ld` (`PAGE_TABLE_ARENA_SIZE`), `src/arch/aarch64/mmu.rs`,
 [`mmu.md`](../mmu.md).

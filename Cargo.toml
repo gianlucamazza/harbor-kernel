@@ -14,7 +14,10 @@ categories = ["embedded", "no-std", "os"]
 keywords = ["raspberry-pi", "aarch64", "kernel", "bare-metal"]
 
 [features]
-default = []
+default = ["board-rpi4"]
+# Active board package (exactly one board-* for a product image).
+# Selection is compile-time; see docs/porting.md and ADR-0015.
+board-rpi4 = []
 # Bring-up scaffolding: the masked CNTP/HPPIR/IAR gates used to debug the M1
 # GIC path, and the raw GIC register accessors they need. Off by default so
 # none of it is compiled into a production image — and so the diagnostic

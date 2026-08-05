@@ -71,9 +71,12 @@ crates/kernel-core/  pure logic, unit-tested on the host:
                      paging, allocators, GIC maths, SPSC ring, runqueue (M3),
                      display/textgrid (debug-display math)
 src/
-  arch/aarch64/   MMIO, CPU/DAIF, cache, vectors, MMU, unmap, switch, CNTP, probe, bootinfo
+  arch/           facade (`cfg(target_arch)`); only path policy imports
+  arch/aarch64/   MMIO, CPU/DAIF, cache, vectors, MMU, switch, CNTP, probe, bootinfo,
+                  boot.s, link.ld (ISA-owned entry + memory map)
   irq/            IrqChip trait, dispatch table, counters
   drivers/        PL011, GICv2, RNG200; spi + ili9486 (+ delay/pin) behind debug-display
+  bsp/            board feature select → `board` re-export
   bsp/rpi4/       memmap, GPIO, console, IRQ bind, RNG bind; display bind (feature)
   bootstrap/      mod: boot sequence · console_loop: idle body · selftest: gates
   sched/          cooperative TCB, spawn, yield, block, wake queue (ADR-0006/0008)
@@ -84,13 +87,14 @@ src/
   console.rs      TX claim/install + RX ring + print / kprintln
   sync.rs         SyncCell for globals the IRQ path shares
   panic.rs        mask IRQ → steal console → halt (+ TFT banner if feature)
-  boot.s          DTB pointer, EL2→EL1, early MMU, BSS, stack
   main.rs         → bootstrap::run()
 boot/config.txt   arm_64bit, enable_uart, enable_gic
-link.ld           load address, stack/guard, table arena
-docs/             architecture, mmu, verification, interrupts, boot, blobs, hardware, adr
+docs/             architecture, arch-contract, porting, mmu, verification, adr, …
 scripts/          fetch-blobs, deploy-sd, serial, restore-rpios-boot, gate checks
 ```
+
+Multi-arch **scaffold** (ADR-0015): AArch64 + Pi 4 only as product; see
+[`docs/porting.md`](docs/porting.md) to add an ISA or board later.
 
 ## Requirements
 

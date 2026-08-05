@@ -72,6 +72,32 @@ for file in $(find src -name '*.rs' | sort); do
 	done
 done
 
+# Facade isolation (ADR-0015): outside the owning tree, never name an ISA or a
+# concrete board path. Policy uses `crate::arch::*` and `crate::bsp::board::*`.
+# Without this, layering only sees the first path segment (`arch` / `bsp`) and
+# a future `use crate::arch::aarch64::cpu` would pass silently.
+for file in $(find src -name '*.rs' | sort); do
+	# Strip line comments; do not treat doc prose as imports.
+	body="$(sed 's|//.*||' "${file}")"
+	if [[ "${file}" != src/arch/* ]]; then
+		if grep -qE 'crate::arch::[a-zA-Z0-9_]+' <<<"${body}"; then
+			# `crate::arch::cpu` is the facade — only a second segment that is an
+			# ISA directory (today: aarch64) is forbidden. Match known ISAs and
+			# any future sibling that is not a listed facade module.
+			if grep -nE 'crate::arch::(aarch64)(::|[[:space:]]|;|,|})' <<<"${body}" >&2; then
+				echo "layering: ${file} imports crate::arch::<isa> — use the facade crate::arch::*" >&2
+				violations=$((violations + 1))
+			fi
+		fi
+	fi
+	if [[ "${file}" != src/bsp/rpi4/* && "${file}" != src/bsp/mod.rs ]]; then
+		if grep -nE 'crate::bsp::(rpi4)(::|[[:space:]]|;|,|})' <<<"${body}" >&2; then
+			echo "layering: ${file} imports crate::bsp::<board> — use crate::bsp::board" >&2
+			violations=$((violations + 1))
+		fi
+	fi
+done
+
 if [[ "${violations}" -ne 0 ]]; then
 	echo "layering: ${violations} violation(s) of the rules in docs/architecture.md" >&2
 	exit 1
