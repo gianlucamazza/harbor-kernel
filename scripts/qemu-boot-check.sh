@@ -84,6 +84,14 @@ fi
 if grep -q 'sched: ABANDONED' "${log}"; then
 	fail "a task stack was abandoned (guard remap refused)"
 fi
+# An exit found a stack still parked from an earlier exit. The stack is released
+# rather than leaked, so the pool and the heap both stay consistent and no other
+# assertion here would move — which is exactly why this one exists. Bootstrap
+# spawns ten tasks that exit at different times, so if the drain in
+# `task_trampoline` regresses, this boot is where it shows.
+if grep -q 'sched: PENDING-OVERWRITE' "${log}"; then
+	fail "an exit found a parked task stack — the pending_free drain has a hole"
+fi
 # M3 cooperative demo (ADR-0006): the console must show the two tasks *alternating*.
 #
 # The order is deterministic, not a race: both tasks are on the runqueue before
