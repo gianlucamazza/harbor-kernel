@@ -26,8 +26,8 @@ static MISSED: AtomicU64 = AtomicU64::new(0);
 /// IRQ handler registered for the platform timer line (BSP supplies the id).
 ///
 /// Re-arms the arch timer and advances the monotonic tick counter.
-/// Must not perform console I/O.
-pub fn on_timer_irq() {
+/// Must not perform console I/O. Cookie is unused (ADR-0008 shape).
+pub fn on_timer_irq(_cookie: u32) {
     let missed = timer::on_interrupt();
     if missed != 0 {
         MISSED.fetch_add(missed, Ordering::Relaxed);

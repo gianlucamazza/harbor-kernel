@@ -102,6 +102,16 @@ expected="task-a 0 task-b 0 task-a 1 task-b 1 task-a 2 task-b 2 task-a 3 task-b 
 if grep -q 'spawn task-a FAILED' "${log}" || grep -q 'spawn task-b FAILED' "${log}"; then
 	fail "cooperative task spawn failed"
 fi
+# M4 IPC (ADR-0008 shape + mailbox): message delivered; forge refuse counted.
+grep -q 'ipc: sent tag=1 a=42' "${log}" ||
+	fail "ipc sender did not deliver"
+grep -q 'ipc: got tag=1 a=42' "${log}" ||
+	fail "ipc receiver did not get the message"
+grep -qE 'ipc: refuse count=[1-9]' "${log}" ||
+	fail "ipc forge was not refused (capability hold check)"
+if grep -q 'ipc: FORGE OK' "${log}"; then
+	fail "forged capability send succeeded"
+fi
 # Two tick reports mean the timer IRQ fired repeatedly *and* the WFI idle loop
 # kept waking: a stalled idle loop prints the first and then goes quiet.
 grep -q 'ticks=20' "${log}" ||

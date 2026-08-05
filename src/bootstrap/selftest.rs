@@ -108,7 +108,7 @@ fn software_inject_timer(uart: &mut Pl011) -> bool {
     // The real handler, not a re-implementation of it: this gate exists to
     // check that the timer path advances the counter, so it must exercise the
     // path rather than repeat its two steps here.
-    time::on_timer_irq();
+    time::on_timer_irq(0);
 
     irq::enable(board::irq::TIMER_IRQ);
     let counts = (timer::frequency_hz() / 1000).max(1000);
@@ -126,7 +126,7 @@ fn software_inject_timer(uart: &mut Pl011) -> bool {
     println!(uart, "inject: IAR={iar:#x} id={id}");
 
     if id == board::irq::TIMER_IRQ {
-        time::on_timer_irq();
+        time::on_timer_irq(0);
         board::irq::debug_write_eoir(iar);
     } else if id != 1023 {
         board::irq::debug_write_eoir(iar);

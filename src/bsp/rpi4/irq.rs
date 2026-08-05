@@ -37,10 +37,11 @@ pub unsafe fn init(timer_hz: u32) -> Result<(), BindError> {
     unsafe {
         irq::init(&GIC);
 
-        if !irq::register(TIMER_IRQ, time::on_timer_irq) {
+        // Cookies are kernel-internal ids (ADR-0008), not GIC numbers.
+        if !irq::register(TIMER_IRQ, time::on_timer_irq, 1) {
             return Err(BindError::HandlerNotRegistered(TIMER_IRQ));
         }
-        if !irq::register(UART_IRQ, console::on_uart_rx_irq) {
+        if !irq::register(UART_IRQ, console::on_uart_rx_irq, 2) {
             return Err(BindError::HandlerNotRegistered(UART_IRQ));
         }
 

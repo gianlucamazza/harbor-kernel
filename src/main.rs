@@ -12,6 +12,7 @@ mod bootstrap;
 mod bsp;
 mod console;
 mod drivers;
+mod ipc;
 mod irq;
 mod mm;
 mod panic;

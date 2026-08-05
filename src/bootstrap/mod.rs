@@ -288,6 +288,27 @@ pub fn run() -> ! {
         Err(e) => crate::kprintln!("sched: spawn task-b FAILED {e:?}"),
     }
 
+    // M4: mailbox + caps. Message path only — no shared payload static.
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            // Forger learns the bit pattern but does not hold the cap in its table.
+            IPC_FORGE_RAW.store(ch.send.raw(), core::sync::atomic::Ordering::Relaxed);
+            match crate::sched::spawn_with_caps(ipc_receiver, &[ch.recv]) {
+                Ok(_) => crate::kprintln!("ipc: spawned receiver"),
+                Err(e) => crate::kprintln!("ipc: spawn receiver FAILED {e:?}"),
+            }
+            match crate::sched::spawn_with_caps(ipc_sender, &[ch.send]) {
+                Ok(_) => crate::kprintln!("ipc: spawned sender"),
+                Err(e) => crate::kprintln!("ipc: spawn sender FAILED {e:?}"),
+            }
+            match crate::sched::spawn(ipc_forger) {
+                Ok(_) => crate::kprintln!("ipc: spawned forger"),
+                Err(e) => crate::kprintln!("ipc: spawn forger FAILED {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
+    }
+
     // Deliberate fault, last so the demo tasks are alive when it runs: the
     // probe must overflow its own guard while a peer stack exists, or it cannot
     // show that the fault landed there *instead of* in the peer (M3 done-when).
@@ -311,6 +332,9 @@ pub fn run() -> ! {
     console_loop::run()
 }
 
+/// Bit pattern of a valid send cap the forger does **not** hold (M4 refuse).
+static IPC_FORGE_RAW: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
 /// M3 demo: yield so the peer's lines interleave on the console.
 fn demo_task_a() {
     for i in 0..4 {
@@ -323,5 +347,56 @@ fn demo_task_b() {
     for i in 0..4 {
         crate::kprintln!("task-b {i}");
         crate::sched::yield_now();
+    }
+}
+
+/// M4: holds recv cap only; blocks until sender posts.
+fn ipc_receiver() {
+    let Some(cap) = crate::sched::my_cap(0) else {
+        crate::kprintln!("ipc: receiver has no cap");
+        return;
+    };
+    match crate::ipc::recv(cap) {
+        Ok(msg) => crate::kprintln!("ipc: got tag={} a={}", msg.tag, msg.a),
+        Err(e) => crate::kprintln!("ipc: recv FAILED {e:?}"),
+    }
+}
+
+/// M4: holds send cap; delivers one message across the mailbox.
+fn ipc_sender() {
+    // Let the receiver block first so the wait/wake path is exercised.
+    crate::sched::yield_now();
+    let Some(cap) = crate::sched::my_cap(0) else {
+        crate::kprintln!("ipc: sender has no cap");
+        return;
+    };
+    let msg = crate::ipc::Message {
+        tag: 1,
+        a: 42,
+        b: 0,
+    };
+    match crate::ipc::send(cap, msg) {
+        Ok(()) => crate::kprintln!("ipc: sent tag=1 a=42"),
+        Err(e) => crate::kprintln!("ipc: send FAILED {e:?}"),
+    }
+}
+
+/// M4: knows the send-cap bit pattern but does not hold it — must refuse.
+fn ipc_forger() {
+    crate::sched::yield_now();
+    crate::sched::yield_now();
+    let raw = IPC_FORGE_RAW.load(core::sync::atomic::Ordering::Relaxed);
+    let stolen = kernel_core::cap::CapId::from_raw(raw);
+    let msg = crate::ipc::Message {
+        tag: 99,
+        a: 0,
+        b: 0,
+    };
+    match crate::ipc::send(stolen, msg) {
+        Ok(()) => crate::kprintln!("ipc: FORGE OK — capability check failed"),
+        Err(_) => crate::kprintln!(
+            "ipc: refuse count={}",
+            crate::ipc::refused_count()
+        ),
     }
 }

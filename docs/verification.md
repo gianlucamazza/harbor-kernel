@@ -123,6 +123,19 @@ went stale together the moment the layout moved.
 QEMU remains gated by `boot-check`. Both silicon rows above are closed: M3 may
 be marked `done (HW)`.
 
+## M4 IPC + capabilities
+
+| Check | Status | Evidence |
+| --- | --- | --- |
+| ADR-0008 cookie handlers + wake queue | **in tree** | `Handler = fn(IrqCookie)`; `WakeQueue` host-tested; `poll_wakes` in idle |
+| Message across tasks (no shared payload) | **closed (QEMU)** | `ipc: sent` / `ipc: got tag=1 a=42` — `make boot-check` |
+| Send without hold refused + counted | **closed (QEMU)** | forger with raw CapId bits → `ipc: refuse count=N` (N≥1) |
+| Silicon re-verify | **open** | Pi 4B transcript not yet recorded |
+
+M4 is **done** against the architecture done-when on the QEMU gate. Mark
+`done (HW)` only after a Pi 4B serial transcript shows the same three `ipc:`
+lines.
+
 ### Boot + cooperative yield (closed)
 
 Pi 4B, production image, CP2104 @ 115200, 2026-08-04. `CNTFRQ=54000000` is

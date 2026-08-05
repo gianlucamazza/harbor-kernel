@@ -138,7 +138,8 @@ pub unsafe fn enable_rx_irq(uart: &Pl011) {
 /// IRQ handler for the platform UART RX line (BSP supplies the GIC id).
 ///
 /// Drains the PL011 RX FIFO into the kernel ring. Must not transmit or format.
-pub fn on_uart_rx_irq() {
+/// Cookie is unused (ADR-0008 shape).
+pub fn on_uart_rx_irq(_cookie: u32) {
     let base = RX_MMIO_BASE.load(Ordering::Acquire);
     if base == 0 {
         return;

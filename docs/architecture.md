@@ -21,14 +21,14 @@ the target; the milestone table says which parts exist.
                              │ syscalls / IPC / cap_irq
 ┌────────────────────────────┴─────────────────────────────┐
 │  Kernel policy                                           │
-│  bootstrap · console_loop (idle) · sched · time · console│
-│  mm (heap + task stacks) · status (debug-display TFT)    │
+│  bootstrap · console_loop · sched · ipc · time · console │
+│  mm · status (debug-display TFT)                         │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
 │  irq                  │     │  drivers                   │
 │  dispatch · IrqChip   │     │  gicv2 · pl011 · rng200    │
-│                       │     │  spi · ili9486 (feature)   │
+│  fn(IrqCookie)        │     │  spi · ili9486 (feature)   │
 └───────────▲───────────┘     └───────────▲────────────────┘
             │ claim/eoi                   │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
@@ -101,9 +101,9 @@ today versus roadmap.
 | Concept    | Role                                                  | Status        |
 | ---------- | ----------------------------------------------------- | ------------- |
 | Task (M3)  | Schedulable EL1 entity + private stack; see ADR-0006  | **done (HW)** |
-| Agent      | Task + mailbox; later own address space (M5)          | planned       |
-| Message    | Sole interaction channel (M4)                         | planned       |
-| Capability | Unforgeable handle (future: IRQ notification)         | planned       |
+| Agent      | Task + mailbox; later own address space (M5)          | partial (EL1 task + mailbox; no private AS) |
+| Message    | Sole interaction channel (M4)                         | **done** (fixed `Message` + mailbox) |
+| Capability | Unforgeable handle (send/recv; future: IRQ notification) | **done** (CapId + hold table; IRQ caps later) |
 
 `irq::register` is the hook for later capability mediation.
 
@@ -120,7 +120,7 @@ today versus roadmap.
 | P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)               |
 | P4  | Exception stack, refused frees, fatal map failure         | **done** (HW, fault-probed) |
 | M3  | Cooperative tasks                                        | **done** (HW, fault-probed) |
-| M4  | IPC + capabilities                                       | planned                     |
+| M4  | IPC + capabilities                                       | **done** (QEMU gate; HW re-verify open) |
 | M5  | EL0 agents                                               | planned                     |
 | M6  | Driver-as-agent                                          | planned                     |
 
@@ -157,6 +157,17 @@ fault** in its own guard with peers live
 gated by `boot-check`. Desk multi-role pass:
 [reviews/2026-08-04-m3-incremental.md](reviews/2026-08-04-m3-incremental.md).
 Inventing preemption or `link.ld` task stacks is a reversal of the ADR.
+
+M4 is **done** on the QEMU boot gate (message cross + refuse count; ADR-0008
+shape). [ADR-0008](adr/0008-irq-handler-policy.md) is **accepted**. Silicon
+`done (HW)` for M4 waits on a Pi 4B transcript
+([verification.md](verification.md#m4-ipc--capabilities)). Remaining roadmap:
+
+| Next | Needs first | Notes |
+| ---- | ----------- | ----- |
+| M4 HW stamp | HAT-free serial run | Same `ipc:` lines as boot-check |
+| M5 | Frame allocator ADR (0005 is wrong shape); TTBR0; EL0 | Large; do not start without multi-role |
+| M6 | M4+M5; F26 device windows ADR | Driver-as-agent; PL011 as EL0 agent |
 
 ### Open findings, against the milestone they block
 

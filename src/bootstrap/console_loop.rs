@@ -234,6 +234,9 @@ pub fn run() -> ! {
     let mut last_abandoned = 0u32;
 
     loop {
+        // ADR-0008: drain IRQ wake posts before scheduling work.
+        crate::sched::poll_wakes();
+
         // 1. Echo all bytes the UART RX IRQ pushed into the ring.
         let _ = console::with_tx(|uart| {
             while let Some(byte) = console::pop_rx() {

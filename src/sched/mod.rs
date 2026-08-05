@@ -1,8 +1,9 @@
-//! Cooperative scheduler (ADR-0006).
+//! Cooperative scheduler (ADR-0006) + IRQ wake integration (ADR-0008).
 //!
 //! Voluntary yield only, fixed FIFO runqueue from `kernel-core`, idle is the
 //! console loop on the bootstrap stack. IRQ handlers must not call
-//! [`yield_now`] or [`exit`].
+//! [`yield_now`], [`exit`], or [`block_current`]. They may only
+//! [`wake_from_irq`]; the voluntary path drains that queue via [`poll_wakes`].
 //!
 //! Context switch is never nested inside [`cpu::without_irqs`]: restoring
 //! another stack would leave IRQs masked with no matching restore. Bookkeeping
@@ -11,7 +12,9 @@
 
 use core::sync::atomic::{AtomicUsize, Ordering};
 
+use kernel_core::cap::CapId;
 use kernel_core::runqueue::RunQueue;
+use kernel_core::wake::WakeQueue;
 pub use kernel_core::runqueue::TaskId;
 
 use crate::arch::cpu;
@@ -28,17 +31,25 @@ use crate::sync::SyncCell;
 /// exits, so this bounds concurrency, not lifetime spawns.
 pub const MAX_TASKS: usize = 8;
 
+/// Caps a task may hold (M4 local table — not shared globals).
+pub const MAX_CAPS_PER_TASK: usize = 4;
+
 /// Usable stack bytes per spawned task (plus one guard page).
 const TASK_STACK_USABLE: usize = 16 * 1024;
 
 /// Idle's fixed id — bootstrap stack, never heap-allocated.
 pub const IDLE_ID: TaskId = TaskId(0);
 
+/// IRQ → voluntary wake queue capacity (usable = N−1).
+const WAKE_Q: usize = 16;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
     Empty,
     Ready,
     Running,
+    /// Parked on IPC (or similar); not on the ready queue.
+    Blocked,
 }
 
 struct Tcb {
@@ -48,6 +59,8 @@ struct Tcb {
     stack: Option<TaskStack>,
     /// Cleared when the trampoline starts the entry function.
     entry: Option<fn()>,
+    /// Unforgeable caps this task holds (M4).
+    caps: [Option<CapId>; MAX_CAPS_PER_TASK],
 }
 
 impl Tcb {
@@ -57,6 +70,7 @@ impl Tcb {
             context: Context::zeroed(),
             stack: None,
             entry: None,
+            caps: [None; MAX_CAPS_PER_TASK],
         }
     }
 }
@@ -88,12 +102,16 @@ impl Sched {
 static SCHED: SyncCell<Sched> = SyncCell::new(Sched::new());
 static STARTED: AtomicUsize = AtomicUsize::new(0);
 
+/// ADR-0008: IRQ posts here; [`poll_wakes`] drains on the voluntary path.
+static WAKES: WakeQueue<WAKE_Q> = WakeQueue::new();
+
 /// Why spawn failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpawnError {
     NotStarted,
     Full,
     Stack(StackError),
+    TooManyCaps,
 }
 
 /// Claim idle as the running task on the bootstrap stack.
@@ -106,16 +124,25 @@ pub fn init() {
         context: Context::zeroed(),
         stack: None,
         entry: None,
+        caps: [None; MAX_CAPS_PER_TASK],
     };
     sched.current = IDLE_ID;
     STARTED.store(1, Ordering::Release);
     cpu::irq_enable();
 }
 
-/// Create a ready task that starts at `entry`.
+/// Create a ready task that starts at `entry` with no capabilities.
 pub fn spawn(entry: fn()) -> Result<TaskId, SpawnError> {
+    spawn_with_caps(entry, &[])
+}
+
+/// Create a ready task that starts at `entry` holding `caps` (M4).
+pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError> {
     if STARTED.load(Ordering::Acquire) == 0 {
         return Err(SpawnError::NotStarted);
+    }
+    if caps.len() > MAX_CAPS_PER_TASK {
+        return Err(SpawnError::TooManyCaps);
     }
 
     let stack = TaskStack::allocate(TASK_STACK_USABLE).map_err(SpawnError::Stack)?;
@@ -139,11 +166,17 @@ pub fn spawn(entry: fn()) -> Result<TaskId, SpawnError> {
     context.x30 = task_trampoline as *const () as u64;
     context.sp = stack.initial_sp() as u64;
 
+    let mut held = [None; MAX_CAPS_PER_TASK];
+    for (i, &c) in caps.iter().enumerate() {
+        held[i] = Some(c);
+    }
+
     sched.tcbs[slot] = Tcb {
         state: State::Ready,
         context,
         stack: Some(stack),
         entry: Some(entry),
+        caps: held,
     };
 
     if sched.runqueue.enqueue(id).is_err() {
@@ -160,18 +193,113 @@ pub fn spawn(entry: fn()) -> Result<TaskId, SpawnError> {
     Ok(id)
 }
 
+/// Running task id (including idle).
+#[inline]
+pub fn current_task_id() -> TaskId {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        unsafe { (*SCHED.get()).current }
+    })
+}
+
+/// Cap at local slot `i` for the current task, if any.
+pub fn my_cap(i: usize) -> Option<CapId> {
+    if i >= MAX_CAPS_PER_TASK {
+        return None;
+    }
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let sched = unsafe { &*SCHED.get() };
+        let idx = sched.current.0 as usize;
+        sched.tcbs.get(idx).and_then(|t| t.caps[i])
+    })
+}
+
+/// True if the current task holds `cap` in its local table.
+pub fn current_holds(cap: CapId) -> bool {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let sched = unsafe { &*SCHED.get() };
+        let idx = sched.current.0 as usize;
+        sched
+            .tcbs
+            .get(idx)
+            .map(|t| t.caps.contains(&Some(cap)))
+            .unwrap_or(false)
+    })
+}
+
 /// Cooperative yield: requeue current, run the next ready task (or stay).
 ///
 /// Never call from an IRQ handler.
 pub fn yield_now() {
-    switch_with(true);
+    poll_wakes();
+    switch_with(SwitchKind::Yield);
+}
+
+/// Park the current non-idle task until [`wake_task`] / [`wake_from_irq`].
+///
+/// Never call from an IRQ handler or from idle.
+pub fn block_current() {
+    switch_with(SwitchKind::Block);
 }
 
 /// Terminate the current non-idle task and switch to the next ready (or idle).
 pub fn exit() -> ! {
-    switch_with(false);
+    switch_with(SwitchKind::Exit);
     // Idle called exit, or no one left to run.
     cpu::halt()
+}
+
+/// Make a blocked task Ready (voluntary path — e.g. IPC send).
+pub fn wake_task(id: TaskId) {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let sched = unsafe { &mut *SCHED.get() };
+        make_ready(sched, id);
+    });
+}
+
+/// Post a wake from IRQ context (ADR-0008). Never switches.
+///
+/// Reserved for IRQ-sourced readiness (e.g. future UART wait). Drained by
+/// [`poll_wakes`] on the voluntary path only.
+#[allow(dead_code)]
+pub fn wake_from_irq(id: TaskId) {
+    let _ = WAKES.push(id.0);
+}
+
+/// Drain the IRQ wake queue into Ready (voluntary path only).
+pub fn poll_wakes() {
+    while let Some(token) = WAKES.pop() {
+        wake_task(TaskId(token));
+    }
+}
+
+/// Wake queue drop count (full queue under IRQ pressure).
+#[inline]
+#[allow(dead_code)]
+pub fn wake_drops() -> u32 {
+    WAKES.drops()
+}
+
+fn make_ready(sched: &mut Sched, id: TaskId) {
+    let idx = id.0 as usize;
+    if idx >= MAX_TASKS || id == IDLE_ID {
+        return;
+    }
+    let tcb = &mut sched.tcbs[idx];
+    if tcb.state == State::Blocked {
+        tcb.state = State::Ready;
+        let _ = sched.runqueue.enqueue(id);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum SwitchKind {
+    Yield,
+    Exit,
+    Block,
 }
 
 /// One task's stack geometry, as reported to a bring-up probe.
@@ -258,7 +386,7 @@ unsafe fn drain_pending_free() {
     }
 }
 
-fn switch_with(requeue_current: bool) {
+fn switch_with(kind: SwitchKind) {
     if STARTED.load(Ordering::Acquire) == 0 {
         return;
     }
@@ -270,26 +398,36 @@ fn switch_with(requeue_current: bool) {
     let current = sched.current;
     let cur_idx = current.0 as usize;
 
-    if !requeue_current {
-        if current == IDLE_ID {
-            // Idle must not exit.
-            // SAFETY: closes the section opened above.
-            unsafe { cpu::irq_restore(daif) };
-            return;
+    let requeue_current = match kind {
+        SwitchKind::Yield => {
+            if sched.tcbs[cur_idx].state == State::Running {
+                sched.tcbs[cur_idx].state = State::Ready;
+            }
+            true
         }
-        sched.tcbs[cur_idx].state = State::Empty;
-        // Not released here: this code is still running on that stack, and
-        // `release` hands the pages back to the free list. It happens to be
-        // survivable today — the allocator only writes below the usable
-        // region, and nothing can allocate before the switch — but that is an
-        // argument about free-list internals, not about this function. Park it
-        // instead; the next task frees it from its own stack.
-        sched.pending_free = sched.tcbs[cur_idx].stack.take();
-        sched.tcbs[cur_idx].entry = None;
-        sched.tcbs[cur_idx].context = Context::zeroed();
-    } else if sched.tcbs[cur_idx].state == State::Running {
-        sched.tcbs[cur_idx].state = State::Ready;
-    }
+        SwitchKind::Block => {
+            if current == IDLE_ID {
+                unsafe { cpu::irq_restore(daif) };
+                return;
+            }
+            sched.tcbs[cur_idx].state = State::Blocked;
+            false
+        }
+        SwitchKind::Exit => {
+            if current == IDLE_ID {
+                // Idle must not exit.
+                unsafe { cpu::irq_restore(daif) };
+                return;
+            }
+            sched.tcbs[cur_idx].state = State::Empty;
+            // Not released here: still running on that stack — park for drain.
+            sched.pending_free = sched.tcbs[cur_idx].stack.take();
+            sched.tcbs[cur_idx].entry = None;
+            sched.tcbs[cur_idx].caps = [None; MAX_CAPS_PER_TASK];
+            sched.tcbs[cur_idx].context = Context::zeroed();
+            false
+        }
+    };
 
     let requeue = requeue_current.then_some(current);
     let next = match sched.runqueue.after_yield(requeue) {

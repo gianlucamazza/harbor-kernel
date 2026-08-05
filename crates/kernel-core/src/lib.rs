@@ -15,6 +15,7 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod bump;
+pub mod cap;
 pub mod delay;
 pub mod display;
 pub mod font8x8;
@@ -30,3 +31,4 @@ pub mod runqueue;
 pub mod spi;
 pub mod timer;
 pub mod uart;
+pub mod wake;

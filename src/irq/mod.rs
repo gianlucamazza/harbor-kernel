@@ -14,6 +14,11 @@
 //! is what makes the IRQ path's shared read sound: after [`seal`] there is no
 //! writer left to race with, so it is an invariant the code enforces rather
 //! than a rule the reader has to keep. [`register`] after sealing fails.
+//!
+//! # Cookies (ADR-0008)
+//!
+//! Handlers are [`Handler`] = `fn(IrqCookie)`. The cookie is assigned at
+//! registration and is what a future capability names — not a raw GIC id.
 
 mod chip;
 
@@ -33,11 +38,20 @@ const MAX_IRQ: usize = 256;
 /// would spin here forever. Hitting it is recorded.
 const MAX_CLAIMS_PER_ENTRY: u32 = 64;
 
-type Handler = fn();
+/// Opaque cookie passed to every handler (ADR-0008). Not a GIC id.
+pub type IrqCookie = u32;
+
+/// Registered IRQ handler. Always takes a cookie (may be ignored).
+pub type Handler = fn(IrqCookie);
+
+struct Slot {
+    handler: Handler,
+    cookie: IrqCookie,
+}
 
 struct IrqState {
     chip: Option<&'static dyn IrqChip>,
-    handlers: [Option<Handler>; MAX_IRQ],
+    slots: [Option<Slot>; MAX_IRQ],
 }
 
 /// Chip + dispatch table.
@@ -45,7 +59,7 @@ struct IrqState {
 /// Written only during bootstrap with IRQs masked; read from the IRQ path.
 static STATE: SyncCell<IrqState> = SyncCell::new(IrqState {
     chip: None,
-    handlers: [None; MAX_IRQ],
+    slots: [const { None }; MAX_IRQ],
 });
 
 /// Set once bring-up finishes; the dispatch table is read-only from then on.
@@ -107,22 +121,22 @@ pub unsafe fn init(chip: &'static dyn IrqChip) {
     }
 }
 
-/// Register a handler for `irq`. Overwrites any previous handler.
+/// Register a handler for `irq` with an opaque [`IrqCookie`].
 ///
 /// Returns `false` if `irq` is beyond the dispatch table, or if the table has
-/// already been sealed.
+/// already been sealed. Overwrites any previous handler.
 ///
 /// # Safety
 /// Call only while IRQs that use this id are masked or not yet enabled.
 #[must_use = "an unregistered handler means the line will be EOI-ed and dropped"]
-pub unsafe fn register(irq: u32, handler: Handler) -> bool {
+pub unsafe fn register(irq: u32, handler: Handler, cookie: IrqCookie) -> bool {
     unsafe {
         let id = irq as usize;
         if id >= MAX_IRQ || SEALED.load(Ordering::Acquire) {
             return false;
         }
         cpu::without_irqs(|| {
-            (*STATE.get()).handlers[id] = Some(handler);
+            (*STATE.get()).slots[id] = Some(Slot { handler, cookie });
         });
         true
     }
@@ -172,8 +186,8 @@ pub fn handle_cpu_irq_counted() -> u32 {
         claimed += 1;
 
         let id = ack.interrupt_id() as usize;
-        match state.handlers.get(id) {
-            Some(Some(handler)) => handler(),
+        match state.slots.get(id) {
+            Some(Some(slot)) => (slot.handler)(slot.cookie),
             Some(None) => {
                 UNHANDLED.fetch_add(1, Ordering::Relaxed);
             }
