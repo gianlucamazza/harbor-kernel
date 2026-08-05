@@ -195,16 +195,15 @@ Pi 4B stamp: [verification.md §M5-P / M6](verification.md#m5-p--m6-v1-qemu) (20
 
 | Slice | Status | Evidence |
 | ----- | ------ | -------- |
-| **SVC resume** | **done (QEMU)** | `enter`/`resume`/`end_session`; `SYS_EXIT`; `el0-task: resume pings=2` |
+| **SVC resume** | **done (HW)** | `enter`/`resume`/`end_session`; `SYS_EXIT`; `el0-task: resume pings=2` |
 | Preferred ELR for SVC | documented | AArch64 ELR is already past SVC — no software +4 |
 
 ### Next (ordered)
 
 | # | Work | Done when |
 | - | ---- | --------- |
-| 1 | **HW stamp EL0 resume** | Pi shows `el0-task: resume pings=2` |
-| 2 | **EL0 IRQ / full RX agent** | Successor design; agent owns RX without breaking kernel panic console |
-| 3 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
+| 1 | **EL0 IRQ / full RX agent** | Successor design; agent owns RX without breaking kernel panic console |
+| 2 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer.
 

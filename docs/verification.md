@@ -196,9 +196,8 @@ Protocol notes load-bearing for silicon:
 | ADR-0013 accepted | **yes** | agent page-sized PL011 only |
 | PL011 agent map + FR load + kill | **closed (QEMU)** | `pl011-agent: FR read + svc ok` / `killed ok` |
 | Concurrent multi-agent shell | **closed (QEMU + HW)** | `agents: concurrent ok` (`src/agent`) |
-| Multi-SVC resume (`enter`/`resume`) | **closed (QEMU)** | `el0-task: resume pings=2` (`SYS_EXIT` ends session) |
-| Silicon (M5-P / M6 / agents) | **closed (HW)** | Pi 4B + CP2104, `FEATURES=debug-display`, 2026-08-05 — transcript below |
-| Silicon (EL0 resume) | **open** | re-flash image with resume path |
+| Multi-SVC resume (`enter`/`resume`) | **closed (QEMU + HW)** | `el0-task: resume pings=2` (`SYS_EXIT` ends session) |
+| Silicon (M5-P / M6 / agents / resume) | **closed (HW)** | Pi 4B + CP2104, `FEATURES=debug-display`, 2026-08-05 — transcript below |
 
 M6 v1 does **not** move console RX into the agent: the agent proves a **minimal
 Device map** and revocation; kernel idle still owns echo and ticks. EL0
@@ -228,6 +227,7 @@ sched: spawned agent-b
 …
 el0-task: svc ping
 el0-task: svc refuse imm=0x99
+el0-task: resume pings=2
 el0-task: ok
 pl011-agent: FR read + svc ok
 pl011-agent: killed ok  pool=512
@@ -240,6 +240,9 @@ ipc: refuse count=1
 ticks=10
 …
 ```
+
+Same boot also closed **multi-SVC resume** (`resume pings=2`) on silicon with the
+`223e34f` image.
 
 ### Boot + cooperative yield (closed)
 
