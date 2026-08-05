@@ -63,8 +63,8 @@ Exact base/size are an implementation detail of the M5 PR, but must be
 
 ### 3. Software shape
 
-- **Pure arithmetic** in `kernel-core` (bitmap or free-list of frame indices),
-  host unit-tested, Miri-clean where `unsafe` appears.
+- **Pure arithmetic** in `kernel-core` ([`frame`](../../crates/kernel-core/src/frame.rs):
+  free-stack + allocated bitset of indices), host unit-tested.
 - **Kernel** owns phys↔virt for the pool, `alloc_frame` / `free_frame`, and
   only frees frames that the allocator handed out (refuse foreign phys).
 - User page tables are filled with `mmu` helpers that take **frames from this

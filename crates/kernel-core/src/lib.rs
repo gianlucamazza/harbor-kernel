@@ -17,6 +17,7 @@
 pub mod bump;
 pub mod cap;
 pub mod delay;
+pub mod frame;
 pub mod display;
 pub mod font8x8;
 pub mod gic;

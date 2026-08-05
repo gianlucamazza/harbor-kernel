@@ -10,30 +10,26 @@ accepted: 2026-08-05
 
 ## Acceptance status
 
-**Accepted** (2026-08-05). This is the **needs-first** design for
-[M4](../architecture.md) (IPC + cooperative wakes). It closes finding **F13**
-as a *decision*: M4 code must not invent a handler shape under the first
-mailbox that compiles.
+**Accepted** (2026-08-05). Closes finding **F13**. M4 is **done (HW)** with
+this shape in tree: cookie handlers, host-tested `WakeQueue`,
+`poll_wakes` on the voluntary path, mailboxes that do **not** switch from IRQ.
 
-**Code today:** M3 still uses sealed `Handler = fn()` with no cookie. That is
-allowed only as the pre-migration state. The **first M4 implementation PR**
-must land cookie handlers + a host-tested wake queue matching this ADR; it
-must not ship mailboxes that wake by mutating TCBs from IRQ context or by
-keying only on raw GIC ids without a cookie registry.
+**Code today (post-M4):**
+
+- `irq::Handler = fn(IrqCookie)` with cookie stored at `register` (`src/irq`).
+- Timer / UART handlers ignore the cookie but take the signature.
+- `kernel_core::wake::WakeQueue` + `sched::wake_from_irq` / `poll_wakes`.
+- IPC send may `wake_task` on the voluntary path only.
+
+Reversal = inventing a second handler type, switching from IRQ, or waking by
+raw GIC id without the wake queue / cookie registry.
 
 ## Context
 
-At acceptance:
-
-- `irq::Handler = fn()` — no cookie, no object, no capability id.
-- Dispatch is sealed after bootstrap; registration is bring-up only.
-- ADR-0006 forbids **context-switch from IRQ handlers**. IRQs may only touch
-  atomics / rings; any wake is posted for the voluntary path.
-
-M4 needs a message or notification to make a **Blocked** task Ready. That wake
-will often originate in an IRQ (UART RX today is the template: drain into a
-ring, never TX, never switch). Finding **F13** from the 2026-08-04 multi-role
-review blocked M4 because `fn()` cannot carry a capability or a wait-queue key.
+When this ADR was written, handlers were still bare `fn()` sealed at boot.
+ADR-0006 forbids context-switch from IRQ handlers. M4 needed a way to make a
+**Blocked** task Ready from IRQ without violating that rule. Finding **F13**
+blocked M4 until this shape was recorded and then implemented.
 
 ## Decision
 
@@ -94,11 +90,8 @@ driver agents is **M6** and needs a successor ADR (capability-mediated
 separated; pure wake-queue arithmetic is testable; caps can later wrap the same
 cookie.
 
-**Negative** — every handler signature changes once at M4 land; cookies need a
-registry; wake queue capacity is a new fixed limit.
-
-**Transitional** — until the M4 PR lands, sealed `fn()` handlers remain; they
-are not a second accepted design.
+**Negative** — handler signature is fixed to cookies forever; wake queue
+capacity is a fixed limit (drops under pressure, like the RX ring).
 
 ## Alternatives considered
 
@@ -114,10 +107,10 @@ are not a second accepted design.
 
 | Layer | What it catches |
 | --- | --- |
-| Process | Multi-role review before M4 `done (HW)` |
-| Code (when implemented) | Host tests on wake queue; layering: `exception` still only `irq`; `sched` not imported from `irq` |
-| Mutation | A `sched::yield_now` call from an IRQ handler path must fail review / future grep gate |
-| Reversal | M4 mailbox that wakes without cookie/wake-queue shape |
+| Process | Multi-role before later IRQ-to-agent work (M6) |
+| Code | Host tests on `WakeQueue`; layering: `exception` → only `irq`; `sched` not imported from `irq` |
+| Mutation | `sched::yield_now` / `context_switch` from an IRQ path — review / grep |
+| Reversal | Bare `fn()` handlers again, or TCB mutation from IRQ |
 
 ## When to revisit
 
@@ -128,6 +121,8 @@ are not a second accepted design.
 ## References
 
 - [ADR-0006](0006-cooperative-execution-model.md) — no IRQ-side switch
-- [architecture.md](../architecture.md) — M4 done-when; F13
-- `src/irq/mod.rs` — current `Handler = fn()`, `seal` (pre-M4)
-- `src/bootstrap/console_loop.rs` — idle as wake consumer template
+- [architecture.md](../architecture.md) — M4 done (HW); F13 closed
+- `src/irq/mod.rs` — `Handler = fn(IrqCookie)`, `seal`
+- `crates/kernel-core/src/wake.rs` — SPSC wake queue
+- `src/sched/mod.rs` — `wake_from_irq` / `poll_wakes`
+- `src/bootstrap/console_loop.rs` — idle drains wakes
