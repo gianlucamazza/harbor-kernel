@@ -146,8 +146,8 @@ applies forwards, or it is not the same standard.
 | --- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | M3  | [ADR-0006](adr/0006-cooperative-execution-model.md) (F12 done); per-task heap stack + unmapped guard  | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack |
 | M4  | [ADR-0008](adr/0008-irq-handler-policy.md) (**accepted**): cookie handlers + wake queue; mailbox ABI  | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console; IRQ wakes use the ADR-0008 queue only      |
-| M5  | A frame allocator (ADR-0005 is the wrong shape for this); more than one address space; EL0 entry/exit | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
-| M6  | M4 and M5; narrower device windows (F26) — a driver agent must not receive 16 MiB of MMIO             | The PL011 RX path runs as an EL0 agent and the console still echoes; killing that agent leaves the kernel ticking                                                                                                       |
+| M5  | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) (**accepted**): user frame pool; multi-role prep | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
+| M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**proposed** → accept before code); F26            | The PL011 RX path runs as an EL0 agent and the console still echoes; killing that agent leaves the kernel ticking                                                                                                       |
 
 M3 is **done (HW)**. [ADR-0006](adr/0006-cooperative-execution-model.md) is
 **accepted**. Observed on **Pi 4B silicon**: interleaved `task-a`/`task-b`,
@@ -158,16 +158,15 @@ gated by `boot-check`. Desk multi-role pass:
 [reviews/2026-08-04-m3-incremental.md](reviews/2026-08-04-m3-incremental.md).
 Inventing preemption or `link.ld` task stacks is a reversal of the ADR.
 
-M4 is **done** on the QEMU boot gate (message cross + refuse count; ADR-0008
-shape). [ADR-0008](adr/0008-irq-handler-policy.md) is **accepted**. Silicon
-`done (HW)` for M4 waits on a Pi 4B transcript
-([verification.md](verification.md#m4-ipc--capabilities)). Remaining roadmap:
+M4 is **done (HW)**. [ADR-0008](adr/0008-irq-handler-policy.md) is **accepted**.
+QEMU `boot-check` and Pi 4B boot (2026-08-05) show message cross + refuse
+count ([verification.md](verification.md#m4-ipc--capabilities)). Remaining
+roadmap:
 
 | Next | Needs first | Notes |
 | ---- | ----------- | ----- |
-| M4 HW stamp | HAT-free serial run | Same `ipc:` lines as boot-check |
-| M5 | Frame allocator ADR (0005 is wrong shape); TTBR0; EL0 | Large; do not start without multi-role |
-| M6 | M4+M5; F26 device windows ADR | Driver-as-agent; PL011 as EL0 agent |
+| M5 | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) (**accepted**); multi-role prep | Frame pool + TTBR0 + EL0; 0005 arena stays for kernel tables |
+| M6 | M5 done (HW); [ADR-0013](adr/0013-narrow-device-windows.md) **accept** | Narrow MMIO caps; PL011 as EL0 agent |
 
 ### Open findings, against the milestone they block
 
@@ -179,7 +178,7 @@ listed here block nothing and are tracked in that report alone.
 | F12     | — (resolved)        | Closed by [ADR-0006](adr/0006-cooperative-execution-model.md); the ADR was the deliverable                                                               |
 | F18     | — (resolved)        | Absolute `CNTP_CVAL` deadlines + missed-tick counter; pure cooperative yield never depended on it                                                        |
 | F13     | — (resolved)        | Shape accepted: `Handler = fn(IrqCookie)` + IRQ→voluntary wake queue — [ADR-0008](adr/0008-irq-handler-policy.md); code lands with first M4 PR           |
-| F26     | M6                  | Device windows are 16 MiB blankets; an agent-owned driver would receive all of it                                                                        |
+| F26     | M6                  | Device windows are 16 MiB blankets — shape in [ADR-0013](adr/0013-narrow-device-windows.md) (**proposed**); accept before agent MMIO maps                  |
 | F15     | — (resolved)        | Risk-accepted: board truth is BSP constants; DTB mapped RO for a future parser — [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)           |
 | F24     | — (resolved)        | Layering rules 1–4 are enforced by `make layering`; non-import coupling remains review-only (gate blind spots in verification)                           |
 
@@ -216,6 +215,8 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0009](adr/0009-optional-spi-tft-debug-console.md) | Optional SPI TFT status surface; lab side-track (**accepted**) |
 | [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md) | SPI sessions + DBI stream; regwidth-16 SKU note (**accepted**) |
 | [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in; closes F15 (**accepted**) |
+| [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) | Frame allocator for user AS; M5 needs-first (**accepted**) |
+| [ADR-0013](adr/0013-narrow-device-windows.md) | Narrow device MMIO for agents; F26/M6 (**proposed**) |
 | [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
 
 ## Non-goals
