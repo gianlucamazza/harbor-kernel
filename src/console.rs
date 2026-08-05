@@ -143,28 +143,55 @@ pub unsafe fn enable_rx_irq(uart: &Pl011) {
 ///
 /// While suspended, the agent maps the PL011 page and polls; the idle task
 /// sees an empty ring (no echo). TX / panic paths stay kernel-owned.
+///
+/// Order is load-bearing: `IMSC` is masked and the line ACKed **before** the
+/// IRQ view is disarmed. Disarming first leaves a window in which a byte makes
+/// [`on_uart_rx_irq`] return without popping `DR` or writing `ICR` — and UART0
+/// is a level-triggered SPI, so the line re-presents immediately, burns the
+/// per-entry claim budget, and re-enters before this task can reach the
+/// `with_tx` that would clear it.
+///
+/// Returns 0 without disarming anything if the TX handle is missing, since the
+/// mask could not be applied: the caller sees "already suspended" rather than
+/// an unclearable interrupt.
 pub fn suspend_rx() -> usize {
-    let base = RX_MMIO_BASE.swap(0, Ordering::AcqRel);
-    let _ = with_tx(|uart| {
-        uart.disable_rx_interrupt();
-        uart.receiver().discard_and_ack();
-    });
-    base
+    cpu::without_irqs(|| {
+        let base = RX_MMIO_BASE.load(Ordering::Acquire);
+        if base == 0 {
+            return 0;
+        }
+        let masked = with_tx(|uart| {
+            uart.disable_rx_interrupt();
+            uart.receiver().discard_and_ack();
+        })
+        .is_some();
+        if !masked {
+            return 0;
+        }
+        RX_MMIO_BASE.store(0, Ordering::Release);
+        base
+    })
 }
 
 /// Restore kernel RX drain after [`suspend_rx`]. No-op if `base == 0`.
 ///
-/// Drops any leftover FIFO data from the agent window, re-arms RX IRQs, and
-/// republishes the MMIO base for [`on_uart_rx_irq`].
+/// Drops any leftover FIFO data from the agent window, republishes the MMIO
+/// base for [`on_uart_rx_irq`], and only then re-arms RX IRQs.
+///
+/// Mirror of [`suspend_rx`]: the view is armed before `IMSC`, because the
+/// reverse order lets a byte fire the handler while the base is still 0 —
+/// which on a level-triggered line is the same unclearable storm.
 pub fn resume_rx(base: usize) {
     if base == 0 {
         return;
     }
-    let _ = with_tx(|uart| {
-        uart.receiver().discard_and_ack();
-        uart.enable_rx_interrupt();
+    cpu::without_irqs(|| {
+        RX_MMIO_BASE.store(base, Ordering::Release);
+        let _ = with_tx(|uart| {
+            uart.receiver().discard_and_ack();
+            uart.enable_rx_interrupt();
+        });
     });
-    RX_MMIO_BASE.store(base, Ordering::Release);
 }
 
 /// `true` when kernel RX drain is suspended (agent may own the line).

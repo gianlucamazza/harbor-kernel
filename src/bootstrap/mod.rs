@@ -606,6 +606,13 @@ fn pl011_agent_task() {
 
     // --- RX ownership (poll) with real bytes via PL011 loopback ---
     let rx_base = console::suspend_rx();
+    if rx_base == 0 {
+        // The kernel still owns the drain, so a poll here would race it and
+        // report bytes nobody handed over. Say so instead of measuring noise.
+        crate::kprintln!("pl011-agent: rx own SKIPPED (drain not suspended)");
+        agent.destroy();
+        return;
+    }
     crate::kprintln!("pl011-agent: rx own begin");
     crate::sched::yield_now();
 
