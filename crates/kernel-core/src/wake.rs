@@ -76,7 +76,8 @@ impl<const N: usize> WakeQueue<N> {
         }
         // SAFETY: producer will not reuse this slot until tail advances.
         let token = unsafe { (*self.slots.get())[tail] };
-        self.tail.store((tail + 1) & Self::mask(), Ordering::Release);
+        self.tail
+            .store((tail + 1) & Self::mask(), Ordering::Release);
         Some(token)
     }
 

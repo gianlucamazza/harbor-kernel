@@ -58,10 +58,7 @@ pub fn show_boot_after_display(cdiv: u32, bit_hz: u32, cntfrq_hz: u64) {
 
         st.grid.set_line(3, b"rng200: see serial log", FG_OK, BG);
 
-        let n = write_line(
-            &mut buf,
-            format_args!("SPI cdiv={cdiv}  {bit_hz} Hz"),
-        );
+        let n = write_line(&mut buf, format_args!("SPI cdiv={cdiv}  {bit_hz} Hz"));
         st.grid.set_line(4, &buf[..n], FG_DIM, BG);
 
         st.grid.set_line(5, b"ticks=--  heap=--", FG, BG);
@@ -84,10 +81,7 @@ pub fn on_idle() {
 
         let mut buf = [0u8; COLS];
         let heap = mm::heap_remaining();
-        let n = write_line(
-            &mut buf,
-            format_args!("ticks={ticks}  heap={heap}"),
-        );
+        let n = write_line(&mut buf, format_args!("ticks={ticks}  heap={heap}"));
         st.grid.set_line(5, &buf[..n], FG, BG);
         flush_dirty(&mut st.grid);
     });
@@ -97,13 +91,15 @@ pub fn on_idle() {
 pub fn show_panic(msg: &str) {
     with_status(|st| {
         st.grid.clear(BG_PANIC);
-        st.grid.set_line(0, b"*** KERNEL PANIC ***", FG_PANIC, BG_PANIC);
+        st.grid
+            .set_line(0, b"*** KERNEL PANIC ***", FG_PANIC, BG_PANIC);
         let mut buf = [0u8; COLS];
         let bytes = msg.as_bytes();
         let take = bytes.len().min(COLS);
         buf[..take].copy_from_slice(&bytes[..take]);
         st.grid.set_line(2, &buf[..take], FG_PANIC, BG_PANIC);
-        st.grid.set_line(4, b"serial has full diagnostic", FG_PANIC, BG_PANIC);
+        st.grid
+            .set_line(4, b"serial has full diagnostic", FG_PANIC, BG_PANIC);
         st.grid.set_line(5, b"*** halt ***", FG_PANIC, BG_PANIC);
         flush_dirty(&mut st.grid);
     });

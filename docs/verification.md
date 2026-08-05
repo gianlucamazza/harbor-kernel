@@ -135,6 +135,55 @@ be marked `done (HW)`.
 M4 is **done (HW)**. QEMU remains gated by `boot-check` (includes the three
 `ipc:` lines).
 
+## M5 EL0 / address spaces
+
+| Check | Status | Evidence |
+| --- | --- | --- |
+| Named frame pool (ADR-0012) | **closed (QEMU + HW)** | boot `frames: N free / N …`; pool region in layout |
+| `prepare_for_el0` + destroy no leak | **closed (QEMU + HW)** | `aspace: prepare ok` / `create/destroy ok` / no `aspace: LEAK` |
+| EL0 own `TTBR0` + `SVC` | **closed (QEMU + HW)** | `el0: SVC ok  imm=0` |
+| EL0 store to kernel VA → data abort | **closed (QEMU + HW)** | `el0: FAULT ok  ESR=0x9200004f FAR=0x80000` (permission class) |
+| Silicon | **closed (HW)** | Pi 4B + PL011 CP2104, `FEATURES=debug-display`, 2026-08-05 — transcript below |
+
+Desk prep: [reviews/2026-08-05-m5-prep.md](reviews/2026-08-05-m5-prep.md).
+Regime: [ADR-0014](adr/0014-ttbr-split-m5.md) (TTBR0-only v1; kernel maps cloned
+into the user root; restore kernel `TTBR0` on lower-EL entry via
+`mmu::switch_ttbr0` — sole switch implementation).
+
+M5 is **done (HW)**. QEMU remains gated by `boot-check` (the `aspace:` / `el0:`
+lines). Architecture done-when is satisfied on both; the product “scheduled EL0
+agent” shell is post-M5 (M5-P1…), not a reopen of this stamp.
+
+### Silicon transcript (M5, closed)
+
+Pi 4B, CP2104 @ 115200, image `FEATURES=debug-display` (HAT + PL011), 2026-08-05.
+Same ESR/FAR class as QEMU for the fault probe.
+
+```
+Harbor: hello
+MMU on  (W^X, guard page at 0xab000, 36864 B of table arena left)
+frames: 512 free / 512  base=0x40bc000  (2048 KiB pool)
+aspace: prepare ok  held=14 (empty=1)  root=0x40bc000
+el0: SVC ok  imm=0
+el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+aspace: create/destroy ok  pool=512
+rng200: ok word=…
+display: ILI9486 up  cdiv=64  bit_clk=7812500 Hz  status
+ipc: sent tag=1 a=42
+ipc: got tag=1 a=42
+ipc: refuse count=1
+ticks=10
+…
+```
+
+(`held=` and pool base vary with layout; oracle strings are stable.)
+
+Protocol notes load-bearing for silicon:
+
+- User text: `poke_user` + D-cache clean to PoU / I invalidate.
+- Lower-EL paths never install a null `TTBR0`; missing session panics.
+- M5 smoke is a **bootstrap one-shot**, not a scheduled EL0 agent.
+
 ### Boot + cooperative yield (closed)
 
 Pi 4B, production image, CP2104 @ 115200, 2026-08-04. `CNTFRQ=54000000` is

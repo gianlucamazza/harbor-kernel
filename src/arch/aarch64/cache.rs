@@ -90,3 +90,52 @@ pub unsafe fn invalidate_tlb_all() {
         );
     }
 }
+
+/// Minimum data-cache line size in bytes from `CTR_EL0.DminLine` (log2 words).
+#[inline]
+fn dcache_line_size() -> usize {
+    let ctr: u64;
+    // SAFETY: system register read.
+    unsafe {
+        asm!("mrs {}, ctr_el0", out(reg) ctr, options(nomem, nostack, preserves_flags));
+    }
+    4usize << (ctr as usize & 0xf)
+}
+
+/// Clean data cache by VA to the point of unification for `[va, va + len)`.
+///
+/// Required after the kernel writes memory that will be fetched as instructions
+/// (I-cache is not coherent with D-cache on Cortex-A72).
+///
+/// # Safety
+/// `va..va+len` must be mapped Normal memory; translation and D-cache on.
+pub unsafe fn clean_dcache_pou(va: usize, len: usize) {
+    if len == 0 {
+        return;
+    }
+    let line = dcache_line_size();
+    let start = va & !(line - 1);
+    let end = va.saturating_add(len);
+    let mut p = start;
+    unsafe {
+        while p < end {
+            asm!("dc cvau, {}", in(reg) p, options(nostack, preserves_flags));
+            p += line;
+        }
+        asm!("dsb ish", options(nostack, preserves_flags));
+    }
+}
+
+/// Make kernel stores to `[va, va + len)` visible to instruction fetch.
+///
+/// Clean D to PoU, invalidate I (full), order with `isb`. Used after writing
+/// EL0 text through the identity map.
+///
+/// # Safety
+/// Same as [`clean_dcache_pou`]; may discard unrelated I-cache lines.
+pub unsafe fn publish_executable(va: usize, len: usize) {
+    unsafe {
+        clean_dcache_pou(va, len);
+        invalidate_icache();
+    }
+}

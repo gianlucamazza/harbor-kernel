@@ -39,6 +39,7 @@ const T0SZ: u64 = 25;
 const RWX: Perms = Perms {
     write: true,
     execute: true,
+    user: false,
 };
 
 /// Encode a level-1 block or fail the build.
@@ -123,6 +124,15 @@ static ARENA: SyncCell<Arena> = SyncCell::new(Arena { next: 0, end: 0 });
 
 /// Physical address of the root table, published for `TTBR0_EL1`.
 static ROOT: SyncCell<usize> = SyncCell::new(0);
+
+/// Kernel page-table root physical address (0 if not activated).
+///
+/// Used by M5 user AS prepare (ADR-0014) to deep-clone kernel coverage.
+#[inline]
+pub fn kernel_root_phys() -> Option<usize> {
+    let root = unsafe { *ROOT.get() };
+    if root == 0 { None } else { Some(root) }
+}
 
 /// Why a mapping request could not be satisfied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -289,13 +299,25 @@ unsafe fn publish_and_invalidate(va: u64, len: u64) {
 
 /// Point `TTBR0_EL1` at a new table and flush the old translations.
 ///
+/// **Sole** TTBR0 switch (boot [`activate`], EL0 entry, lower-EL restore).
+/// Rust and asm (`vectors.s`, `el0_run`) all call this symbol — no parallel
+/// barrier sequences.
+///
 /// No cache maintenance: translation is already on, so the table writes and
 /// the walker's reads go through the same caches. Only ordering is needed —
 /// the writes must be observable before the switch.
 ///
 /// # Safety
-/// `root` is a complete table covering every address in use.
-unsafe fn switch_ttbr0(root: u64) {
+/// `root` is a complete table covering every address in use under the new root.
+/// For EL0 entry the root must include kernel coverage plus the user window
+/// (ADR-0014). IRQs should be masked across a switch paired with EL change.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn switch_ttbr0(root: u64) {
+    // Null root is never a valid identity map; installing it would make the
+    // next fetch unrecoverable. Callers (vectors, el0_run) must pass a real root.
+    if root == 0 {
+        panic!("switch_ttbr0: refused null root");
+    }
     unsafe {
         core::arch::asm!(
             "dsb ishst",

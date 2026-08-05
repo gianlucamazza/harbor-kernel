@@ -14,8 +14,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use kernel_core::cap::CapId;
 use kernel_core::runqueue::RunQueue;
-use kernel_core::wake::WakeQueue;
 pub use kernel_core::runqueue::TaskId;
+use kernel_core::wake::WakeQueue;
 
 use crate::arch::cpu;
 use crate::arch::switch::{Context, context_switch};

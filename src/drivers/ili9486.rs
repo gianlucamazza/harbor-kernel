@@ -298,7 +298,9 @@ where
         height: u16,
         pixels: &[u8],
     ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>> {
-        let need = (width as usize).saturating_mul(height as usize).saturating_mul(2);
+        let need = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(2);
         if pixels.len() < need || width == 0 || height == 0 {
             return Ok(());
         }

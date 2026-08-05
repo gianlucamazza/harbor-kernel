@@ -12,7 +12,13 @@ accepted: 2026-08-05
 
 **Accepted** (2026-08-05). Closes finding **M5-D1** from
 [m5-prep](../reviews/2026-08-05-m5-prep.md). Binding for **S3/S4** (EL0 entry
-and done-when probes). Does **not** implement EL0.
+and done-when probes).
+
+**Implementation (2026-08-05):** S3/S4 landed — deep-clone of kernel coverage
+into the user root, private user window, one-shot `arch::el0::run`, sole
+`mmu::switch_ttbr0` for entry and lower-EL restore (kernel `TTBR0` preferred
+when the session ends). Probes **closed on QEMU and Pi 4B**:
+[verification.md §M5](../verification.md#m5-el0--address-spaces).
 
 ## Context
 

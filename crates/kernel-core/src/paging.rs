@@ -18,8 +18,12 @@ pub const DESC_AF: u64 = 1 << 10;
 pub const DESC_SH_IS: u64 = 0b11 << 8;
 /// Read/write at EL1, no EL0 access.
 pub const DESC_AP_EL1_RW: u64 = 0b00 << 6;
+/// Read/write at EL1 and EL0.
+pub const DESC_AP_EL0_RW: u64 = 0b01 << 6;
 /// Read-only at EL1, no EL0 access.
 pub const DESC_AP_EL1_RO: u64 = 0b10 << 6;
+/// Read-only at EL1 and EL0.
+pub const DESC_AP_EL0_RO: u64 = 0b11 << 6;
 /// Never execute at EL0.
 pub const DESC_UXN: u64 = 1 << 54;
 /// Never execute at EL1.
@@ -134,16 +138,21 @@ pub const fn leaf(level: Level, pa: u64, kind: MemKind, perms: Perms) -> Option<
         MemKind::Device => ATTR_IDX_DEVICE,
     };
 
-    desc |= if perms.write {
-        DESC_AP_EL1_RW
-    } else {
-        DESC_AP_EL1_RO
+    desc |= match (perms.user, perms.write) {
+        (false, true) => DESC_AP_EL1_RW,
+        (false, false) => DESC_AP_EL1_RO,
+        (true, true) => DESC_AP_EL0_RW,
+        (true, false) => DESC_AP_EL0_RO,
     };
 
-    // EL0 never executes a kernel mapping.
-    desc |= DESC_UXN;
+    // UXN / PXN: kernel code keeps UXN (EL0 must not execute it). User
+    // executable pages clear UXN; non-exec pages set both.
     if !perms.execute {
-        desc |= DESC_PXN;
+        desc |= DESC_PXN | DESC_UXN;
+    } else if !perms.user {
+        desc |= DESC_UXN;
+    } else {
+        desc |= DESC_PXN; // user exec: EL1 should not run user text as kernel
     }
 
     Some(desc)
@@ -196,11 +205,25 @@ pub const fn decode_leaf(entry: u64, level: Level) -> Option<(u64, MemKind, Perm
         MemKind::NormalWb
     };
 
-    // AP[2:1] at bits [7:6]: `00` EL1 RW, `10` EL1 RO (no EL0 in this kernel).
-    let write = (entry & (0b11 << 6)) == DESC_AP_EL1_RW;
-    let execute = (entry & DESC_PXN) == 0;
+    // AP[2:1] at bits [7:6].
+    let ap = (entry >> 6) & 0b11;
+    let write = ap == 0b00 || ap == 0b01;
+    let user = ap == 0b01 || ap == 0b11;
+    let execute = if user {
+        (entry & DESC_UXN) == 0
+    } else {
+        (entry & DESC_PXN) == 0
+    };
 
-    Some((pa, kind, Perms { write, execute }))
+    Some((
+        pa,
+        kind,
+        Perms {
+            write,
+            execute,
+            user,
+        },
+    ))
 }
 
 /// One naturally aligned piece of a mapping request.
@@ -288,28 +311,45 @@ pub enum MemKind {
     Device,
 }
 
-/// Access permissions of a mapping, at EL1 only for now.
+/// Access permissions of a mapping.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Perms {
     pub write: bool,
     pub execute: bool,
+    /// If true, EL0 may access (subject to write/execute bits).
+    pub user: bool,
 }
 
 impl Perms {
-    /// Read + write, no execute — data.
+    /// Read + write, no execute — kernel data.
     pub const RW: Self = Self {
         write: true,
         execute: false,
+        user: false,
     };
-    /// Read + execute, no write — code.
+    /// Read + execute, no write — kernel code.
     pub const RX: Self = Self {
         write: false,
         execute: true,
+        user: false,
     };
-    /// Read only.
+    /// Read only — kernel.
     pub const RO: Self = Self {
         write: false,
         execute: false,
+        user: false,
+    };
+    /// EL0+EL1 read/write, no execute — user stack/data (ADR-0014).
+    pub const USER_RW: Self = Self {
+        write: true,
+        execute: false,
+        user: true,
+    };
+    /// EL0+EL1 read+execute — user code.
+    pub const USER_RX: Self = Self {
+        write: false,
+        execute: true,
+        user: true,
     };
 }
 

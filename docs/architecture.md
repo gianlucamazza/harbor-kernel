@@ -6,23 +6,25 @@
 Raspberry Pi 4 Model B, where agents are isolated units interacting only
 through message passing and capabilities.
 
-It is not one yet. What runs today is a single-core kernel at EL1: a protected
-identity map, interrupts, a heap, **cooperative tasks (M3, done on hardware)**,
-and a serial console. The agent model below (IPC, capabilities, EL0) is still
-the target; the milestone table says which parts exist.
+It is not a finished agent OS yet. What runs today is a single-core kernel at
+EL1 with a protected identity map, interrupts, a heap, **cooperative tasks
+(M3)**, **IPC/caps (M4)**, and **M5 address spaces + one-shot EL0** — all
+**done on Pi 4B hardware**. The product “agent shell” (scheduled EL0,
+syscalls, driver agents) is still the target; the milestone table says which
+parts exist.
 
 ## Layering
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Agents (future EL0)                                     │
+│  Agents (EL0 AS done HW; product shell / M6 open)        │
 │  message passing · capability-mediated resources         │
 └────────────────────────────▲─────────────────────────────┘
-                             │ syscalls / IPC / cap_irq
+                             │ SVC / IPC / cap_irq (M6+)
 ┌────────────────────────────┴─────────────────────────────┐
 │  Kernel policy                                           │
 │  bootstrap · console_loop · sched · ipc · time · console │
-│  mm · status (debug-display TFT)                         │
+│  mm (frames, aspace) · status (debug-display TFT)        │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
@@ -33,7 +35,7 @@ the target; the milestone table says which parts exist.
             │ claim/eoi                   │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
 │  arch/exception       │     │  arch/{timer,mmu,switch,   │
-│  VBAR · frame · entry │     │         probe}             │
+│  VBAR · frame · el0   │     │         probe, el0}        │
 └───────────────────────┘     └────────────────────────────┘
             ▲                              ▲
             │         bsp/rpi4             │
@@ -101,7 +103,7 @@ today versus roadmap.
 | Concept    | Role                                                  | Status        |
 | ---------- | ----------------------------------------------------- | ------------- |
 | Task (M3)  | Schedulable EL1 entity + private stack; see ADR-0006  | **done (HW)** |
-| Agent      | Task + mailbox; later own address space (M5)          | partial (EL1 task + mailbox; no private AS) |
+| Agent      | Task + mailbox + private AS at EL0 (M5)               | **done (HW)** (shell product open) |
 | Message    | Sole interaction channel (M4)                         | **done** (fixed `Message` + mailbox) |
 | Capability | Unforgeable handle (send/recv; future: IRQ notification) | **done** (CapId + hold table; IRQ caps later) |
 
@@ -121,7 +123,7 @@ today versus roadmap.
 | P4  | Exception stack, refused frees, fatal map failure         | **done** (HW, fault-probed) |
 | M3  | Cooperative tasks                                        | **done** (HW, fault-probed) |
 | M4  | IPC + capabilities                                       | **done (HW)**               |
-| M5  | EL0 agents                                               | planned (needs ADR-0012)    |
+| M5  | EL0 agents                                               | **done (HW)**               |
 | M6  | Driver-as-agent                                          | planned (needs M5 + ADR-0013) |
 
 **M** milestones add capability. **P** milestones add protection or evidence and
@@ -160,13 +162,22 @@ Inventing preemption or `link.ld` task stacks is a reversal of the ADR.
 
 M4 is **done (HW)**. [ADR-0008](adr/0008-irq-handler-policy.md) is **accepted**.
 QEMU `boot-check` and Pi 4B boot (2026-08-05) show message cross + refuse
-count ([verification.md](verification.md#m4-ipc--capabilities)). Remaining
-roadmap:
+count ([verification.md](verification.md#m4-ipc--capabilities)).
+
+M5 is **done (HW)**. [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md)
+and [ADR-0014](adr/0014-ttbr-split-m5.md) are **accepted**. S0–S4: named frame
+pool, `AddressSpace` prepare (kernel clone + user window), one-shot
+`arch::el0::run` (`switch_ttbr0` sole path), SVC + EL0 store-to-kernel fault
+probes, destroy without pool leak. QEMU `boot-check` and Pi 4B PL011 (2026-08-05)
+show the same oracles
+([verification.md](verification.md#m5-el0--address-spaces)).
+
+Remaining roadmap:
 
 | Next | Needs first | Notes |
 | ---- | ----------- | ----- |
-| M5 | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md); [ADR-0014](adr/0014-ttbr-split-m5.md) (**accepted**); [m5-prep](reviews/2026-08-05-m5-prep.md) | S0–S2 done; S3 = EL0 trampoline under TTBR0 + shared kernel maps |
-| M6 | M5 done (HW); [ADR-0013](adr/0013-narrow-device-windows.md) **accept** | Narrow MMIO caps; PL011 as EL0 agent |
+| M5-P1…P3 | M5 done (HW) | Scheduled EL0 task; minimal SVC table; multi-AS create (desk productization) |
+| M6 | M5 done (HW) ✓; [ADR-0013](adr/0013-narrow-device-windows.md) **accept** | Narrow MMIO caps; PL011 as EL0 agent |
 
 ### Open findings, against the milestone they block
 

@@ -51,11 +51,7 @@ impl Mailbox {
     const fn empty() -> Self {
         Self {
             live: false,
-            buf: [Message {
-                tag: 0,
-                a: 0,
-                b: 0,
-            }; MAILBOX_DEPTH],
+            buf: [Message { tag: 0, a: 0, b: 0 }; MAILBOX_DEPTH],
             head: 0,
             tail: 0,
             len: 0,

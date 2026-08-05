@@ -88,13 +88,7 @@ impl DisplaySpi {
             .dc
             .take()
             .expect("display: DC pin missing (nested with_panel?)");
-        let mut panel = Ili9486::new(
-            device,
-            dc,
-            ArchTimerDelay,
-            ili9486::WIDTH,
-            ili9486::HEIGHT,
-        );
+        let mut panel = Ili9486::new(device, dc, ArchTimerDelay, ili9486::WIDTH, ili9486::HEIGHT);
         let result = f(&mut panel);
         let (device, dc, _) = panel.into_parts();
         self.device = Some(device);
@@ -153,13 +147,7 @@ pub unsafe fn init_and_panel() -> Result<DisplaySpi, DisplaySpiError> {
             Err(infallible) => match infallible {},
         };
 
-        let mut panel = Ili9486::new(
-            device,
-            dc,
-            ArchTimerDelay,
-            ili9486::WIDTH,
-            ili9486::HEIGHT,
-        );
+        let mut panel = Ili9486::new(device, dc, ArchTimerDelay, ili9486::WIDTH, ili9486::HEIGHT);
         panel
             .reset_and_init(&mut rst, INIT_PISCREEN)
             .map_err(DisplaySpiError::Panel)?;

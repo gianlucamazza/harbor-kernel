@@ -1,48 +1,54 @@
-//! User address-space object (M5 S2) — create/destroy only, no EL0 yet.
+//! User address space (M5 S2–S3) — ADR-0012 frames + ADR-0014 TTBR0 regime.
 //!
-//! An [`AddressSpace`] owns a root translation table and every frame allocated
-//! for it, all from the ADR-0012 pool ([`super::frames`]). Destroy returns
-//! every frame. The root is **not** installed in `TTBR0_EL1` here; S3 will
-//! switch TTBR for EL0.
+//! Create allocates a root; [`AddressSpace::prepare_for_el0`] deep-clones kernel
+//! coverage into it and maps the private user window. Destroy frees every
+//! tracked frame. EL0 entry is [`crate::arch::el0`].
 
 use kernel_core::frame::{FrameId, FrameLedger, LedgerFull};
-use kernel_core::paging::{self, ENTRIES_PER_TABLE};
+use kernel_core::paging::{
+    self, ENTRIES_PER_TABLE, Level, MemKind, PAGE_SIZE, Perms, table_descriptor,
+};
 
-use crate::bsp::board::memmap::FRAME_SIZE;
+use crate::arch::{cache, mmu};
+use crate::bsp::board::memmap::{FRAME_SIZE, USER_STACK_PAGES, USER_STACK_TOP, USER_VA_BASE};
 use crate::mm::frames;
 
-/// Max frames one AS may hold in v1 (root + intermediate tables + user pages).
-pub const MAX_AS_FRAMES: usize = 64;
+/// Max frames one AS may hold (root + cloned tables + user stack pages).
+pub const MAX_AS_FRAMES: usize = 256;
 
-/// Why address-space create failed.
+/// Why address-space create / prepare failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AsError {
     /// Frame pool exhausted or not initialised.
     OutOfFrames,
-    /// Internal ledger full (should not hit for a single root).
+    /// Internal ledger full.
     LedgerFull,
+    /// Kernel map not activated yet.
+    NoKernelRoot,
+    /// Clone / map walked an unexpected descriptor.
+    BadTable,
+    /// Already prepared for EL0.
+    AlreadyPrepared,
 }
 
-/// Empty user address space: root L1 table only, not live in TTBR0.
+/// User address space: own TTBR0 root, not necessarily live.
 pub struct AddressSpace {
     root_phys: usize,
     owned: FrameLedger<MAX_AS_FRAMES>,
+    /// User stack top VA (initial SP_EL0) after prepare; 0 if not prepared.
+    user_sp: u64,
+    /// Phys of the lowest user stack page (code/data poke for probes).
+    user_base_phys: usize,
+    prepared: bool,
 }
 
 impl AddressSpace {
-    /// Allocate and zero a root table frame; track it for destroy.
-    ///
-    /// # Errors
-    /// [`AsError::OutOfFrames`] if the named pool cannot supply a frame.
+    /// Allocate and zero a root L1 table frame.
     pub fn create() -> Result<Self, AsError> {
         let (root, root_phys) = frames::alloc().ok_or(AsError::OutOfFrames)?;
-        // Root must be a zero table before any walk (same contract as kernel arena).
-        // SAFETY: phys is identity-mapped RW pool memory exclusive to this frame.
+        // SAFETY: identity-mapped pool frame exclusive to us.
         unsafe {
-            let table = root_phys as *mut u64;
-            for i in 0..ENTRIES_PER_TABLE {
-                core::ptr::write_volatile(table.add(i), 0);
-            }
+            zero_table(root_phys);
         }
 
         let mut owned = FrameLedger::new();
@@ -50,58 +56,220 @@ impl AddressSpace {
             .push(root.index())
             .map_err(|LedgerFull| AsError::LedgerFull)?;
 
-        // Sanity: table size matches frame granule.
-        debug_assert_eq!(FRAME_SIZE as u64, paging::PAGE_SIZE);
-        debug_assert_eq!(
-            core::mem::size_of::<[u64; ENTRIES_PER_TABLE]>(),
-            FRAME_SIZE
-        );
+        debug_assert_eq!(FRAME_SIZE as u64, PAGE_SIZE);
 
-        let _ = root; // ownership tracked only via ledger + root_phys
-        Ok(Self { root_phys, owned })
+        let _ = root;
+        Ok(Self {
+            root_phys,
+            owned,
+            user_sp: 0,
+            user_base_phys: 0,
+            prepared: false,
+        })
     }
 
-    /// Physical address of the root table (future `TTBR0_EL1` value).
+    /// Deep-clone live kernel coverage into this root and map the user stack.
+    ///
+    /// ADR-0014: leaf descriptors for kernel memory are copied (shared PA);
+    /// intermediate tables are new frames from the user pool.
+    pub fn prepare_for_el0(&mut self) -> Result<(), AsError> {
+        if self.prepared {
+            return Err(AsError::AlreadyPrepared);
+        }
+        let kroot = mmu::kernel_root_phys().ok_or(AsError::NoKernelRoot)?;
+        // SAFETY: kernel root is live identity-mapped table memory.
+        unsafe {
+            self.clone_table_into(kroot as *const u64, self.root_phys as *mut u64, Level::L1)?;
+        }
+        self.map_user_stack()?;
+        self.prepared = true;
+        Ok(())
+    }
+
+    /// Physical root for `TTBR0_EL1`.
     #[inline]
     pub fn root_phys(&self) -> usize {
         self.root_phys
     }
 
-    /// How many pool frames this AS currently owns.
+    /// Initial user SP (stack top) after prepare; 0 if not prepared.
+    #[inline]
+    pub fn user_sp(&self) -> u64 {
+        self.user_sp
+    }
+
+    /// User entry VA (bottom of stack window) after prepare.
+    #[inline]
+    pub fn user_entry_va(&self) -> u64 {
+        if self.prepared { USER_VA_BASE } else { 0 }
+    }
+
+    /// Write raw bytes into the user window (kernel identity access to phys).
+    ///
+    /// After the store, publishes the range for instruction fetch (D clean to
+    /// PoU + I invalidate). Required on Cortex-A72 whenever the bytes may run
+    /// at EL0 — not optional for QEMU.
+    pub fn poke_user(&self, offset: usize, bytes: &[u8]) -> Result<(), AsError> {
+        if !self.prepared || self.user_base_phys == 0 {
+            return Err(AsError::BadTable);
+        }
+        let max = USER_STACK_PAGES * FRAME_SIZE;
+        if offset.saturating_add(bytes.len()) > max {
+            return Err(AsError::BadTable);
+        }
+        let dest = self.user_base_phys + offset;
+        // SAFETY: prepared pages are pool frames, identity-mapped RW for EL1.
+        unsafe {
+            core::ptr::copy_nonoverlapping(bytes.as_ptr(), dest as *mut u8, bytes.len());
+            cache::publish_executable(dest, bytes.len());
+        }
+        Ok(())
+    }
+
     #[inline]
     pub fn frame_count(&self) -> usize {
         self.owned.len()
     }
 
-    /// Record an additional frame allocated for this AS (maps in S3+).
-    ///
-    /// Caller must have obtained `id` from [`frames::alloc`].
-    #[allow(dead_code)] // S3 map helpers
+    /// Record an additional owned frame.
     pub fn track(&mut self, id: FrameId) -> Result<(), AsError> {
         self.owned
             .push(id.index())
             .map_err(|LedgerFull| AsError::LedgerFull)
     }
 
-    /// Free every owned frame back to the pool. Consumes the AS.
+    /// Free every owned frame. Consumes the AS.
     pub fn destroy(mut self) {
         for &index in self.owned.as_slice() {
-            let id = FrameId::from_index(index);
-            // Best-effort: double-free would mean a bug in track/create.
-            let _ = frames::free(id);
+            let _ = frames::free(FrameId::from_index(index));
         }
         self.owned.clear();
-        // Root is included in `owned`; forget self without Drop double-free.
         core::mem::forget(self);
+    }
+
+    /// Map the private user window at [`USER_VA_BASE`].
+    ///
+    /// Layout (M5 v1, fixed in BSP): page 0 is user text (`USER_RX`); pages
+    /// 1..n-1 are stack (`USER_RW`); `SP_EL0` starts at [`USER_STACK_TOP`].
+    /// Kernel leaves share PA and keep EL0-denied AP from the clone step.
+    fn map_user_stack(&mut self) -> Result<(), AsError> {
+        let mut va = USER_VA_BASE;
+        let mut first_phys = 0usize;
+        for i in 0..USER_STACK_PAGES {
+            let (id, phys) = frames::alloc().ok_or(AsError::OutOfFrames)?;
+            self.track(id)?;
+            if i == 0 {
+                first_phys = phys;
+            }
+            // SAFETY: exclusive new frame.
+            unsafe {
+                core::ptr::write_bytes(phys as *mut u8, 0, FRAME_SIZE);
+            }
+            let perms = if i == 0 {
+                Perms::USER_RX
+            } else {
+                Perms::USER_RW
+            };
+            unsafe {
+                self.map_l3_page(va, phys as u64, MemKind::NormalWb, perms)?;
+            }
+            va += PAGE_SIZE;
+        }
+        self.user_base_phys = first_phys;
+        self.user_sp = USER_STACK_TOP;
+        Ok(())
+    }
+
+    /// Install one L3 page mapping at `va` → `pa` under this AS root.
+    unsafe fn map_l3_page(
+        &mut self,
+        va: u64,
+        pa: u64,
+        kind: MemKind,
+        perms: Perms,
+    ) -> Result<(), AsError> {
+        unsafe {
+            let mut table = self.root_phys as *mut u64;
+            let mut level = Level::L1;
+            while level != Level::L3 {
+                let index = level.index(va);
+                let entry = core::ptr::read_volatile(table.add(index));
+                let next_phys = if paging::is_invalid(entry) {
+                    let (id, phys) = frames::alloc().ok_or(AsError::OutOfFrames)?;
+                    self.track(id)?;
+                    zero_table(phys);
+                    let desc = table_descriptor(phys as u64).ok_or(AsError::BadTable)?;
+                    core::ptr::write_volatile(table.add(index), desc);
+                    phys as u64
+                } else if paging::is_table(entry, level) {
+                    paging::descriptor_address(entry)
+                } else {
+                    return Err(AsError::BadTable);
+                };
+                table = next_phys as *mut u64;
+                level = level.next().ok_or(AsError::BadTable)?;
+            }
+            let index = Level::L3.index(va);
+            if !paging::is_invalid(core::ptr::read_volatile(table.add(index))) {
+                return Err(AsError::BadTable);
+            }
+            let leaf = paging::leaf(Level::L3, pa, kind, perms).ok_or(AsError::BadTable)?;
+            core::ptr::write_volatile(table.add(index), leaf);
+            Ok(())
+        }
+    }
+
+    /// Clone `src` table at `level` into pre-allocated zeroed `dst` table memory.
+    unsafe fn clone_table_into(
+        &mut self,
+        src: *const u64,
+        dst: *mut u64,
+        level: Level,
+    ) -> Result<(), AsError> {
+        unsafe {
+            for i in 0..ENTRIES_PER_TABLE {
+                let e = core::ptr::read_volatile(src.add(i));
+                if paging::is_invalid(e) {
+                    core::ptr::write_volatile(dst.add(i), 0);
+                    continue;
+                }
+                if paging::is_leaf(e, level) {
+                    // Share physical data page / block; AP already EL0-denied for kernel.
+                    core::ptr::write_volatile(dst.add(i), e);
+                    continue;
+                }
+                if paging::is_table(e, level) {
+                    let child_src = paging::descriptor_address(e) as *const u64;
+                    let (id, child_phys) = frames::alloc().ok_or(AsError::OutOfFrames)?;
+                    self.track(id)?;
+                    zero_table(child_phys);
+                    let next = level.next().ok_or(AsError::BadTable)?;
+                    self.clone_table_into(child_src, child_phys as *mut u64, next)?;
+                    let desc = table_descriptor(child_phys as u64).ok_or(AsError::BadTable)?;
+                    core::ptr::write_volatile(dst.add(i), desc);
+                    continue;
+                }
+                return Err(AsError::BadTable);
+            }
+            Ok(())
+        }
     }
 }
 
 impl Drop for AddressSpace {
     fn drop(&mut self) {
-        // If destroy was not called, still return frames (leak-proof).
         for &index in self.owned.as_slice() {
             let _ = frames::free(FrameId::from_index(index));
         }
         self.owned.clear();
+    }
+}
+
+unsafe fn zero_table(phys: usize) {
+    unsafe {
+        let table = phys as *mut u64;
+        for i in 0..ENTRIES_PER_TABLE {
+            core::ptr::write_volatile(table.add(i), 0);
+        }
     }
 }

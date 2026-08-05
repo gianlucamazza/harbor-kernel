@@ -105,7 +105,13 @@ fi
 # ADR-0012 S1: named frame pool initialised (capacity matches BSP constant).
 grep -qE 'frames: [0-9]+ free / [0-9]+' "${log}" ||
 	fail "frame pool boot line missing"
-# M5 S2: empty AS create/destroy must not leak frames.
+# M5 S2/S3: prepare AS + EL0 probes; destroy must not leak frames.
+grep -q 'aspace: prepare ok' "${log}" ||
+	fail "address-space prepare for EL0 failed"
+grep -q 'el0: SVC ok' "${log}" ||
+	fail "EL0 SVC probe failed"
+grep -q 'el0: FAULT ok' "${log}" ||
+	fail "EL0 kernel-store fault probe failed"
 grep -q 'aspace: create/destroy ok' "${log}" ||
 	fail "address-space create/destroy smoke failed"
 if grep -q 'aspace: LEAK' "${log}"; then

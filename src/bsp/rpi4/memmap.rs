@@ -81,6 +81,20 @@ pub const FRAME_POOL_FRAMES: usize = 512;
 /// Byte length of the frame pool (`FRAME_POOL_FRAMES * FRAME_SIZE`).
 pub const FRAME_POOL_BYTES: usize = FRAME_POOL_FRAMES * FRAME_SIZE;
 
+/// User virtual window base (ADR-0014) — 1 GiB VA slot.
+///
+/// Disjoint from the **fine** kernel map (image, stacks, heap, frame pool,
+/// devices). `IDENTITY_RAM_END` is the PA ceiling for identity RAM, not a
+/// claim that every byte below it is mapped; this window sits in the unmapped
+/// gap above the low layout and below the device windows.
+pub const USER_VA_BASE: u64 = 0x0000_0000_4000_0000;
+
+/// User stack size in pages (grows down toward [`USER_VA_BASE`]).
+pub const USER_STACK_PAGES: usize = 4;
+
+/// Exclusive top of the user stack VA range (`USER_VA_BASE + pages * 4 KiB`).
+pub const USER_STACK_TOP: u64 = USER_VA_BASE + (USER_STACK_PAGES as u64) * (FRAME_SIZE as u64);
+
 /// Device MMIO windows the kernel maps: `(base, length, name)`.
 ///
 /// Mapped Device-nGnRnE and never executable. Kept as narrow as the hardware

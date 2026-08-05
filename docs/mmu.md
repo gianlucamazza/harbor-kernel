@@ -236,10 +236,14 @@ caller's head.
 
 ## Out of scope (later)
 
-- **A frame allocator.** The table arena is a fixed pool sized in `link.ld` —
-  the right shape for mapping the kernel once, the wrong one for address spaces
-  that come and go ([ADR-0005](adr/0005-static-page-table-arena.md), accepted).
-  Needed for M5, not before.
-- **More than one address space.** `activate` installs _the_ map; there is no
-  per-task `TTBR0`, no ASID, no multi-core TLB maintenance.
-- **EL0 / user maps**, fine-grained device pages, `kfree` of page tables.
+- **Kernel table arena free / grow.** The ADR-0005 arena remains a fixed bump
+  for the **kernel** map only. User AS tables and data pages come from the
+  **separate** frame pool ([ADR-0012](adr/0012-frame-allocator-for-address-spaces.md))
+  owned by `mm::frames` / `mm::aspace` — not from this arena.
+- **Product multi-AS scheduling / ASID / SMP TLB.** M5 v1 can create a user
+  `TTBR0` (clone + user window at `USER_VA_BASE`), run a one-shot EL0 session,
+  and tear down without leak. There is no ASID namespace, no multi-core
+  maintenance, and no EL0-scheduled agent loop yet.
+- **High-half kernel / `TTBR1`.** Deliberately deferred
+  ([ADR-0014](adr/0014-ttbr-split-m5.md) successor).
+- **Fine-grained device pages for EL0 agents** — M6 / [ADR-0013](adr/0013-narrow-device-windows.md).

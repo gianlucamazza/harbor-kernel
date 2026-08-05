@@ -6,6 +6,7 @@
 pub mod bootinfo;
 pub mod cache;
 pub mod cpu;
+pub mod el0;
 pub mod exception;
 pub mod mmio;
 pub mod mmu;

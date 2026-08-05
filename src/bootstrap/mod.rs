@@ -10,7 +10,7 @@ mod console_loop;
 #[cfg(feature = "bringup")]
 mod selftest;
 
-use crate::arch::{bootinfo, cpu, exception, mmu, timer};
+use crate::arch::{bootinfo, cpu, el0, exception, mmu, timer};
 use kernel_core::layout::Region;
 use kernel_core::paging::{MemKind, Perms};
 
@@ -111,19 +111,16 @@ pub fn run() -> ! {
         ),
     };
     let mut region_buffer = [mm::layout::empty_region(); mm::layout::MAX_REGIONS];
-    let regions = match mm::layout::kernel_regions(
-        heap_end as u64,
-        frame_end as u64,
-        &mut region_buffer,
-    ) {
-        Ok(regions) => regions,
-        Err(error) => {
-            // The layout itself is inconsistent — overlapping regions, a
-            // mapped guard page, a W+X region. Mapping it would produce
-            // something that boots and protects nothing.
-            refuse_to_boot(&mut uart, format_args!("layout invalid: {error:?}"))
-        }
-    };
+    let regions =
+        match mm::layout::kernel_regions(heap_end as u64, frame_end as u64, &mut region_buffer) {
+            Ok(regions) => regions,
+            Err(error) => {
+                // The layout itself is inconsistent — overlapping regions, a
+                // mapped guard page, a W+X region. Mapping it would produce
+                // something that boots and protects nothing.
+                refuse_to_boot(&mut uart, format_args!("layout invalid: {error:?}"))
+            }
+        };
 
     // Swap the coarse early map for the real one. On failure the early map
     // stays active, so the report still reaches the console — and then the boot
@@ -205,28 +202,8 @@ pub fn run() -> ! {
             mm::frames::capacity(),
             board::memmap::FRAME_POOL_BYTES / 1024
         );
-        // M5 S2: empty AS create/destroy returns the root frame to the pool.
-        let free_before = mm::frames::free_count();
-        match mm::AddressSpace::create() {
-            Ok(aspace) => {
-                let held = aspace.frame_count();
-                let root = aspace.root_phys();
-                aspace.destroy();
-                let free_after = mm::frames::free_count();
-                if free_after == free_before && held >= 1 {
-                    println!(
-                        uart,
-                        "aspace: create/destroy ok  held={held}  root={root:#x}  pool={free_after}"
-                    );
-                } else {
-                    println!(
-                        uart,
-                        "aspace: LEAK or empty  held={held}  free {free_before}->{free_after}"
-                    );
-                }
-            }
-            Err(error) => println!(uart, "aspace: create FAILED {error:?}"),
-        }
+        // M5 S2/S3: AS create → prepare (kernel clone + user stack) → EL0 probes.
+        m5_aspace_and_el0_smoke(&mut uart);
     } else {
         println!(uart, "frames: UNAVAILABLE");
     }
@@ -387,6 +364,82 @@ pub fn run() -> ! {
 /// Bit pattern of a valid send cap the forger does **not** hold (M4 refuse).
 static IPC_FORGE_RAW: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
+/// M5 S2/S3: create AS, prepare (kernel clone + user stack), EL0 SVC + fault probes.
+fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
+    let free_before = mm::frames::free_count();
+    let mut aspace = match mm::AddressSpace::create() {
+        Ok(a) => a,
+        Err(error) => {
+            println!(uart, "aspace: create FAILED {error:?}");
+            return;
+        }
+    };
+    let held_empty = aspace.frame_count();
+    if let Err(error) = aspace.prepare_for_el0() {
+        println!(uart, "aspace: prepare FAILED {error:?}");
+        aspace.destroy();
+        return;
+    }
+    let held = aspace.frame_count();
+    println!(
+        uart,
+        "aspace: prepare ok  held={held} (empty={held_empty})  root={:#x}",
+        aspace.root_phys()
+    );
+
+    // A64: SVC #0 ; B .
+    let svc_prog: [u8; 8] = [
+        0x01, 0x00, 0x00, 0xD4, // svc #0
+        0x00, 0x00, 0x00, 0x14, // b .
+    ];
+    // A64: MOVZ X0, #8, LSL#16  (0x80000) ; STR XZR, [X0] ; SVC #0
+    let fault_prog: [u8; 12] = [
+        0x00, 0x01, 0xA0, 0xD2, // movz x0, #0x8, lsl #16
+        0x1F, 0x00, 0x00, 0xF9, // str xzr, [x0]
+        0x01, 0x00, 0x00, 0xD4, // svc #0
+    ];
+
+    // Probe 1: SVC
+    if aspace.poke_user(0, &svc_prog).is_err() {
+        println!(uart, "aspace: poke FAILED");
+        aspace.destroy();
+        return;
+    }
+    let outcome = cpu::without_irqs(|| unsafe {
+        el0::run(aspace.root_phys(), aspace.user_entry_va(), aspace.user_sp())
+    });
+    match outcome {
+        el0::El0Outcome::Svc { imm: 0 } => {
+            println!(uart, "el0: SVC ok  imm=0");
+        }
+        other => println!(uart, "el0: SVC unexpected {other:?}"),
+    }
+
+    // Probe 2: store to kernel .text VA 0x80000 → permission fault
+    if aspace.poke_user(0, &fault_prog).is_err() {
+        println!(uart, "aspace: poke2 FAILED");
+        aspace.destroy();
+        return;
+    }
+    let outcome = cpu::without_irqs(|| unsafe {
+        el0::run(aspace.root_phys(), aspace.user_entry_va(), aspace.user_sp())
+    });
+    match outcome {
+        el0::El0Outcome::DataAbort { esr, far } => {
+            println!(uart, "el0: FAULT ok  ESR={esr:#x} FAR={far:#x}");
+        }
+        other => println!(uart, "el0: FAULT unexpected {other:?}"),
+    }
+
+    aspace.destroy();
+    let free_after = mm::frames::free_count();
+    if free_after == free_before {
+        println!(uart, "aspace: create/destroy ok  pool={free_after}");
+    } else {
+        println!(uart, "aspace: LEAK  free {free_before}->{free_after}");
+    }
+}
+
 /// M3 demo: yield so the peer's lines interleave on the console.
 fn demo_task_a() {
     for i in 0..4 {
@@ -446,9 +499,6 @@ fn ipc_forger() {
     };
     match crate::ipc::send(stolen, msg) {
         Ok(()) => crate::kprintln!("ipc: FORGE OK — capability check failed"),
-        Err(_) => crate::kprintln!(
-            "ipc: refuse count={}",
-            crate::ipc::refused_count()
-        ),
+        Err(_) => crate::kprintln!("ipc: refuse count={}", crate::ipc::refused_count()),
     }
 }

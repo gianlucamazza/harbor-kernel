@@ -88,17 +88,17 @@ exception_vectors:
     ventry  exc_unexpected
     ventry  exc_unexpected
 
-    // Lower EL, AArch64.
-    ventry  exc_unexpected
-    ventry  exc_unexpected
-    ventry  exc_unexpected
-    ventry  exc_unexpected
+    // Lower EL, AArch64 (EL0 → EL1).
+    ventry  exc_sync_el0
+    ventry  exc_irq_el0
+    ventry  exc_lower_unexpected
+    ventry  exc_lower_unexpected
 
-    // Lower EL, AArch32.
-    ventry  exc_unexpected
-    ventry  exc_unexpected
-    ventry  exc_unexpected
-    ventry  exc_unexpected
+    // Lower EL, AArch32 (unsupported — same restore-then-panic path).
+    ventry  exc_lower_unexpected
+    ventry  exc_lower_unexpected
+    ventry  exc_lower_unexpected
+    ventry  exc_lower_unexpected
 
 exc_sync_el1t:
     kernel_entry
@@ -111,6 +111,56 @@ exc_irq_el1t:
     bl      exception_irq_el1
     kernel_exit
 
+// ADR-0014: never call switch_ttbr0 with a null root.
+// Live el0 session → el0_kernel_ttbr0 holds the kernel root to reinstall.
+.macro restore_kernel_ttbr0_require_session
+    adrp    x16, el0_kernel_ttbr0
+    add     x16, x16, :lo12:el0_kernel_ttbr0
+    ldr     x0, [x16]
+    cbz     x0, el0_missing_kernel_ttbr
+    bl      switch_ttbr0
+.endm
+
+// Optional restore: only if a session published a root (never switch to 0).
+.macro restore_kernel_ttbr0_if_session
+    adrp    x16, el0_kernel_ttbr0
+    add     x16, x16, :lo12:el0_kernel_ttbr0
+    ldr     x0, [x16]
+    cbz     x0, 1f
+    bl      switch_ttbr0
+1:
+.endm
+
+// Lower-EL sync: save frame under user TTBR (exception stack is cloned), then
+// require session root and switch before handler C.
+exc_sync_el0:
+    kernel_entry
+    restore_kernel_ttbr0_require_session
+    mov     x0, sp
+    bl      exception_sync_el0
+    // Drop the trap frame so SP_EL1 does not walk down the exception stack
+    // across one-shot sessions (finish switches to the el0_run frame).
+    add     sp, sp, #TRAP_FRAME_SIZE
+    b       el0_run_finish
+
+exc_irq_el0:
+    kernel_entry
+    restore_kernel_ttbr0_require_session
+    // Does not return (session contract: IRQs masked around el0::run).
+    bl      exception_irq_el0
+
+// FIQ / SError (and AArch32) from lower EL: restore if a session is live so
+// the panic path runs under the kernel root, then same unexpected handler.
+exc_lower_unexpected:
+    kernel_entry
+    restore_kernel_ttbr0_if_session
+    mov     x0, sp
+    bl      exception_unexpected
+1:
+    wfe
+    b       1b
+
+// Same-EL unexpected (EL1t FIQ/SError, EL1h): already on kernel TTBR0.
 exc_unexpected:
     kernel_entry
     mov     x0, sp

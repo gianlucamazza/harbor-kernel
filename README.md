@@ -13,11 +13,11 @@ fault probes on real silicon — with known blind spots documented in
 [`docs/verification.md`](docs/verification.md) (notably: QEMU does not model
 memory attributes the way Cortex-A72 does).
 
-**Status:** bring-up through M0–M2 and P0–P4; **M3** and **M4** **done (HW)**
-on Pi 4B (tasks + IPC/caps —
-[`docs/verification.md`](docs/verification.md#m4-ipc--capabilities)). Next: M5
-EL0 (needs [ADR-0012](docs/adr/0012-frame-allocator-for-address-spaces.md)).
-Roadmap: [`docs/architecture.md`](docs/architecture.md).
+**Status:** bring-up through M0–M2 and P0–P4; **M3**, **M4**, and **M5**
+**done (HW)** on Pi 4B (tasks, IPC/caps, EL0 private AS —
+[`docs/verification.md`](docs/verification.md#m5-el0--address-spaces)). Next: M6
+driver-as-agent (needs [ADR-0013](docs/adr/0013-narrow-device-windows.md)
+accept). Roadmap: [`docs/architecture.md`](docs/architecture.md).
 
 ## What exists
 
@@ -29,6 +29,8 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | Boot         | EL2→EL1, softfloat, DTB pointer captured (mapped RO; board truth is BSP constants — ADR-0011)                                       |
 | Memory       | Multi-level identity map, **W^X**, guarded kernel + exception stacks, runtime `map`/`unmap` (block split), TLB maintenance                                    |
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
+| Frames (M5)  | Named phys pool (ADR-0012); `AddressSpace` clone + user VA window; destroy returns frames                                           |
+| EL0 (M5)     | One-shot trampoline (`arch::el0`), own `TTBR0`, SVC + kernel-store fault probes (**done HW**) — ADR-0014                             |
 | Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
 | IPC (M4)     | Mailboxes + CapId send/recv; refuse counter; IRQ wake queue (ADR-0008); demo sender/receiver/forger                                 |
 | Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters                                                          |
@@ -39,11 +41,12 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 
 ## What does not exist yet
 
-No preemption, no address-space separation, no user mode (EL0), no IPC, no
-capabilities — **the agent model is not implemented.** Concurrency today is
-cooperative tasks on one core at EL1 in a single identity-mapped address space.
-Agents, mailboxes, and caps are the roadmap in
-[`docs/architecture.md`](docs/architecture.md), not the code.
+No preemption, no SMP, no high-half/`TTBR1` kernel, no EL0-scheduled **agent**
+shell (M5 is bootstrap smoke + AS machinery, not a product task at EL0), no
+syscall table beyond classify, no EL0 IRQ delivery, no narrow device windows for
+agents (M6 / ADR-0013). Concurrency today is cooperative EL1 tasks plus a
+one-shot EL0 probe path. The agent model product surface is still the roadmap in
+[`docs/architecture.md`](docs/architecture.md).
 
 ## Design
 
