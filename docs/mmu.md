@@ -117,9 +117,11 @@ Derived from the linker symbols by `mm::layout::kernel_regions`:
 | peripherals (`0xFE00_0000`, 16 MiB) | Device-nGnRnE | RW, no execute    |
 | GIC (`0xFF84_0000`, 16 KiB)         | Device-nGnRnE | RW, no execute    |
 
-Anything else faults. Tables come from a 64 KiB arena reserved by `link.ld`;
-six are used today, and `mmu::tables_remaining()` is printed at boot so
-exhaustion is visible before it becomes a mapping failure.
+Anything else faults. Tables come from a 128 KiB arena reserved by `link.ld`.
+How many are used moves with `.text`, so the number is not written down here:
+`mmu::tables_remaining()` is printed at boot, and `bootstrap` refuses to boot if
+what is left is under the reserve it derives from `sched::MAX_TASKS` — that
+reserve used to be a hand-written six against a `MAX_TASKS` of twelve.
 
 ### Verifying the protections
 

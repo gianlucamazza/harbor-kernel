@@ -31,9 +31,20 @@ const HEAP_SIZE: usize = 64 * 1024 * 1024;
 
 /// Page tables that must remain free once the kernel map is built.
 ///
-/// One per task that lands in a 2 MiB heap block not yet split, plus the device
-/// tree's, plus margin. `MAX_TASKS` is 4, so three workers can each cost one.
-const MIN_SPARE_TABLES: usize = 6;
+/// Every spawned task unmaps a guard page, and a guard page that lands in a
+/// 2 MiB block not yet split costs one arena table — which the arena never
+/// gets back (ADR-0005). So the worst case is one per spawnable task, plus the
+/// device tree's, plus margin.
+///
+/// Derived from [`sched::MAX_TASKS`] rather than written down: the constant
+/// used to say "`MAX_TASKS` is 4" while the scheduler said 12, so the reserve
+/// under-counted by 3× and late spawns silently lost their guard page to
+/// `OutOfTables`.
+/// `MAX_TASKS` counts idle, which runs on the `link.ld` bootstrap stack and
+/// never spawns, so the spawnable worst case is one less. The arena size that
+/// has to cover this lives in `link.ld`; the boot-time refusal below is what
+/// ties the two together, and it names `PAGE_TABLE_ARENA_SIZE` when it fires.
+const MIN_SPARE_TABLES: usize = (crate::sched::MAX_TASKS - 1) + 1 + 2;
 
 /// Stop the boot, having said why, when the kernel map could not be established.
 ///

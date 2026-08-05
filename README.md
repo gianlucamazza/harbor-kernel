@@ -141,7 +141,7 @@ Details: [`docs/hardware.md`](docs/hardware.md).
 Harbor: hello
 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
 no DTB (x0 was 0x100); board constants are compiled in
-MMU on  (W^X, guard page at 0xa3000, 40960 B of table arena left)
+MMU on  (W^X, guard page at 0xbb000, 102400 B of table arena left)
 heap remaining = 67108864 bytes
 rng200: unavailable (NotPresent)
 CNTFRQ=62500000 Hz  timer=10 Hz  PPI=30
@@ -155,7 +155,7 @@ unmap: remapped and freed
 split: page at 0x200000 split 1, remapped
 sched: spawned task-a
 sched: spawned task-b
-arena: 1 splits, 9 tables free
+arena: 1 splits, 24 tables free
 task-a 0
 task-b 0
 task-a 1
