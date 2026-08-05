@@ -127,6 +127,8 @@ grep -q 'el0-task: svc ping' "${log}" ||
 	fail "scheduled el0-task did not complete svc ping"
 grep -q 'el0-task: svc refuse imm=0x99' "${log}" ||
 	fail "scheduled el0-task did not refuse unknown svc imm"
+grep -q 'el0-task: resume pings=2' "${log}" ||
+	fail "EL0 SVC resume session did not complete two pings + exit"
 grep -q 'el0-task: ok' "${log}" ||
 	fail "scheduled el0-task leaked frames or failed teardown"
 # M6 v1: PL011 page-only agent + kill (ADR-0013).

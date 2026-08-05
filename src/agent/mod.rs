@@ -1,13 +1,12 @@
 //! Cooperative agent shell (post-M5 productization).
 //!
 //! An **agent** is an EL1 scheduled body that owns an [`AddressSpace`] and may
-//! enter EL0 through one-shot [`crate::arch::el0::run`] sessions (IRQs masked
-//! for the session). That matches ADR-0006 (cooperative) and ADR-0014 (restore
-//! kernel `TTBR0` on lower-EL return).
+//! enter EL0 through [`crate::arch::el0`] sessions (IRQs masked). Matches
+//! ADR-0006 (cooperative) and ADR-0014 (kernel `TTBR0` on lower-EL return).
 //!
-//! **Not in v1:** resuming the same EL0 context after `SVC` (save/restore user
-//! GPRs, continue at `ELR+4`). That needs an explicit successor design — not a
-//! half-finished trampoline.
+//! Sessions support **SVC resume**: after `svc #0` (ping) the same user context
+//! continues at `ELR+4`. `svc #1` ([`kernel_core::syscall::SYS_EXIT`]) ends the
+//! session. Faults end the session without resume.
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -47,16 +46,11 @@ impl Agent {
         &mut self.aspace
     }
 
-    /// Write user text and enter EL0 until the first lower-EL sync.
-    ///
-    /// # Safety
-    /// `prog` must be valid user code at offset 0 under this AS; caller accepts
-    /// the one-shot session contract of [`el0::run`].
+    /// Write user text and enter EL0 until the first lower-EL sync (one-shot).
     pub fn run_user_prog(&mut self, prog: &[u8]) -> Result<el0::El0Outcome, AgentError> {
         self.aspace
             .poke_user(0, prog)
             .map_err(|_| AgentError::Poke)?;
-        // SAFETY: prepared AS; IRQs masked across the session.
         let outcome = cpu::without_irqs(|| unsafe {
             el0::run(
                 self.aspace.root_phys(),
@@ -65,6 +59,45 @@ impl Agent {
             )
         });
         Ok(outcome)
+    }
+
+    /// Multi-SVC session: resume after Ping, stop on Exit / fault / refuse.
+    ///
+    /// Returns the number of successful Ping syscalls handled.
+    pub fn run_user_prog_resuming(&mut self, prog: &[u8]) -> Result<u32, AgentError> {
+        self.aspace
+            .poke_user(0, prog)
+            .map_err(|_| AgentError::Poke)?;
+        let root = self.aspace.root_phys();
+        let entry = self.aspace.user_entry_va();
+        let sp = self.aspace.user_sp();
+        cpu::without_irqs(|| {
+            // SAFETY: prepared AS; sole session; IRQs masked.
+            let mut event = unsafe { el0::enter(root, entry, sp) };
+            let mut pings = 0u32;
+            loop {
+                match event {
+                    el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
+                        Syscall::Ping => {
+                            pings = pings.saturating_add(1);
+                            event = unsafe { el0::resume() };
+                        }
+                        Syscall::Exit => {
+                            el0::end_session();
+                            return Ok(pings);
+                        }
+                        Syscall::Unknown { .. } => {
+                            el0::end_session();
+                            return Ok(pings);
+                        }
+                    },
+                    _ => {
+                        el0::end_session();
+                        return Ok(pings);
+                    }
+                }
+            }
+        })
     }
 
     /// Tear down the AS (revokes user + any device leaves; returns pool frames).
@@ -85,10 +118,23 @@ pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
     match outcome {
         el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
             Syscall::Ping => crate::kprintln!("{prefix}: svc ping"),
+            Syscall::Exit => crate::kprintln!("{prefix}: svc exit"),
             Syscall::Unknown { imm } => crate::kprintln!("{prefix}: svc refuse imm={imm:#x}"),
         },
         other => crate::kprintln!("{prefix}: unexpected {other:?}"),
     }
+}
+
+/// A64: `svc #0; svc #0; svc #1; b .` — two pings then exit (resume path).
+pub fn encode_ping_ping_exit() -> [u8; 16] {
+    let s0 = encode_svc_imm(0);
+    let s1 = encode_svc_imm(1);
+    [
+        s0[0], s0[1], s0[2], s0[3], // svc #0
+        s0[0], s0[1], s0[2], s0[3], // svc #0
+        s1[0], s1[1], s1[2], s1[3], // svc #1
+        0x00, 0x00, 0x00, 0x14, // b .
+    ]
 }
 
 // --- Concurrent two-agent barrier (cooperative) ---

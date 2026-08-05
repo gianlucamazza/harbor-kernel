@@ -434,6 +434,7 @@ fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
     match outcome {
         el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
             Syscall::Ping => println!(uart, "el0: SVC ok  imm=0"),
+            Syscall::Exit => println!(uart, "el0: SVC unexpected exit"),
             Syscall::Unknown { imm } => println!(uart, "el0: SVC unexpected imm={imm}"),
         },
         other => println!(uart, "el0: SVC unexpected {other:?}"),
@@ -508,6 +509,13 @@ fn el0_scheduled_task() {
     match agent.run_user_prog(&agent::encode_svc_imm(0x99)) {
         Ok(out) => agent::report_svc("el0-task", out),
         Err(e) => crate::kprintln!("el0-task: refuse path FAILED {e:?}"),
+    }
+
+    // Multi-SVC resume: two pings then SYS_EXIT.
+    match agent.run_user_prog_resuming(&agent::encode_ping_ping_exit()) {
+        Ok(2) => crate::kprintln!("el0-task: resume pings=2"),
+        Ok(n) => crate::kprintln!("el0-task: resume unexpected pings={n}"),
+        Err(e) => crate::kprintln!("el0-task: resume FAILED {e:?}"),
     }
 
     agent.destroy();

@@ -196,7 +196,9 @@ Protocol notes load-bearing for silicon:
 | ADR-0013 accepted | **yes** | agent page-sized PL011 only |
 | PL011 agent map + FR load + kill | **closed (QEMU)** | `pl011-agent: FR read + svc ok` / `killed ok` |
 | Concurrent multi-agent shell | **closed (QEMU + HW)** | `agents: concurrent ok` (`src/agent`) |
+| Multi-SVC resume (`enter`/`resume`) | **closed (QEMU)** | `el0-task: resume pings=2` (`SYS_EXIT` ends session) |
 | Silicon (M5-P / M6 / agents) | **closed (HW)** | Pi 4B + CP2104, `FEATURES=debug-display`, 2026-08-05 — transcript below |
+| Silicon (EL0 resume) | **open** | re-flash image with resume path |
 
 M6 v1 does **not** move console RX into the agent: the agent proves a **minimal
 Device map** and revocation; kernel idle still owns echo and ticks. EL0
