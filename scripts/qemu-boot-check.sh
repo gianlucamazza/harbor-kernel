@@ -105,6 +105,12 @@ fi
 # ADR-0012 S1: named frame pool initialised (capacity matches BSP constant).
 grep -qE 'frames: [0-9]+ free / [0-9]+' "${log}" ||
 	fail "frame pool boot line missing"
+# M5 S2: empty AS create/destroy must not leak frames.
+grep -q 'aspace: create/destroy ok' "${log}" ||
+	fail "address-space create/destroy smoke failed"
+if grep -q 'aspace: LEAK' "${log}"; then
+	fail "address-space leaked frames on destroy"
+fi
 # M4 IPC (ADR-0008 shape + mailbox): message delivered; forge refuse counted.
 grep -q 'ipc: sent tag=1 a=42' "${log}" ||
 	fail "ipc sender did not deliver"

@@ -13,10 +13,12 @@
 //! linker symbol, the single instance, the interrupt discipline, and the
 //! conversion between offsets and raw pointers.
 
+pub mod aspace;
 pub mod frames;
 pub mod layout;
 pub mod task_stack;
 
+pub use aspace::AddressSpace;
 pub use task_stack::{StackError, TaskStack};
 
 use core::alloc::{GlobalAlloc, Layout};

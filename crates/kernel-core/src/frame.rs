@@ -145,6 +145,73 @@ impl FramePool {
     }
 }
 
+/// Tracks frame indices owned by one address space (ADR-0012 / M5 S2).
+///
+/// Pure bookkeeping: the kernel maps indices to [`FrameId`] / phys and frees
+/// them on AS destroy. Fixed capacity — no heap.
+#[derive(Clone, Debug)]
+pub struct FrameLedger<const N: usize> {
+    slots: [u32; N],
+    len: usize,
+}
+
+/// Ledger could not accept another index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LedgerFull;
+
+impl<const N: usize> FrameLedger<N> {
+    /// Empty ledger.
+    pub const fn new() -> Self {
+        Self {
+            slots: [0; N],
+            len: 0,
+        }
+    }
+
+    /// How many indices are recorded.
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    #[inline]
+    pub const fn capacity(&self) -> usize {
+        N
+    }
+
+    /// Record an owned frame index.
+    pub fn push(&mut self, index: u32) -> Result<(), LedgerFull> {
+        if self.len >= N {
+            return Err(LedgerFull);
+        }
+        self.slots[self.len] = index;
+        self.len += 1;
+        Ok(())
+    }
+
+    /// All recorded indices (prefix of length [`Self::len`]).
+    #[inline]
+    pub fn as_slice(&self) -> &[u32] {
+        &self.slots[..self.len]
+    }
+
+    /// Drop all records without freeing phys (caller frees each index first).
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+}
+
+impl<const N: usize> Default for FrameLedger<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,5 +286,26 @@ mod tests {
         let b = p.alloc().unwrap().index();
         assert_eq!(a, 0);
         assert_eq!(b, 1);
+    }
+
+    #[test]
+    fn ledger_push_and_slice() {
+        let mut led = FrameLedger::<4>::new();
+        assert!(led.is_empty());
+        led.push(3).unwrap();
+        led.push(7).unwrap();
+        assert_eq!(led.len(), 2);
+        assert_eq!(led.as_slice(), &[3, 7]);
+        led.clear();
+        assert!(led.is_empty());
+    }
+
+    #[test]
+    fn ledger_full() {
+        let mut led = FrameLedger::<2>::new();
+        led.push(0).unwrap();
+        led.push(1).unwrap();
+        assert_eq!(led.push(2), Err(LedgerFull));
+        assert_eq!(led.len(), 2);
     }
 }

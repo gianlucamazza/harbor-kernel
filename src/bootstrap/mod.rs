@@ -205,6 +205,28 @@ pub fn run() -> ! {
             mm::frames::capacity(),
             board::memmap::FRAME_POOL_BYTES / 1024
         );
+        // M5 S2: empty AS create/destroy returns the root frame to the pool.
+        let free_before = mm::frames::free_count();
+        match mm::AddressSpace::create() {
+            Ok(aspace) => {
+                let held = aspace.frame_count();
+                let root = aspace.root_phys();
+                aspace.destroy();
+                let free_after = mm::frames::free_count();
+                if free_after == free_before && held >= 1 {
+                    println!(
+                        uart,
+                        "aspace: create/destroy ok  held={held}  root={root:#x}  pool={free_after}"
+                    );
+                } else {
+                    println!(
+                        uart,
+                        "aspace: LEAK or empty  held={held}  free {free_before}->{free_after}"
+                    );
+                }
+            }
+            Err(error) => println!(uart, "aspace: create FAILED {error:?}"),
+        }
     } else {
         println!(uart, "frames: UNAVAILABLE");
     }

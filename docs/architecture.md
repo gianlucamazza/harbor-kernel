@@ -165,7 +165,7 @@ roadmap:
 
 | Next | Needs first | Notes |
 | ---- | ----------- | ----- |
-| M5 | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md); [m5-prep](reviews/2026-08-05-m5-prep.md); TTBR (M5-D1) | S0–S1 done (math + named pool); next AS object + EL0 |
+| M5 | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md); [m5-prep](reviews/2026-08-05-m5-prep.md); TTBR (M5-D1) | S0–S2 done; next EL0 trampoline (S3) after TTBR decision |
 | M6 | M5 done (HW); [ADR-0013](adr/0013-narrow-device-windows.md) **accept** | Narrow MMIO caps; PL011 as EL0 agent |
 
 ### Open findings, against the milestone they block
