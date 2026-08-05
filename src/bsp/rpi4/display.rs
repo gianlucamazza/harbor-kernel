@@ -42,12 +42,14 @@ pub enum DisplaySpiError {
 }
 
 /// SPI0 + software CS + control pins after panel bring-up.
+///
+/// `device` / `dc` live in [`Option`] so [`Self::with_panel`] can **take** them
+/// into a transient [`Ili9486`] and put them back — no `ptr::read` on half-moved
+/// fields (architecture ownership honesty).
 pub struct DisplaySpi {
-    /// Kept for a future status surface (partial window writes).
-    #[allow(dead_code)]
-    device: Dev,
-    #[allow(dead_code)]
-    dc: gpio::Output,
+    device: Option<Dev>,
+    dc: Option<gpio::Output>,
+    /// Held after reset so a later soft re-init can pulse without re-claim.
     #[allow(dead_code)]
     rst: gpio::Output,
     cdiv: u32,
@@ -69,40 +71,45 @@ impl DisplaySpi {
 
     /// Run `f` with a transient [`Ili9486`] view of the resident bus and DC pin.
     ///
-    /// Reconstructs the panel driver around the stored `ExclusiveDevice` for the
-    /// duration of `f`, then puts the parts back (ADR-0009 status painting).
+    /// Takes ownership of the SPI device and DC pin for the duration of `f`,
+    /// then restores them. Nested calls or a missing install are a programming
+    /// error (panic). Callers keep IRQs masked via [`with_display`].
     pub fn with_panel<R>(
         &mut self,
         f: impl FnOnce(
             &mut Ili9486<BcmSpi, gpio::Output, ArchTimerDelay, gpio::Output, ArchTimerDelay>,
         ) -> R,
     ) -> R {
-        // Move parts out without leaving an invalid device behind: use ptr::read
-        // + write after, single-core and IRQs masked by the caller.
-        // SAFETY: DisplaySpi is only used on the voluntary path under without_irqs.
-        unsafe {
-            let device = core::ptr::read(&self.device);
-            let dc = core::ptr::read(&self.dc);
-            let mut panel = Ili9486::new(
-                device,
-                dc,
-                ArchTimerDelay,
-                ili9486::WIDTH,
-                ili9486::HEIGHT,
-            );
-            let result = f(&mut panel);
-            let (device, dc, _) = panel.into_parts();
-            core::ptr::write(&mut self.device, device);
-            core::ptr::write(&mut self.dc, dc);
-            result
-        }
+        let device = self
+            .device
+            .take()
+            .expect("display: SPI device missing (nested with_panel?)");
+        let dc = self
+            .dc
+            .take()
+            .expect("display: DC pin missing (nested with_panel?)");
+        let mut panel = Ili9486::new(
+            device,
+            dc,
+            ArchTimerDelay,
+            ili9486::WIDTH,
+            ili9486::HEIGHT,
+        );
+        let result = f(&mut panel);
+        let (device, dc, _) = panel.into_parts();
+        self.device = Some(device);
+        self.dc = Some(dc);
+        result
     }
 }
 
 /// Resident handle after a successful [`init_and_panel`].
 static DISPLAY: SyncCell<Option<DisplaySpi>> = SyncCell::new(None);
 
-/// Pinmux SPI0, claim pins, program ILI9486, stream solid fill (not white).
+/// Pinmux SPI0, claim pins, program ILI9486, fill status background (HARBOR).
+///
+/// Product boot path (ADR-0009): PiScreen init + full navy fill. Colour-bar
+/// diagnostics live on [`Ili9486::draw_color_bars`] for lab re-proof only.
 ///
 /// # Safety
 ///
@@ -156,6 +163,8 @@ pub unsafe fn init_and_panel() -> Result<DisplaySpi, DisplaySpiError> {
         panel
             .reset_and_init(&mut rst, INIT_PISCREEN)
             .map_err(DisplaySpiError::Panel)?;
+        // Full status background. Text is painted by `status` via dirty cells.
+        // (Lab colour bars are not part of product boot — use draw_color_bars.)
         panel
             .fill_screen(Rgb565::HARBOR)
             .map_err(DisplaySpiError::Panel)?;
@@ -163,8 +172,8 @@ pub unsafe fn init_and_panel() -> Result<DisplaySpi, DisplaySpiError> {
         let (device, dc, _delay) = panel.into_parts();
 
         Ok(DisplaySpi {
-            device,
-            dc,
+            device: Some(device),
+            dc: Some(dc),
             rst,
             cdiv,
             bit_hz,

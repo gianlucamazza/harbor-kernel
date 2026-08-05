@@ -31,11 +31,12 @@ pub const SPI0_BASE: usize = PERIPHERAL_BASE + 0x0020_4000;
 #[cfg(feature = "debug-display")]
 pub const SPI0_CORE_CLOCK_HZ: u32 = 500_000_000;
 
-/// Conservative SPI bit-clock ceiling for Waveshare-class ILI9486 panels (Hz).
+/// SPI bit-clock ceiling for Waveshare-class ILI9486 (Hz).
 ///
-/// Programmed rate is at most this value (see `kernel_core::spi::clock_divisor`).
+/// Closed on silicon at 8 MHz with regwidth-16 framing (2026-08-05). Raise
+/// toward 16 MHz only after re-checking colour bars / status on glass.
 #[cfg(feature = "debug-display")]
-pub const SPI0_TARGET_HZ: u32 = 16_000_000;
+pub const SPI0_TARGET_HZ: u32 = 8_000_000;
 
 /// UART reference clock after platform firmware enables the PL011 (Hz).
 ///

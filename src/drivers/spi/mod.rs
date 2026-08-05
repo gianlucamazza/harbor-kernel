@@ -43,6 +43,11 @@ pub trait SpiDevice {
     type Error;
 
     /// Clock out `words`, discarding MISO, under CS.
+    ///
+    /// Kept for short single-buffer slaves (e.g. future XPT2046). The ILI9486
+    /// path uses [`ExclusiveDevice::with_bus`] so cmd+param stay one CS with
+    /// regwidth-16 expansion (ADR-0010).
+    #[allow(dead_code)]
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error>;
 
     /// Full-duplex transfer under CS (`read` and `words` same length).

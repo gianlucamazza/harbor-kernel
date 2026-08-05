@@ -4,35 +4,46 @@
 //! - short ops via [`SpiDevice`] (init registers);
 //! - long streams via [`ExclusiveDevice::with_bus`] (ADR-0010 RAMWR session).
 //!
-//! Init tables are declarative [`InitOp`] lists — datasheet opcodes with the
-//! Linux `fb_ili9486` PiScreen table as a documented cross-check (ADR-0009).
+//! Init is declarative [`InitOp`] — datasheet opcodes; parameters match Linux
+//! `fb_ili9486` PiScreen under fbtft.
 //!
-//! Pixel path: RGB565, big-endian on the wire, 8-bit SPI words. Solid fill
-//! **streams** a small stack pattern under one CS — no full-frame heap buffer.
+//! **Wire framing (Waveshare / PiScreen SKU):** fbtft `piscreen` uses
+//! `regwidth=16` + `buswidth=8`. Every command and every parameter byte is
+//! sent as a big-endian `u16` with high byte zero (`0x00, opcode`). Pixel
+//! RGB565 words are raw 16-bit colour (not zero-padded). Sending bare 8-bit
+//! commands on that interface yields noise / faint lines on glass.
+//!
+//! Pixel path: RGB565 big-endian, COLMOD `0x55`. Solid fills stream under one CS.
 
 use core::convert::Infallible;
 
-use kernel_core::display::{self, InitOp, Rgb565, address_window_bytes, cmd, madctl};
+use kernel_core::display::{
+    InitOp, Rgb565, address_window_bytes, cmd, expand_reg16_be, madctl, reg16_be,
+};
 
 use crate::drivers::delay::DelayNs;
 use crate::drivers::pin::OutputPin;
-use crate::drivers::spi::{ExclusiveDevice, ExclusiveDeviceError, SpiBus, SpiDevice};
+use crate::drivers::spi::{ExclusiveDevice, ExclusiveDeviceError, SpiBus};
 
-/// Landscape 480×320 as used by Waveshare-class 3.5″ HATs after MADCTL MV.
+/// Logical landscape size after MADCTL row/column exchange (Waveshare HAT view).
 pub const WIDTH: u16 = 480;
 pub const HEIGHT: u16 = 320;
 
 /// PiScreen / Waveshare-class power and gamma (Linux `fb_ili9486` default).
 ///
-/// Command bytes are ILI9486 / MIPI DCS; parameter blobs match the open fbtft
-/// table used on those HATs (cross-check, not an opaque vendor blob).
+/// Matches the open fbtft table used on those HATs (cross-check, not a blob),
+/// plus MADCTL for landscape + BGR (fbtft rotate=90 + bgr → `0x28`).
+///
+/// Deliberately **no** experimental C0/C1 / SWRESET / INVOFF extras: those
+/// washed the glass gray on silicon while this table + solid fill produced the
+/// earlier azure proof (with the CS-session fix from ADR-0010).
 pub const INIT_PISCREEN: &[InitOp] = &[
     InitOp::Cmd(cmd::IFMODE),
     InitOp::Data(&[0x00]),
     InitOp::Cmd(cmd::SLPOUT),
-    InitOp::DelayMs(120),
+    InitOp::DelayMs(250), // fbtft PiScreen
     InitOp::Cmd(cmd::COLMOD),
-    InitOp::Data(&[0x55]), // 16 bpp
+    InitOp::Data(&[0x55]), // 16 bpp RGB565
     InitOp::Cmd(cmd::PWCTR3),
     InitOp::Data(&[0x44]),
     InitOp::Cmd(cmd::VMCTR1),
@@ -49,7 +60,7 @@ pub const INIT_PISCREEN: &[InitOp] = &[
     InitOp::Data(&[
         0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00,
     ]),
-    // Landscape, BGR (fbtft rotate=90 + bgr).
+    // Landscape + BGR (fbtft rotate 90 + bgr → 0x20|0x08).
     InitOp::Cmd(cmd::MADCTL),
     InitOp::Data(&[madctl::MV | madctl::BGR]),
     InitOp::Cmd(cmd::DISPON),
@@ -60,15 +71,13 @@ pub const INIT_PISCREEN: &[InitOp] = &[
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ili9486Error<S, P> {
     Spi(S),
+    #[allow(dead_code)] // reserved for non-Infallible DC pins
     Pin(P),
 }
 
 type SpiErr<BUS, CS> = ExclusiveDeviceError<<BUS as SpiBus>::Error, <CS as OutputPin>::Error>;
 
 /// ILI9486 on software-CS SPI ([`ExclusiveDevice`]) + DC + delay.
-///
-/// Bound to [`ExclusiveDevice`] so RAMWR can use [`ExclusiveDevice::with_bus`]
-/// (ADR-0010). Short init ops still go through [`SpiDevice`].
 pub struct Ili9486<BUS, CS, DELAY, DC, D> {
     spi: ExclusiveDevice<BUS, CS, DELAY>,
     dc: DC,
@@ -102,39 +111,58 @@ where
         }
     }
 
-    /// Split back into bus device and pins (BSP stores the parts after bring-up).
+    /// Split back into bus device and pins.
     pub fn into_parts(self) -> (ExclusiveDevice<BUS, CS, DELAY>, DC, D) {
         (self.spi, self.dc, self.delay)
     }
 
-    /// Hardware reset via RST, then run `init` (typically [`INIT_PISCREEN`]).
+    /// Hardware reset via RST, then run `init`.
     pub fn reset_and_init<RST: OutputPin>(
         &mut self,
         rst: &mut RST,
         init: &[InitOp],
-    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>> {
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>>
+    where
+        DC: OutputPin<Error = Infallible>,
+    {
+        // Datasheet-class reset pulse.
         let _ = rst.set_low();
         self.delay.delay_ms(20);
         let _ = rst.set_high();
-        self.delay.delay_ms(120);
+        self.delay.delay_ms(150);
         self.run_init(init)
     }
 
-    /// Execute a declarative init table (short CS transactions per op).
+    /// Execute a declarative init table.
+    ///
+    /// A `Cmd` followed by `Data` is issued under **one** CS assertion (DBI
+    /// register write). Lone commands and delays stay separate.
     pub fn run_init(
         &mut self,
         init: &[InitOp],
-    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>> {
-        for op in init {
-            match *op {
-                InitOp::Cmd(c) => self.write_cmd(c)?,
-                InitOp::Data(bytes) => {
-                    if !bytes.is_empty() {
-                        self.write_data(bytes)?;
-                    }
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>>
+    where
+        DC: OutputPin<Error = Infallible>,
+    {
+        let mut i = 0;
+        while i < init.len() {
+            match init[i] {
+                InitOp::Cmd(c) => {
+                    let data = match init.get(i + 1) {
+                        Some(InitOp::Data(bytes)) => {
+                            i += 1;
+                            *bytes
+                        }
+                        _ => &[][..],
+                    };
+                    self.write_register(c, data)?;
+                }
+                InitOp::Data(_) => {
+                    // Orphan data without a preceding cmd — skip (table bug).
                 }
                 InitOp::DelayMs(ms) => self.delay.delay_ms(u32::from(ms)),
             }
+            i += 1;
         }
         Ok(())
     }
@@ -146,34 +174,58 @@ where
         y0: u16,
         x1: u16,
         y1: u16,
-    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>> {
-        self.write_cmd(cmd::CASET)?;
-        self.write_data(&address_window_bytes(x0, x1))?;
-        self.write_cmd(cmd::PASET)?;
-        self.write_data(&address_window_bytes(y0, y1))?;
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>>
+    where
+        DC: OutputPin<Error = Infallible>,
+    {
+        self.write_register(cmd::CASET, &address_window_bytes(x0, x1))?;
+        self.write_register(cmd::PASET, &address_window_bytes(y0, y1))?;
         Ok(())
     }
 
-    fn write_cmd(
+    /// Command + optional parameters under one CS (Infallible DC).
+    ///
+    /// Waveshare/PiScreen: each logical byte is a BE `u16` on the wire
+    /// ([`reg16_be`] / [`expand_reg16_be`]).
+    fn write_register(
         &mut self,
         c: u8,
-    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>> {
-        self.dc.set_low().map_err(Ili9486Error::Pin)?;
-        self.spi.write(&[c]).map_err(Ili9486Error::Spi)
-    }
-
-    fn write_data(
-        &mut self,
-        bytes: &[u8],
-    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, DC::Error>> {
-        self.dc.set_high().map_err(Ili9486Error::Pin)?;
-        self.spi.write(bytes).map_err(Ili9486Error::Spi)
+        data: &[u8],
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>>
+    where
+        DC: OutputPin<Error = Infallible>,
+    {
+        let spi = &mut self.spi;
+        let dc = &mut self.dc;
+        // Gamma tables are 15 bytes → 30 wire bytes; keep headroom.
+        const MAX_PARAM: usize = 16;
+        let mut wire = [0u8; MAX_PARAM * 2];
+        spi.with_bus(|bus| {
+            match dc.set_low() {
+                Ok(()) => {}
+                Err(e) => match e {},
+            }
+            bus.write(&reg16_be(c))?;
+            if !data.is_empty() {
+                match dc.set_high() {
+                    Ok(()) => {}
+                    Err(e) => match e {},
+                }
+                // Stream params in MAX_PARAM-sized logical chunks if ever larger.
+                let mut off = 0;
+                while off < data.len() {
+                    let end = (off + MAX_PARAM).min(data.len());
+                    let n = expand_reg16_be(&data[off..end], &mut wire);
+                    bus.write(&wire[..n])?;
+                    off = end;
+                }
+            }
+            Ok(())
+        })
+        .map_err(Ili9486Error::Spi)
     }
 }
 
-/// Solid-fill path: DC pin errors are [`Infallible`] so DC can toggle inside a
-/// bus session without polluting [`SpiBus::Error`] (ADR-0010). BSP GPIO outputs
-/// satisfy this; fallible DC would need a richer session error type later.
 impl<BUS, CS, DELAY, DC, D> Ili9486<BUS, CS, DELAY, DC, D>
 where
     BUS: SpiBus,
@@ -182,57 +234,62 @@ where
     DC: OutputPin<Error = Infallible>,
     D: DelayNs,
 {
-    /// Fill the full panel with a solid colour.
-    ///
-    /// One CS session (ADR-0010): RAMWR command, then repeated FIFO-sized
-    /// colour chunks from a **stack** buffer — no full-frame heap allocation.
+    /// Fill the full logical panel with a solid colour (streaming, one CS).
     pub fn fill_screen(
         &mut self,
         color: Rgb565,
     ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>> {
         let x1 = self.width.saturating_sub(1);
         let y1 = self.height.saturating_sub(1);
-        self.set_window(0, 0, x1, y1)?;
-
-        let pixel = color.to_be_bytes();
-        // 32 pixels × 2 B = 64 B — matches BCM SPI0 FIFO depth.
-        const PIXELS: usize = 32;
-        let mut chunk = [0u8; PIXELS * 2];
-        for slot in chunk.chunks_exact_mut(2) {
-            slot.copy_from_slice(&pixel);
-        }
-
-        let total = display::frame_pixels(self.width, self.height) as usize;
-        let mut remaining = total;
-
-        let spi = &mut self.spi;
-        let dc = &mut self.dc;
-
-        spi.with_bus(|bus| {
-            // DBI: DC low → opcode; DC high → RAMWR payload. CS stays low.
-            match dc.set_low() {
-                Ok(()) => {}
-                Err(e) => match e {},
-            }
-            bus.write(&[cmd::RAMWR])?;
-            match dc.set_high() {
-                Ok(()) => {}
-                Err(e) => match e {},
-            }
-
-            while remaining > 0 {
-                let n = remaining.min(PIXELS);
-                bus.write(&chunk[..n * 2])?;
-                remaining -= n;
-            }
-            Ok(())
-        })
-        .map_err(Ili9486Error::Spi)
+        self.fill_rect(0, 0, x1, y1, color)
     }
 
-    /// Blit a pre-rasterised RGB565 glyph buffer (big-endian pairs) into a window.
+    /// Fill an inclusive rectangle (streaming, one CS).
+    pub fn fill_rect(
+        &mut self,
+        x0: u16,
+        y0: u16,
+        x1: u16,
+        y1: u16,
+        color: Rgb565,
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>> {
+        if x1 < x0 || y1 < y0 {
+            return Ok(());
+        }
+        self.set_window(x0, y0, x1, y1)?;
+        let total = (x1 as usize - x0 as usize + 1) * (y1 as usize - y0 as usize + 1);
+        self.ramwr_solid(total, color)
+    }
+
+    /// Five full-width colour bars (R,G,B,W,Black) — lab / self-test only.
     ///
-    /// `pixels` length must be `width * height` pixels (= bytes/2).
+    /// Not called from product boot (ADR-0009 status surface uses navy fill +
+    /// text). Kept to re-proof SPI framing on glass without a full framebuffer.
+    #[allow(dead_code)]
+    pub fn draw_color_bars(&mut self) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>> {
+        let colors = [
+            Rgb565::RED,
+            Rgb565::GREEN,
+            Rgb565::BLUE,
+            Rgb565::WHITE,
+            Rgb565::BLACK,
+        ];
+        let h = self.height;
+        let w = self.width;
+        let band = (h / colors.len() as u16).max(1);
+        for (i, &c) in colors.iter().enumerate() {
+            let y0 = i as u16 * band;
+            let y1 = if i + 1 == colors.len() {
+                h.saturating_sub(1)
+            } else {
+                (y0 + band).saturating_sub(1).min(h.saturating_sub(1))
+            };
+            self.fill_rect(0, y0, w.saturating_sub(1), y1, c)?;
+        }
+        Ok(())
+    }
+
+    /// Blit a pre-rasterised RGB565 buffer (big-endian pairs).
     pub fn blit_rgb565(
         &mut self,
         x0: u16,
@@ -248,21 +305,60 @@ where
         let x1 = x0.saturating_add(width - 1);
         let y1 = y0.saturating_add(height - 1);
         self.set_window(x0, y0, x1, y1)?;
+        self.ramwr_bytes(&pixels[..need])
+    }
 
+    fn ramwr_solid(
+        &mut self,
+        pixel_count: usize,
+        color: Rgb565,
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>> {
+        let pixel = color.to_be_bytes();
+        const PIXELS: usize = 32;
+        let mut chunk = [0u8; PIXELS * 2];
+        for slot in chunk.chunks_exact_mut(2) {
+            slot.copy_from_slice(&pixel);
+        }
+        let mut remaining = pixel_count;
         let spi = &mut self.spi;
         let dc = &mut self.dc;
-        let data = &pixels[..need];
         spi.with_bus(|bus| {
             match dc.set_low() {
                 Ok(()) => {}
                 Err(e) => match e {},
             }
-            bus.write(&[cmd::RAMWR])?;
+            // Opcode framed reg16; payload is raw RGB565 (not zero-padded).
+            bus.write(&reg16_be(cmd::RAMWR))?;
             match dc.set_high() {
                 Ok(()) => {}
                 Err(e) => match e {},
             }
-            // Stream in FIFO-sized pieces under the same CS.
+            while remaining > 0 {
+                let n = remaining.min(PIXELS);
+                bus.write(&chunk[..n * 2])?;
+                remaining -= n;
+            }
+            Ok(())
+        })
+        .map_err(Ili9486Error::Spi)
+    }
+
+    fn ramwr_bytes(
+        &mut self,
+        data: &[u8],
+    ) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>> {
+        let spi = &mut self.spi;
+        let dc = &mut self.dc;
+        spi.with_bus(|bus| {
+            match dc.set_low() {
+                Ok(()) => {}
+                Err(e) => match e {},
+            }
+            bus.write(&reg16_be(cmd::RAMWR))?;
+            match dc.set_high() {
+                Ok(()) => {}
+                Err(e) => match e {},
+            }
             const CHUNK: usize = 64;
             let mut off = 0;
             while off < data.len() {

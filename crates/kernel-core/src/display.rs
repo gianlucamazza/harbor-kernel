@@ -27,7 +27,8 @@ impl Rgb565 {
     pub const RED: Self = Self::from_rgb8(0xE0, 0x20, 0x20);
     pub const GREEN: Self = Self::from_rgb8(0x20, 0xC0, 0x40);
     pub const BLUE: Self = Self::from_rgb8(0x20, 0x40, 0xE0);
-    /// Dark navy — distinct from the unprogrammed white backlight field.
+    /// Status background navy. Distinct from white backlight; not a fill proof
+    /// colour (too dark → reads “gray” on cheap glass — use RED/bars for that).
     pub const HARBOR: Self = Self::from_rgb8(0x0A, 0x14, 0x28);
 }
 
@@ -49,6 +50,8 @@ pub mod cmd {
     pub const SWRESET: u8 = 0x01;
     pub const SLPIN: u8 = 0x10;
     pub const SLPOUT: u8 = 0x11;
+    pub const INVOFF: u8 = 0x20;
+    pub const INVON: u8 = 0x21;
     pub const DISPOFF: u8 = 0x28;
     pub const DISPON: u8 = 0x29;
     pub const CASET: u8 = 0x2A;
@@ -88,6 +91,33 @@ pub const fn address_window_bytes(start: u16, end: u16) -> [u8; 4] {
         (end >> 8) as u8,
         (end & 0xFF) as u8,
     ]
+}
+
+/// One register/parameter byte on a **regwidth=16 / buswidth=8** SPI panel.
+///
+/// PiScreen / Waveshare-class HATs (fbtft `piscreen`: `regwidth=16`,
+/// `buswidth=8`) frame every command and every parameter as a big-endian
+/// `u16` with high byte zero. Pixel RGB565 words are **not** framed this way —
+/// they are raw 16-bit colour values.
+///
+/// Example: opcode `0x2C` → wire bytes `[0x00, 0x2C]`.
+#[inline]
+pub const fn reg16_be(byte: u8) -> [u8; 2] {
+    [0x00, byte]
+}
+
+/// Expand logical register bytes into the regwidth-16 wire image (big-endian).
+///
+/// `out` must hold at least `src.len() * 2` bytes. Returns the wire length.
+pub fn expand_reg16_be(src: &[u8], out: &mut [u8]) -> usize {
+    let n = src.len();
+    debug_assert!(out.len() >= n * 2);
+    for (i, &b) in src.iter().enumerate() {
+        let w = reg16_be(b);
+        out[i * 2] = w[0];
+        out[i * 2 + 1] = w[1];
+    }
+    n * 2
 }
 
 /// Pixel count for a full frame.
@@ -137,5 +167,19 @@ mod tests {
             InitOp::Data(&[0x55]),
         ];
         assert_eq!(seq.len(), 4);
+    }
+
+    #[test]
+    fn reg16_be_pads_high_byte() {
+        assert_eq!(reg16_be(0x2C), [0x00, 0x2C]);
+        assert_eq!(reg16_be(0x55), [0x00, 0x55]);
+    }
+
+    #[test]
+    fn expand_reg16_frames_each_byte() {
+        let mut out = [0u8; 8];
+        let n = expand_reg16_be(&[0x2A, 0x00, 0x01, 0xDF], &mut out);
+        assert_eq!(n, 8);
+        assert_eq!(&out, &[0x00, 0x2A, 0x00, 0x00, 0x00, 0x01, 0x00, 0xDF]);
     }
 }

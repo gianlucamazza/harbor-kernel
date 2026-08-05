@@ -211,7 +211,7 @@ pub fn run() -> ! {
                 board::display::install(spi);
                 println!(
                     uart,
-                    "display: ILI9486 up  cdiv={cdiv}  bit_clk={bit_hz} Hz  fill=HARBOR"
+                    "display: ILI9486 up  cdiv={cdiv}  bit_clk={bit_hz} Hz  status"
                 );
                 // Status surface: structured slots (not a serial mirror).
                 crate::status::show_boot_after_display(cdiv, bit_hz, timer::frequency_hz());
