@@ -74,6 +74,11 @@ exactly its address; with it, the magic reads back as `0xd00dfeed`.
 `EPD1` matters: nothing is mapped in the upper half, so a stray high address
 must fault rather than start a walk through an uninitialised `TTBR1_EL1`.
 
+**M5 v1** keeps this regime ([ADR-0014](adr/0014-ttbr-split-m5.md)): user
+tasks get their own `TTBR0` root that still includes **kernel identity maps**
+(EL0 denied) plus a private user VA window. A future high-half kernel on
+`TTBR1` is a successor ADR, not required for M5 done-when.
+
 Levels are picked per chunk: the largest of 1 GiB / 2 MiB / 4 KiB whose size
 divides _both_ the virtual and the physical address and still fits in what is
 left. A region whose VA and PA alignments disagree degrades to pages rather

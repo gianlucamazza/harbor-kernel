@@ -26,6 +26,7 @@ the code that follows.
 | [0011](0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in (F15) | accepted |
 | [0012](0012-frame-allocator-for-address-spaces.md) | Frame allocator for user address spaces (M5) | accepted |
 | [0013](0013-narrow-device-windows.md) | Narrow device MMIO windows (F26 / M6) | proposed |
+| [0014](0014-ttbr-split-m5.md) | TTBR regime for M5 (TTBR0 + shared kernel maps v1) | accepted |
 
 Operational reviews (findings, not decisions): [`../reviews/`](../reviews/).
 
