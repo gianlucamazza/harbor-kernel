@@ -232,6 +232,7 @@ pub fn run() -> ! {
     let mut last_dropped = 0u32;
     let mut last_missed = 0u64;
     let mut last_abandoned = 0u32;
+    let mut last_overwrites = 0u32;
 
     loop {
         // ADR-0008: drain IRQ wake posts before scheduling work.
@@ -308,6 +309,17 @@ pub fn run() -> ! {
                         println!(uart, "sched: ABANDONED {abandoned} task stacks");
                     });
                     last_abandoned = abandoned;
+                }
+
+                // An exit that found a stack still parked from an earlier exit.
+                // The stack is released rather than dropped, but the single-slot
+                // invariant behind `pending_free` no longer holds.
+                let overwrites = crate::sched::pending_overwrites();
+                if overwrites != last_overwrites {
+                    let _ = console::with_tx(|uart| {
+                        println!(uart, "sched: PENDING-OVERWRITE {overwrites}");
+                    });
+                    last_overwrites = overwrites;
                 }
             }
         }
