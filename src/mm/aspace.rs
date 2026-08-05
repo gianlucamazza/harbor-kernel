@@ -31,6 +31,8 @@ pub enum AsError {
     AlreadyPrepared,
     /// VA/PA/len not page-aligned or zero.
     Unaligned,
+    /// Write would leave the frame it was validated against.
+    OutOfRange,
 }
 
 /// User address space: own TTBR0 root, not necessarily live.
@@ -126,18 +128,25 @@ impl AddressSpace {
         unsafe { self.map_l3_page(va, pa, MemKind::Device, perms) }
     }
 
-    /// Write raw bytes into the user window (kernel identity access to phys).
+    /// Write raw bytes into the **first** page of the user window (kernel
+    /// identity access to phys).
     ///
     /// After the store, publishes the range for instruction fetch (D clean to
     /// PoU + I invalidate). Required on Cortex-A72 whenever the bytes may run
     /// at EL0 — not optional for QEMU.
+    ///
+    /// The bound is one frame, not the whole window: `user_base_phys` is the
+    /// physical address of page 0 alone, and [`Self::map_user_stack`] takes the
+    /// remaining pages from separate [`frames::alloc`] calls that are contiguous
+    /// only by accident of the pool's free order. Validating against the window
+    /// would license a write that lands in whatever frame follows page 0 —
+    /// another live address space's tables, after any create/destroy cycle.
     pub fn poke_user(&self, offset: usize, bytes: &[u8]) -> Result<(), AsError> {
         if !self.prepared || self.user_base_phys == 0 {
             return Err(AsError::BadTable);
         }
-        let max = USER_STACK_PAGES * FRAME_SIZE;
-        if offset.saturating_add(bytes.len()) > max {
-            return Err(AsError::BadTable);
+        if offset.saturating_add(bytes.len()) > FRAME_SIZE {
+            return Err(AsError::OutOfRange);
         }
         let dest = self.user_base_phys + offset;
         // SAFETY: prepared pages are pool frames, identity-mapped RW for EL1.
