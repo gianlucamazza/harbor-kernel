@@ -5,8 +5,9 @@
 //! 1. [`enter`] publishes the kernel root, switches to the user `TTBR0`,
 //!    programs `ELR`/`SPSR`/`SP_EL0`, `ERET` to EL0.
 //! 2. Lower-EL sync: `kernel_entry` → `switch_ttbr0(kernel)` → classify. On
-//!    **SVC**, user GPRs/`ELR`/`SPSR` are saved and `ELR` advanced by 4 so
-//!    [`resume`] can continue the same user context.
+//!    **SVC**, user GPRs/`ELR`/`SPSR`/`SP_EL0` are saved. AArch64 already sets
+//!    `ELR` to the instruction *after* the SVC (preferred return) — no software
+//!    `+4`. [`resume`] continues that context.
 //! 3. [`resume`] re-installs the user root and `ERET`s with the saved state.
 //! 4. [`end_session`] clears the published kernel root.
 //!

@@ -103,7 +103,7 @@ today versus roadmap.
 | Concept    | Role                                                  | Status        |
 | ---------- | ----------------------------------------------------- | ------------- |
 | Task (M3)  | Schedulable EL1 entity + private stack; see ADR-0006  | **done (HW)** |
-| Agent      | Task + mailbox + private AS at EL0 (M5)               | **done (HW)** (shell product open) |
+| Agent      | Task + mailbox + private AS at EL0; cooperative shell + multi-SVC resume | **done (HW)**; EL0 IRQ / RX-console agent open |
 | Message    | Sole interaction channel (M4)                         | **done** (fixed `Message` + mailbox) |
 | Capability | Unforgeable handle (send/recv; future: IRQ notification) | **done** (CapId + hold table; IRQ caps later) |
 

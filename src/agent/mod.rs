@@ -5,8 +5,9 @@
 //! ADR-0006 (cooperative) and ADR-0014 (kernel `TTBR0` on lower-EL return).
 //!
 //! Sessions support **SVC resume**: after `svc #0` (ping) the same user context
-//! continues at `ELR+4`. `svc #1` ([`kernel_core::syscall::SYS_EXIT`]) ends the
-//! session. Faults end the session without resume.
+//! continues at the architectural preferred return (`ELR` already past the SVC).
+//! `svc #1` ([`kernel_core::syscall::SYS_EXIT`]) ends the session. Faults end
+//! without resume.
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
