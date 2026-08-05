@@ -69,6 +69,18 @@ pub const UART0_SPI: u32 = 153;
 /// 2 GiB even on 4/8 GB boards until the memory map is discovered at runtime.
 pub const IDENTITY_RAM_END: usize = 0x8000_0000;
 
+/// Granule of the ADR-0012 frame pool (matches 4 KiB page tables).
+pub const FRAME_SIZE: usize = 0x1000;
+
+/// Frames in the named user/AS phys pool (512 × 4 KiB = 2 MiB).
+///
+/// Sized for M5 v1 (one small AS + spare). Raise with layout evidence, not by
+/// consuming “whatever RAM is left after the heap”.
+pub const FRAME_POOL_FRAMES: usize = 512;
+
+/// Byte length of the frame pool (`FRAME_POOL_FRAMES * FRAME_SIZE`).
+pub const FRAME_POOL_BYTES: usize = FRAME_POOL_FRAMES * FRAME_SIZE;
+
 /// Device MMIO windows the kernel maps: `(base, length, name)`.
 ///
 /// Mapped Device-nGnRnE and never executable. Kept as narrow as the hardware

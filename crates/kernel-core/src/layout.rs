@@ -74,6 +74,8 @@ pub struct Boundaries {
     /// frame below the overflow would fault again and hang instead.
     pub exception_stack: GuardedStack,
     pub heap: (u64, u64),
+    /// Named phys frame pool for user AS tables/pages (ADR-0012), exclusive end.
+    pub frame_pool: (u64, u64),
 }
 
 impl Boundaries {
@@ -136,7 +138,7 @@ pub fn kernel_regions<'a>(
     devices: &[DeviceWindow],
     out: &'a mut [Region],
 ) -> Result<&'a mut [Region], LayoutError> {
-    let ram_count = 8;
+    let ram_count = 9;
     if out.len() < ram_count + devices.len() {
         return Err(LayoutError::TooManyRegions);
     }
@@ -170,6 +172,13 @@ pub fn kernel_regions<'a>(
         bounds.kernel_stack.name,
     );
     out[7] = region(bounds.heap, MemKind::NormalWb, Perms::RW, "heap");
+    // ADR-0012: named user/AS frame pool, immediately after the heap window.
+    out[8] = region(
+        bounds.frame_pool,
+        MemKind::NormalWb,
+        Perms::RW,
+        "frame pool",
+    );
 
     for (slot, window) in out[ram_count..].iter_mut().zip(devices) {
         *slot = Region {
@@ -282,6 +291,8 @@ mod tests {
                 name: "stack",
             },
             heap: (0xA_E000, 0x40A_E000),
+            // 2 MiB frame pool immediately after heap (ADR-0012 shape).
+            frame_pool: (0x40A_E000, 0x40A_E000 + 0x20_0000),
         }
     }
 
@@ -300,14 +311,14 @@ mod tests {
         ]
     }
 
-    fn build(b: &Boundaries) -> Result<[Region; 10], LayoutError> {
+    fn build(b: &Boundaries) -> Result<[Region; 11], LayoutError> {
         let mut out = [Region {
             base: 0,
             len: 0,
             kind: MemKind::NormalWb,
             perms: Perms::RW,
             name: "unused",
-        }; 10];
+        }; 11];
         kernel_regions(b, &devices(), &mut out)?;
         Ok(out)
     }
@@ -334,6 +345,7 @@ mod tests {
                 name: "stack",
             },
             heap: (0xB_2000, 0x40B_2000),
+            frame_pool: (0x40B_2000, 0x40B_2000 + 0x20_0000),
         };
         for guarded in [&b.exception_stack, &b.kernel_stack] {
             assert_eq!(guarded.guard.1 - guarded.guard.0, 0x1000, "one page");
@@ -345,9 +357,10 @@ mod tests {
     #[test]
     fn the_expected_layout_builds() {
         let regions = build(&bounds()).unwrap();
-        assert_eq!(regions.len(), 10);
+        assert_eq!(regions.len(), 11);
         assert_eq!(regions[1].name, ".text");
         assert_eq!(regions[1].perms, Perms::RX);
+        assert_eq!(regions[8].name, "frame pool");
     }
 
     /// The invariant W^X exists for. A permission table edit that made any

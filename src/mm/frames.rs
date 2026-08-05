@@ -1,0 +1,148 @@
+//! Kernel owner of the ADR-0012 physical frame pool.
+//!
+//! Pure free-list arithmetic lives in [`kernel_core::frame`]. This module
+//! binds a **named** phys range (after the bootstrap heap window) to that
+//! pool: index → identity-mapped physical address.
+
+use kernel_core::frame::{FrameFreeError, FrameId, FramePool, MAX_FRAMES};
+
+use crate::arch::cpu;
+use crate::bsp::board::memmap::{
+    FRAME_POOL_BYTES, FRAME_POOL_FRAMES, FRAME_SIZE, IDENTITY_RAM_END,
+};
+use crate::sync::SyncCell;
+
+/// Kernel-side frame pool + phys base of frame 0.
+struct Owner {
+    pool: FramePool,
+    /// Physical address of frame index 0 (identity map).
+    base: usize,
+    /// Exclusive end of the named region.
+    end: usize,
+}
+
+impl Owner {
+    const fn uninitialised() -> Self {
+        Self {
+            pool: FramePool::empty(),
+            base: 0,
+            end: 0,
+        }
+    }
+}
+
+static OWNER: SyncCell<Owner> = SyncCell::new(Owner::uninitialised());
+
+/// Compute the named frame-pool window immediately after `heap_end`.
+///
+/// Returns `(base, end)` exclusive end, or `None` if the pool would not fit
+/// under [`IDENTITY_RAM_END`] or would be smaller than [`FRAME_POOL_FRAMES`].
+pub fn range_after_heap(heap_end: usize) -> Option<(usize, usize)> {
+    if heap_end % FRAME_SIZE != 0 {
+        return None;
+    }
+    let base = heap_end;
+    let end = base.checked_add(FRAME_POOL_BYTES)?;
+    if end > IDENTITY_RAM_END {
+        return None;
+    }
+    // Full named size required — never a silent shrink.
+    if end - base != FRAME_POOL_BYTES {
+        return None;
+    }
+    debug_assert_eq!(FRAME_POOL_FRAMES, FRAME_POOL_BYTES / FRAME_SIZE);
+    if FRAME_POOL_FRAMES > MAX_FRAMES {
+        return None;
+    }
+    Some((base, end))
+}
+
+/// Initialise the pool over a region already mapped as Normal RW.
+///
+/// # Safety
+/// `[base, end)` must be identity-mapped writable RAM, exclusive of the heap
+/// and other owners. Call once after the MMU map includes the frame pool.
+pub unsafe fn init(base: usize, end: usize) -> bool {
+    if end <= base || (end - base) < FRAME_SIZE || base % FRAME_SIZE != 0 {
+        return false;
+    }
+    let n = ((end - base) / FRAME_SIZE).min(MAX_FRAMES) as u32;
+    if n == 0 {
+        return false;
+    }
+    // Prefer the full named count when the range matches BSP constants.
+    let n = if end - base >= FRAME_POOL_BYTES {
+        FRAME_POOL_FRAMES.min(MAX_FRAMES) as u32
+    } else {
+        n
+    };
+
+    cpu::without_irqs(|| {
+        // SAFETY: single core; first init; IRQs masked.
+        let owner = unsafe { &mut *OWNER.get() };
+        owner.base = base;
+        owner.end = base + (n as usize) * FRAME_SIZE;
+        owner.pool = FramePool::new(n);
+        true
+    })
+}
+
+/// Frames still free (0 if uninitialised).
+pub fn free_count() -> u32 {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        unsafe { (*OWNER.get()).pool.free_count() }
+    })
+}
+
+/// Configured capacity (0 if uninitialised).
+pub fn capacity() -> u32 {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        unsafe { (*OWNER.get()).pool.capacity() }
+    })
+}
+
+/// Phys base of the pool (0 if uninitialised).
+#[allow(dead_code)] // S2 AddressSpace / diagnostics
+pub fn pool_base() -> usize {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        unsafe { (*OWNER.get()).base }
+    })
+}
+
+/// Allocate one frame. Returns `(id, phys)` under the identity map.
+#[allow(dead_code)] // consumers land with S2 (user page tables)
+pub fn alloc() -> Option<(FrameId, usize)> {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let owner = unsafe { &mut *OWNER.get() };
+        let id = owner.pool.alloc()?;
+        let phys = owner.base + (id.index() as usize) * FRAME_SIZE;
+        Some((id, phys))
+    })
+}
+
+/// Free a frame previously returned by [`alloc`].
+#[allow(dead_code)] // S2 teardown
+pub fn free(id: FrameId) -> Result<(), FrameFreeError> {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let owner = unsafe { &mut *OWNER.get() };
+        owner.pool.free(id)
+    })
+}
+
+/// Physical address of `id` if it lies in this pool's index range.
+#[allow(dead_code)] // S2 map helpers
+pub fn phys(id: FrameId) -> Option<usize> {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let owner = unsafe { &*OWNER.get() };
+        if id.index() >= owner.pool.capacity() {
+            return None;
+        }
+        Some(owner.base + (id.index() as usize) * FRAME_SIZE)
+    })
+}

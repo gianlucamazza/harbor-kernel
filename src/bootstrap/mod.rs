@@ -96,11 +96,26 @@ pub fn run() -> ! {
     // FP instruction traps loudly instead of silently corrupting the IRQ path,
     // whose trap frame saves no q registers.
 
-    // The heap bound is decided before the map is built, because the heap is
-    // one of the regions being mapped.
+    // Heap and frame-pool bounds are decided before the map is built: both are
+    // mapped regions (ADR-0012: named pool, not “rest of RAM”).
     let heap_end = (mm::heap_start() + HEAP_SIZE).min(board::memmap::IDENTITY_RAM_END);
+    let (frame_base, frame_end) = match mm::frames::range_after_heap(heap_end) {
+        Some(range) => range,
+        None => refuse_to_boot(
+            &mut uart,
+            format_args!(
+                "frame pool does not fit after heap at {heap_end:#x} \
+                 (need {} B under IDENTITY_RAM_END)",
+                board::memmap::FRAME_POOL_BYTES
+            ),
+        ),
+    };
     let mut region_buffer = [mm::layout::empty_region(); mm::layout::MAX_REGIONS];
-    let regions = match mm::layout::kernel_regions(heap_end as u64, &mut region_buffer) {
+    let regions = match mm::layout::kernel_regions(
+        heap_end as u64,
+        frame_end as u64,
+        &mut region_buffer,
+    ) {
         Ok(regions) => regions,
         Err(error) => {
             // The layout itself is inconsistent — overlapping regions, a
@@ -177,6 +192,21 @@ pub fn run() -> ! {
         println!(uart, "heap remaining = {} bytes", mm::heap_remaining());
     } else {
         println!(uart, "heap UNAVAILABLE (empty region)");
+    }
+
+    // ADR-0012 S1: named phys frame pool (identity-mapped with the kernel map).
+    // SAFETY: `frame pool` region was mapped RW Normal; exclusive of the heap.
+    let frames_ok = unsafe { mm::frames::init(frame_base, frame_end) };
+    if frames_ok {
+        println!(
+            uart,
+            "frames: {} free / {}  base={frame_base:#x}  ({} KiB pool)",
+            mm::frames::free_count(),
+            mm::frames::capacity(),
+            board::memmap::FRAME_POOL_BYTES / 1024
+        );
+    } else {
+        println!(uart, "frames: UNAVAILABLE");
     }
 
     // SoC RNG200: after MMU (Device attributes), before IRQs. On-die block,

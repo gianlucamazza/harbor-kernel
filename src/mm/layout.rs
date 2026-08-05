@@ -31,9 +31,9 @@ unsafe extern "C" {
     static __heap_start: u8;
 }
 
-/// Upper bound on the regions the kernel maps: the fixed RAM ones plus the
-/// board's device windows.
-pub const MAX_REGIONS: usize = 8 + memmap::DEVICE_REGIONS.len();
+/// Upper bound on the regions the kernel maps: the fixed RAM ones (incl. frame
+/// pool) plus the board's device windows.
+pub const MAX_REGIONS: usize = 9 + memmap::DEVICE_REGIONS.len();
 
 /// Materialise the address of a linker-provided symbol.
 ///
@@ -68,8 +68,8 @@ macro_rules! symbol_addr {
     }};
 }
 
-/// Boundaries as the linker script laid them out.
-fn boundaries(heap_end: u64) -> Boundaries {
+/// Boundaries as the linker script laid them out, plus named heap / frame pool.
+fn boundaries(heap_end: u64, frame_pool_end: u64) -> Boundaries {
     Boundaries {
         image_start: symbol_addr!(__image_start),
         text: (symbol_addr!(__text_start), symbol_addr!(__text_end)),
@@ -96,14 +96,17 @@ fn boundaries(heap_end: u64) -> Boundaries {
             name: "stack",
         },
         heap: (symbol_addr!(__heap_start), heap_end),
+        frame_pool: (heap_end, frame_pool_end),
     }
 }
 
 /// Fill `out` with the regions to map, validated.
 ///
-/// `heap_end` is exclusive and must be page aligned.
+/// `heap_end` / `frame_pool_end` are exclusive and must be page aligned.
+/// The frame pool is `[heap_end, frame_pool_end)` (ADR-0012 named carve-out).
 pub fn kernel_regions(
     heap_end: u64,
+    frame_pool_end: u64,
     out: &mut [Region; MAX_REGIONS],
 ) -> Result<&mut [Region], LayoutError> {
     let devices = memmap::DEVICE_REGIONS.map(|(base, len, name)| DeviceWindow {
@@ -111,7 +114,7 @@ pub fn kernel_regions(
         len: len as u64,
         name,
     });
-    layout::kernel_regions(&boundaries(heap_end), &devices, out)
+    layout::kernel_regions(&boundaries(heap_end, frame_pool_end), &devices, out)
 }
 
 /// An unmapped `Region` slot, for the caller's buffer.

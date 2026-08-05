@@ -102,6 +102,9 @@ expected="task-a 0 task-b 0 task-a 1 task-b 1 task-a 2 task-b 2 task-a 3 task-b 
 if grep -q 'spawn task-a FAILED' "${log}" || grep -q 'spawn task-b FAILED' "${log}"; then
 	fail "cooperative task spawn failed"
 fi
+# ADR-0012 S1: named frame pool initialised (capacity matches BSP constant).
+grep -qE 'frames: [0-9]+ free / [0-9]+' "${log}" ||
+	fail "frame pool boot line missing"
 # M4 IPC (ADR-0008 shape + mailbox): message delivered; forge refuse counted.
 grep -q 'ipc: sent tag=1 a=42' "${log}" ||
 	fail "ipc sender did not deliver"
