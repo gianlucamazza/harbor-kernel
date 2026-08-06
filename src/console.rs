@@ -11,6 +11,7 @@ use core::fmt::Write;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
 use kernel_core::ring::ByteRing;
+use kernel_core::rxline::{RxLine, Step};
 
 use crate::arch::cpu;
 use crate::bsp::board;
@@ -24,11 +25,70 @@ const RX_CAP: usize = 256;
 /// contexts share this `static` without ever forming aliasing `&mut`.
 static RX_RING: ByteRing<RX_CAP> = ByteRing::new();
 
+/// Who owns the receive line, and in what order that may change.
+///
+/// The rules live in [`kernel_core::rxline`], where they are host-tested: a
+/// level-triggered line that is armed while the handler has no view to drain
+/// through cannot be cleared, and both handover orders once had that state in
+/// the middle of them. This module executes the steps it is given; it does not
+/// decide them.
+///
+/// Written only with IRQs masked, which is what makes the plain `&mut` sound.
+static RX_LINE: SyncCell<RxLine> = SyncCell::new(RxLine::new());
+
 /// MMIO base the RX IRQ drains from; 0 until [`enable_rx_irq`] arms it.
+///
+/// A publication of [`RX_LINE`]'s view for the one reader that cannot take the
+/// interrupt mask — the handler itself. The same shape `src/ipc` uses for the
+/// refusal counters, and for the same reason.
 ///
 /// An `Option<Mmio>` here would be written by the main loop and read by the
 /// IRQ with no atomicity: the handler could observe it half-initialised.
 static RX_MMIO_BASE: AtomicUsize = AtomicUsize::new(0);
+
+/// Run `f` against the line with IRQs masked.
+fn with_line<R>(f: impl FnOnce(&mut RxLine) -> R) -> R {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked and one core, so this `&mut` cannot overlap
+        // another. The IRQ handler never touches `RX_LINE` — it reads the
+        // published atomic instead, which is why that publication exists.
+        let line = unsafe { &mut *RX_LINE.get() };
+        f(line)
+    })
+}
+
+/// Perform one step and record it. The hardware action and the model move
+/// together, so the model cannot describe a line the hardware is not in.
+///
+/// Returns `false` if the TX handle is gone and a masking step could not be
+/// applied — the caller must then abandon the plan rather than continue with a
+/// half-applied one.
+fn apply(line: &mut RxLine, step: Step) -> bool {
+    let performed = match step {
+        Step::MaskAndAck => with_tx(|uart| {
+            uart.disable_rx_interrupt();
+            uart.receiver().discard_and_ack();
+        })
+        .is_some(),
+        Step::Arm => with_tx(|uart| {
+            uart.receiver().discard_and_ack();
+            uart.enable_rx_interrupt();
+        })
+        .is_some(),
+        Step::ClearView => {
+            RX_MMIO_BASE.store(0, Ordering::Release);
+            true
+        }
+        Step::PublishView(base) => {
+            RX_MMIO_BASE.store(base, Ordering::Release);
+            true
+        }
+    };
+    if performed {
+        line.apply(step);
+    }
+    performed
+}
 
 /// Set once the console has been handed to an owner.
 ///
@@ -116,7 +176,12 @@ pub unsafe fn steal() -> Pl011 {
 unsafe fn reprogram() -> Pl011 {
     // Disarm the IRQ view so the handler cannot drain with a stale config.
     // Release so it cannot observe the disarm out of order.
+    //
+    // The model is cleared with it. This is the panic path, where `IMSC` is
+    // about to be reprogrammed from a cold reset anyway — so the line is not
+    // left armed-without-a-view even though only the view is cleared here.
     RX_MMIO_BASE.store(0, Ordering::Release);
+    with_line(|line| line.apply(Step::ClearView));
     // SAFETY: forwarded from the caller's obligation.
     unsafe { board::console::init() }
 }
@@ -131,8 +196,22 @@ unsafe fn reprogram() -> Pl011 {
 /// `uart` must be the live console PL011; exclusive TX + IRQ-only RX for the
 /// rest of the boot.
 pub unsafe fn enable_rx_irq(uart: &Pl011) {
-    RX_MMIO_BASE.store(uart.receiver().base(), Ordering::Release);
-    uart.enable_rx_interrupt();
+    let base = uart.receiver().base();
+    with_line(|line| {
+        let Some(steps) = line.plan_install(base) else {
+            return;
+        };
+        // Not routed through `apply`: the caller holds the live `Pl011` and
+        // `with_tx` may not be installed yet at this point in bring-up.
+        for step in steps {
+            match step {
+                Step::PublishView(b) => RX_MMIO_BASE.store(b, Ordering::Release),
+                Step::Arm => uart.enable_rx_interrupt(),
+                other => unreachable!("install plans only publish and arm, got {other:?}"),
+            }
+            line.apply(step);
+        }
+    });
 }
 
 /// Pause the kernel RX drain so an EL0 agent can own `DR` (poll).
@@ -155,20 +234,19 @@ pub unsafe fn enable_rx_irq(uart: &Pl011) {
 /// mask could not be applied: the caller sees "already suspended" rather than
 /// an unclearable interrupt.
 pub fn suspend_rx() -> usize {
-    cpu::without_irqs(|| {
-        let base = RX_MMIO_BASE.load(Ordering::Acquire);
-        if base == 0 {
+    with_line(|line| {
+        let Some((base, steps)) = line.plan_suspend() else {
             return 0;
+        };
+        for step in steps {
+            if !apply(line, step) {
+                // The mask could not be applied, so nothing after it may be
+                // either: clearing the view now would leave the line armed with
+                // nothing to drain through. The caller sees "already
+                // suspended" and the line is exactly as it was.
+                return 0;
+            }
         }
-        let masked = with_tx(|uart| {
-            uart.disable_rx_interrupt();
-            uart.receiver().discard_and_ack();
-        })
-        .is_some();
-        if !masked {
-            return 0;
-        }
-        RX_MMIO_BASE.store(0, Ordering::Release);
         base
     })
 }
@@ -182,15 +260,15 @@ pub fn suspend_rx() -> usize {
 /// reverse order lets a byte fire the handler while the base is still 0 —
 /// which on a level-triggered line is the same unclearable storm.
 pub fn resume_rx(base: usize) {
-    if base == 0 {
-        return;
-    }
-    cpu::without_irqs(|| {
-        RX_MMIO_BASE.store(base, Ordering::Release);
-        let _ = with_tx(|uart| {
-            uart.receiver().discard_and_ack();
-            uart.enable_rx_interrupt();
-        });
+    with_line(|line| {
+        let Some(steps) = line.plan_resume(base) else {
+            return;
+        };
+        for step in steps {
+            if !apply(line, step) {
+                return;
+            }
+        }
     });
 }
 

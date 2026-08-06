@@ -107,7 +107,22 @@ ARM Generic Timer physical: `CNTP_*`, IRQ **PPI 30**, frequency from
 | PL011 sources | `RXIM` + `RTIM` (single-char with FIFO) when kernel owns RX |
 | Handler       | `console::on_uart_rx_irq` → `ByteRing` (kernel drain) |
 | Consumer      | idle (`pop_rx`) when drain live; EL0 poll of `DR` when agent owns RX |
-| Agent own     | `suspend_rx` clears IMSC + base; LBE inject for self-test; `resume_rx` re-arms |
+| Agent own     | `suspend_rx` masks IMSC then clears the base; LBE inject for self-test; `resume_rx` publishes the base then re-arms |
+
+### Handover order
+
+UART0 is level-triggered, so an armed line the handler has no view to drain
+through cannot be cleared: the byte enters the handler, finds nothing to do,
+returns without popping `DR` or writing `ICR`, and the line re-presents
+immediately. One state — *armed, no view* — and both handover orders once passed
+through it.
+
+The rules are [`kernel_core::rxline`](../crates/kernel-core/src/rxline.rs),
+which decides and does not act: `suspend` and `resume` return the steps, and
+`console` performs them. That is what lets a host test walk the line through
+every intermediate state and ask, after each one, whether an interrupt arriving
+at that instant could still be cleared — swapping either pair makes it red at
+the exact step.
 
 ## Production bring-up
 

@@ -32,6 +32,7 @@ pub mod reset;
 pub mod ring;
 pub mod rng;
 pub mod runqueue;
+pub mod rxline;
 pub mod spi;
 pub mod syscall;
 pub mod tasks;

@@ -16,6 +16,7 @@
 #   make restore-rpios  put Pi OS kernel+config back on the SD
 #   make serial     open serial console (SERIAL_DEV=...)
 #   make serial-capture  record the UART with host timestamps, no terminal
+#   make mutants    mutation-test the authority modules (~7 min, not in check)
 #   make clean
 #
 # Multi-arch scaffold (ADR-0015): exactly one product combo is supported.
@@ -200,6 +201,12 @@ no-early-exclusives: elf
 #
 # Not part of `make check`: it needs nightly, and the toolchain pin is
 # deliberately stable. Run it when touching the ring or the allocator.
+# Mutation testing. Not a `check` prerequisite: ~7 minutes, and the value is in
+# reading which mutants survived rather than in a threshold. See the script for
+# the baseline and why it is not zero.
+mutants:
+	./scripts/run-mutants.sh
+
 miri:
 	@if ! rustup toolchain list | grep -q nightly; then \
 	  echo "miri: SKIPPED — nightly not installed (rustup toolchain install nightly --component miri)" >&2; \

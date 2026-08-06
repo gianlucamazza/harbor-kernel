@@ -49,7 +49,7 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                   |
 | TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
-| Verification | 248 host tests (unit, integration, doc), Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
+| Verification | 256 host tests (unit, integration, doc), Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
 
 ## What does not exist yet
 
@@ -69,7 +69,8 @@ product surface: [`docs/architecture.md`](docs/architecture.md).
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
   authority     cap, ipc (mailboxes + endpoints), syscall, tasks (scheduler
-                state machine), runqueue, wake, irqtable (dispatch + seal)
+                state machine), runqueue, wake, irqtable (dispatch + seal),
+                rxline (who owns the UART, and in what order it changes hands)
   memory        paging, layout, frame, heap, bump
   hardware maths gic, uart, spi, rng, timer, reset (PM_RSTS decode), a64, poll,
                 delay

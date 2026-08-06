@@ -709,6 +709,7 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | ADR table in `architecture.md`                                   | run the new `xrefs` check against the table as it stood | `0015-multi-arch-scaffold.md is missing from the artefact table`, and the same for 0016. Both had been written, accepted and merged while the table a reader meets first still stopped at ADR-0014 — the third copy of a fact the gate was already comparing in two places |
 | README module map                                                | run the new `doc-claims` check against the Layout block as it stood | twenty of `kernel-core`'s twenty-five modules named as missing, plus `src/agent` — the agent shell, this project's central concept, absent from its own map — and `time.rs` listed as `time/` |
 | Board addresses inside the ISA tree                              | `const PERIPHERALS: u64 = 0xC000_0000;` and `RAM_TOP = 0x8000_0000` put back into `arch/aarch64/mmu.rs` | `arch-board-free: … names 0xC000_0000, a physical range base`, both lines, exit 1. This is F23, which stayed open for two days with `make layering` one directory away — that gate sees imports, and the other way to know a board is to write its addresses out by hand |
+| UART RX handover order                                           | swap the two steps in `RxLine::plan_suspend`, then in `plan_resume` | five tests red for the first, two for the second, each naming the exact step: `step 0 (ClearView) left the line armed with no view`. This is the defect a review found by reading — the window is an instruction pair wide and the boot check types nothing — and until `kernel_core::rxline` existed the only evidence it was fixed was a hardware boot nobody re-runs |
 | Boot check, host starvation                                      | `systemd-run --user --scope -p CPUQuota=8%` around the boot check, the level at which `timer: MISSED` first appears | `boot-check: INDETERMINATE — … the emulator got 0.07 cores of host CPU over 15s`, exit 3. The same script on an idle host reports `2.97 cores` and passes; with the assertion rewired to a line that is always present it reports `FAIL — … the emulator had the CPU to meet them`. All three outcomes seen, which is what makes the third one a verdict rather than a comment |
 | No-SIMD guard, tool absent                                       | `make no-simd OBJDUMP=llvm-objdump-does-not-exist`                                            | `no-simd: FAIL — refusing to report clean`. Before the check, the same run printed `no-simd: clean`: an empty pipeline made `grep .` fail and `!` inverted that into success, so the gate passed having disassembled nothing |
 | No-SIMD guard, FP present                                        | build the same tree for `aarch64-unknown-none` (hard float)                                   | `error: FP/SIMD registers found`, on `v0`. The image carries 9 scalar `h` registers the earlier `[qv]` pattern ignored — on this tree they share lines with `v`, so the widened pattern adds coverage for a class (`fmov d0, x1` with no vector register) rather than a detection |
@@ -778,9 +779,26 @@ reached them would have to break the invariant first, which would be testing the
 test. Recording them here is the honest alternative, and it is the same
 convention this document already uses for gates that cannot exist.
 
-Not wired into `make check`: a full run is seven minutes, and the value is in
-reading the survivors rather than in a threshold. It belongs where the ADRs say
-the multi-role review belongs — before a milestone that moves a boundary.
+**`make mutants`** runs it, over `ipc`, `tasks`, `layout`, `irqtable`, `rxline`
+and `reset`. Not wired into `make check`: a full run is around seven minutes,
+and the value is in reading the survivors rather than in a threshold. It belongs
+where ADR-0001 puts the multi-role review — before a milestone that moves a
+boundary.
+
+The target compares against the nine justified survivors above rather than
+against zero, because `cargo-mutants` exits non-zero whenever anything survives
+and a target that is red every time is a target nobody runs. More survivors than
+the baseline fails and prints them; fewer says so and asks for the baseline to
+be lowered, since a stale one hides the next regression.
+
+`kernel_core::reset::partition` contributes one *timeout*: its loop counter
+mutated to a no-op never terminates. That is a detected mutant and not a
+surviving one — the suite hangs rather than passes — and the baseline counts it
+separately.
+
+The modules added since the first run — `irqtable` and `rxline` — produced **no
+survivors at all**, which is the useful measure of tests written with the
+mutants in mind rather than found by them afterwards.
 
 ## Four defects no gate caught (2026-08-05)
 
