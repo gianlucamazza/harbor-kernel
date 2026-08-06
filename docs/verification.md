@@ -607,12 +607,39 @@ region, the drain changed hands twice, a byte demonstrably arrived while it was
 suspended, and no storm occurred. That is strictly more than the boot check can
 say — it types nothing — and strictly less than proof.
 
-**Unexplained, and recorded rather than dropped.** After the bring-up image's
-guard probe panicked and halted, the board booted again on its own. Nothing in
-this kernel resets it, `*** halt ***` is a `wfi` loop, and no power cycle was
-performed between the two runs. It did not affect the evidence — the two
-bring-up boots agree line for line except the RNG word, which must differ — but
-a board that restarts after halt is doing something nobody has accounted for.
+**Unexplained, and now answered by the next boot rather than by a guess.**
+After the bring-up image's guard probe panicked and halted, the board booted
+again on its own. Nothing in this kernel resets it, `*** halt ***` is a `wfe`
+loop with IRQs masked, and no power cycle was performed between the two runs.
+It did not affect the evidence — the two bring-up boots agree line for line
+except the RNG word, which must differ — but a board that restarts after halt
+is doing something nobody has accounted for.
+
+Three stories fit it (a firmware watchdog never disarmed, a brownout, a glitch
+on the supply) and nothing distinguished them, so the kernel now reads the
+register that can. `PM_RSTS` latches the cause of the last reset, and every
+boot prints it:
+
+```
+reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+```
+
+QEMU models the block and reports a power-on. That is worth stating because the
+first version of this code assumed the opposite — by analogy with RNG200, which
+QEMU does not model — and the first boot refuted it. `ResetCause::None` is a
+distinct outcome from `PowerOn` precisely so a register that latched nothing
+cannot be reported as a clean power cycle.
+
+The decode is `kernel_core::reset`, with six host tests. The one that carries
+the question: a watchdog reset that *also* sets the power-on bit must read as a
+watchdog, because answering `PowerOn` there would get it wrong in the only
+direction that costs anything.
+
+Still open, and now cheap to close: reproduce the halt on hardware and read the
+line on the boot that follows. `make serial-capture` timestamps every line, so
+the interval is recorded too — the picocom transcript could not say how long
+after the halt the reboot happened, which is why the question stayed open at
+all.
 
 ## Bring-up gates
 

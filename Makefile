@@ -15,6 +15,7 @@
 #   make deploy     copy image + config + blobs to SD (SD_MOUNT=...)
 #   make restore-rpios  put Pi OS kernel+config back on the SD
 #   make serial     open serial console (SERIAL_DEV=...)
+#   make serial-capture  record the UART with host timestamps, no terminal
 #   make clean
 #
 # Multi-arch scaffold (ADR-0015): exactly one product combo is supported.
@@ -268,6 +269,12 @@ restore-rpios:
 
 serial:
 	./scripts/serial.sh "$(SERIAL_DEV)" "$(BAUD)"
+
+# Non-interactive half of `serial`: timestamps every line and opens a FIFO so a
+# script can send bytes to the board. Used for anything that has to answer
+# "how long between X and Y", which a picocom transcript cannot.
+serial-capture:
+	./scripts/serial-capture.sh
 
 clean:
 	cargo clean

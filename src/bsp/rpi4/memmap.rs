@@ -26,6 +26,13 @@ pub const UART0_REG_BYTES: usize = FRAME_SIZE;
 /// Disjoint from [`USER_VA_BASE`] stack/text window and from kernel identity RAM.
 pub const USER_PL011_VA: u64 = 0x0000_0000_5000_0000;
 
+/// Power-management block: reset cause, watchdog, reboot partition.
+///
+/// Inside the `peripherals` window above, so it needs no mapping of its own.
+/// Read-only from this kernel — see `drivers::pm` for why that is structural
+/// rather than a convention.
+pub const PM_BASE: usize = PERIPHERAL_BASE + 0x0010_0000;
+
 /// RNG200 (iproc-rng200) register block — 0x28 bytes.
 ///
 /// Low peripheral mode: legacy bus `0x7E10_4000` → ARM `0xFE10_4000`.

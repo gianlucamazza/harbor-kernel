@@ -106,6 +106,14 @@ grep -q 'Harbor: hello' "${log}" ||
 	fail "no console output: the kernel did not reach bootstrap::run"
 grep -q 'MMU on' "${log}" ||
 	fail "the kernel map did not activate"
+# Why the board came up. QEMU models `PM_RSTS` and reports a power-on; the
+# assertion is on the *shape*, because a warm reset or an unmodelled block are
+# both legitimate readings and only silence means the read never happened.
+#
+# `None` is deliberately a distinct outcome from `PowerOn` in the decode, so a
+# register that latched nothing cannot be reported as a clean power cycle.
+grep -qE 'reset: (PowerOn|Watchdog|Software|Debug|None) partition=[0-9]+ \(PM_RSTS=0x[0-9a-f]{8}\)' "${log}" ||
+	fail "reset-cause line missing or malformed: $(grep '^reset:' "${log}" || echo '(no reset line at all)')"
 # RNG200 is always probed after the MMU. QEMU has no backend: expect soft
 # NotPresent. Silicon logs `ok word=…`. Either shape is a successful probe path;
 # silence would mean the probe panicked or never ran.

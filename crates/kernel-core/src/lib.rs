@@ -27,6 +27,7 @@ pub mod ipc;
 pub mod layout;
 pub mod paging;
 pub mod poll;
+pub mod reset;
 pub mod ring;
 pub mod rng;
 pub mod runqueue;
