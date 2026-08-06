@@ -28,6 +28,7 @@ EL0 authority named by capability slot, the console behind a capability denied
 by default, and an agent fault that its creator handles — on 2026-08-07, in one
 boot ([`docs/verification.md`](docs/verification.md)).
 Roadmap: [`docs/architecture.md`](docs/architecture.md#roadmap).
+Authority and isolation claims (and their limits): [`SECURITY.md`](SECURITY.md).
 
 ## What exists
 
@@ -243,6 +244,7 @@ See [`docs/verification.md`](docs/verification.md#m3-cooperative-tasks-hardware)
 | Doc                                            | Content                                          |
 | ---------------------------------------------- | ------------------------------------------------ |
 | [`docs/architecture.md`](docs/architecture.md) | Layers, agent model, milestones                  |
+| [`SECURITY.md`](SECURITY.md)                  | Threat model, TCB, authority surface, residuals  |
 | [`docs/mmu.md`](docs/mmu.md)                   | Two maps, regions, W^X, guard page               |
 | [`docs/verification.md`](docs/verification.md) | What is checked, and what each check is blind to |
 | [`docs/interrupts.md`](docs/interrupts.md)     | VBAR, GIC, timer, HW evidence                    |

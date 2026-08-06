@@ -1,0 +1,206 @@
+# Security — Harbor Kernel
+
+Threat model and reporting for **harbor-kernel** as of **M7** (EL0 authority by
+capability slot, stamped on Pi 4B silicon 2026-08-07). This document exists
+because [ADR-0017](docs/adr/0017-el0-capability-abi.md) finally makes authority
+*enumerable*; before that, a threat model would have been fiction about code
+that had not drawn the boundary.
+
+It is **not** a claim that Harbor is production-hardened or multi-tenant ready.
+It states what is in scope to defend, what is trusted by construction, what is
+verified, and what is still open surface.
+
+---
+
+## Reporting
+
+There is no private bug-bounty channel. For issues that affect isolation or
+authority:
+
+1. Prefer a **private** report to the repository owner if disclosure would help
+   an attacker on a deployed board; otherwise open a GitHub issue.
+2. Include: tree revision, image features (`debug-display` / default), serial
+   transcript, and the shortest program or mutation that crosses a boundary
+   this document says should hold.
+
+Firmware blobs (`start4.elf`, EEPROM) are third-party; report those upstream
+where appropriate ([`docs/blobs.md`](docs/blobs.md)).
+
+---
+
+## What Harbor is, for security purposes
+
+| Role | Description |
+| ---- | ----------- |
+| **Product** | Single-core AArch64 lab kernel on Raspberry Pi 4 Model B |
+| **Goal** | Agent-based microkernel: isolated units interact via messages and capabilities |
+| **Today** | Cooperative EL1 tasks + EL0 agents with per-task AS, slot-indexed caps, non-blocking IPC |
+
+Assets worth defending, in order of load:
+
+1. **Kernel integrity** — code, page tables, heap metadata, GIC/timer/UART driver state.
+2. **Authority tables** — who may send/recv on which endpoint, who may print.
+3. **Agent isolation** — one EL0 context must not read/write another’s memory or session state.
+4. **Availability of the kernel** — a faulting agent must not take down EL1 (ADR-0018).
+
+Non-assets (out of threat model until named otherwise): multi-user login, network
+stack, disk encryption, remote attestation, SMP, preemption fairness.
+
+---
+
+## Trust boundaries
+
+```
+┌─────────────────────────────────────────────────────────────┐
+/* TCB — trusted computing base (single core, lab board)     */
+│  EL1 kernel: arch, mm, sched, ipc, irq, drivers, bootstrap │
+│  Platform firmware (start4.elf) — Group 0 GIC pin, boot    │
+│  Creator of agents (today: bootstrap demos, not an agent)  │
+└──────────────────────────▲──────────────────────────────────┘
+                           │ SVC / exceptions / map grants
+┌──────────────────────────┴──────────────────────────────────┐
+/* Untrusted relative to TCB                                  */
+│  EL0 agent text + data in its user VA window                │
+│  Anything that agent can express through the syscall ABI    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| Party | Trust |
+| ----- | ----- |
+| **EL1 kernel** | Fully trusted. Bugs here are total compromise. |
+| **Creator (bootstrap)** | Fully trusted. Chooses AS, caps, and entry. Not itself isolated. |
+| **EL0 agent** | **Untrusted.** May be wrong, malicious, or hostile. Must not gain authority it was not granted, nor corrupt kernel or peer memory. |
+| **Serial adversary** | Can type bytes on PL011 when the kernel owns RX. Not a capability path into kernel memory; can stall interactive demos. |
+| **SPI TFT path** | Lab-only (`debug-display`). Not a security boundary; GPIO/SPI mistakes can hang the boot, not elevate EL0. |
+| **QEMU** | Not evidence for memory-attribute or firmware-state claims ([`docs/verification.md`](docs/verification.md)). |
+
+---
+
+## Attacker model (in scope)
+
+An adversary who can load or influence **one or more EL0 agents** (their
+machine code and the registers they set before each `svc`), and who may share
+the machine with other agents under the same kernel, tries to:
+
+| Goal | In scope? |
+| ---- | --------- |
+| Read/write kernel memory from EL0 | Yes — must fail (permission / translation) |
+| Forge a capability (name another task’s authority) | Yes — must fail (slot index, not raw `CapId`) |
+| Use a slot not granted (empty / OOB / wrong rights) | Yes — refuse + authority counter |
+| Print without a console capability | Yes — refuse; byte must not appear on UART |
+| Crash the kernel by faulting at EL0 | Yes — session ends; creator handles; kernel lives |
+| Steal another agent’s saved GPRs / session | Yes — `CURRENT_EL0` publish + assert on entry |
+| Exhaust frames / tables to DoS later agents | Partially — pool is finite; destroy should return frames |
+| Busy-loop at EL0 and starve the system | **Out of scope** — cooperative model (ADR-0006); no preemption |
+| Attack via firmware / JTAG / SD swap | Out of physical-lab model (operator is trusted) |
+| Remote network exploit | No network stack |
+
+---
+
+## Authority surface (what an agent can name)
+
+Defined by [ADR-0017](docs/adr/0017-el0-capability-abi.md) and
+`kernel_core::syscall`:
+
+| Imm | Call | Authority required |
+| --- | ---- | ------------------ |
+| 0 | `SYS_PING` | none |
+| 1 | `SYS_EXIT` | none |
+| 2 | `SYS_PUTC` | console capability in slot (**denied by default**, transitional → M8) |
+| 3 | `SYS_SEND` | `CapRights::SEND` on endpoint in slot |
+| 4 | `SYS_RECV` | `CapRights::RECV` on endpoint in slot (**non-blocking**) |
+
+**Structural property:** EL0 passes a **slot index** into its own
+`Tcb.caps[MAX_CAPS_PER_TASK]` (`MAX_CAPS_PER_TASK = 4`). It cannot form a
+`CapId` that names another task’s grant. EL1 still uses `CapId` +
+`current_holds` for its own demos.
+
+**Refusals** are split so a full mailbox is not counted as forgery:
+
+- `authority` — unheld / empty / OOB slot
+- `full` — flow control
+- `state` — dead endpoint (unreachable until release exists)
+
+Constants load-bearing for the model (ADR-0017): mailboxes **8**, endpoints
+**16**, mailbox depth **4**.
+
+---
+
+## Isolation mechanisms (and what they do not claim)
+
+| Mechanism | Holds today | Limit |
+| --------- | ----------- | ----- |
+| W^X kernel map + guard pages | Yes (fault-probed HW) | Protects kernel **from itself** more than from a mapped peer |
+| Per-agent `TTBR0` + user VA window | Yes (M5 HW) | Kernel maps **cloned** into user root with EL0-denied AP ([ADR-0014](docs/adr/0014-ttbr-split-m5.md) option C) — not TTBR1 high-half |
+| Page-sized device maps for agents | Yes (M6, PL011) | Kernel still has coarse Device windows until a P-pass |
+| Slot-indexed caps | Yes (M7 HW) | No transfer; grants only at creation |
+| Fault → end session, creator decides | Yes (ADR-0018, M7 HW) | Creator exit leaves agents unsupervised; no restart policy |
+| Published `CURRENT_EL0` (`AtomicPtr`, ADR-0019) | Yes | Stale publish panics on entry; residual: assembly assumes symbol is a pointer |
+
+---
+
+## Guarantees we claim (and how they are checked)
+
+Only claims with a gate or silicon stamp belong here. A prose rule without a
+check is an assumption — see [`docs/verification.md`](docs/verification.md).
+
+| Claim | Evidence |
+| ----- | -------- |
+| EL0 store to kernel text → data abort (permission) | boot-check + HW `el0: FAULT ok ESR=…` |
+| Unknown SVC imm ends / refuses the session path | `el0-task: svc refuse` |
+| Send/recv without hold → authority refusal | M4 forger + M7 `refused slot=1` |
+| Console denied by default; denied byte absent | `console denied` + boot-check asserts no `X` |
+| Creator survives agent fault; peer continues | `creator alive after fault` + ordering on serial |
+| No `static mut` in `src/` | `make no-static-mut` |
+| Softfloat / no FP in image | `make no-simd` |
+| Layering (no driver→board, arch≠drivers) | `make layering` / `arch-board-free` |
+
+---
+
+## Known non-guarantees (honest residual risk)
+
+| Topic | Status |
+| ----- | ------ |
+| **Preemption** | None. Hostile infinite loop at EL0 or EL1 is DoS. |
+| **Blocking recv / wait-on-IRQ** | Not implemented; agents poll or yield cooperatively. |
+| **Capability transfer / revocation** | Not implemented. |
+| **Endpoint release / generation recycle** | Never exercised in product path; stale-handle check is latent. |
+| **IRQ notification capabilities** | Cookie shape exists; cookie unread; no cap_irq. |
+| **SYS_PUTC** | Transitional; not a pure message-passing console. |
+| **Creator lifecycle** | Bootstrap outlives agents; reaping undefined. |
+| **Heap wild free** | Double-free refused; adversarial pointer that looks like a header can still corrupt. |
+| **DTB** | Mapped RO; board truth is compiled-in (ADR-0011). |
+| **Firmware / GIC Group 0** | Inherited from pinned `start4.elf` (ADR-0004). |
+| **SMP / ASID / TTBR1** | Non-goals until their ADRs. |
+| **Threat coverage of `debug-display`** | Lab path; not part of the agent TCB story. |
+
+---
+
+## Secure development expectations
+
+- **ADRs** before moving an authority or isolation boundary ([ADR-0001](docs/adr/0001-multi-role-analysis.md)).
+- **Reversal gates** named in each ADR; several have been seen red
+  ([`docs/verification.md`](docs/verification.md) “Checks that have been seen to fail”).
+- **Mutation testing** on authority modules (`make mutants`) before milestones
+  that move the boundary.
+- **Silicon** for memory attributes, GIC firmware state, RX handover — QEMU is
+  blind there.
+
+---
+
+## Versioning this document
+
+Update when:
+
+- the syscall or cap ABI changes (especially M8 console endpoint),
+- a new isolation regime lands (TTBR1, ASID, preemption),
+- or a residual above is closed with evidence.
+
+The architecture roadmap marks this deliverable done when this file exists and
+names the M7 authority boundary; keeping it true is ongoing.
+
+Related: [ADR-0017](docs/adr/0017-el0-capability-abi.md),
+[ADR-0018](docs/adr/0018-agent-fault-policy.md),
+[ADR-0014](docs/adr/0014-ttbr-split-m5.md),
+[`docs/architecture.md`](docs/architecture.md),
+[`docs/verification.md`](docs/verification.md).

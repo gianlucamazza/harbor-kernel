@@ -254,13 +254,21 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 | **`make no-static-mut`** | **done** | greps `src/` for declarations; prerequisite of `make check` |
 | Rule 7 exception | **gone** | no `static mut` remains; ADR-0016/0017 keep their false premise text (immutable) and point here |
 
+### Closed — threat model ([`SECURITY.md`](../SECURITY.md))
+
+| Slice | Status | Evidence |
+| ----- | ------ | -------- |
+| **Threat model + reporting** | **done** | Root [`SECURITY.md`](../SECURITY.md): TCB, attacker, authority surface, claims with gates, residual non-guarantees |
+| Bound to M7 authority | **yes** | Slot ABI, console denied-by-default, fault policy, refusal counters — as of silicon 2026-08-07 |
+
 ### Next (ordered)
 
 | #   | Work                                                                                                                         | Done when                                                                                                                                                                                                                                                                    |
 | --- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Threat model + `SECURITY.md`**                                                                                             | After [ADR-0017](adr/0017-el0-capability-abi.md), which is where authority is finally defined                                                                                                                                                                                |
-| 2   | **Optional: IRQ-wake RX**                                                                                                    | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                                                                                            |
-| 3   | **Optional P-pass**                                                                                                          | Tighten kernel EL1 Device blankets (not required for M6 v1)                                                                                                                                                                                                                  |
+| 1   | **Blocking `SYS_RECV`** (yield out of a live EL0 session)                                                                    | An agent parks on empty recv; a peer send wakes it; both still pass authority checks — QEMU + HW stamp                                                                                                                                                                      |
+| 2   | **M8: console endpoint** (retire transitional `SYS_PUTC`)                                                                    | Same slot ABI; kernel or EL1 server drains; boot-check still asserts denied-by-default                                                                                                                                                                                       |
+| 3   | **Optional: IRQ-wake RX**                                                                                                    | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                                                                                            |
+| 4   | **Optional P-pass**                                                                                                          | Tighten kernel EL1 Device blankets (not required for M6 v1)                                                                                                                                                                                                                  |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 
@@ -310,6 +318,7 @@ that was rejected and the gate that would catch its reversal.
 
 | Artefact                                                       | Role                                                                                                |
 | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [`../SECURITY.md`](../SECURITY.md)                             | Threat model and reporting (M7 authority surface; residuals named)                                  |
 | [`docs/adr/`](adr/README.md)                                   | Architecture Decision Records (lifecycle: proposed → accepted → superseded)                         |
 | [ADR-0001](adr/0001-multi-role-analysis.md)                    | Multi-role analysis as pre-milestone gate (**accepted**)                                            |
 | [ADR-0002](adr/0002-softfloat-kernel.md)                       | Kernel compiled softfloat, FP left trapping (**accepted**)                                          |
