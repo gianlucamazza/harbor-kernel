@@ -13,6 +13,12 @@ on:
 # grouping on `github.ref` puts the two runs in different groups and cancels
 # neither. That is what happened on the first run of this workflow — two jobs
 # for one branch, which is the thing the block exists to prevent.
+#
+# A cancelled run is reported by `gh run list` with `conclusion: failure`, not
+# `cancelled`, when the cancellation lands mid-step — the *job* says `cancelled`
+# and no step failed. That looks exactly like a real red on a PR, and cost a
+# diagnostic detour once. Check the job before believing the run:
+#   gh run view <id> --json jobs --jq '.jobs[] | "\(.name): \(.conclusion)"'
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
