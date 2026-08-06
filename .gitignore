@@ -20,3 +20,6 @@
 # cargo-mutants scratch output
 /mutants.out/
 /mutants.out.old/
+
+# Serial transcripts (scripts/serial.sh); the ones worth keeping go in docs/
+/.serial-log/
