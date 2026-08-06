@@ -1,5 +1,8 @@
 //! Bring-up gates — `bringup` feature only.
 //!
+//! - System-register readback: `SCTLR_EL1` against the RES1 pattern `boot.s`
+//!   programs. QEMU and silicon may differ here, which is the whole reason to
+//!   read it on the board.
 //! - GIC/timer path: soft CNTP, HPPIR, IAR (M1).
 //! - Task-stack guard: deliberate write to an unmapped heap stack guard (M3).
 //!   That path **panics** with ESR/FAR on success; it is never in a production
@@ -26,8 +29,45 @@ const SPIN_BUDGET: u32 = 20_000_000;
 /// Print `soft_ticks=` every this many polled firings.
 const TICK_PRINT_EVERY: u64 = 10;
 
+/// `SCTLR_EL1` bits that are RES1 on ARMv8.0-A, the Cortex-A72's level.
+///
+/// `boot.s` programs this pattern because `msr sctlr_el1, xzr` used to clear
+/// all six and nothing restored them — `enable_translation` only
+/// read-modify-writes M/C/I on top. Writing 0 to a RES1 field is
+/// architecturally UNPREDICTABLE.
+const SCTLR_RES1: u64 = (1 << 11) | (1 << 20) | (1 << 22) | (1 << 23) | (1 << 28) | (1 << 29);
+
+/// Read `SCTLR_EL1` back and report which RES1 bits survived.
+///
+/// A gate rather than a print: the interesting answer is whether the hardware
+/// agrees with what `boot.s` wrote, and the two known possibilities differ.
+/// Under QEMU the register reads `0x30d01805` — the pattern plus `M|C|I`. A
+/// part that forces its own RES1 bits would report them set regardless, which
+/// is equally fine and worth knowing. Only *missing* bits are a failure, and
+/// they would mean the kernel is running in an architecturally undefined state.
+fn sctlr_res1_survived(uart: &mut Pl011) -> bool {
+    let sctlr: u64;
+    // SAFETY: `SCTLR_EL1` is readable at EL1 and this is a plain register read
+    // with no side effects.
+    unsafe {
+        core::arch::asm!("mrs {v}, sctlr_el1", v = out(reg) sctlr, options(nomem, nostack));
+    }
+    let present = sctlr & SCTLR_RES1;
+    println!(
+        uart,
+        "selftest: SCTLR_EL1={sctlr:#x} RES1={present:#x}/{SCTLR_RES1:#x}"
+    );
+    present == SCTLR_RES1
+}
+
 /// Run every gate in order. `false` at the first failure.
 pub fn run(uart: &mut Pl011) -> bool {
+    println!(uart, "selftest: SCTLR_EL1 readback…");
+    if !sctlr_res1_survived(uart) {
+        println!(uart, "selftest: FAIL SCTLR RES1");
+        return false;
+    }
+
     println!(uart, "selftest: soft CNTP…");
     let soft = soft_proof(uart);
     println!(uart, "selftest: soft_ticks={soft}");
