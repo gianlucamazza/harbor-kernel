@@ -5,10 +5,16 @@ on:
   pull_request:
 
 # `on: push` and `on: pull_request` both fire for a branch in this repo, so
-# every same-repo PR ran the whole pipeline twice. Superseded runs are now
+# every same-repo PR runs the whole pipeline twice. Superseded runs are
 # cancelled instead of racing each other for a runner.
+#
+# The key must name the *branch*, not the ref: a push carries
+# `refs/heads/<branch>` and a pull_request carries `refs/pull/N/merge`, so
+# grouping on `github.ref` puts the two runs in different groups and cancels
+# neither. That is what happened on the first run of this workflow — two jobs
+# for one branch, which is the thing the block exists to prevent.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 # The workflow reads the repository and uploads an artifact. It has no reason to
