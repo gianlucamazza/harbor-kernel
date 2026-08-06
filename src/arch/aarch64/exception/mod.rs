@@ -3,7 +3,6 @@
 mod frame;
 mod handlers;
 
-#[allow(unused_imports)] // public API for future trap inspection
 pub use frame::TrapFrame;
 
 // The syndrome registers, read by this module's handlers and by `el0`, which
@@ -54,5 +53,5 @@ fn exception_vectors_addr() -> u64 {
         static exception_vectors: u8;
     }
     // SAFETY: symbol is provided by `vectors.s` and lives in .text.
-    core::ptr::addr_of!(exception_vectors) as u64
+    &raw const exception_vectors as u64
 }

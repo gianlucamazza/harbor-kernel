@@ -163,7 +163,7 @@ pub unsafe fn resume(session: *mut El0Session) -> El0Outcome {
 /// No EL0 session may be live. This clears `el0_kernel_ttbr0`, which
 /// `vectors.s` requires to be non-zero on every lower-EL exception: calling it
 /// while EL0 can still be entered turns the next fault from that agent into
-/// [`el0_missing_kernel_ttbr`] and a panic. It was a safe `fn`, which made
+/// [`el0_no_live_session`] and a panic. It was a safe `fn`, which made
 /// breaking the vector path's precondition ordinary safe Rust.
 #[inline]
 pub unsafe fn end_session(session: *mut El0Session) {
@@ -177,18 +177,61 @@ pub unsafe fn end_session(session: *mut El0Session) {
     live.entry_spsr = SPSR_EL0_IRQS_MASKED;
 }
 
+/// What the vector path classified this lower-EL event as.
+///
+/// Three functions in this file used to exchange these as bare integers —
+/// `exception_sync_el0` wrote 1, 2 or 3, `exception_irq_el0` wrote 4, and
+/// `unpack` matched on them — with the meanings agreed by position. `el0_run_finish`
+/// only copies the word, so nothing outside Rust depends on the numbering; what
+/// it depends on is the *width*, which `#[repr(u64)]` fixes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u64)]
+enum Kind {
+    /// `SVC` from AArch64 EL0. Resumable.
+    Svc = 1,
+    /// Data abort from a lower EL. Ends the session.
+    DataAbort = 2,
+    /// Any other synchronous exception from a lower EL. Ends the session.
+    OtherSync = 3,
+    /// IRQ taken while EL0 ran with IRQs unmasked. Resumable.
+    Irq = 4,
+}
+
+impl Kind {
+    /// The value the session field carries.
+    #[inline]
+    const fn as_u64(self) -> u64 {
+        self as u64
+    }
+
+    /// Decode a session `kind`, treating anything unrecognised as a fault.
+    ///
+    /// The `_` arm is not defensive padding: `unpack` reads a field the vector
+    /// path wrote microseconds earlier, and if that field ever held something
+    /// this enum does not list, the safe reading is *the agent took a fault the
+    /// kernel cannot classify* — not *the agent may resume*.
+    #[inline]
+    const fn decode(raw: u64) -> Self {
+        match raw {
+            1 => Self::Svc,
+            2 => Self::DataAbort,
+            4 => Self::Irq,
+            _ => Self::OtherSync,
+        }
+    }
+}
+
 fn unpack(packed: u64) -> El0Outcome {
-    let kind = (packed & 0xFFFF_FFFF) as u32;
-    match kind {
-        1 => El0Outcome::Svc {
+    match Kind::decode(packed & 0xFFFF_FFFF) {
+        Kind::Svc => El0Outcome::Svc {
             imm: (packed >> 32) as u16,
         },
-        2 => {
+        Kind::DataAbort => {
             let (esr, far) = fault_syndrome();
             El0Outcome::DataAbort { esr, far }
         }
-        4 => El0Outcome::Irq,
-        _ => {
+        Kind::Irq => El0Outcome::Irq,
+        Kind::OtherSync => {
             let (esr, far) = fault_syndrome();
             El0Outcome::OtherSync { esr, far }
         }
@@ -354,7 +397,7 @@ pub fn published() -> *mut El0Session {
 
 /// The published session, or panic naming the reason.
 ///
-/// The panic is the Rust-side twin of [`el0_missing_kernel_ttbr`]: same class of
+/// The panic is the Rust-side twin of [`el0_no_live_session`]: same class of
 /// error — a lower-EL event with no session behind it — and it deserves the same
 /// message rather than a fault at address zero.
 #[inline]
@@ -393,10 +436,11 @@ pub extern "C" fn exception_sync_el0(frame: &mut TrapFrame) {
     let esr = read_esr_el1();
     let far = read_far_el1();
     let ec = (esr >> 26) & 0x3F;
-    let kind: u64 = match ec {
-        0x15 => 1,
-        0x24 => 2,
-        _ => 3,
+    let kind = match ec {
+        // EC 0x15: SVC from AArch64 EL0. EC 0x24: data abort from a lower EL.
+        0x15 => Kind::Svc,
+        0x24 => Kind::DataAbort,
+        _ => Kind::OtherSync,
     };
     // Called from `vectors.s` with the CPU already through `kernel_entry` and
     // the kernel root reinstalled, so this is the only context running. It
@@ -407,8 +451,8 @@ pub extern "C" fn exception_sync_el0(frame: &mut TrapFrame) {
     let live = current();
     live.esr = esr;
     live.far = far;
-    live.kind = kind;
-    if kind == 1 {
+    live.kind = kind.as_u64();
+    if kind == Kind::Svc {
         // AArch64 SVC: ELR is already the insn *after* the SVC — do not +4.
         live.saved.gpr = frame.gpr;
         live.saved.elr = frame.elr;
@@ -432,7 +476,7 @@ pub extern "C" fn exception_irq_el0(frame: &mut TrapFrame) {
     // interrupted instruction: the architecture re-executes it on resume, so a
     // software skip here would silently drop one user instruction per IRQ.
     let live = current();
-    live.kind = 4;
+    live.kind = Kind::Irq.as_u64();
     live.esr = 0;
     live.far = 0;
     live.saved.gpr = frame.gpr;
@@ -443,8 +487,10 @@ pub extern "C" fn exception_irq_el0(frame: &mut TrapFrame) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn el0_missing_kernel_ttbr() -> ! {
-    panic!("lower-EL exception without published kernel TTBR0 (no live el0 session)");
+pub extern "C" fn el0_no_live_session() -> ! {
+    panic!(
+        "lower-EL exception with no live EL0 session (no published session, or its kernel TTBR0 is clear)"
+    );
 }
 
 // Field offsets the assembly below uses, derived from the struct rather than
@@ -508,7 +554,7 @@ core::arch::global_asm!(
         adrp    \reg, CURRENT_EL0
         add     \reg, \reg, :lo12:CURRENT_EL0
         ldr     \reg, [\reg]
-        cbz     \reg, el0_missing_kernel_ttbr
+        cbz     \reg, el0_no_live_session
     .endm
 
     // x0=user_ttbr, x1=entry, x2=user_sp, x3=kernel_ttbr

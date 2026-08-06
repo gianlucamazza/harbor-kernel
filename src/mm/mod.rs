@@ -38,7 +38,7 @@ unsafe extern "C" {
 
 /// First address available to the heap, from the linker script.
 pub fn heap_start() -> usize {
-    core::ptr::addr_of!(__heap_start) as usize
+    &raw const __heap_start as usize
 }
 
 /// The kernel heap: free list plus the arena it indexes.

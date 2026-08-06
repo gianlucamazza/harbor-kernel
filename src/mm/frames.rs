@@ -104,7 +104,7 @@ pub fn capacity() -> u32 {
 }
 
 /// Phys base of the pool (0 if uninitialised).
-#[allow(dead_code)] // S2 AddressSpace / diagnostics
+#[expect(dead_code, reason = "S2 AddressSpace / diagnostics")]
 pub fn pool_base() -> usize {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
@@ -113,7 +113,6 @@ pub fn pool_base() -> usize {
 }
 
 /// Allocate one frame. Returns `(id, phys)` under the identity map.
-#[allow(dead_code)] // consumers land with S2 (user page tables)
 pub fn alloc() -> Option<(FrameId, usize)> {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
@@ -125,7 +124,6 @@ pub fn alloc() -> Option<(FrameId, usize)> {
 }
 
 /// Free a frame previously returned by [`alloc`].
-#[allow(dead_code)] // S2 teardown
 pub fn free(id: FrameId) -> Result<(), FrameFreeError> {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
@@ -135,7 +133,7 @@ pub fn free(id: FrameId) -> Result<(), FrameFreeError> {
 }
 
 /// Physical address of `id` if it lies in this pool's index range.
-#[allow(dead_code)] // S2 map helpers
+#[expect(dead_code, reason = "S2 map helpers")]
 pub fn phys(id: FrameId) -> Option<usize> {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.

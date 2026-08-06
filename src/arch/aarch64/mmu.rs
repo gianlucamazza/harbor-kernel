@@ -341,8 +341,8 @@ unsafe fn arena_init() {
     // symbols bound a region reserved by `link.ld` and never otherwise written.
     unsafe {
         *ARENA.get() = Arena {
-            next: core::ptr::addr_of!(__pagetables_start) as usize,
-            end: core::ptr::addr_of!(__pagetables_end) as usize,
+            next: &raw const __pagetables_start as usize,
+            end: &raw const __pagetables_end as usize,
         };
     }
 }

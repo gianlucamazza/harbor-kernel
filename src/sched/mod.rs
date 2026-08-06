@@ -315,7 +315,10 @@ pub fn wake_task(id: TaskId) {
 ///
 /// It becomes live with the first blocking device wait — a UART agent that
 /// sleeps until a byte arrives rather than polling (ADR-0013).
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "ADR-0008 mechanism, live with the first blocking device wait"
+)]
 pub fn wake_from_irq(id: TaskId) {
     let _ = WAKES.push(id.0);
 }
@@ -340,7 +343,7 @@ pub fn pending_overwrites() -> u32 {
 
 /// Wake queue drop count (full queue under IRQ pressure).
 #[inline]
-#[allow(dead_code)]
+#[expect(dead_code, reason = "drop count for a queue that has no producer yet")]
 pub fn wake_drops() -> u32 {
     WAKES.drops()
 }
@@ -480,8 +483,8 @@ fn switch_with(kind: Switch) {
 
     publish_el0(sched, to);
 
-    let prev = core::ptr::addr_of_mut!(sched.tcbs[from.0 as usize].context);
-    let next_ctx = core::ptr::addr_of!(sched.tcbs[to.0 as usize].context);
+    let prev = &raw mut sched.tcbs[from.0 as usize].context;
+    let next_ctx = &raw const sched.tcbs[to.0 as usize].context;
 
     // SAFETY: both contexts in static TCBs; stacks valid; IRQs masked.
     unsafe { context_switch(prev, next_ctx) };

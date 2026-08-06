@@ -31,6 +31,7 @@ the code that follows.
 | [0016](0016-el0-session-protocol.md) | EL0 session protocol (one slot, prose contract) | superseded |
 | [0017](0017-el0-capability-abi.md) | EL0 capability ABI (slot-indexed authority, session in TCB) | accepted |
 | [0018](0018-agent-fault-policy.md) | Agent fault policy (kernel ends session, creator decides task) | accepted |
+| [0019](0019-no-static-mut.md) | No `static mut` — the last one becomes an atomic (rule 7) | proposed |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

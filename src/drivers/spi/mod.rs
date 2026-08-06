@@ -36,8 +36,34 @@ pub trait SpiBus {
 /// SPI slave with its own chip-select.
 ///
 /// Every method asserts CS for the duration of the transfer and deasserts it
-/// afterwards. Drivers that talk to a single device (ILI9486, XPT2046) depend
-/// only on this trait.
+/// afterwards. This is the embedded-hal 1.0 split that [ADR-0009] adopts and
+/// [ADR-0010] builds on.
+///
+/// **Nothing calls through it today, in any configuration.** `ExclusiveDevice`
+/// implements it and the ILI9486 driver reaches that type directly through
+/// `with_bus`, because ADR-0010's whole subject is that a DBI panel needs one
+/// CS held across *many* writes and this trait's methods are one CS each. So
+/// the trait is the contract a second slave (XPT2046 touch) would be written
+/// against, and until one exists it has an implementation and no caller.
+///
+/// That is a divergence from ADR-0010, which says short register ops keep using
+/// `SpiDevice::write`. They do not — they go through `with_bus` like everything
+/// else. The ADR is accepted and therefore immutable; reconciling the two needs
+/// a successor, not an edit here. Recording it is the honest half.
+///
+/// [ADR-0009]: ../../../docs/adr/0009-optional-spi-tft-debug-console.md
+/// [ADR-0010]: ../../../docs/adr/0010-spi-transaction-and-dbi-panel.md
+///
+/// `allow` and not `expect`, which is the rest of this tree's convention.
+/// Measured, not assumed: with no attribute at all, `--features debug-display`
+/// reports `trait SpiDevice is never used`; with `#[expect(dead_code)]` in this
+/// exact position the same build reports `this lint expectation is unfulfilled`.
+/// Both cannot be true, and an `expect` that a build rejects is worse than an
+/// `allow` that states its reason — so the reason travels with the attribute.
+#[allow(
+    dead_code,
+    reason = "ADR-0009 contract surface; implemented by ExclusiveDevice, no caller until a second slave (XPT2046) exists"
+)]
 pub trait SpiDevice {
     /// Failure mode of this device implementation.
     type Error;
@@ -47,18 +73,15 @@ pub trait SpiDevice {
     /// Kept for short single-buffer slaves (e.g. future XPT2046). The ILI9486
     /// path uses [`ExclusiveDevice::with_bus`] so cmd+param stay one CS with
     /// regwidth-16 expansion (ADR-0010).
-    #[allow(dead_code)]
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error>;
 
     /// Full-duplex transfer under CS (`read` and `words` same length).
     ///
     /// Required for duplex slaves (e.g. XPT2046 touch). The panel path is
     /// write-only today; the methods stay part of the contract (ADR-0009).
-    #[allow(dead_code)]
     fn transfer(&mut self, read: &mut [u8], words: &[u8]) -> Result<(), Self::Error>;
 
     /// Full-duplex in place under CS.
-    #[allow(dead_code)]
     fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Self::Error>;
 }
 

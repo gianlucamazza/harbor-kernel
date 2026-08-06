@@ -37,11 +37,15 @@ kernel-core = { path = "crates/kernel-core" }
 # that every one of those blocks says what makes it sound.
 #
 # Turned on with 64 of 179 blocks still undocumented, so the modules holding
-# them carry a file-level `#[allow]` with a count. That is deliberate: writing
-# 64 SAFETY comments in one pass, without having re-derived each invariant,
-# produces decoration that reads like verification. Each `#[allow]` comes off
-# when the audit reaches that module and the comments can state something
-# checkable. The list is the debt, and it only shrinks.
+# them carried a file-level `#[allow]` with a count — writing 64 SAFETY comments
+# in one pass, without re-deriving each invariant, produces decoration that
+# reads like verification. Each came off when the audit reached that module.
+#
+# **The list is empty as of 2026-08-06**: no `#[allow(…undocumented_unsafe_blocks)]`
+# remains, and the tree carries 181 SAFETY comments over 174 `unsafe` blocks.
+# The debt is paid, and saying so here is not bookkeeping — this comment
+# described an outstanding balance for a week after it was settled, which is
+# the same shape as every other fact this project keeps in two places.
 undocumented_unsafe_blocks = "deny"
 
 # `panic = "abort"` in both profiles is not a size preference: there is no

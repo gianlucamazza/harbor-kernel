@@ -120,9 +120,9 @@ exc_irq_el1t:
     adrp    x16, CURRENT_EL0
     add     x16, x16, :lo12:CURRENT_EL0
     ldr     x16, [x16]
-    cbz     x16, el0_missing_kernel_ttbr
+    cbz     x16, el0_no_live_session
     ldr     x0, [x16, #EL0S_SESSION_KERNEL_TTBR]
-    cbz     x0, el0_missing_kernel_ttbr
+    cbz     x0, el0_no_live_session
     bl      switch_ttbr0
 .endm
 

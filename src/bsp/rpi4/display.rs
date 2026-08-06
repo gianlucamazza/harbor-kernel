@@ -50,7 +50,10 @@ pub struct DisplaySpi {
     device: Option<Dev>,
     dc: Option<gpio::Output>,
     /// Held after reset so a later soft re-init can pulse without re-claim.
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "held to keep the panel out of reset for the board's life"
+    )]
     rst: gpio::Output,
     cdiv: u32,
     bit_hz: u32,

@@ -322,6 +322,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0016](adr/0016-el0-session-protocol.md)                   | EL0 session protocol: one slot, prose contract, named successor (**superseded**) — by 0017 and 0018 |
 | [ADR-0017](adr/0017-el0-capability-abi.md)                     | EL0 capability ABI: slot-indexed authority, session state in the TCB (**accepted**)                 |
 | [ADR-0018](adr/0018-agent-fault-policy.md)                     | Agent fault policy: the kernel ends the session, the creator decides the task (**accepted**)        |
+| [ADR-0019](adr/0019-no-static-mut.md) | No `static mut`: the last one becomes an atomic, rule 7 without an exception (**proposed**) |
 | [`docs/reviews/`](reviews/)                                    | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

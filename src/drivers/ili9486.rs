@@ -71,7 +71,7 @@ pub const INIT_PISCREEN: &[InitOp] = &[
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ili9486Error<S, P> {
     Spi(S),
-    #[allow(dead_code)] // reserved for non-Infallible DC pins
+    #[expect(dead_code, reason = "reserved for non-Infallible DC pins")]
     Pin(P),
 }
 
@@ -265,7 +265,7 @@ where
     ///
     /// Not called from product boot (ADR-0009 status surface uses navy fill +
     /// text). Kept to re-proof SPI framing on glass without a full framebuffer.
-    #[allow(dead_code)]
+    #[expect(dead_code, reason = "lab self-test; re-proofs SPI framing on glass")]
     pub fn draw_color_bars(&mut self) -> Result<(), Ili9486Error<SpiErr<BUS, CS>, Infallible>> {
         let colors = [
             Rgb565::RED,
