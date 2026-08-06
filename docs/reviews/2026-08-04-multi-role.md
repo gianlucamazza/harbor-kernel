@@ -65,7 +65,7 @@ altrettanto deliberati di `closed`.
 | F19 | **closed** | `interrupts_bound` guards the unmask |
 | F20 | **closed** | `RX_DROPPED` counted and asserted by the boot check |
 | F21 | **closed** | `blr`/`br` refused, `b` followed (2026-08-06) |
-| F22 | **partly** | fourteen negative assertions now; no fault injection or hostile EL0 |
+| F22 | **closed** | three hostile EL0 programs in the boot oracle as of M7 (2026-08-07), each with its refusal asserted: one names a capability slot it does not hold, one prints through a console capability it was not granted (and the byte it tried is asserted *absent*), one faults deliberately so its creator has to handle it. All three on silicon |
 | F23 | **closed** | early map moved to `src/mm/early.rs`; the board says which gigabyte is what (`memmap::EARLY_BLOCKS`), `arch` keeps the enable sequence. `make arch-board-free` (2026-08-06) |
 | F24 | **closed** | `make layering`, extended to facade isolation in ADR-0015 |
 | F25 | **closed** | kept deliberately — the disassembly gates need symbol names; `objcopy` drops the sections from the image |

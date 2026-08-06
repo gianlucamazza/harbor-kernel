@@ -20,12 +20,13 @@ fault probes on real silicon — with known blind spots documented in
 [`docs/verification.md`](docs/verification.md) (notably: QEMU does not model
 memory attributes the way Cortex-A72 does).
 
-**Status:** M0–M6 core **done (HW)** on Pi 4B through multi-agent shell and
-multi-SVC resume
-([`docs/verification.md`](docs/verification.md)). Post-M6 product slices —
-EL0 IRQ resume, `SYS_PUTC`, PL011 **RX-owned agent** (poll + LBE) — **done
-(QEMU)**; **HW stamp open**
-([issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1)).
+**Status:** M0–M7 **done (HW)** on Pi 4B. The post-M6 product slices (EL0 IRQ
+resume, `SYS_PUTC`, PL011 **RX-owned agent** with poll + LBE) were stamped on
+silicon 2026-08-06, closing
+[issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1); **M7** —
+EL0 authority named by capability slot, the console behind a capability denied
+by default, and an agent fault that its creator handles — on 2026-08-07, in one
+boot ([`docs/verification.md`](docs/verification.md)).
 Roadmap: [`docs/architecture.md`](docs/architecture.md#roadmap).
 
 ## What exists

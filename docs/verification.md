@@ -523,6 +523,69 @@ instead.
 The W^X probe needs no re-run: `.text` and `.rodata` were not touched by the
 split, and its recorded ESR does not depend on an address that moved.
 
+## Hardware evidence: M7 closed on silicon (2026-08-07)
+
+Pi 4B, 2026-08-07 00:05, `.serial-log/20260807-000115.log`. One boot carrying
+all four slices. The milestone's done-when reads *two EL0 agents exchange a
+message neither can forge; one of them faults; its creator handles the fault and
+the other keeps running; the kernel stays alive*, and this is that sentence:
+
+```
+00:05:10.342620 console: capability minted
+00:05:10.387884 H!el0-task: putc bytes=2
+00:05:10.388004 el0-task: irq resume irqs=1
+00:05:10.409069 el0-ipc: sent slot=0 tag=7 a=42
+00:05:10.409324 el0-ipc: console denied, printed nothing
+00:05:10.409471 el0-ipc: refused slot=1 authority=2
+00:05:10.409613 el0-ipc: agent faulted esr=0x9200004f far=0x80000 faults=1
+00:05:10.409735 el0-ipc: creator alive after fault
+00:05:10.431308 RXagents: concurrent ok  pool=496
+00:05:10.431389 *el0-ipc: got payload via EL0 recvs=1
+00:05:10.431459  tpl011-agent: rx own bytes=2
+00:05:10.434355 pl011-agent: killed ok  pool=512
+```
+
+### What the timestamps prove that the lines alone do not
+
+The peer's `got payload` is at **00:05:10.431389**, the fault at
+**00:05:10.409613**. Twenty-two milliseconds and eleven lines apart, in that
+order. The claim is not "both happened" — it is that the fault did not stop the
+other agent, and only the ordering says so.
+
+Likewise `console denied, printed nothing` at .409324 and `sent slot=0` at
+.409069: the same agent that successfully used the capability it holds was
+refused the one it does not, in the same session, milliseconds apart. The
+refusal is not a program that fails at everything.
+
+### Three absences, each asserted
+
+| Absence | What its presence would have meant |
+| --- | --- |
+| No `X` anywhere in the log | The denied agent's byte reached the UART — a capability check that returns a status and performs the action anyway |
+| No panic | The `CURRENT_EL0` assertion never fired across five agents in four tasks, so the scheduler published on every switch that reached EL0 |
+| `full=0 state=0` | No mailbox filled and no endpoint resolved to a dead slot; the three authority refusals are the three the boot performs deliberately |
+
+The counters read `authority=2` at the EL0 agent's own refusal and `count=3` at
+the end: the console denial, the unheld slot, and the M4 forger. Exactly three,
+asserted as three — the number that a bug in the counter made unreliable a day
+earlier, and that `Table::note_authority_refusal` fixed.
+
+### Costs nothing
+
+`pool=496` at the concurrent peak and `pool=512` after the kill, matching the
+2026-08-06 sessions at 15:43 and 21:25 exactly. Four slices — per-task session
+state, the slot ABI, the console capability, the fault policy — and the frame
+pool does not move. `arena: 1 splits, 23 tables free` against a reserve of 14 is
+likewise unchanged.
+
+### Honest limit
+
+The two EL0 agents *interleave* with each other and with `task-a`/`task-b`, but
+neither enters EL0 while the other's session is live: the loop still runs inside
+`cpu::without_irqs`. Per-task session state makes such a switch harmless and
+nothing performs it. A blocking `SYS_RECV` is what would, and it is deliberately
+not in M7 — see ADR-0017's consequences.
+
 ## Hardware evidence: M7 slice 1, per-task EL0 sessions (closed)
 
 Pi 4B, 2026-08-06 21:25, `.serial-log/20260806-212223.log`. The first boot after
