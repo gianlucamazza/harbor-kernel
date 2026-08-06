@@ -130,11 +130,18 @@ impl Agent {
                             event = unsafe { el0::resume() };
                         }
                         Syscall::Exit => {
-                            el0::end_session();
+                            // SAFETY: the session is resumable but will not be
+                            // resumed — this returns, and EL0 is unreachable
+                            // without another `enter`. Ending it here is what
+                            // clears `el0_kernel_ttbr0` while nothing can fault.
+                            unsafe { el0::end_session() };
                             return Ok(stats);
                         }
                         Syscall::Unknown { .. } => {
-                            el0::end_session();
+                            // SAFETY: as `Exit`. An SVC this kernel does not
+                            // implement ends the session rather than inventing
+                            // a behaviour for it.
+                            unsafe { el0::end_session() };
                             return Ok(stats);
                         }
                     },
@@ -144,7 +151,16 @@ impl Agent {
                         event = unsafe { el0::resume() };
                     }
                     _ => {
-                        el0::end_session();
+                        // SAFETY: `DataAbort` and `OtherSync` are the outcomes
+                        // that already ended the session — `EL0_CAN_RESUME` is
+                        // clear and the vector path has released the kernel
+                        // root. This makes that explicit.
+                        //
+                        // Note what is *not* here: the ESR and FAR carried by
+                        // those variants are dropped, and a faulting agent
+                        // returns `Ok`. That is the missing agent fault policy,
+                        // not an oversight of this call site.
+                        unsafe { el0::end_session() };
                         return Ok(stats);
                     }
                 }

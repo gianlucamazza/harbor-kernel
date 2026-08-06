@@ -15,13 +15,40 @@
 //! EL0 (`SPSR` DAIF.I); sessions that need timer/UART while user runs call
 //! [`set_entry_irqs_unmasked`] before [`enter`].
 
-// Audit debt (2026-08-06): 18 unsafe blocks here predate
-// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
-// This comes off when the audit reaches this module and the SAFETY comments can
-// state something checkable rather than restate the code. See Cargo.toml.
-#![allow(clippy::undocumented_unsafe_blocks)]
+//! ## Why `static mut` here, when `sync.rs` argues it is unacceptable
+//!
+//! [`crate::sync`] exists because a `static mut` in edition 2024 has no way to
+//! state who may touch it. Every global below is one anyway, and the reason is
+//! not laziness: the assembly in this file reaches them **by symbol name**
+//! (`adrp`/`add` against `EL0_SAVED`, `el0_kernel_ttbr0`, `EL0_ENTRY_SPSR`), and
+//! so does `vectors.s`. A `SyncCell` has no linker-visible name to load, and an
+//! `UnsafeCell` wrapper would only move the same raw access one layer down while
+//! making the offsets that `el0_resume` hard-codes depend on a layout Rust does
+//! not promise.
+//!
+//! What replaces the missing type-level protection is the session contract
+//! below. It is a contract in prose, which is weaker, and the module says so.
+//!
+//! ## Session contract
+//!
+//! One session at a time, for the whole machine: every global here is a single
+//! slot. A session is live from [`enter`] until an outcome that is not
+//! resumable, or until [`end_session`]. While it is live:
+//!
+//! - `el0_kernel_ttbr0` is non-zero, and `vectors.s` **requires** that — a
+//!   lower-EL exception with it clear reaches [`el0_missing_kernel_ttbr`] and
+//!   panics. This is why [`end_session`] is `unsafe`.
+//! - the caller must not `yield_now`. Nothing enforces it; the whole loop in
+//!   [`crate::agent`] runs inside `cpu::without_irqs`, which is what makes the
+//!   single slot hold today. A yield inside a session would let a second agent
+//!   overwrite the first one's saved context, and `el0_run_sp` would restore
+//!   the wrong stack.
+//!
+//! Both of those are the reason [`crate::agent`] can only enter EL0 one agent
+//! at a time, whatever the scheduler is doing. Moving this state into the TCB
+//! is the named successor, not a refactor to slip in unannounced.
 
-use crate::arch::exception::TrapFrame;
+use crate::arch::exception::{TrapFrame, read_esr_el1, read_far_el1};
 use crate::arch::mmu;
 
 /// `SPSR_EL1` for EL0t with DAIF all masked (default session contract).
@@ -45,12 +72,17 @@ pub enum El0Outcome {
 /// Next [`enter`] uses EL0 `SPSR` with IRQs masked (default after boot / end).
 #[inline]
 pub fn set_entry_irqs_masked() {
+    // SAFETY: single core, and `EL0_ENTRY_SPSR` is read by `el0_run` only, at
+    // the start of a session — never by `el0_resume`, so this cannot alter a
+    // session already under way. Safe rather than `unsafe fn` for that reason:
+    // the worst a mistimed call does is choose the mask for the *next* entry.
     unsafe { EL0_ENTRY_SPSR = SPSR_EL0_IRQS_MASKED };
 }
 
 /// Next [`enter`] uses EL0 `SPSR` with DAIF.I clear (IRQ → [`El0Outcome::Irq`]).
 #[inline]
 pub fn set_entry_irqs_unmasked() {
+    // SAFETY: as [`set_entry_irqs_masked`] — read by `el0_run` at entry only.
     unsafe { EL0_ENTRY_SPSR = SPSR_EL0_IRQS_OPEN };
 }
 
@@ -59,8 +91,14 @@ pub fn set_entry_irqs_unmasked() {
 /// # Safety
 /// Same as [`enter`].
 pub unsafe fn run(ttbr0_phys: usize, entry: u64, user_sp: u64) -> El0Outcome {
+    // SAFETY: `enter`'s obligations are the caller's, forwarded by this
+    // function's own `# Safety`. The `end_session` that follows is sound
+    // because `enter` has returned: whatever the outcome, this session took its
+    // one event and is not going to be resumed — that is what "one-shot" means.
     let outcome = unsafe { enter(ttbr0_phys, entry, user_sp) };
-    end_session();
+    // SAFETY: `enter` has returned, so this session took its one event and will
+    // not be resumed — which is what makes ending it here sound.
+    unsafe { end_session() };
     outcome
 }
 
@@ -72,6 +110,11 @@ pub unsafe fn enter(ttbr0_phys: usize, entry: u64, user_sp: u64) -> El0Outcome {
     let Some(kernel_ttbr) = mmu::kernel_root_phys() else {
         panic!("el0::enter: kernel map not activated");
     };
+    // SAFETY: single core with IRQs masked (the caller's obligation), so no
+    // other context can be between these writes and the `el0_run` that reads
+    // them. `EL0_CAN_RESUME` is cleared *before* the entry so that a fault on
+    // the very first instruction cannot be mistaken for a resumable event left
+    // over from a previous session.
     unsafe {
         EL0_USER_TTBR = ttbr0_phys as u64;
         EL0_CAN_RESUME = 0;
@@ -92,18 +135,35 @@ pub unsafe fn enter(ttbr0_phys: usize, entry: u64, user_sp: u64) -> El0Outcome {
 /// # Safety
 /// Prior event was resumable; IRQs masked at EL1; session not ended.
 pub unsafe fn resume() -> El0Outcome {
+    // SAFETY: reads of single-slot session state on one core with IRQs masked.
+    // Both are checked rather than assumed: `el0_resume` would `eret` into a
+    // context that was never saved, and `vectors.s` would take the next
+    // lower-EL exception with no kernel root to reinstall. Panicking here is
+    // the difference between a message and an unrecoverable fetch.
     if unsafe { EL0_CAN_RESUME } == 0 {
         panic!("el0::resume: no resumable session");
     }
+    // SAFETY: as above.
     if unsafe { el0_kernel_ttbr0 } == 0 {
         panic!("el0::resume: session kernel TTBR cleared");
     }
+    // SAFETY: the two checks above are exactly `el0_resume`'s preconditions.
     unsafe { unpack(el0_resume()) }
 }
 
 /// Clear session symbols (call after the last event if not already cleared).
+///
+/// # Safety
+/// No EL0 session may be live. This clears `el0_kernel_ttbr0`, which
+/// `vectors.s` requires to be non-zero on every lower-EL exception: calling it
+/// while EL0 can still be entered turns the next fault from that agent into
+/// [`el0_missing_kernel_ttbr`] and a panic. It was a safe `fn`, which made
+/// breaking the vector path's precondition ordinary safe Rust.
 #[inline]
-pub fn end_session() {
+pub unsafe fn end_session() {
+    // SAFETY: single-slot session state, one core; the caller has established
+    // that no session is live, so nothing is going to read these again before
+    // the next `enter` writes them.
     unsafe {
         el0_kernel_ttbr0 = 0;
         EL0_CAN_RESUME = 0;
@@ -118,21 +178,34 @@ fn unpack(packed: u64) -> El0Outcome {
         1 => El0Outcome::Svc {
             imm: (packed >> 32) as u16,
         },
-        2 => El0Outcome::DataAbort {
-            esr: unsafe { EL0_ESR },
-            far: unsafe { EL0_FAR },
-        },
+        2 => {
+            let (esr, far) = fault_syndrome();
+            El0Outcome::DataAbort { esr, far }
+        }
         4 => El0Outcome::Irq,
-        _ => El0Outcome::OtherSync {
-            esr: unsafe { EL0_ESR },
-            far: unsafe { EL0_FAR },
-        },
+        _ => {
+            let (esr, far) = fault_syndrome();
+            El0Outcome::OtherSync { esr, far }
+        }
     }
+}
+
+/// The syndrome saved by the vector path for the event being decoded.
+fn fault_syndrome() -> (u64, u64) {
+    // SAFETY: `exception_sync_el0` wrote both on the way here, from the very
+    // event whose packed kind is being decoded — the vector path runs to
+    // completion before `el0_run_finish` returns that value. Single slot, one
+    // core, and nothing else writes them until the next lower-EL exception.
+    unsafe { (EL0_ESR, EL0_FAR) }
 }
 
 /// Low 64 bits of user `x0` at the last SVC/IRQ (for `SYS_PUTC`, etc.).
 #[inline]
 pub fn saved_x0() -> u64 {
+    // SAFETY: a plain read of one word of single-slot session state on one
+    // core. Safe rather than `unsafe fn` because a mistimed call returns a
+    // stale value rather than breaking an invariant — the caller is expected to
+    // have just received `Svc` or `Irq`, and nothing else consults this.
     unsafe { EL0_SAVED.gpr[0] }
 }
 
@@ -190,6 +263,11 @@ pub extern "C" fn exception_sync_el0(frame: &mut TrapFrame) {
         0x24 => 2,
         _ => 3,
     };
+    // SAFETY: called from `vectors.s` with the CPU already through
+    // `kernel_entry` and the kernel root reinstalled, so this is the only
+    // context running. It writes the single-slot session state that
+    // `el0_run_finish` and `unpack` read immediately afterwards; `frame` is the
+    // trap frame the vector just built on SP_EL1, valid for this call.
     unsafe {
         EL0_ESR = esr;
         EL0_FAR = far;
@@ -214,6 +292,10 @@ pub extern "C" fn exception_sync_el0(frame: &mut TrapFrame) {
 /// then [`resume`]. Sessions that keep IRQs masked never reach here.
 #[unsafe(no_mangle)]
 pub extern "C" fn exception_irq_el0(frame: &mut TrapFrame) {
+    // SAFETY: as `exception_sync_el0` — sole context, single-slot state, and a
+    // trap frame the vector path just built. `ELR` is deliberately left at the
+    // interrupted instruction: the architecture re-executes it on resume, so a
+    // software skip here would silently drop one user instruction per IRQ.
     unsafe {
         EL0_KIND = 4;
         EL0_ESR = 0;
@@ -365,26 +447,12 @@ core::arch::global_asm!(
 );
 
 #[inline]
-fn read_esr_el1() -> u64 {
-    let v: u64;
-    unsafe {
-        core::arch::asm!("mrs {}, esr_el1", out(reg) v, options(nomem, nostack, preserves_flags));
-    }
-    v
-}
-
-#[inline]
-fn read_far_el1() -> u64 {
-    let v: u64;
-    unsafe {
-        core::arch::asm!("mrs {}, far_el1", out(reg) v, options(nomem, nostack, preserves_flags));
-    }
-    v
-}
-
-#[inline]
 fn read_sp_el0() -> u64 {
     let v: u64;
+    // SAFETY: `SP_EL0` is readable at EL1 as an ordinary system register. The
+    // kernel runs *on* SP_EL0 (boot.s clears SPSel), so between an EL0 entry and
+    // the vector's `msr spsel, #1` this reads the user stack pointer, which is
+    // the only window the callers below use.
     unsafe {
         core::arch::asm!("mrs {}, sp_el0", out(reg) v, options(nomem, nostack, preserves_flags));
     }

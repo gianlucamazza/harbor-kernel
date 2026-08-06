@@ -6,6 +6,10 @@ mod handlers;
 #[allow(unused_imports)] // public API for future trap inspection
 pub use frame::TrapFrame;
 
+// The syndrome registers, read by this module's handlers and by `el0`, which
+// used to carry byte-identical private copies of both.
+pub use handlers::{read_esr_el1, read_far_el1};
+
 // `TRAP_FRAME_SIZE` comes from `frame.rs`, so the assembly reserves exactly
 // what the Rust struct needs and the compiler checks it — the two used to
 // carry independent constants (`.equ … 0x110` and an `assert!(… == 264)`)
