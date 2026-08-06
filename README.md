@@ -143,6 +143,15 @@ make deploy SD_MOUNT=/run/media/$USER/boot   # default; must be a FAT boot parti
 make serial SERIAL_DEV=/dev/ttyUSB0
 ```
 
+Default images are **headless**: the SPI TFT status surface is opt-in. For the
+Waveshare-class panel, pass the feature on **every** build and deploy (a plain
+`make deploy` overwrites a glass image with one that never touches the HAT):
+
+```bash
+make FEATURES=debug-display deploy SD_MOUNT=/run/media/$USER/boot
+# serial should show: display: ILI9486 up  cdiv=…  bit_clk=… Hz  status
+```
+
 To put Raspberry Pi OS boot files back on the card: `make restore-rpios`
 (same mount-point checks as deploy).
 

@@ -182,13 +182,20 @@ an error. `drivers::pm` has no write function to reach for by mistake.
 M-milestone). Policy: [ADR-0009](adr/0009-optional-spi-tft-debug-console.md)
 (**accepted**), streaming CS [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md).
 
-Behind `--features debug-display` (`make FEATURES=debug-display img`):
+Behind `--features debug-display` (`make FEATURES=debug-display img` / `deploy`):
 
 - GPIO claim, `SpiBus` / `SpiDevice` / `with_bus`, polled SPI0
 - ILI9486 PiScreen init + **regwidth-16** wire framing
 - Boot: full-screen navy `HARBOR` + dirty-cell status text (8×8 slots, idle
   ticks/heap, panic banner)
 - UART remains the full log (no serial mirror on glass)
+
+**Trap:** `FEATURES` defaults to empty. A bare `make deploy` after a lab session
+builds a headless image into the same `kernel8.img` and flashes it — the serial
+log then has no `display:` line and the panel looks dead. Pass
+`FEATURES=debug-display` on every glass deploy; `make img` also writes
+`kernel8-debug-display.img` as a side copy when that feature is set. Oracle on
+a healthy glass boot: `display: ILI9486 up  cdiv=…  bit_clk=… Hz  status`.
 
 Evidence: [`verification.md`](verification.md#rng200-and-spi0-hardware). Touch
 and higher SPI rates are open. Default (feature-off) images stay HAT-free.

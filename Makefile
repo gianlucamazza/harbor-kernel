@@ -95,10 +95,28 @@ debug:
 elf:
 	cargo build $(CARGO_FLAGS)
 
+# FEATURES stamp: empty is headless. The SPI TFT status surface is opt-in
+# (ADR-0009); a plain `make deploy` after a lab session silently replaces a
+# glass-enabled image with one that never touches the panel — the serial log
+# then has no `display:` line and the HAT looks "broken". Always re-pass
+# FEATURES=debug-display for TFT work. When that feature is set we also keep a
+# side copy so the default `kernel8.img` path cannot erase the last glass build
+# without someone noticing the second file is stale.
 img: elf
 	$(OBJCOPY) -O binary $(ELF) $(IMG)
+	@if echo " $(FEATURES) " | grep -q ' debug-display '; then \
+	  cp -f $(IMG) $(CARGO_OUT)/kernel8-debug-display.img; \
+	fi
 	@echo "built $(IMG)"
+	@if [ -z "$(strip $(FEATURES))" ]; then \
+	  echo "  FEATURES=(none)  — headless; TFT needs FEATURES=debug-display"; \
+	else \
+	  echo "  FEATURES=$(FEATURES)"; \
+	fi
 	@ls -la $(IMG)
+	@if [ -f $(CARGO_OUT)/kernel8-debug-display.img ]; then \
+	  ls -la $(CARGO_OUT)/kernel8-debug-display.img; \
+	fi
 
 # Deliberately a superset of what CI runs: a green here has to predict a green
 # there, or it is not worth running locally. Every CI job has a target here —
@@ -280,6 +298,12 @@ blobs:
 	./scripts/fetch-blobs.sh
 
 deploy: img
+	@if [ -z "$(strip $(FEATURES))" ]; then \
+	  echo "deploy: FEATURES=(none) — image is headless (no SPI TFT)."; \
+	  echo "  For the status panel: make FEATURES=debug-display deploy SD_MOUNT=…"; \
+	else \
+	  echo "deploy: FEATURES=$(FEATURES)"; \
+	fi
 	./scripts/deploy-sd.sh "$(SD_MOUNT)" "$(IMG)"
 
 # Same mount-point guard as deploy; needs a prior backup under .sd-backup/.
