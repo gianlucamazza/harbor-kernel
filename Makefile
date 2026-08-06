@@ -115,6 +115,7 @@ img: elf
 	fi
 	@ls -la $(IMG)
 	@if [ -f $(CARGO_OUT)/kernel8-debug-display.img ]; then \
+	  echo "  last glass build (not what deploy writes unless FEATURES is set):"; \
 	  ls -la $(CARGO_OUT)/kernel8-debug-display.img; \
 	fi
 

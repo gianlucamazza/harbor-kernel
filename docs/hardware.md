@@ -197,6 +197,14 @@ log then has no `display:` line and the panel looks dead. Pass
 `kernel8-debug-display.img` as a side copy when that feature is set. Oracle on
 a healthy glass boot: `display: ILI9486 up  cdiv=…  bit_clk=… Hz  status`.
 
+The image also says what it is, in the banner, before anything can go wrong:
+`build: debug-display` or `build: headless (no SPI TFT, no bring-up gates)`. A
+flashed card is otherwise indistinguishable from another one — `kernel8.img` is
+whichever the last `make` invocation produced, and nothing in the file records
+which. `make boot-check` asserts the banner against the behaviour in both
+directions, so an image cannot claim the panel without bringing it up, nor
+claim headless while touching it.
+
 Evidence: [`verification.md`](verification.md#rng200-and-spi0-hardware). Touch
 and higher SPI rates are open. Default (feature-off) images stay HAT-free.
 

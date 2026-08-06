@@ -69,6 +69,20 @@ fn refuse_to_boot(uart: &mut Pl011, reason: core::fmt::Arguments<'_>) -> ! {
 }
 
 /// Full kernel bring-up; never returns.
+/// The optional features this image was compiled with, as one word per feature.
+///
+/// `cfg!` rather than `#[cfg]` so every arm is type-checked in every build: a
+/// feature renamed in `Cargo.toml` fails here instead of silently dropping out
+/// of the banner, which is the failure mode a `#[cfg]` chain has.
+const fn build_features() -> &'static str {
+    match (cfg!(feature = "debug-display"), cfg!(feature = "bringup")) {
+        (true, true) => "debug-display bringup",
+        (true, false) => "debug-display",
+        (false, true) => "bringup",
+        (false, false) => "headless (no SPI TFT, no bring-up gates)",
+    }
+}
+
 pub fn run() -> ! {
     // SAFETY: core 0; DAIF still masked from `boot.s`; nothing else has run.
     let Some(mut uart) = (unsafe { console::acquire() }) else {
@@ -82,6 +96,13 @@ pub fn run() -> ! {
         uart,
         "EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle"
     );
+    // The image says what it was built as, on the wire, before anything else
+    // can go wrong. A flashed card is otherwise indistinguishable from another
+    // one: `kernel8.img` is headless or glass-enabled depending on a `make`
+    // invocation nobody can read afterwards, and the symptom of the wrong image
+    // is a panel that stays dark — which looks exactly like broken hardware.
+    // Cost: one line. What it replaces: guessing.
+    println!(uart, "build: {}", build_features());
 
     exception::init();
 

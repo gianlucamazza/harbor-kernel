@@ -266,6 +266,28 @@ grep -qa 'el0-ipc: sent slot=0 tag=7 a=42' "${log}" ||
 # as a protection unverified rather than a protection unneeded.
 grep -qaE 'el0-ipc: refused slot=1 authority=[1-9]' "${log}" ||
 	fail "EL0 agent was not refused a slot it does not hold"
+# The image declares its feature set, and the declaration has to match what the
+# image actually does. A banner nobody checks is a comment that survived into
+# the log: it drifts the first time a feature is renamed, and it drifts in the
+# direction of claiming more than is there.
+#
+# Both directions, because either alone is satisfiable by a lie: an image that
+# says `debug-display` must bring the panel up, and one that says `headless`
+# must not touch it. The trap this closes is a plain `make deploy` replacing a
+# glass build with a headless one, where the only symptom was a dark panel that
+# looks exactly like broken hardware.
+build_line="$(grep -a '^build: ' "${log}" || true)"
+[[ -n "${build_line}" ]] ||
+	fail "the image did not declare its feature set (no 'build:' line)"
+if [[ "${build_line}" == *"debug-display"* ]]; then
+	grep -qa '^display: ' "${log}" ||
+		fail "image says debug-display, but the panel never came up: ${build_line}"
+elif [[ "${build_line}" == *"headless"* ]]; then
+	if grep -qa '^display: ' "${log}"; then
+		fail "image says headless, but a panel came up: ${build_line}"
+	fi
+fi
+
 # ADR-0017 §3: the console is a capability, and one agent is deliberately
 # without it. This line is the protection being *seen* to fire on the good path
 # — and its second half matters as much: the byte that agent tried to print
