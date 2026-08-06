@@ -299,7 +299,11 @@ unsafe fn publish_and_invalidate(va: u64, len: u64) {
                 }
             }
             // Large region, or a planner refusal: the whole TLB is always enough.
-            _ => core::arch::asm!("tlbi vmalle1", options(nostack, preserves_flags)),
+            // `is`, matching the per-page branch above and the `dsb ish` that
+            // closes the sequence — the operation and its barrier must name the
+            // same shareability domain or the barrier is ordering a scope the
+            // operation never reached.
+            _ => core::arch::asm!("tlbi vmalle1is", options(nostack, preserves_flags)),
         }
 
         core::arch::asm!("dsb ish", "isb", options(nostack, preserves_flags));
@@ -332,7 +336,7 @@ pub unsafe extern "C" fn switch_ttbr0(root: u64) {
             "dsb ishst",
             "msr ttbr0_el1, {root}",
             "isb",
-            "tlbi vmalle1",
+            "tlbi vmalle1is",
             "dsb ish",
             "isb",
             root = in(reg) root,
