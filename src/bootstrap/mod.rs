@@ -160,6 +160,23 @@ pub fn run() -> ! {
         mmu::tables_remaining()
     );
 
+    // Why the board came up, read before anything else can obscure it.
+    //
+    // `halt()` is `loop { wfe }` with IRQs masked and cannot exit, so a board
+    // that boots again after `*** halt ***` was reset from outside this kernel.
+    // That was observed twice in one hardware session with no way to tell a
+    // firmware watchdog from a brownout. The silicon latches the answer; this
+    // line puts it in every transcript, so the question is a lookup rather
+    // than an investigation the next time it happens.
+    //
+    // SAFETY: single core, PM window inside the mapped peripheral region, and
+    // this is the only code in the tree that touches the block.
+    let reset = unsafe { board::pm::reset_status() };
+    println!(
+        uart,
+        "reset: {:?} partition={} (PM_RSTS={:#010x})", reset.cause, reset.partition, reset.raw
+    );
+
     // The kernel map deliberately covers far less than the early one, so the
     // device-tree blob is now outside it. Map it back in: it is the first
     // region whose address only the firmware knows, which is exactly what
@@ -289,7 +306,16 @@ pub fn run() -> ! {
 
     // No further handlers are registered: freeze the dispatch table so the IRQ
     // path reads state nothing can mutate under it.
+    //
+    // The count is printed because a boot that registered nothing looks exactly
+    // like a healthy one until the first interrupt that nobody answers — and by
+    // then the evidence is a counter rather than a line at the point of failure.
     irq::seal();
+    println!(
+        uart,
+        "irq: sealed with {} handlers registered",
+        irq::registered()
+    );
 
     // Arm PL011 RX IRQ into the console ring (GIC line already enabled).
     if interrupts_bound {

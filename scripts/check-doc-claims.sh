@@ -98,6 +98,53 @@ if [[ -n "${missing_accept}" ]]; then
 	exit 1
 fi
 
+# 5. The README's `## Layout` block names every module that exists.
+#
+#    It is the map a reader opens first, and it drifts the way the gate list did
+#    (F27, twice): a module is added in one place and described in another. When
+#    this check was written the block listed six of `kernel-core`'s twenty
+#    modules and still described `irq/` as owning the dispatch table that had
+#    moved out of it.
+#
+#    The block is read in two regions, because a bare substring search over the
+#    whole thing would let `spi` under `drivers/` satisfy the claim about
+#    `kernel_core::spi`. The `crates/kernel-core/` region runs to the `src/`
+#    line; the `src/` region runs to the end of the block.
+layout="$(awk '/^## Layout/ { inside = 1; next }
+	inside && /^```/ { seen++; if (seen == 2) exit; next }
+	inside && seen == 1 { print }' README.md)"
+[[ -n "${layout}" ]] || fail "README has no '## Layout' code block"
+
+core_region="$(awk '/^crates\/kernel-core\// { inside = 1 } /^src\// { inside = 0 } inside' <<<"${layout}")"
+src_region="$(awk '/^src\// { inside = 1 } inside' <<<"${layout}")"
+[[ -n "${core_region}" && -n "${src_region}" ]] ||
+	fail "the Layout block has no 'crates/kernel-core/' or 'src/' section to read"
+
+missing_modules=""
+while IFS= read -r module; do
+	grep -qwF -- "${module}" <<<"${core_region}" ||
+		missing_modules="${missing_modules} kernel_core::${module}"
+done < <(sed -n 's/^pub mod \([a-z0-9_]*\);$/\1/p' crates/kernel-core/src/lib.rs)
+
+# Directories are the kernel's own modules; the loose `.rs` files at the top of
+# `src/` are modules too and the block already names them one per line.
+while IFS= read -r module; do
+	grep -qwF -- "${module}" <<<"${src_region}" ||
+		missing_modules="${missing_modules} src/${module}"
+done < <({
+	find src -mindepth 1 -maxdepth 1 -type d -printf '%f\n'
+	find src -mindepth 1 -maxdepth 1 -name '*.rs' -printf '%f\n'
+} | sort)
+
+if [[ -n "${missing_modules}" ]]; then
+	echo "doc-claims: modules that exist and the README Layout block does not name:" >&2
+	echo "  ${missing_modules# }" >&2
+	exit 1
+fi
+
+core_modules="$(sed -n 's/^pub mod \([a-z0-9_]*\);$/\1/p' crates/kernel-core/src/lib.rs | wc -l)"
+
 echo "doc-claims: clean (${actual} tests = ${unit}+${integration}+${doc}, ${#makefile_gates} chars of gate list agree, \
 $(wc -l <<<"${facade}") facade modules in the contract, \
+${core_modules} kernel-core modules in the README, \
 $(grep -lc '^status: accepted' docs/adr/0*.md | wc -l) ADRs dated)"

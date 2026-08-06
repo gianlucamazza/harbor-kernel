@@ -1,13 +1,12 @@
 //! AArch64 stage-1 MMU: two maps, in the order Linux uses.
 //!
-//! **Early map** ([`early_mmu_enable`]): a coarse identity map of 1 GiB blocks,
-//! built entirely at compile time, enabled from `boot.s` before any other Rust
-//! runs. It exists so that *no kernel code ever executes without memory
-//! attributes*. With translation off every access is Device-nGnRnE, where the
-//! `LDXR`/`STXR` pair behind an atomic read-modify-write does not make
-//! progress on Cortex-A72 — an `AtomicBool::swap` in early boot hangs the board
-//! silently, and emulators do not reproduce it. Rather than ask every future
-//! author to remember that, the window is removed.
+//! **Early map** ([`enable_identity`]): the sequence that turns translation on
+//! with a table someone else built. The table itself is
+//! [`crate::mm::early`] — which gigabyte is RAM and which is device MMIO is
+//! board knowledge, and this tree is reserved for CPU and ISA (F23). What is
+//! architectural is the *order*: caches invalidated while they are still off,
+//! then the regime programmed, then the TLB dropped, and only then translation
+//! enabled.
 //!
 //! **Kernel map** ([`activate`]): the real per-region map with W^X and a guard
 //! page, built at runtime from the linker layout and installed by switching
@@ -16,8 +15,10 @@
 //! than the invalidate-the-world dance a cold enable requires.
 //!
 //! Which physical ranges are RAM and which are device MMIO is board knowledge,
-//! so [`activate`]'s caller supplies them. The bit encodings and the region
-//! splitting live in [`kernel_core::paging`] and are unit-tested on the host.
+//! so both maps take it from the BSP: [`activate`]'s caller supplies the
+//! regions, and [`crate::mm::early`] supplies the early table. The bit
+//! encodings and the region splitting live in [`kernel_core::paging`] and are
+//! unit-tested on the host.
 
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
@@ -34,68 +35,28 @@ static SPLITS: AtomicU32 = AtomicU32::new(0);
 /// `TCR_EL1.T0SZ` — 39-bit VA, so the initial lookup level is 1.
 const T0SZ: u64 = 25;
 
-/// Writable and executable — only ever used by the early map, which cannot
-/// distinguish `.text` from the stack at 1 GiB granularity. [`activate`]
-/// replaces it before any of the kernel's own untrusted input is touched.
-const RWX: Perms = Perms {
-    write: true,
-    execute: true,
-    user: false,
-};
-
-/// Encode a level-1 block or fail the build.
+/// Enable translation with a caller-supplied identity map.
 ///
-/// The early map has no error path: it is installed before the console exists,
-/// so a bad descriptor could not be reported. Evaluating it in `const` context
-/// turns that into a compile error instead.
-const fn early_block(pa: u64, kind: MemKind, perms: Perms) -> u64 {
-    match paging::leaf(Level::L1, pa, kind, perms) {
-        Some(descriptor) => descriptor,
-        None => panic!("early identity map: unencodable block address"),
-    }
-}
-
-/// The early identity map, resolved at compile time.
-///
-/// Not `mut` and never written at runtime: the table lives in `.rodata`, and
-/// the page-table walker only reads it (the access flag is pre-set, so there
-/// is no hardware update either).
-static EARLY_L1: Table = Table {
-    entries: {
-        let mut entries = [0u64; paging::ENTRIES_PER_TABLE];
-        // RAM: 0–3 GiB. Executable because the kernel image is at 0x80000, and
-        // covering 3 GiB means a firmware-placed DTB is readable wherever it
-        // landed — the fine map deliberately covers far less.
-        entries[0] = early_block(0x0000_0000, MemKind::NormalWb, RWX);
-        entries[1] = early_block(0x4000_0000, MemKind::NormalWb, RWX);
-        entries[2] = early_block(0x8000_0000, MemKind::NormalWb, RWX);
-        // Peripherals and the GIC.
-        entries[3] = early_block(0xC000_0000, MemKind::Device, Perms::RW);
-        entries
-    },
-};
-
-/// Enable translation with the compile-time identity map.
-///
-/// Called from `_start` once the stack exists and BSS is clear, before
-/// `kernel_main`. After this returns, memory has attributes and the rest of
-/// the kernel — atomics included — behaves as the architecture documents.
+/// Called from `crate::mm::early::early_mmu_enable`, which `boot.s` branches to
+/// once the stack exists and BSS is clear. After this returns, memory has
+/// attributes and the rest of the kernel — atomics included — behaves as the
+/// architecture documents.
 ///
 /// # Safety
-/// Call exactly once, on the primary core, with interrupts masked and
-/// translation off.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn early_mmu_enable() {
+/// `root` must be a complete translation table covering every address in use,
+/// and live for the rest of the kernel's life. Call exactly once, on the
+/// primary core, with interrupts masked and translation off.
+pub unsafe fn enable_identity(root: u64) {
     // SAFETY: order is load-bearing and cannot be rearranged: caches invalidated while
     // they are still off, then the regime programmed, then the TLB dropped, and
     // only then translation enabled. Each step assumes the previous one.
     unsafe {
         // Caches are about to be enabled. Anything the firmware left resident
-        // would otherwise shadow memory — including this table.
+        // would otherwise shadow memory — including the caller's table.
         cache::invalidate_dcache_all();
         cache::invalidate_icache();
 
-        program_regime(&raw const EARLY_L1 as u64);
+        program_regime(root);
         cache::invalidate_tlb_all();
         enable_translation();
     }
@@ -107,9 +68,12 @@ unsafe extern "C" {
 }
 
 /// One translation table: 512 entries, page aligned at every level.
+///
+/// Public because the early map is built outside this module and the *format*
+/// is architectural even when the contents are not.
 #[repr(C, align(4096))]
-struct Table {
-    entries: [u64; paging::ENTRIES_PER_TABLE],
+pub struct Table {
+    pub entries: [u64; paging::ENTRIES_PER_TABLE],
 }
 
 /// Hands out zeroed translation tables from the linker-provided arena.

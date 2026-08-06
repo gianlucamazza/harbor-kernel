@@ -4,6 +4,7 @@
 
 pub mod gicv2;
 pub mod pl011;
+pub mod pm;
 pub mod rng200;
 
 #[cfg(feature = "debug-display")]

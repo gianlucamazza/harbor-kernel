@@ -54,6 +54,23 @@ for adr in docs/adr/0*.md; do
 	frontmatter_id="$(sed -n 's/^id: *//p' "${adr}" | head -1)"
 	[[ "${frontmatter_id}" == "${num}" ]] ||
 		note "$(basename "${adr}"): frontmatter id is '${frontmatter_id}'"
+
+	# 5. …and `architecture.md` repeats it a *third* time, in its artefact
+	#    table. That copy is the one a reader meets first and the one nothing
+	#    was comparing: it silently stopped at ADR-0014 while 0015 and 0016
+	#    were written, accepted and merged. Two stale copies of the gate list
+	#    (F27) is why `doc-claims` exists; this is the same shape, one document
+	#    over.
+	#
+	#    One direction only. The table also lists `docs/adr/` and
+	#    `docs/reviews/`, which are not ADRs, so the claim is that no ADR is
+	#    missing — not that every row is one.
+	arch_row="$(grep -F "adr/${num}-" docs/architecture.md || true)"
+	if [[ -z "${arch_row}" ]]; then
+		note "$(basename "${adr}") is missing from the artefact table in docs/architecture.md"
+	elif [[ "${arch_row}" != *"(**${file_status}**)"* ]]; then
+		note "$(basename "${adr}"): architecture.md does not mark it (**${file_status}**)"
+	fi
 done
 
 if [[ "${violations}" -ne 0 ]]; then

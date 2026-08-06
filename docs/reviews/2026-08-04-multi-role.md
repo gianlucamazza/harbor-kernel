@@ -66,7 +66,7 @@ altrettanto deliberati di `closed`.
 | F20 | **closed** | `RX_DROPPED` counted and asserted by the boot check |
 | F21 | **closed** | `blr`/`br` refused, `b` followed (2026-08-06) |
 | F22 | **partly** | fourteen negative assertions now; no fault injection or hostile EL0 |
-| F23 | **open** | no ADR. The early map still encodes board topology in `arch` |
+| F23 | **closed** | early map moved to `src/mm/early.rs`; the board says which gigabyte is what (`memmap::EARLY_BLOCKS`), `arch` keeps the enable sequence. `make arch-board-free` (2026-08-06) |
 | F24 | **closed** | `make layering`, extended to facade isolation in ADR-0015 |
 | F25 | **closed** | kept deliberately — the disassembly gates need symbol names; `objcopy` drops the sections from the image |
 | F26 | **closed** | ADR-0013 |
@@ -75,10 +75,17 @@ altrettanto deliberati di `closed`.
 | F29 | **closed** | shared mount guard; backup is a precondition (2026-08-06) |
 | F30 | **closed** | paths corrected; `bootinfo` documents what consumes the DTB |
 
-Uno solo resta aperto. F23 — la topologia di board codificata in `arch`
-attraverso la mappa precoce — era stata assegnata a un ADR che non è mai stato
-scritto; ADR-0015 ha spostato `boot.s` e `link.ld` sotto l'albero ISA senza
-affrontare quel punto.
+Nessuno resta aperto. F23 — la topologia di board codificata in `arch` — era
+l'ultimo, ed è stato chiuso il 2026-08-06 spostando la mappa precoce in
+`src/mm/early.rs`: `mm` può già vedere entrambi gli alberi, quindi la giuntura
+fra board e CPU ha un nome invece di un nascondiglio. L'azione assegnata
+originariamente era «scrivere un ADR che accetti il rischio»; si è rivelato non
+necessario, perché il vincolo che sembrava imporlo — `early_mmu_enable` è
+chiamata da `boot.s` senza argomenti, e `arch` non può importare `bsp` — smette
+di mordere appena si smette di considerarla una funzione di `arch`.
+
+Il gate che l'avrebbe colto non esisteva: `make layering` vede gli import, non
+gli indirizzi scritti a mano. Ora c'è `make arch-board-free`.
 
 ---
 

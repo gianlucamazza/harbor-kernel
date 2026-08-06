@@ -35,11 +35,52 @@ fi
 log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 
+# CPU time this shell's children have consumed, in USER_HZ. Read from
+# `/proc/self/stat` (cutime + cstime) rather than through `/usr/bin/time`, so
+# the measurement adds no dependency to a script `make check` always runs.
+#
+# The comm field can contain spaces, so everything up to the last `)` is
+# dropped before counting: the remaining fields start at `state`, which puts
+# cutime and cstime at offsets 13 and 14.
+#
+# The result goes into a global rather than being echoed for a caller to
+# capture. `$(…)` runs in a subshell, and a subshell's `/proc/self/stat` is its
+# own — a fresh process that has reaped no children, so cutime and cstime are
+# always zero. The first version of this did exactly that and measured 0.00
+# cores on an idle machine, which would have called every real timer failure
+# "indeterminate" and quietly retired the assertion.
+read_child_cpu_hz() {
+	local stat rest
+	read -r stat </proc/self/stat
+	rest="${stat##*) }"
+	# shellcheck disable=SC2086  # deliberate word splitting into positionals
+	set -- ${rest}
+	CHILD_CPU_HZ=$((${13} + ${14}))
+}
+
+read_child_cpu_hz
+cpu_before="${CHILD_CPU_HZ}"
+
 # `timeout` kills a healthy run, so its exit status says nothing; the log is
 # the oracle. `|| true` keeps `set -e` from ending the script before we look.
 timeout "${SECONDS_TO_RUN}" "${QEMU}" \
 	-M "${QEMU_MACHINE}" -kernel "${IMG}" \
 	-serial mon:stdio -display none </dev/null >"${log}" 2>&1 || true
+
+# How much host CPU the emulator actually got, in hundredths of a core per
+# second of wall time. On an unloaded machine TCG saturates roughly three cores
+# (measured: 2.88); under a cgroup quota tight enough to make the guest miss
+# deadlines it collapses to 0.08. Two orders of magnitude apart, so the
+# threshold below is nowhere near either edge.
+#
+# Guest tick reports were tried first and are the wrong signal: TCG drives the
+# guest timer from wall-clock time, so the count tracks how long the run lasted
+# rather than how much CPU it received. At a 20% quota the guest still reported
+# 13 ticks while running on a fifth of one core.
+clk_tck="$(getconf CLK_TCK 2>/dev/null || echo 100)"
+read_child_cpu_hz
+emulator_cores=$(((CHILD_CPU_HZ - cpu_before) * 100 / (clk_tck * SECONDS_TO_RUN)))
+CORES_TO_BE_MEASURABLE=100 # one whole core, averaged over the run
 
 fail() {
 	echo "boot-check: FAIL — $1" >&2
@@ -48,11 +89,31 @@ fail() {
 	exit 1
 }
 
+# Neither pass nor fail: the run did not establish its claim. Exit code 3 so a
+# caller can tell it from both, and non-zero so nothing downstream mistakes an
+# unestablished claim for a verified one.
+indeterminate() {
+	echo "boot-check: INDETERMINATE — $1" >&2
+	printf '  the emulator got %s.%02d cores of host CPU over %ss; under 1.00 it\n' \
+		$((emulator_cores / 100)) $((emulator_cores % 100)) "${SECONDS_TO_RUN}" >&2
+	echo "  cannot be asked to meet a deadline. Re-run on an idle machine." >&2
+	echo "  This is not a kernel failure, and it is not a pass." >&2
+	exit 3
+}
+
 # Each assertion covers a distinct subsystem, so a failure localises itself.
 grep -q 'Harbor: hello' "${log}" ||
 	fail "no console output: the kernel did not reach bootstrap::run"
 grep -q 'MMU on' "${log}" ||
 	fail "the kernel map did not activate"
+# Why the board came up. QEMU models `PM_RSTS` and reports a power-on; the
+# assertion is on the *shape*, because a warm reset or an unmodelled block are
+# both legitimate readings and only silence means the read never happened.
+#
+# `None` is deliberately a distinct outcome from `PowerOn` in the decode, so a
+# register that latched nothing cannot be reported as a clean power cycle.
+grep -qE 'reset: (PowerOn|Watchdog|Software|Debug|None) partition=[0-9]+ \(PM_RSTS=0x[0-9a-f]{8}\)' "${log}" ||
+	fail "reset-cause line missing or malformed: $(grep '^reset:' "${log}" || echo '(no reset line at all)')"
 # RNG200 is always probed after the MMU. QEMU has no backend: expect soft
 # NotPresent. Silicon logs `ok word=…`. Either shape is a successful probe path;
 # silence would mean the probe panicked or never ran.
@@ -179,7 +240,7 @@ grep -qE 'ipc: refuse count=[1-9]' "${log}" ||
 # dead mailbox, which is kernel bookkeeping being wrong rather than a caller's
 # mistake.
 grep -qE 'ipc: refuse count=[0-9]+ full=0 state=0' "${log}" ||
-	fail "ipc refused a send for capacity or hit a dead endpoint" 
+	fail "ipc refused a send for capacity or hit a dead endpoint"
 if grep -q 'ipc: FORGE OK' "${log}"; then
 	fail "forged capability send succeeded"
 fi
@@ -190,6 +251,11 @@ grep -q 'ticks=20' "${log}" ||
 if grep -q 'irq: unhandled' "${log}"; then
 	fail "unhandled interrupts were dispatched"
 fi
+# Both handlers registered before the table froze. A boot that registered none
+# looks exactly like a healthy one until the first interrupt nobody answers, and
+# by then the evidence is a counter rather than the moment it went wrong.
+grep -q 'irq: sealed with 2 handlers registered' "${log}" ||
+	fail "dispatch table sealed with the wrong number of handlers: $(grep '^irq: sealed' "${log}" || echo '(no seal line at all)')"
 # The allocator refuses frees it cannot justify — a double free, or a pointer it
 # never handed out. Refusing keeps the heap intact, so nothing else here would
 # notice; the count is the only evidence that a caller is wrong about what it owns.
@@ -203,19 +269,35 @@ if grep -q 'console: DROPPED' "${log}"; then
 fi
 # A missed deadline means the timer handler did not run in time. Harmless at
 # 10 Hz with nothing else running, which is exactly why it must be loud here:
-# this is the quietest possible conditions.
+# these are the quietest possible conditions.
 #
 # It is also the one assertion in this script that measures the *host*. TCG
-# emulates the guest timer against wall-clock time, so a loaded machine — a
-# parallel `cargo build`, a `cargo install` — makes the guest miss deadlines it
-# would never miss otherwise. Seen once, during a background install at load
-# average 4. On an idle machine and on a CI runner it is a real signal; if it
-# fires while something else is compiling, re-run before believing it.
+# emulates the guest timer against wall-clock time, so a machine busy with
+# something else — a parallel `cargo build`, a `cargo install` — makes the guest
+# miss deadlines it would never miss otherwise. Seen once, at load average 4.
+#
+# The note this check used to carry said "if it fires while something else is
+# compiling, re-run before believing it" — which is an invitation to ignore a
+# red, and this project does not have one of those anywhere else. So the check
+# now corroborates instead of advising: a missed deadline is a real failure when
+# the guest demonstrably had the CPU to meet it, and an unanswerable question
+# when it did not.
+#
+# Load average is not the corroborating signal, and neither is the guest's own
+# tick count — both were tried. Load average was 4 on the machine where this was
+# written while the boot was clean, because the load sat on other cores; and TCG
+# drives the guest timer from wall-clock time, so tick reports measure how long
+# the run lasted rather than how much CPU it got. What separates the two cases
+# is the host CPU the emulator was actually given, measured above.
 if grep -q 'timer: MISSED' "${log}"; then
-	fail "timer deadlines expired unserviced (on a loaded host, re-run: see the note above this check)"
+	if [[ "${emulator_cores}" -lt "${CORES_TO_BE_MEASURABLE}" ]]; then
+		indeterminate "the timer missed deadlines on a host that starved the emulator"
+	fi
+	fail "timer deadlines expired unserviced, and the emulator had the CPU to meet them"
 fi
 if grep -qi 'PANIC' "${log}"; then
 	fail "the kernel panicked"
 fi
 
-echo "boot-check: clean ($(grep -c 'ticks=' "${log}") tick reports)"
+printf 'boot-check: clean (%s tick reports, emulator had %s.%02d cores)\n' \
+	"$(grep -c 'ticks=' "${log}")" $((emulator_cores / 100)) $((emulator_cores % 100))

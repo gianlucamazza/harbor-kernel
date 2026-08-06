@@ -15,6 +15,8 @@
 #   make deploy     copy image + config + blobs to SD (SD_MOUNT=...)
 #   make restore-rpios  put Pi OS kernel+config back on the SD
 #   make serial     open serial console (SERIAL_DEV=...)
+#   make serial-capture  record the UART with host timestamps, no terminal
+#   make mutants    mutation-test the authority modules (~7 min, not in check)
 #   make clean
 #
 # Multi-arch scaffold (ADR-0015): exactly one product combo is supported.
@@ -101,7 +103,7 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering shellcheck xrefs
+check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering arch-board-free shellcheck xrefs
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -132,6 +134,11 @@ xrefs:
 # They are the architecture, and were enforced by review alone until now.
 layering:
 	./scripts/check-layering.sh
+
+# `layering` sees imports; this sees the other way of knowing the board, which
+# is to write its addresses out by hand. F23 lived in that blind spot.
+arch-board-free:
+	./scripts/check-arch-board-free.sh
 
 # The README claims a machine can settle, plus the arch facade against its contract.
 # Both have drifted, the gate list twice — once on the commit that added a gate.
@@ -194,6 +201,12 @@ no-early-exclusives: elf
 #
 # Not part of `make check`: it needs nightly, and the toolchain pin is
 # deliberately stable. Run it when touching the ring or the allocator.
+# Mutation testing. Not a `check` prerequisite: ~7 minutes, and the value is in
+# reading which mutants survived rather than in a threshold. See the script for
+# the baseline and why it is not zero.
+mutants:
+	./scripts/run-mutants.sh
+
 miri:
 	@if ! rustup toolchain list | grep -q nightly; then \
 	  echo "miri: SKIPPED — nightly not installed (rustup toolchain install nightly --component miri)" >&2; \
@@ -268,6 +281,12 @@ restore-rpios:
 
 serial:
 	./scripts/serial.sh "$(SERIAL_DEV)" "$(BAUD)"
+
+# Non-interactive half of `serial`: timestamps every line and opens a FIFO so a
+# script can send bytes to the board. Used for anything that has to answer
+# "how long between X and Y", which a picocom transcript cannot.
+serial-capture:
+	./scripts/serial-capture.sh
 
 clean:
 	cargo clean

@@ -18,13 +18,42 @@ covered.
 | Layering (`make layering`)                | Every `crate::` import edge in `src/`   | The rules in `architecture.md`: drivers never know the board, arch never names a driver, `exception` reaches only `irq` | Coupling that is not an import — a shared constant, an agreed register value, a naming convention |
 | Hardware                                  | A Pi 4B on a serial console             | Everything above, for real                                                                                             | Only what you actually boot and look at                                                        |
 
-**One assertion in the boot check measures the host, not the kernel.** TCG
-emulates the guest timer against wall-clock time, so `timer: MISSED` can fire
-because the machine running QEMU was busy — observed at load average 4 during a
-background `cargo install`, and clean on the same image a minute later. On an
-idle machine and on a CI runner it is a real signal. It is the only check here
-whose red can mean "try again", which is worth knowing before it costs someone
-an afternoon.
+**One assertion in the boot check cannot always be answered, and now says so.**
+TCG emulates the guest timer against wall-clock time, so `timer: MISSED` fires
+when the machine running QEMU is too busy to execute the guest — observed at
+load average 4 during a background `cargo install`, clean on the same image a
+minute later.
+
+For a while this was a comment telling the reader to re-run before believing the
+red. That is an invitation to ignore a failing gate, and there is not another one
+anywhere in this project. The check now corroborates instead of advising: it
+measures the host CPU the emulator actually received and reports a **third
+outcome** beside pass and fail.
+
+| Outcome | Meaning | Exit |
+| --- | --- | --- |
+| clean | every assertion held | 0 |
+| FAIL | a deadline was missed and the emulator had the CPU to meet it | 1 |
+| INDETERMINATE | a deadline was missed on a host that starved the emulator | 3 |
+
+Indeterminate is non-zero on purpose. The run did not establish its claim, and
+an unestablished claim must not read as a verified one.
+
+Two candidate signals were tried and discarded before the third worked, which is
+worth recording because both look reasonable:
+
+- **Load average** was 4 on this machine while the boot was clean. It measures
+  the machine, not this process, and the load sat on other cores.
+- **The guest's own tick reports.** TCG drives the guest timer from wall-clock
+  time, so the count tracks how long the run lasted rather than how much CPU it
+  received: under a 20% cgroup quota the guest still reported 13 ticks while
+  running on a fifth of one core.
+
+What separates the cases is the host CPU the emulator was given, read from
+`/proc/self/stat` (`cutime` + `cstime`) with no added dependency. Measured: 2.97
+cores idle, 0.07 cores under the 8% quota where `timer: MISSED` first appears —
+two orders of magnitude, so the one-core threshold sits nowhere near either
+edge.
 
 `make check` runs every layer above except the hardware one, and is deliberately
 a superset of CI: each CI job has a target here, so a green locally predicts a
@@ -578,12 +607,39 @@ region, the drain changed hands twice, a byte demonstrably arrived while it was
 suspended, and no storm occurred. That is strictly more than the boot check can
 say — it types nothing — and strictly less than proof.
 
-**Unexplained, and recorded rather than dropped.** After the bring-up image's
-guard probe panicked and halted, the board booted again on its own. Nothing in
-this kernel resets it, `*** halt ***` is a `wfi` loop, and no power cycle was
-performed between the two runs. It did not affect the evidence — the two
-bring-up boots agree line for line except the RNG word, which must differ — but
-a board that restarts after halt is doing something nobody has accounted for.
+**Unexplained, and now answered by the next boot rather than by a guess.**
+After the bring-up image's guard probe panicked and halted, the board booted
+again on its own. Nothing in this kernel resets it, `*** halt ***` is a `wfe`
+loop with IRQs masked, and no power cycle was performed between the two runs.
+It did not affect the evidence — the two bring-up boots agree line for line
+except the RNG word, which must differ — but a board that restarts after halt
+is doing something nobody has accounted for.
+
+Three stories fit it (a firmware watchdog never disarmed, a brownout, a glitch
+on the supply) and nothing distinguished them, so the kernel now reads the
+register that can. `PM_RSTS` latches the cause of the last reset, and every
+boot prints it:
+
+```
+reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+```
+
+QEMU models the block and reports a power-on. That is worth stating because the
+first version of this code assumed the opposite — by analogy with RNG200, which
+QEMU does not model — and the first boot refuted it. `ResetCause::None` is a
+distinct outcome from `PowerOn` precisely so a register that latched nothing
+cannot be reported as a clean power cycle.
+
+The decode is `kernel_core::reset`, with six host tests. The one that carries
+the question: a watchdog reset that *also* sets the power-on bit must read as a
+watchdog, because answering `PowerOn` there would get it wrong in the only
+direction that costs anything.
+
+Still open, and now cheap to close: reproduce the halt on hardware and read the
+line on the boot that follows. `make serial-capture` timestamps every line, so
+the interval is recorded too — the picocom transcript could not say how long
+after the halt the reboot happened, which is why the question stayed open at
+all.
 
 ## Bring-up gates
 
@@ -648,6 +704,13 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Table-arena reserve, derived                                     | restore `PAGE_TABLE_ARENA_SIZE = 16 * 0x1000` under the reserve now derived from `MAX_TASKS` | `BOOT REFUSED: table arena nearly exhausted: 9 tables left, need 14` — the arena had been sized against a reserve of six that assumed `MAX_TASKS = 4`, long after the scheduler raised it to 12 |
 | Facade isolation (ADR-0015)                                      | `use crate::arch::riscv64::cpu`, `use crate::{arch::aarch64::cpu, bsp}`, `use crate::bsp::rpi4::memmap` in one file outside both trees | three violations named with their line numbers — the first two were invisible to the gate as first written, which listed `aarch64` literally and looked for the `crate::` prefix a grouped import does not carry |
 | Arch contract vs facade                                          | delete the `probe` row from `arch-contract.md`                                                | `missing from the contract: probe` — the surface a port is written against and the surface the facade actually re-exports had nothing comparing them |
+| IRQ dispatch table seal                                          | register a handler *after* `irq::seal()`, on the real kernel path | `MUTATION: post-seal register -> Err(Sealed { irq: 7 })`, and `irq: sealed with 2 handlers registered` unchanged. The seal is what makes the IRQ path's shared `&'static` borrow sound, and until `kernel_core::irqtable` existed nothing had ever registered after sealing to watch it refuse — the invariant the safety argument rests on was asserted by a comment |
+| Dispatch table populated                                         | drop the `println!` reporting the seal count | `boot-check: FAIL — dispatch table sealed with the wrong number of handlers: (no seal line at all)`. A boot that registers nothing is indistinguishable from a healthy one until the first interrupt nobody answers |
+| ADR table in `architecture.md`                                   | run the new `xrefs` check against the table as it stood | `0015-multi-arch-scaffold.md is missing from the artefact table`, and the same for 0016. Both had been written, accepted and merged while the table a reader meets first still stopped at ADR-0014 — the third copy of a fact the gate was already comparing in two places |
+| README module map                                                | run the new `doc-claims` check against the Layout block as it stood | twenty of `kernel-core`'s twenty-five modules named as missing, plus `src/agent` — the agent shell, this project's central concept, absent from its own map — and `time.rs` listed as `time/` |
+| Board addresses inside the ISA tree                              | `const PERIPHERALS: u64 = 0xC000_0000;` and `RAM_TOP = 0x8000_0000` put back into `arch/aarch64/mmu.rs` | `arch-board-free: … names 0xC000_0000, a physical range base`, both lines, exit 1. This is F23, which stayed open for two days with `make layering` one directory away — that gate sees imports, and the other way to know a board is to write its addresses out by hand |
+| UART RX handover order                                           | swap the two steps in `RxLine::plan_suspend`, then in `plan_resume` | five tests red for the first, two for the second, each naming the exact step: `step 0 (ClearView) left the line armed with no view`. This is the defect a review found by reading — the window is an instruction pair wide and the boot check types nothing — and until `kernel_core::rxline` existed the only evidence it was fixed was a hardware boot nobody re-runs |
+| Boot check, host starvation                                      | `systemd-run --user --scope -p CPUQuota=8%` around the boot check, the level at which `timer: MISSED` first appears | `boot-check: INDETERMINATE — … the emulator got 0.07 cores of host CPU over 15s`, exit 3. The same script on an idle host reports `2.97 cores` and passes; with the assertion rewired to a line that is always present it reports `FAIL — … the emulator had the CPU to meet them`. All three outcomes seen, which is what makes the third one a verdict rather than a comment |
 | No-SIMD guard, tool absent                                       | `make no-simd OBJDUMP=llvm-objdump-does-not-exist`                                            | `no-simd: FAIL — refusing to report clean`. Before the check, the same run printed `no-simd: clean`: an empty pipeline made `grep .` fail and `!` inverted that into success, so the gate passed having disassembled nothing |
 | No-SIMD guard, FP present                                        | build the same tree for `aarch64-unknown-none` (hard float)                                   | `error: FP/SIMD registers found`, on `v0`. The image carries 9 scalar `h` registers the earlier `[qv]` pattern ignored — on this tree they share lines with `v`, so the widened pattern adds coverage for a class (`fmov d0, x1` with no vector register) rather than a detection |
 | Board feature guard                                              | `cargo build --no-default-features`                                                            | `no board selected — enable a board-* feature`; `make board-guard` asserts the refusal names the feature rather than cascading about a missing `bsp::board` |
@@ -716,9 +779,26 @@ reached them would have to break the invariant first, which would be testing the
 test. Recording them here is the honest alternative, and it is the same
 convention this document already uses for gates that cannot exist.
 
-Not wired into `make check`: a full run is seven minutes, and the value is in
-reading the survivors rather than in a threshold. It belongs where the ADRs say
-the multi-role review belongs — before a milestone that moves a boundary.
+**`make mutants`** runs it, over `ipc`, `tasks`, `layout`, `irqtable`, `rxline`
+and `reset`. Not wired into `make check`: a full run is around seven minutes,
+and the value is in reading the survivors rather than in a threshold. It belongs
+where ADR-0001 puts the multi-role review — before a milestone that moves a
+boundary.
+
+The target compares against the nine justified survivors above rather than
+against zero, because `cargo-mutants` exits non-zero whenever anything survives
+and a target that is red every time is a target nobody runs. More survivors than
+the baseline fails and prints them; fewer says so and asks for the baseline to
+be lowered, since a stale one hides the next regression.
+
+`kernel_core::reset::partition` contributes one *timeout*: its loop counter
+mutated to a no-op never terminates. That is a detected mutant and not a
+surviving one — the suite hangs rather than passes — and the baseline counts it
+separately.
+
+The modules added since the first run — `irqtable` and `rxline` — produced **no
+survivors at all**, which is the useful measure of tests written with the
+mutants in mind rather than found by them afterwards.
 
 ## Four defects no gate caught (2026-08-05)
 
@@ -740,8 +820,22 @@ one healthy boot. It is strong at proving the good path stays good, and blind to
 degraded paths, to bounds nobody currently exceeds, and to races too narrow to
 hit by accident. The cheapest way to close the class is to move the bookkeeping
 in `src/sched`, `src/mm/aspace.rs` and `src/ipc` down into `kernel-core`, where
-it can be tested on the host — today `src/` is 8.5 kLOC with zero `#[test]`, and
-every one of these four lived there.
+it can be tested on the host — every one of these four lived there.
+
+**Done, and the target that came with it was the wrong one.** `kernel_core::ipc`
+took the authority surface, `kernel_core::tasks` the scheduler state machine,
+`kernel_core::layout::UserWindow` the window geometry that the third defect
+above got wrong, and `kernel_core::irqtable` the dispatch table whose seal
+nothing had ever tested. `src/mm/aspace.rs` keeps its frame ledger and is the
+remaining candidate.
+
+The goal written at the time was "`src/` under 5000 lines". It went from 9181 to
+about 8900, and chasing the rest would mean moving hardware bindings into
+`kernel-core` to empty a directory — the opposite of why `kernel-core` exists.
+The number was never the point. What matters is whether the *decisions* in
+`src/` are falsifiable, and that is now true of IPC authority, scheduling, user
+window bounds and IRQ dispatch, and not yet of the address-space ledger or the
+console RX state machine.
 
 `sched::pending_overwrites()` was added with the second fix for the same reason:
 the single-slot invariant behind `pending_free` was documented as true and was

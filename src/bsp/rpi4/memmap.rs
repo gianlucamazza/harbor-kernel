@@ -6,6 +6,22 @@
 /// Start of the low peripheral MMIO window.
 pub const PERIPHERAL_BASE: usize = 0xFE00_0000;
 
+/// What each 1 GiB block of the early identity map covers, from PA 0 up.
+///
+/// This is board knowledge and nothing else: three gigabytes of RAM, then the
+/// gigabyte holding the low peripherals (`0xFE00_0000`) and the GIC
+/// (`0xFF84_0000`). It used to be written out inside `arch::mmu`, which is the
+/// tree reserved for CPU and ISA — finding F23, and the reason `mm::early`
+/// exists.
+///
+/// Three gigabytes rather than the two of [`IDENTITY_RAM_END`] on purpose: the
+/// firmware places the device tree wherever it likes, and the early map has to
+/// be able to read it. The kernel map that replaces this one covers far less.
+pub const EARLY_BLOCKS: [kernel_core::paging::MemKind; 4] = {
+    use kernel_core::paging::MemKind::{Device, NormalWb};
+    [NormalWb, NormalWb, NormalWb, Device]
+};
+
 /// Granule for page tables, frame pool, and agent MMIO maps (4 KiB).
 pub const FRAME_SIZE: usize = 0x1000;
 
@@ -25,6 +41,13 @@ pub const UART0_REG_BYTES: usize = FRAME_SIZE;
 ///
 /// Disjoint from [`USER_VA_BASE`] stack/text window and from kernel identity RAM.
 pub const USER_PL011_VA: u64 = 0x0000_0000_5000_0000;
+
+/// Power-management block: reset cause, watchdog, reboot partition.
+///
+/// Inside the `peripherals` window above, so it needs no mapping of its own.
+/// Read-only from this kernel — see `drivers::pm` for why that is structural
+/// rather than a convention.
+pub const PM_BASE: usize = PERIPHERAL_BASE + 0x0010_0000;
 
 /// RNG200 (iproc-rng200) register block — 0x28 bytes.
 ///

@@ -32,12 +32,47 @@ polled gates run under — from no attributes to Normal WB with caches on:
 5. **SPI must set `ITARGETSR` to CPU0** — PPIs are banked; UART SPI 153 will
    not reach core 0 without a target bit.
 
+## Dispatch table
+
+The table lives in [`kernel_core::irqtable`](../crates/kernel-core/src/irqtable.rs),
+host-tested; `src/irq` owns the chip, the interrupt mask, the counters an
+exception context can reach, and the call itself.
+
+**Sealing is the load-bearing part.** The table is mutable during bring-up and
+frozen by `irq::seal()` afterwards, and that is the whole reason the IRQ path
+may hold a shared `&'static` borrow while an interrupt arrives: after the seal
+there is no writer left to race. It was a rule nothing checked — `seal()` set a
+flag, `register()` read it, and nothing had ever registered a handler after
+sealing to watch it refuse.
+
+`register` returns `Result`, not `bool`, because the two refusals need
+different fixes: an id past the table is a constant to correct, a sealed table
+is a bring-up ordering bug. `bsp::rpi4::irq::BindError` carries which, and that
+error is what a refusal to boot prints.
+
+A claimed interrupt gets one of three answers, and the last two are counted
+apart on purpose:
+
+| Answer | Meaning | Counter |
+| ------ | ------- | ------- |
+| `Handle { handler, cookie }` | call it | — |
+| `Unhandled` | in range, nobody registered | `irq: unhandled` |
+| `OutOfRange` | beyond the table | out-of-range |
+
+An in-range miss is a line someone enabled and forgot to claim; an id past the
+table is a chip reporting something this kernel does not believe in. Collapsing
+them would hide the second inside the first.
+
+Bring-up prints `irq: sealed with N handlers registered` and `boot-check`
+asserts it: a boot that registered nothing looks exactly like a healthy one
+until the first interrupt nobody answers.
+
 ## Layering
 
 ```
 exception_irq_el1
     → irq::handle_cpu_irq()
-         chip.claim() → handlers[id]() → chip.end()
+         chip.claim() → table.lookup(id) → handler(cookie) → chip.end()
 
 exception_irq_el0        ← lower-EL IRQ during an unmasked EL0 session
     → save user context → El0Outcome::Irq
@@ -72,7 +107,22 @@ ARM Generic Timer physical: `CNTP_*`, IRQ **PPI 30**, frequency from
 | PL011 sources | `RXIM` + `RTIM` (single-char with FIFO) when kernel owns RX |
 | Handler       | `console::on_uart_rx_irq` → `ByteRing` (kernel drain) |
 | Consumer      | idle (`pop_rx`) when drain live; EL0 poll of `DR` when agent owns RX |
-| Agent own     | `suspend_rx` clears IMSC + base; LBE inject for self-test; `resume_rx` re-arms |
+| Agent own     | `suspend_rx` masks IMSC then clears the base; LBE inject for self-test; `resume_rx` publishes the base then re-arms |
+
+### Handover order
+
+UART0 is level-triggered, so an armed line the handler has no view to drain
+through cannot be cleared: the byte enters the handler, finds nothing to do,
+returns without popping `DR` or writing `ICR`, and the line re-presents
+immediately. One state — *armed, no view* — and both handover orders once passed
+through it.
+
+The rules are [`kernel_core::rxline`](../crates/kernel-core/src/rxline.rs),
+which decides and does not act: `suspend` and `resume` return the steps, and
+`console` performs them. That is what lets a host test walk the line through
+every intermediate state and ask, after each one, whether an interrupt arriving
+at that instant could still be cleared — swapping either pair makes it red at
+the exact step.
 
 ## Production bring-up
 

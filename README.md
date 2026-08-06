@@ -49,7 +49,7 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                   |
 | TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
-| Verification | 233 host tests (unit, integration, doc), Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
+| Verification | 256 host tests (unit, integration, doc), Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
 
 ## What does not exist yet
 
@@ -67,22 +67,33 @@ product surface: [`docs/architecture.md`](docs/architecture.md).
 ## Layout
 
 ```
-crates/kernel-core/  pure logic, unit-tested on the host:
-                     paging, allocators, GIC maths, SPSC ring, runqueue (M3),
-                     display/textgrid (debug-display math)
+crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
+  authority     cap, ipc (mailboxes + endpoints), syscall, tasks (scheduler
+                state machine), runqueue, wake, irqtable (dispatch + seal),
+                rxline (who owns the UART, and in what order it changes hands)
+  memory        paging, layout, frame, heap, bump
+  hardware maths gic, uart, spi, rng, timer, reset (PM_RSTS decode), a64, poll,
+                delay
+  data          ring (SPSC), display, textgrid, font8x8
 src/
   arch/           facade (`cfg(target_arch)`); only path policy imports
   arch/aarch64/   MMIO, CPU/DAIF, cache, vectors, MMU, switch, CNTP, probe, bootinfo,
                   boot.s, link.ld (ISA-owned entry + memory map)
-  irq/            IrqChip trait, dispatch table, counters
-  drivers/        PL011, GICv2, RNG200; spi + ili9486 (+ delay/pin) behind debug-display
+  irq/            IrqChip owner, mask, counters — the table itself is
+                  `kernel_core::irqtable`
+  drivers/        PL011, GICv2, RNG200, pm (reset cause); spi + ili9486
+                  (+ delay/pin) behind debug-display
   bsp/            board feature select → `board` re-export
-  bsp/rpi4/       memmap, GPIO, console, IRQ bind, RNG bind; display bind (feature)
-  bootstrap/      mod: boot sequence · console_loop: idle body · selftest: gates
-  sched/          cooperative TCB, spawn, yield, block, wake queue (ADR-0006/0008)
-  ipc/            mailboxes + CapId send/recv refuse (M4)
-  mm/             heap + GlobalAlloc, layout, task stacks + guard unmap
-  time/           tick counter
+  bsp/rpi4/       memmap, GPIO, console, IRQ bind, RNG bind, pm bind; display bind (feature)
+  bootstrap/      mod: boot sequence · console_loop: idle body · demos: smokes ·
+                  selftest: gates
+  sched/          TCBs, stacks, context switch, wake queue — the state machine is
+                  `kernel_core::tasks` (ADR-0006/0008)
+  ipc/            global, mask, hold check, wake — the authority surface is
+                  `kernel_core::ipc` (M4)
+  agent/          EL0 agent shell: AS + session, SVC dispatch, `SessionEnd`
+  mm/             heap + GlobalAlloc, layout, address spaces, task stacks + guard unmap
+  time.rs         tick counter
   status.rs       TFT status slots (debug-display only)
   console.rs      TX claim/install + RX ring + print / kprintln
   sync.rs         SyncCell for globals the IRQ path shares
@@ -90,7 +101,8 @@ src/
   main.rs         → bootstrap::run()
 boot/config.txt   arm_64bit, enable_uart, enable_gic
 docs/             architecture, arch-contract, porting, mmu, verification, adr, …
-scripts/          fetch-blobs, deploy-sd, serial, restore-rpios-boot, gate checks
+scripts/          fetch-blobs, deploy-sd, serial, serial-capture, restore-rpios-boot,
+                  gate checks
 ```
 
 Multi-arch **scaffold** (ADR-0015): AArch64 + Pi 4 only as product; see
@@ -113,7 +125,7 @@ is fine.
 
 ```bash
 make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
-make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering shellcheck xrefs, then clippy
+make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering arch-board-free shellcheck xrefs, then clippy
 make test         # host unit tests only
 make fmt
 ```

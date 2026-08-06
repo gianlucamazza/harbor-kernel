@@ -4,6 +4,7 @@ pub mod console;
 pub mod gpio;
 pub mod irq;
 pub mod memmap;
+pub mod pm;
 pub mod rng;
 
 #[cfg(feature = "debug-display")]
