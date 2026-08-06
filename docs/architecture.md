@@ -232,6 +232,11 @@ listed here block nothing and are tracked in that report alone.
 
 | Finding | Blocks              | Why                                                                                                                                                      |
 | ------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+Status for all thirty lives in the review itself, assigned by the 2026-08-06
+audit and verified against the code — this page used to track six of them while
+the report tracked none. One is still open: **F23**, board topology encoded in
+`arch` through the early map, assigned to an ADR that was never written.
+
 | F12     | — (resolved)        | Closed by [ADR-0006](adr/0006-cooperative-execution-model.md); the ADR was the deliverable                                                               |
 | F18     | — (resolved)        | Absolute `CNTP_CVAL` deadlines + missed-tick counter; pure cooperative yield never depended on it                                                        |
 | F13     | — (resolved)        | Shape accepted: `Handler = fn(IrqCookie)` + IRQ→voluntary wake queue — [ADR-0008](adr/0008-irq-handler-policy.md); code lands with first M4 PR           |

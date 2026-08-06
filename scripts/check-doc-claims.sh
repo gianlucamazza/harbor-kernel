@@ -74,5 +74,20 @@ if [[ -n "${missing}" ]]; then
 	exit 1
 fi
 
+# 4. Every accepted ADR says when it was accepted. The field is not derivable
+#    from `date:` — 0008 was proposed on the 4th and accepted on the 5th — and
+#    five of sixteen had drifted without it, which nothing noticed because
+#    nothing read the field. Reading it here is what makes it a claim.
+missing_accept=""
+for adr in docs/adr/0*.md; do
+	grep -q '^status: accepted' "${adr}" || continue
+	grep -q '^accepted: [0-9]' "${adr}" || missing_accept="${missing_accept} $(basename "${adr}")"
+done
+if [[ -n "${missing_accept}" ]]; then
+	echo "doc-claims: accepted ADRs with no acceptance date:${missing_accept}" >&2
+	exit 1
+fi
+
 echo "doc-claims: clean (${actual} tests, ${#makefile_gates} chars of gate list agree, \
-$(wc -l <<<"${facade}") facade modules in the contract)"
+$(wc -l <<<"${facade}") facade modules in the contract, \
+$(grep -lc '^status: accepted' docs/adr/0*.md | wc -l) ADRs dated)"

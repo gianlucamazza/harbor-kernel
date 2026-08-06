@@ -3,6 +3,7 @@ id: 0009
 title: Optional SPI TFT status surface (ILI9486 / Waveshare-class HAT)
 status: accepted
 date: 2026-08-05
+accepted: 2026-08-05
 ---
 
 # ADR-0009: Optional SPI TFT status surface

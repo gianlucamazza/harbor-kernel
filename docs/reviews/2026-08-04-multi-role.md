@@ -32,6 +32,56 @@ review statica. Il debito materiale è:
 
 ---
 
+## Stato dei findings
+
+Questo report elencava trenta findings e non ne registrava nessuno come chiuso;
+`architecture.md` ne tracciava sei. Nessuna delle due parti tracciava le altre
+ventiquattro — la forma esatta del rischio che ADR-0001 nomina per sé stesso.
+
+Gli stati qui sotto sono stati assegnati durante l'audit file-per-file del
+2026-08-06, verificando ciascuno contro il codice. `partly` e `open` sono
+altrettanto deliberati di `closed`.
+
+| ID | Stato | Evidenza |
+| --- | --- | --- |
+| F01 | **closed** | `mmu.md` describes the free-list allocator |
+| F02 | **closed** | P0 evidence in `verification.md` |
+| F03 | **closed** | README and docs name `--features bringup` |
+| F04 | **closed** | rule 7 rewritten around `SyncCell` and `activate` |
+| F05 | **closed** | `kernel-core` denies `unsafe_code` with one documented exception |
+| F06 | **closed** | `make check` is a superset; Miri and boot-check both in it |
+| F07 | **closed** | CI runs QEMU from a pinned Arch container (2026-08-06) |
+| F08 | **closed** | `assert_blobs_pinned` re-verifies at write time |
+| F09 | **closed** | `poll::until` bounds every TX spin |
+| F10 | **closed** | SP_EL1 exception stack with its own guard — HW evidence |
+| F11 | **closed** | allocator refuses and counts invalid frees |
+| F12 | **closed** | ADR-0006 |
+| F13 | **closed** | ADR-0008 shape; the cookie is still unread — see the note in `irq::register` |
+| F14 | **closed** | `refuse_to_boot` halts rather than offering an unprotected console |
+| F15 | **closed** | ADR-0011 risk-accept |
+| F16 | **closed** | every SAFETY comment rewritten during the 2026-08-06 audit |
+| F17 | **closed** | `MmuError::AlreadyMapped` refuses an exact collision |
+| F18 | **closed** | absolute `CNTP_CVAL` deadlines + missed-tick counter |
+| F19 | **closed** | `interrupts_bound` guards the unmask |
+| F20 | **closed** | `RX_DROPPED` counted and asserted by the boot check |
+| F21 | **closed** | `blr`/`br` refused, `b` followed (2026-08-06) |
+| F22 | **partly** | fourteen negative assertions now; no fault injection or hostile EL0 |
+| F23 | **open** | no ADR. The early map still encodes board topology in `arch` |
+| F24 | **closed** | `make layering`, extended to facade isolation in ADR-0015 |
+| F25 | **closed** | kept deliberately — the disassembly gates need symbol names; `objcopy` drops the sections from the image |
+| F26 | **closed** | ADR-0013 |
+| F27 | **closed** | `make doc-claims` |
+| F28 | **closed** | `gicv2` routes classification, spurious detection and bit slots through `kernel_core::gic` |
+| F29 | **closed** | shared mount guard; backup is a precondition (2026-08-06) |
+| F30 | **closed** | paths corrected; `bootinfo` documents what consumes the DTB |
+
+Uno solo resta aperto. F23 — la topologia di board codificata in `arch`
+attraverso la mappa precoce — era stata assegnata a un ADR che non è mai stato
+scritto; ADR-0015 ha spostato `boot.s` e `link.ld` sotto l'albero ISA senza
+affrontare quel punto.
+
+---
+
 ## Top findings (per severità)
 
 | Sev | ID | Ruolo | Titolo | Azione | Effort |

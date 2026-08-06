@@ -3,6 +3,7 @@ id: 0011
 title: DTB mapped but board truth stays compiled-in (F15 risk-accept)
 status: accepted
 date: 2026-08-05
+accepted: 2026-08-05
 ---
 
 # ADR-0011: DTB mapped, board constants remain the source of truth

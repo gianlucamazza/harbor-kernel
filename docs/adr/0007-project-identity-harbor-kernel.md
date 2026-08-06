@@ -3,6 +3,7 @@ id: 0007
 title: Project identity — Harbor and harbor-kernel
 status: accepted
 date: 2026-08-04
+accepted: 2026-08-04
 ---
 
 # ADR-0007: Project identity — Harbor and `harbor-kernel`
