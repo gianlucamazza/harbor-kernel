@@ -230,7 +230,6 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 | 1 | **Accept the two M7 ADRs** (PR #7) | Both `accepted` with a date; [ADR-0001](adr/0001-multi-role-analysis.md) blocks M7 until then, and `make doc-claims` enforces that status and date move together |
 | 2 | **M7 slice 1**: EL0 session state into the `Tcb` | Two agents live at EL0 at once; a single `CURRENT_TCB` replaces nine `static mut`; the entry path *asserts* the pointer matches the current task — the one "nothing" row the capability-ABI ADR carries |
 | 3 | **M7 slices 2–4**: cap table + `SYS_SEND`/`SYS_RECV`; `SYS_PUTC` behind a console capability denied by default; fault policy | The M7 done-when above, on silicon |
-| 4 | **F23** — early map out of `arch` | Board topology comes from the BSP; a gate refuses physical-address literals under `src/arch/` |
 | 5 | **Threat model + `SECURITY.md`** | After the capability-ABI ADR, which is where authority is finally defined |
 | 6 | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without kernel draining `DR` |
 | 7 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
@@ -246,8 +245,12 @@ listed here block nothing and are tracked in that report alone.
 | ------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 Status for all thirty lives in the review itself, assigned by the 2026-08-06
 audit and verified against the code — this page used to track six of them while
-the report tracked none. One is still open: **F23**, board topology encoded in
-`arch` through the early map, assigned to an ADR that was never written.
+the report tracked none. **None is still open.** The last was F23, board
+topology encoded in `arch` through the early map: closed on 2026-08-06 by moving
+the map to `src/mm/early.rs`, where the seam between board and CPU has a name
+instead of a hiding place, and by `make arch-board-free`, which sees the way of
+knowing a board that `make layering` cannot — writing its addresses out by
+hand.
 
 | F12     | — (resolved)        | Closed by [ADR-0006](adr/0006-cooperative-execution-model.md); the ADR was the deliverable                                                               |
 | F18     | — (resolved)        | Absolute `CNTP_CVAL` deadlines + missed-tick counter; pure cooperative yield never depended on it                                                        |
@@ -255,6 +258,7 @@ the report tracked none. One is still open: **F23**, board topology encoded in
 | F26     | — (resolved M6 v1)  | [ADR-0013](adr/0013-narrow-device-windows.md) **accepted**; agent maps are page-sized named windows only; kernel coarse Device may remain until a P-pass  |
 | F15     | — (resolved)        | Risk-accepted: board truth is BSP constants; DTB mapped RO for a future parser — [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)           |
 | F24     | — (resolved)        | Layering rules 1–4 are enforced by `make layering`; non-import coupling remains review-only (gate blind spots in verification)                           |
+| F23     | — (resolved)        | Early map in `mm::early`; board says which gigabyte is what via `memmap::EARLY_BLOCKS`; `make arch-board-free` refuses a physical range base under `src/arch/` |
 
 ### Side-track (not an M/P milestone)
 

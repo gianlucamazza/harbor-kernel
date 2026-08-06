@@ -14,6 +14,7 @@
 //! conversion between offsets and raw pointers.
 
 pub mod aspace;
+pub mod early;
 pub mod frames;
 pub mod layout;
 pub mod task_stack;
