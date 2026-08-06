@@ -98,7 +98,7 @@ No `drivers` / `bsp` from `agent` — board PA/VA for demos live in bootstrap.
 | ----------- | --------------- | ---------------------------------- |
 | Clocksource | `arch/timer`    | CNTP deadline, ISTATUS, re-arm     |
 | Irqchip     | `drivers/gicv2` | enable, claim/EOI, SPI target CPU0 |
-| Dispatch    | `irq`           | id → handler                       |
+| Dispatch    | `irq` + `kernel_core::irqtable` | id → handler; seal freezes the table |
 | Tick policy | `time`          | `on_timer_irq`, `ticks()`          |
 | Console RX  | `console`       | ring / `suspend_rx`·`resume_rx`; agent poll when owned |
 | Bind        | `bsp/rpi4/irq`  | TIMER=30, UART=153, static GIC     |
@@ -162,6 +162,7 @@ applies forwards, or it is not the same standard.
 | M4  | [ADR-0008](adr/0008-irq-handler-policy.md) (**accepted**): cookie handlers + wake queue; mailbox ABI  | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console; IRQ wakes use the ADR-0008 queue only      |
 | M5  | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) + [ADR-0014](adr/0014-ttbr-split-m5.md) (TTBR0 v1); multi-role prep | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
 | M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**accepted**); F26                              | EL0 agent maps **only** the PL011 page, touches the device, is destroyed (kill); kernel console/ticks continue. RX ownership (poll + real bytes) is a post-v1 product slice gated on QEMU, HW stamp open. |
+| M7  | The EL0 capability ABI and agent fault policy ADRs — written, **proposed**, open in PR #7. [ADR-0001](adr/0001-multi-role-analysis.md) blocks the milestone until they are accepted, and this table gains their ids when they merge (the `xrefs` gate refuses an id that names no file) | Two EL0 agents exchange a message neither can forge; one of them faults; its creator handles the fault and the other keeps running; the kernel stays alive — **on silicon**, with a serial transcript. Needs the EL0 session state in the `Tcb` first: today nine machine-wide `static mut` make two live sessions impossible, so the sentence is not merely unimplemented but unsayable |
 
 M3 is **done (HW)**. [ADR-0006](adr/0006-cooperative-execution-model.md) is
 **accepted**. Observed on **Pi 4B silicon**: interleaved `task-a`/`task-b`,
@@ -201,27 +202,38 @@ show the same oracles
 
 Pi 4B stamp detail: [verification.md §M5-P / M6](verification.md#m5-p--m6-post).
 
-### Closed (QEMU) — issue #1 (EL0 IRQ / putc / RX own)
+### Closed (HW) — issue #1, stamped on silicon 2026-08-06
+
+Every row below was QEMU-only until the hardware session of 2026-08-06.
+Transcript and the four register-level claims:
+[verification.md §the four changes of 2026-08-05](verification.md#hardware-evidence-the-four-changes-of-2026-08-05-closed).
 
 | Slice | Status | Evidence |
 | ----- | ------ | -------- |
-| **EL0 IRQ save/resume** | **done (QEMU)** | architectural re-execute; `el0-task: irq resume irqs=N` |
-| **`SYS_PUTC`** | **done (QEMU)** | imm 2; `el0-task: putc bytes=2` |
-| **RX poll empty** | **done (QEMU)** | `pl011-agent: rx poll empty` |
-| **RX-owned agent (poll)** | **done (QEMU)** | drain off + IMSC mask; `rx own begin/end` |
-| **Real RX bytes** | **done (QEMU)** | PL011 **LBE** inject; `rx own bytes=2` |
-| **Kill restores kernel drain** | **done (QEMU)** | `resume_rx` + `killed ok`; idle ticks continue |
+| **EL0 IRQ save/resume** | **done (HW)** | architectural re-execute; `el0-task: irq resume irqs=1` |
+| **`SYS_PUTC`** | **done (HW)** | imm 2; `el0-task: putc bytes=2` |
+| **RX poll empty** | **done (HW)** | `pl011-agent: rx poll empty` |
+| **RX-owned agent (poll)** | **done (HW)** | drain off + IMSC mask; `rx own begin/end`, and an injected byte reached the *agent* while the kernel drain was suspended (`rx poll unexpected putcs=1`) |
+| **Real RX bytes** | **done (HW)** | PL011 **LBE** inject; `rx own bytes=2`, intact underneath ~3500 injected bytes |
+| **Kill restores kernel drain** | **done (HW)** | `resume_rx` + `killed ok`; idle ticks ran to 270 with no storm |
 | Kernel TX / panic | preserved | TX never handed to agent |
 
-QEMU gate: `make boot-check` / `scripts/qemu-boot-check.sh` (all of the above oracles).
+QEMU gate: `make boot-check` / `scripts/qemu-boot-check.sh` (all of the above
+oracles). It has three outcomes, not two: `timer: MISSED` is corroborated
+against the host CPU the emulator received, and reports **INDETERMINATE**
+(exit 3) rather than a red it cannot attribute.
 
 ### Next (ordered)
 
 | # | Work | Done when |
 | - | ---- | --------- |
-| 1 | **HW stamp** (issue #1 QEMU oracles on Pi 4B) | Serial transcript matches putc / irq resume / rx own / kill |
-| 2 | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without kernel draining `DR` |
-| 3 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
+| 1 | **Accept the two M7 ADRs** (PR #7) | Both `accepted` with a date; [ADR-0001](adr/0001-multi-role-analysis.md) blocks M7 until then, and `make doc-claims` enforces that status and date move together |
+| 2 | **M7 slice 1**: EL0 session state into the `Tcb` | Two agents live at EL0 at once; a single `CURRENT_TCB` replaces nine `static mut`; the entry path *asserts* the pointer matches the current task — the one "nothing" row the capability-ABI ADR carries |
+| 3 | **M7 slices 2–4**: cap table + `SYS_SEND`/`SYS_RECV`; `SYS_PUTC` behind a console capability denied by default; fault policy | The M7 done-when above, on silicon |
+| 4 | **F23** — early map out of `arch` | Board topology comes from the BSP; a gate refuses physical-address literals under `src/arch/` |
+| 5 | **Threat model + `SECURITY.md`** | After the capability-ABI ADR, which is where authority is finally defined |
+| 6 | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without kernel draining `DR` |
+| 7 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 
@@ -280,6 +292,8 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) | Frame allocator for user AS; M5 needs-first (**accepted**) |
 | [ADR-0013](adr/0013-narrow-device-windows.md) | Narrow device MMIO for agents; F26/M6 v1 (**accepted**) |
 | [ADR-0014](adr/0014-ttbr-split-m5.md) | TTBR regime M5 v1 (TTBR0 + kernel maps in user AS) (**accepted**) |
+| [ADR-0015](adr/0015-multi-arch-scaffold.md) | Multi-arch scaffold: cfg facade + board features (**accepted**) |
+| [ADR-0016](adr/0016-el0-session-protocol.md) | EL0 session protocol: one slot, prose contract, named successor (**accepted**) |
 | [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
 
 ## Non-goals

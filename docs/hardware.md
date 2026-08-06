@@ -127,6 +127,49 @@ a soft console line — not a panic. Silicon has the block and should log
 The block needs no special clock/power setup beyond an already-running SoC. It
 sits inside the existing 16 MiB peripheral Device map (`0xFE00_0000`).
 
+## Power management (reset cause)
+
+| Item | Value |
+| ---- | ----- |
+| Base | `0xFE10_0000` (inside the mapped `peripherals` window — no window of its own) |
+| `PM_RSTS` | `+0x20`, latched across a reset |
+| Access | **read-only from this kernel** |
+
+Read once at boot and printed, which is why:
+
+```
+reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+```
+
+`cpu::halt()` is `loop { wfe }` with IRQs masked and cannot exit, so a board
+that boots again after `*** halt ***` was reset by something outside this
+kernel. That happened during the 2026-08-06 session and three stories fit it —
+a firmware watchdog never disarmed, a brownout, a glitch on the supply — with
+nothing to choose between them. This register chooses.
+
+| Bits | Cause | Meaning |
+| ---- | ----- | ------- |
+| `0x1000` | `HADPOR` | power-on |
+| `0x0070` | `HADWR*` | watchdog (hard / full / request) |
+| `0x0700` | `HADSR*` | software reset — nothing here writes one, so the firmware did |
+| `0x0007` | `HADDR*` | debug reset |
+| `0..11` (interleaved) | partition | six two-bit fields, sharing the register with the causes above |
+
+Decoded by `kernel_core::reset`, most specific first: a watchdog reset that
+*also* sets the power-on bit reads as a watchdog, because answering `PowerOn`
+there would get the question wrong in the only direction that costs anything.
+An empty register is `None` and not `PowerOn` — a block that latched nothing
+must not be able to manufacture a clean power cycle.
+
+QEMU `raspi4b` **does** model the block and reports a power-on. The first
+version of this code assumed it did not, by analogy with RNG200, and the first
+boot refuted it.
+
+Read-only is structural rather than a convention: `PM_RSTC` and `PM_WDOG` sit
+in the same block, reboot the board and arm the watchdog, and take a `0x5a`
+password in the top byte — a write with the wrong value is a reset rather than
+an error. `drivers::pm` has no write function to reach for by mistake.
+
 ## SD card
 
 1. Partition 1: FAT32, bootable flag optional.

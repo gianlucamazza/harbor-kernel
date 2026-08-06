@@ -706,6 +706,8 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Arch contract vs facade                                          | delete the `probe` row from `arch-contract.md`                                                | `missing from the contract: probe` — the surface a port is written against and the surface the facade actually re-exports had nothing comparing them |
 | IRQ dispatch table seal                                          | register a handler *after* `irq::seal()`, on the real kernel path | `MUTATION: post-seal register -> Err(Sealed { irq: 7 })`, and `irq: sealed with 2 handlers registered` unchanged. The seal is what makes the IRQ path's shared `&'static` borrow sound, and until `kernel_core::irqtable` existed nothing had ever registered after sealing to watch it refuse — the invariant the safety argument rests on was asserted by a comment |
 | Dispatch table populated                                         | drop the `println!` reporting the seal count | `boot-check: FAIL — dispatch table sealed with the wrong number of handlers: (no seal line at all)`. A boot that registers nothing is indistinguishable from a healthy one until the first interrupt nobody answers |
+| ADR table in `architecture.md`                                   | run the new `xrefs` check against the table as it stood | `0015-multi-arch-scaffold.md is missing from the artefact table`, and the same for 0016. Both had been written, accepted and merged while the table a reader meets first still stopped at ADR-0014 — the third copy of a fact the gate was already comparing in two places |
+| README module map                                                | run the new `doc-claims` check against the Layout block as it stood | twenty of `kernel-core`'s twenty-five modules named as missing, plus `src/agent` — the agent shell, this project's central concept, absent from its own map — and `time.rs` listed as `time/` |
 | Boot check, host starvation                                      | `systemd-run --user --scope -p CPUQuota=8%` around the boot check, the level at which `timer: MISSED` first appears | `boot-check: INDETERMINATE — … the emulator got 0.07 cores of host CPU over 15s`, exit 3. The same script on an idle host reports `2.97 cores` and passes; with the assertion rewired to a line that is always present it reports `FAIL — … the emulator had the CPU to meet them`. All three outcomes seen, which is what makes the third one a verdict rather than a comment |
 | No-SIMD guard, tool absent                                       | `make no-simd OBJDUMP=llvm-objdump-does-not-exist`                                            | `no-simd: FAIL — refusing to report clean`. Before the check, the same run printed `no-simd: clean`: an empty pipeline made `grep .` fail and `!` inverted that into success, so the gate passed having disassembled nothing |
 | No-SIMD guard, FP present                                        | build the same tree for `aarch64-unknown-none` (hard float)                                   | `error: FP/SIMD registers found`, on `v0`. The image carries 9 scalar `h` registers the earlier `[qv]` pattern ignored — on this tree they share lines with `v`, so the widened pattern adds coverage for a class (`fmov d0, x1` with no vector register) rather than a detection |
@@ -799,8 +801,22 @@ one healthy boot. It is strong at proving the good path stays good, and blind to
 degraded paths, to bounds nobody currently exceeds, and to races too narrow to
 hit by accident. The cheapest way to close the class is to move the bookkeeping
 in `src/sched`, `src/mm/aspace.rs` and `src/ipc` down into `kernel-core`, where
-it can be tested on the host — today `src/` is 8.5 kLOC with zero `#[test]`, and
-every one of these four lived there.
+it can be tested on the host — every one of these four lived there.
+
+**Done, and the target that came with it was the wrong one.** `kernel_core::ipc`
+took the authority surface, `kernel_core::tasks` the scheduler state machine,
+`kernel_core::layout::UserWindow` the window geometry that the third defect
+above got wrong, and `kernel_core::irqtable` the dispatch table whose seal
+nothing had ever tested. `src/mm/aspace.rs` keeps its frame ledger and is the
+remaining candidate.
+
+The goal written at the time was "`src/` under 5000 lines". It went from 9181 to
+about 8900, and chasing the rest would mean moving hardware bindings into
+`kernel-core` to empty a directory — the opposite of why `kernel-core` exists.
+The number was never the point. What matters is whether the *decisions* in
+`src/` are falsifiable, and that is now true of IPC authority, scheduling, user
+window bounds and IRQ dispatch, and not yet of the address-space ledger or the
+console RX state machine.
 
 `sched::pending_overwrites()` was added with the second fix for the same reason:
 the single-slot invariant behind `pending_free` was documented as true and was
