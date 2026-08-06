@@ -12,6 +12,17 @@ use kernel_core::paging::{
 use crate::arch::{cache, mmu};
 use crate::bsp::board::memmap::{FRAME_SIZE, USER_STACK_PAGES, USER_STACK_TOP, USER_VA_BASE};
 use crate::mm::frames;
+use kernel_core::layout::UserWindow;
+
+/// The private VA window every prepared AS gets (ADR-0014).
+///
+/// Geometry and bounds live in [`UserWindow`], where they are host-tested; this
+/// only names the board's numbers.
+const WINDOW: UserWindow = UserWindow {
+    base: USER_VA_BASE,
+    pages: USER_STACK_PAGES,
+    frame: FRAME_SIZE,
+};
 
 // ## Three things that are correct today for reasons written somewhere else
 //
@@ -186,9 +197,9 @@ impl AddressSpace {
         if !self.prepared || self.user_base_phys == 0 {
             return Err(AsError::BadTable);
         }
-        if offset.saturating_add(bytes.len()) > FRAME_SIZE {
-            return Err(AsError::OutOfRange);
-        }
+        WINDOW
+            .bound_text_write(offset, bytes.len())
+            .map_err(|_| AsError::OutOfRange)?;
         let dest = self.user_base_phys + offset;
         // SAFETY: `user_base_phys` is page 0 of the user window, a pool frame
         // this AS owns, identity-mapped RW for EL1 — so the kernel may write it

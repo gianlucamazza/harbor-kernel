@@ -268,9 +268,165 @@ fn validate(regions: &[Region], bounds: &Boundaries) -> Result<(), LayoutError> 
     Ok(())
 }
 
+/// The private VA window an EL0 agent runs in (ADR-0014).
+///
+/// Page 0 is the agent's text, mapped `USER_RX`; the pages above it are its
+/// stack, mapped `USER_RW`, with `SP_EL0` starting at the top. Fixed by the BSP
+/// rather than negotiated — there is no loader and no binary format yet, so the
+/// layout *is* the ABI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UserWindow {
+    /// Lowest VA: the text page.
+    pub base: u64,
+    /// Total pages, text included. Must be at least 2 — one text, one stack.
+    pub pages: usize,
+    /// Page size in bytes.
+    pub frame: usize,
+}
+
+/// Why an access to a [`UserWindow`] was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowError {
+    /// Fewer than two pages: no room for both text and a stack.
+    TooSmall,
+    /// The write would leave the text page.
+    OutOfTextPage,
+}
+
+impl UserWindow {
+    /// Exclusive top of the window — the initial `SP_EL0`, since the stack
+    /// grows down.
+    #[inline]
+    pub const fn stack_top(&self) -> u64 {
+        self.base + (self.pages as u64) * (self.frame as u64)
+    }
+
+    /// Where EL0 starts executing: the beginning of the text page.
+    #[inline]
+    pub const fn entry(&self) -> u64 {
+        self.base
+    }
+
+    /// True for the page that must be mapped executable rather than writable.
+    ///
+    /// Exactly one, and it is the lowest: W^X applies to a user window as much
+    /// as to the kernel map, so no page is ever both.
+    #[inline]
+    pub const fn is_text_page(&self, index: usize) -> bool {
+        index == 0
+    }
+
+    #[inline]
+    pub const fn validate(&self) -> Result<(), WindowError> {
+        if self.pages < 2 {
+            return Err(WindowError::TooSmall);
+        }
+        Ok(())
+    }
+
+    /// Bound a write of `len` bytes at `offset` into the **text page**.
+    ///
+    /// One page, not the whole window, and the distinction is the point. The
+    /// kernel pokes user text through the identity map using the physical
+    /// address of page 0 — the pages above it come from separate frame
+    /// allocations and are contiguous only by accident of the pool's free
+    /// order. Validating against `pages * frame` licensed exactly the write it
+    /// should refuse: at any offset past the first page it lands in whatever
+    /// frame happens to follow, which after a create/destroy cycle is another
+    /// address space's page tables.
+    #[inline]
+    pub const fn bound_text_write(&self, offset: usize, len: usize) -> Result<(), WindowError> {
+        match offset.checked_add(len) {
+            Some(end) if end <= self.frame => Ok(()),
+            _ => Err(WindowError::OutOfTextPage),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The window `bsp::rpi4` fixes: 4 pages of 4 KiB at 0x4000_0000.
+    const WIN: UserWindow = UserWindow {
+        base: 0x4000_0000,
+        pages: 4,
+        frame: 0x1000,
+    };
+
+    #[test]
+    fn the_window_starts_where_el0_enters_and_ends_where_its_stack_begins() {
+        assert_eq!(WIN.entry(), 0x4000_0000);
+        assert_eq!(WIN.stack_top(), 0x4000_4000, "SP_EL0 starts at the top");
+        assert!(WIN.validate().is_ok());
+    }
+
+    #[test]
+    fn exactly_one_page_is_text() {
+        // W^X inside the user window too: the executable page is never one of
+        // the writable ones.
+        assert!(WIN.is_text_page(0));
+        for i in 1..WIN.pages {
+            assert!(!WIN.is_text_page(i), "page {i} is stack");
+        }
+    }
+
+    #[test]
+    fn a_window_with_no_room_for_a_stack_is_refused() {
+        let cramped = UserWindow { pages: 1, ..WIN };
+        assert_eq!(cramped.validate(), Err(WindowError::TooSmall));
+    }
+
+    #[test]
+    fn a_text_write_may_fill_the_page_and_no_more() {
+        assert_eq!(WIN.bound_text_write(0, 0x1000), Ok(()), "exactly one page");
+        assert_eq!(
+            WIN.bound_text_write(0, 0x1001),
+            Err(WindowError::OutOfTextPage)
+        );
+        assert_eq!(WIN.bound_text_write(0xFFF, 1), Ok(()), "last byte");
+        assert_eq!(
+            WIN.bound_text_write(0xFFF, 2),
+            Err(WindowError::OutOfTextPage)
+        );
+    }
+
+    #[test]
+    fn a_write_past_the_text_page_is_refused_even_though_the_window_is_bigger() {
+        // The defect. The bound used to be `pages * frame`, which made every
+        // offset in the window look legal — while the write went to the
+        // physical address of page 0 alone, so anything past 0x1000 landed in
+        // whatever frame followed it in the pool.
+        assert_eq!(
+            WIN.bound_text_write(0x1000, 1),
+            Err(WindowError::OutOfTextPage),
+            "still inside the window, already outside the page being written"
+        );
+        assert_eq!(
+            WIN.bound_text_write(0x3000, 4),
+            Err(WindowError::OutOfTextPage)
+        );
+    }
+
+    #[test]
+    fn an_offset_that_would_overflow_is_refused_not_wrapped() {
+        // `offset + len` on a 64-bit host wraps to something small and looks
+        // legal. The check is `checked_add` for that reason.
+        assert_eq!(
+            WIN.bound_text_write(usize::MAX, 1),
+            Err(WindowError::OutOfTextPage)
+        );
+        assert_eq!(
+            WIN.bound_text_write(usize::MAX - 1, 8),
+            Err(WindowError::OutOfTextPage)
+        );
+    }
+
+    #[test]
+    fn an_empty_write_is_allowed_anywhere_inside_the_page() {
+        assert_eq!(WIN.bound_text_write(0, 0), Ok(()));
+        assert_eq!(WIN.bound_text_write(0x1000, 0), Ok(()), "the boundary");
+    }
 
     /// Boundaries with the shape `link.ld` produces, at round numbers.
     fn bounds() -> Boundaries {
