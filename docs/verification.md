@@ -523,6 +523,58 @@ instead.
 The W^X probe needs no re-run: `.text` and `.rodata` were not touched by the
 split, and its recorded ESR does not depend on an address that moved.
 
+## Hardware evidence: M7 slice 1, per-task EL0 sessions (closed)
+
+Pi 4B, 2026-08-06 21:25, `.serial-log/20260806-212223.log`. The first boot after
+the nine machine-wide `static mut` became one `El0Session` per task behind one
+published pointer (ADR-0017 §1).
+
+```
+21:25:12.061376 Harbor: hello
+21:25:12.061960 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+21:25:12.084894 el0: SVC ok  imm=0
+21:25:12.085029 el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+21:25:12.215606 el0-task: svc ping
+21:25:12.215703 el0-task: svc refuse imm=0x99
+21:25:12.236377 el0-task: resume pings=2
+21:25:12.236607 H!el0-task: putc bytes=2
+21:25:12.236739 el0-task: irq resume irqs=1
+21:25:12.237034 pl011-agent: rx own begin
+21:25:12.237121 agent-b: svc ping
+21:25:12.237485 agent-a: svc ping
+21:25:12.256232 RXagents: concurrent ok  pool=496
+21:25:12.256332 ipc: got tag=1 a=42
+21:25:12.256744  tpl011-agent: rx own bytes=2
+21:25:12.256938 pl011-agent: killed ok  pool=512
+```
+
+Every EL0 oracle the previous hardware session produced, produced again from
+per-task session state, byte for byte where it is a count: `resume pings=2`,
+`putc bytes=2`, `irq resume irqs=1`, `rx own bytes=2`, `concurrent ok pool=496`,
+`killed ok pool=512`. The two pool numbers match the 2026-08-06 15:43 session
+exactly, so the change costs no frames.
+
+**What the absence proves.** `arch::el0` panics if the published session is not
+the one the caller named, and every EL0 entry on this boot went through that
+check — five agents (`el0-task`, `pl011-agent`, `agent-a`, `agent-b`, and
+bootstrap on idle) across four separate tasks. No panic, so the scheduler
+published correctly on every switch that reached EL0. Deleting that publication
+panics on the first spawned-task entry (see the checks-seen-to-fail table), so
+the silence is a result rather than an untested path.
+
+**What it does not prove.** Two agents *interleave* here — `agent-b: svc ping`,
+`agent-a: svc ping` and `task-a`/`task-b` between them — but each still enters
+EL0 inside `cpu::without_irqs`, so no switch happens while a session is *live*.
+Per-task state makes that switch harmless; nothing yet performs it. That is
+M7 slice 2's evidence to produce, not this one's.
+
+**Note on the capture, not the kernel.** The first boot of this session
+(21:22:04) is in `.serial-log/20260806-212133.log` and stops after 36 lines, mid
+bring-up: the capture had been started through `| head -40`, which closed the
+pipe and killed the recorder while the board kept running. Nothing was wrong
+with the boot; the transcript simply did not exist for it, which is the same as
+not having run it. Re-run from a power cycle with the recorder unpiped.
+
 ## Hardware evidence: the four changes of 2026-08-05 (closed)
 
 Four changes from the multi-role review had never run on silicon, and QEMU is
