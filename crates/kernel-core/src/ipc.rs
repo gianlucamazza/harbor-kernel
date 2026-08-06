@@ -174,6 +174,25 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
         self.refusals
     }
 
+    /// Record an authority refusal the table could not have detected itself.
+    ///
+    /// Two checks guard a send and only one of them is here. *Does this
+    /// capability still name a live endpoint with this right* is this table's
+    /// question; *was it given to the caller at all* needs to know who is
+    /// calling, which a pure table cannot. The kernel answers the second one
+    /// and reports it here.
+    ///
+    /// It exists because the alternative was a counter beside the table, and
+    /// that counter was **wrong**: the kernel kept its own atomic and also
+    /// published `refusals()` over it after every table operation, so a
+    /// caller-side refusal survived only until the next successful send. The
+    /// boot log showed `count=1` after two distinct refusals, and the gate
+    /// asserting a non-zero count passed on the wrong one.
+    #[inline]
+    pub fn note_authority_refusal(&mut self) {
+        self.refusals.authority += 1;
+    }
+
     /// Allocate a mailbox and mint one send and one recv capability for it.
     ///
     /// Both carry the same generation: they name the same channel at the same
@@ -357,6 +376,31 @@ mod tests {
             a: u64::from(tag) * 2,
             b: 0,
         }
+    }
+
+    #[test]
+    fn a_noted_refusal_survives_later_traffic() {
+        // The regression this method exists for. The count used to live in an
+        // atomic beside the table while `refusals()` was published over that
+        // atomic after every operation, so one successful send erased the
+        // record of a refusal that had already happened.
+        let mut t = T::new();
+        let ch = t.create_channel().unwrap();
+        t.note_authority_refusal();
+        assert_eq!(t.refusals().authority, 1);
+
+        assert_eq!(t.send(ch.send, msg(7)), Ok(None));
+        assert_eq!(t.try_recv(ch.recv), Ok(msg(7)));
+        assert_eq!(
+            t.refusals().authority,
+            1,
+            "a successful round trip erased a refusal that had happened"
+        );
+
+        // And it accumulates with the ones the table detects itself, because
+        // they are the same kind of event seen from two sides.
+        assert!(t.send(CapId::new(9, 9), msg(1)).is_err());
+        assert_eq!(t.refusals().authority, 2);
     }
 
     #[test]

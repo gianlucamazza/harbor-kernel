@@ -24,7 +24,7 @@
 
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
-use kernel_core::cap::CapId;
+use kernel_core::cap::{CapId, SlotError};
 pub use kernel_core::runqueue::TaskId;
 use kernel_core::tasks::{Decision, Switch, Tasks};
 use kernel_core::wake::WakeQueue;
@@ -216,15 +216,28 @@ pub fn current_task_id() -> TaskId {
 }
 
 /// Cap at local slot `i` for the current task, if any.
+#[inline]
 pub fn my_cap(i: usize) -> Option<CapId> {
-    if i >= MAX_CAPS_PER_TASK {
-        return None;
-    }
+    my_cap_slot(i).ok()
+}
+
+/// Resolve a slot against the current task's own capability table.
+///
+/// The whole of what an EL0 agent may name (ADR-0017 §2). The bound comes from
+/// [`kernel_core::cap::from_slot`] against the array itself rather than from a
+/// comparison with `MAX_CAPS_PER_TASK` written here: two statements of the same
+/// length can disagree, and one of them is host-tested.
+pub fn my_cap_slot(slot: usize) -> Result<CapId, SlotError> {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &*SCHED.get() };
         let idx = sched.tasks.current().0 as usize;
-        sched.tcbs.get(idx).and_then(|t| t.caps[i])
+        match sched.tcbs.get(idx) {
+            Some(tcb) => kernel_core::cap::from_slot(&tcb.caps, slot),
+            // The current task id always indexes the array; this arm exists so
+            // a corrupted index is a refusal rather than a panic in a syscall.
+            None => Err(SlotError::OutOfRange { slot, slots: 0 }),
+        }
     })
 }
 

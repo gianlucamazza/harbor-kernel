@@ -87,6 +87,8 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
             Syscall::Ping => println!(uart, "el0: SVC ok  imm=0"),
             Syscall::Exit => println!(uart, "el0: SVC unexpected exit"),
             Syscall::Putc => println!(uart, "el0: SVC unexpected putc"),
+            Syscall::Send => println!(uart, "el0: SVC unexpected send"),
+            Syscall::Recv => println!(uart, "el0: SVC unexpected recv"),
             Syscall::Unknown { imm } => println!(uart, "el0: SVC unexpected imm={imm}"),
         },
         other => println!(uart, "el0: SVC unexpected {other:?}"),
@@ -359,6 +361,92 @@ pub(super) fn demo_task_b() {
         crate::kprintln!("task-b {i}");
         crate::sched::yield_now();
     }
+}
+
+/// M7 slice 2: an EL0 agent that sends through the one slot it holds, and then
+/// one that reaches for a slot it does not.
+///
+/// Runs first of the pair. The message is posted before the receiving task
+/// wakes, which is what makes the ordering deterministic without a blocking
+/// recv — `SYS_RECV` does not park (ADR-0017), so the receiver arriving early
+/// would read `Empty` and the oracle would be a race.
+pub(super) fn el0_ipc_sender() {
+    let mut agent = match Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-ipc: sender create FAILED {e:?}");
+            return;
+        }
+    };
+
+    // Slot 0 is the send capability this task was spawned holding. `42` is the
+    // payload and also `*`, which is what the receiving agent will print.
+    match agent.run_user_prog_resuming(&agent::encode_send_exit(0, 7, 42)) {
+        Ok(s) if s.sends == 1 && s.authority_refusals == 0 => {
+            crate::kprintln!("el0-ipc: sent slot=0 tag=7 a=42")
+        }
+        Ok(s) => crate::kprintln!(
+            "el0-ipc: send unexpected sends={} refusals={}",
+            s.sends,
+            s.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-ipc: send FAILED {e:?}"),
+    }
+
+    // The same agent, now naming slot 1. This task holds exactly one
+    // capability, so slot 1 is empty and there is nothing there to name — the
+    // refusal is structural, not a check that happened to be written.
+    match agent.run_user_prog_resuming(&agent::encode_send_bare_exit(1)) {
+        Ok(s) if s.authority_refusals == 1 && s.sends == 0 => crate::kprintln!(
+            "el0-ipc: refused slot=1 authority={}",
+            crate::ipc::refused_count()
+        ),
+        Ok(s) => crate::kprintln!(
+            "el0-ipc: refuse unexpected sends={} refusals={}",
+            s.sends,
+            s.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-ipc: refuse FAILED {e:?}"),
+    }
+
+    agent.destroy();
+}
+
+/// M7 slice 2: an EL0 agent that receives through the one slot it holds and
+/// prints the payload itself.
+///
+/// The two tasks hold *different* capability tables, which is the point: slot 0
+/// here and slot 0 there name different objects, and neither agent can name the
+/// other's. A slot index is meaningless outside the task that owns the table.
+pub(super) fn el0_ipc_receiver() {
+    // Let the sender post first. `SYS_RECV` never parks, so this is ordering by
+    // construction rather than by the wake path M4 uses.
+    crate::sched::yield_now();
+    crate::sched::yield_now();
+
+    let mut agent = match Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-ipc: receiver create FAILED {e:?}");
+            return;
+        }
+    };
+
+    // One `putc`, and the byte it prints is the payload the other agent sent.
+    match agent.run_user_prog_resuming(&agent::encode_recv_putc_exit(0)) {
+        Ok(s) if s.recvs == 1 && s.putcs == 1 => {
+            crate::kprintln!("el0-ipc: got payload via EL0 recvs=1")
+        }
+        Ok(s) => crate::kprintln!(
+            "el0-ipc: recv unexpected recvs={} putcs={} refusals={}",
+            s.recvs,
+            s.putcs,
+            s.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-ipc: recv FAILED {e:?}"),
+    }
+
+    agent.destroy();
 }
 
 /// M4: holds recv cap only; blocks until sender posts.

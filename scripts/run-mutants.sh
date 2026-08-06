@@ -6,19 +6,22 @@
 # cadence is the one ADR-0001 sets for the multi-role review — before a
 # milestone that moves a boundary.
 #
-# `cargo-mutants` exits 3 whenever anything survived, and nine things do: they
-# are on two provably unreachable defensive branches, and `docs/verification.md`
-# argues each one. A target that is red every time is a target nobody runs, so
-# this compares against that documented baseline instead of against zero, and
-# fails only when the number moves the wrong way.
+# `cargo-mutants` exits 3 whenever anything survived, and ten things do: nine on
+# two provably unreachable defensive branches, and one that is *equivalent* —
+# `1 << 0` and `1 >> 0` are the same value, so no test can tell them apart.
+# `docs/verification.md` argues each one. A target that is red every time is a
+# target nobody runs, so this compares against that documented baseline instead
+# of against zero, and fails only when the number moves the wrong way.
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
 
 # Survivors justified in docs/verification.md § mutation testing:
-#   6 × `!mbox.live` in ipc — no endpoint is ever released, so it cannot hold
+#   6 × the `!mbox.live` arm in ipc — no endpoint is ever released, so the
+#       branch cannot be taken; the mutants land on its `refusals.state += 1`
 #   3 × `Ok(None) if current != IDLE` in tasks — idle is always current or queued
-readonly BASELINE_MISSED=9
+#   1 × `CapRights::SEND = 1 << 0` → `1 >> 0` in cap — equivalent, not untested
+readonly BASELINE_MISSED=10
 
 # `partition`'s loop counter mutated to a no-op never terminates. That is a
 # detected mutant, not a surviving one — the suite would hang rather than pass —
@@ -38,7 +41,8 @@ fi
 # in several hundred compile errors that look like mutants and are not.
 CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core \
 	--file '**/ipc.rs' --file '**/tasks.rs' --file '**/layout.rs' \
-	--file '**/irqtable.rs' --file '**/rxline.rs' --file '**/reset.rs'
+	--file '**/irqtable.rs' --file '**/rxline.rs' --file '**/reset.rs' \
+	--file '**/cap.rs' --file '**/syscall.rs'
 status=$?
 
 # 0 = nothing survived, 3 = something did. Anything else is the tool failing.

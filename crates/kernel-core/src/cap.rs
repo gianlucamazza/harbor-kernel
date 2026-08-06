@@ -9,11 +9,17 @@
 //! Not this type. [`CapId::new`] and [`CapId::from_raw`] are `const fn` that
 //! build any id from any integer, and `bootstrap`'s forger demo uses exactly
 //! that to mint one. Unforgeability is a property of the *system*, not of the
-//! struct: EL0 has no syscall that takes a capability at all, and inside the
-//! kernel `ipc::lookup_endpoint` checks the id against a live table entry with
-//! a matching generation, while `sched::current_holds` checks that the calling
-//! task was given it. The module used to call this "the unforgeable id", which
-//! reads as though the type carried the guarantee.
+//! struct: inside the kernel `ipc::lookup_endpoint` checks the id against a
+//! live table entry with a matching generation, while `sched::current_holds`
+//! checks that the calling task was given it. The module used to call this "the
+//! unforgeable id", which reads as though the type carried the guarantee.
+//!
+//! **EL0 never sees a `CapId` at all** (ADR-0017 §2). An agent passes a slot
+//! index into its own table and [`from_slot`] resolves it, so the strongest
+//! form of the property holds exactly where it is worth its cost: an agent
+//! cannot *name* another agent's capability, rather than being stopped by a
+//! check when it tries. A check can have a bug; an array bound is that bug's
+//! absence.
 //!
 //! ## The generation check has never fired
 //!
@@ -106,9 +112,95 @@ impl CapRights {
     }
 }
 
+/// Why a slot did not name a capability.
+///
+/// Two variants and not one, because they are two different bugs. *Out of
+/// range* means the agent named something outside its own table — the whole
+/// point of slot-indexed authority is that this is the only thing it can get
+/// wrong about *scope*. *Empty* means it named a slot in its table that nobody
+/// filled. The agent gets the same answer for both (a refusal counted as an
+/// authority violation); whoever reads the log does not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlotError {
+    /// The slot is beyond the task's capability table.
+    OutOfRange { slot: usize, slots: usize },
+    /// The slot exists and holds nothing.
+    Empty { slot: usize },
+}
+
+/// Resolve a slot index against a task's own capability table (ADR-0017 §2).
+///
+/// This is the whole of what an EL0 agent may name. A raw [`CapId`] lets an
+/// agent name any capability in the machine and be stopped by a check; an index
+/// into its own array leaves nothing outside that array to name. The
+/// unforgeability is in the bound, not in the check — which is why this is a
+/// slice lookup and not a comparison against a table of who-holds-what.
+///
+/// ```
+/// use kernel_core::cap::{CapId, SlotError, from_slot};
+///
+/// let caps = [Some(CapId::new(1, 7)), None];
+/// assert_eq!(from_slot(&caps, 0), Ok(CapId::new(1, 7)));
+/// assert_eq!(from_slot(&caps, 1), Err(SlotError::Empty { slot: 1 }));
+/// assert_eq!(
+///     from_slot(&caps, 2),
+///     Err(SlotError::OutOfRange { slot: 2, slots: 2 })
+/// );
+/// ```
+#[inline]
+pub const fn from_slot(caps: &[Option<CapId>], slot: usize) -> Result<CapId, SlotError> {
+    if slot >= caps.len() {
+        return Err(SlotError::OutOfRange {
+            slot,
+            slots: caps.len(),
+        });
+    }
+    match caps[slot] {
+        Some(cap) => Ok(cap),
+        None => Err(SlotError::Empty { slot }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_last_slot_is_in_range_and_the_next_one_is_not() {
+        // The off-by-one that matters: `slot >= len` and `slot > len` differ
+        // only here, and the difference is an agent reading one word past its
+        // own capability table.
+        let caps = [Some(CapId::new(1, 1)), Some(CapId::new(2, 1))];
+        assert_eq!(from_slot(&caps, 1), Ok(CapId::new(2, 1)));
+        assert_eq!(
+            from_slot(&caps, 2),
+            Err(SlotError::OutOfRange { slot: 2, slots: 2 })
+        );
+    }
+
+    #[test]
+    fn an_empty_slot_is_not_an_out_of_range_slot() {
+        // Same refusal for the agent, different fact for the reader: one is a
+        // grant that never happened, the other is an agent naming a table that
+        // is not its own size.
+        let caps = [None, Some(CapId::new(9, 3))];
+        assert_eq!(from_slot(&caps, 0), Err(SlotError::Empty { slot: 0 }));
+        assert!(matches!(
+            from_slot(&caps, 7),
+            Err(SlotError::OutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn an_empty_table_names_nothing_at_all() {
+        // A task spawned with no capabilities. Every slot is out of range,
+        // including slot 0 — there is no "default" capability to fall back to.
+        let caps: [Option<CapId>; 0] = [];
+        assert_eq!(
+            from_slot(&caps, 0),
+            Err(SlotError::OutOfRange { slot: 0, slots: 0 })
+        );
+    }
 
     #[test]
     fn pack_unpack() {
@@ -166,6 +258,26 @@ mod tests {
                 .union(CapRights::RECV)
                 .contains(CapRights::SEND)
         );
+
+        // Each right is a bit that is actually set. Asserting only that the two
+        // differ let a mutation turn `RECV` into the empty set and stay green:
+        // an empty right is contained by everything, so every check against it
+        // would have passed.
+        assert!(!CapRights::empty().contains(CapRights::SEND));
+        assert!(!CapRights::empty().contains(CapRights::RECV));
+        assert!(CapRights::SEND.contains(CapRights::SEND));
+        assert!(CapRights::RECV.contains(CapRights::RECV));
+    }
+
+    #[test]
+    fn union_is_a_union_and_not_a_difference() {
+        // Overlapping rights, which the disjoint SEND/RECV pair cannot show:
+        // `|` and `^` agree on disjoint bits and disagree here. Under `^`,
+        // granting a right twice would silently revoke it.
+        assert_eq!(CapRights::SEND.union(CapRights::SEND), CapRights::SEND);
+        let both = CapRights::SEND.union(CapRights::RECV);
+        assert_eq!(both.union(CapRights::SEND), both);
+        assert!(both.union(CapRights::SEND).contains(CapRights::SEND));
     }
 
     #[test]

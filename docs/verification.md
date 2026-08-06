@@ -761,6 +761,12 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | ADR table in `architecture.md`                                   | run the new `xrefs` check against the table as it stood | `0015-multi-arch-scaffold.md is missing from the artefact table`, and the same for 0016. Both had been written, accepted and merged while the table a reader meets first still stopped at ADR-0014 — the third copy of a fact the gate was already comparing in two places |
 | `CURRENT_EL0` published on switch                                | delete `publish_el0(sched, to)` from `switch_with`, boot | `panicked at src/arch/aarch64/el0.rs: el0: published session is not the current task's (stale after switch)` on the first EL0 entry from a spawned task. Before slice 1 this row read "Nothing yet" in ADR-0017 — a stale pointer is silent until one agent reads another's saved registers, so the check shipped in the same commit as the pointer |
 | `El0Session` field offsets                                       | insert a field before `user_ttbr` | eight `offset_of` assertions red at compile time, each naming its field and its expected offset. The assembly does not actually drift — its offsets are `.equ` symbols derived from the same struct — so this is a tripwire on an *unintended* reorder rather than the mechanism keeping the two in agreement |
+| Slot bound (`cap::from_slot`)                                    | `slot >= caps.len()` → `slot > caps.len()` | two host tests red, both by index-out-of-bounds: the last-slot test and the empty-table test. The bound is the whole of slot-indexed authority — one past it is an agent reading a word of someone else's table |
+| EL0 authority refusal                                            | run the boot with the agent that names slot 1 removed | `boot-check: FAIL — EL0 agent was not refused a slot it does not hold`. The refusal is on the *good* path on purpose: a protection nobody watches fire is an assumption |
+| Payload crosses EL0 → EL0                                        | drop the `mov x0, x2` from the receiving agent, so it prints its status instead of the message | `boot-check: FAIL — the received payload was not printed by the receiving agent`. Without the move the agent prints a zero and proves only that it resumed |
+| Boot check vs a binary log                                       | the same mutation, before `-a` was added to every grep | `FAIL — task output not interleaved`, naming the wrong assertion entirely: the agent's zero byte made `grep` treat the log as binary and stop matching. An agent can now `SYS_PUTC` any byte, so this stopped being hypothetical |
+| Authority counter vs a full mailbox                              | five EL0 sends into a four-deep mailbox | `refuse count=2 full=1` — the fifth send is `full`, and the authority count does not move. This is what the counters are separate for |
+| Authority count survives later traffic                           | host test: note a refusal, then a successful send + recv | the count stayed at 1 rather than being erased. It *was* erased before this slice — see below |
 | ADR status, three copies                                         | stamp `accepted` in ADR-0017's frontmatter alone, then run `xrefs` | both other copies named in one run: `status is 'accepted', the index says 'proposed'` and `architecture.md does not mark it (**accepted**)`. Accepting an ADR means moving three files, which is exactly the shape that goes stale by attention |
 | README module map                                                | run the new `doc-claims` check against the Layout block as it stood | twenty of `kernel-core`'s twenty-five modules named as missing, plus `src/agent` — the agent shell, this project's central concept, absent from its own map — and `time.rs` listed as `time/` |
 | Board addresses inside the ISA tree                              | `const PERIPHERALS: u64 = 0xC000_0000;` and `RAM_TOP = 0x8000_0000` put back into `arch/aarch64/mmu.rs` | `arch-board-free: … names 0xC000_0000, a physical range base`, both lines, exit 1. This is F23, which stayed open for two days with `make layering` one directory away — that gate sees imports, and the other way to know a board is to write its addresses out by hand |
@@ -834,13 +840,39 @@ reached them would have to break the invariant first, which would be testing the
 test. Recording them here is the honest alternative, and it is the same
 convention this document already uses for gates that cannot exist.
 
-**`make mutants`** runs it, over `ipc`, `tasks`, `layout`, `irqtable`, `rxline`
-and `reset`. Not wired into `make check`: a full run is around seven minutes,
+### Second run, after M7 slice 2: 214 caught, 10 missed, 1 timeout
+
+`cap` and `syscall` joined the file list when EL0 gained the authority ABI, and
+the run grew from 152 mutants to 256. The count of survivors moved by one and
+its shape did not:
+
+- the six `!mbox.live` mutants are the **same** arms as before. Only the operator
+  cargo-mutants chose moved, from the condition to the `refusals.state += 1`
+  inside it. An unreachable branch stays unreachable however you mutate it.
+- the three `Tasks::switch` guards are unchanged.
+- **one new survivor, and it is *equivalent* rather than untested:**
+  `CapRights::SEND = Self(1 << 0)` mutated to `1 >> 0`. Both are 1. No test can
+  distinguish them because there is nothing to distinguish — this is a mutant
+  that should not be counted against coverage, and the baseline says so in
+  those words rather than absorbing it silently.
+
+Two survivors from the first `cap` run **were** real gaps and were killed rather
+than justified: `CapRights::RECV = 1 << 1` mutated to `1 >> 1` (which makes
+`RECV` the empty set — and an empty right is contained by everything, so every
+check against it passed), and `CapRights::union` mutated from `|` to `^` (which
+agrees with union on the disjoint `SEND`/`RECV` pair and silently revokes a
+right granted twice). The tests that kill them assert the bits are *set*, and
+use overlapping rights, which the existing tests never did.
+
+The new `cap::from_slot` and the extended `syscall` produced **no survivors**.
+
+**`make mutants`** runs it, over `ipc`, `tasks`, `layout`, `irqtable`, `rxline`,
+`reset`, `cap` and `syscall`. Not wired into `make check`: a full run is around seven minutes,
 and the value is in reading the survivors rather than in a threshold. It belongs
 where ADR-0001 puts the multi-role review — before a milestone that moves a
 boundary.
 
-The target compares against the nine justified survivors above rather than
+The target compares against the ten justified survivors above rather than
 against zero, because `cargo-mutants` exits non-zero whenever anything survives
 and a target that is red every time is a target nobody runs. More survivors than
 the baseline fails and prints them; fewer says so and asks for the baseline to
@@ -854,6 +886,34 @@ separately.
 The modules added since the first run — `irqtable` and `rxline` — produced **no
 survivors at all**, which is the useful measure of tests written with the
 mutants in mind rather than found by them afterwards.
+
+## The refusal counter that erased itself (2026-08-06)
+
+Found while adding `SYS_SEND`, by reading a boot log that did not add up: two
+distinct authority refusals had happened and the console said `count=1`.
+
+`REFUSED_AUTHORITY` had **two writers with different semantics**. The kernel-side
+holder check (`sched::current_holds`, which the pure table cannot perform)
+incremented the atomic directly; every table operation then *stored*
+`table.refusals()` over it. So a caller-side refusal survived exactly until the
+next successful send, and then vanished.
+
+What makes it worth its own section is what it did to a gate. The M4 assertion
+`ipc: refuse count=[1-9]` existed to prove the forger's capability check fired.
+With the counter resettable, that line could be satisfied by *a different
+refusal that happened later* — and once the EL0 agent started producing
+refusals of its own, it was. The gate passed while naming something it had not
+verified, which is worse than failing.
+
+The fix is that the table owns the number: `Table::note_authority_refusal` lets
+the kernel report the check it alone can perform, and the atomics stay what
+their doc-comment always claimed they were — mirrors, never sources. The
+regression test asserts a noted refusal survives a full round trip, and the M4
+gate now asserts `count=2` exactly, because "at least one" is what let two
+different facts satisfy the same assertion.
+
+Neither the host tests nor any gate would have found this. It was found by a
+number in a log being smaller than the events that produced it.
 
 ## Four defects no gate caught (2026-08-05)
 

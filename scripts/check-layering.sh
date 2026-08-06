@@ -43,7 +43,13 @@ allowed_for() {
 	bootstrap* | main) echo "agent arch bsp console drivers ipc irq mm sched status time" ;;
 	# Agent shell: AS + EL0 sessions; SYS_PUTC via console TX; Irq → irq::handle_cpu_irq.
 	# No drivers/board (device PA/VA come from bootstrap demos / BSP constants via mm).
-	agent*) echo "arch console irq mm sched" ;;
+	#
+	# `ipc` was added when `SYS_SEND`/`SYS_RECV` arrived (M7 slice 2, ADR-0017 §2):
+	# an agent naming a capability by slot has to reach the mailbox table, and the
+	# translation deliberately lives in `ipc` rather than here, because the
+	# authority counter is `ipc`'s to maintain. The edge is the cost of keeping
+	# the definition of "authority violation" in one module.
+	agent*) echo "arch console ipc irq mm sched" ;;
 	# TFT status surface: policy only; paints via BSP display handle.
 	status*) echo "arch bsp drivers mm time" ;;
 	*) echo "" ;;

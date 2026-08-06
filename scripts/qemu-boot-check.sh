@@ -32,6 +32,12 @@ if ! command -v "${QEMU}" >/dev/null; then
 	exit 1
 fi
 
+# Every `grep` below carries `-a`. The kernel's own output is text, but an EL0
+# agent can `SYS_PUTC` any byte it likes, and one NUL is enough for `grep` to
+# decide the log is binary and stop matching. That failure is silent in the
+# worst way: the assertions do not report what they found, they report nothing,
+# and the first one to notice blames the wrong thing. Seen exactly once, when a
+# mutated agent printed a status code of zero.
 log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 
@@ -102,9 +108,9 @@ indeterminate() {
 }
 
 # Each assertion covers a distinct subsystem, so a failure localises itself.
-grep -q 'Harbor: hello' "${log}" ||
+grep -qa 'Harbor: hello' "${log}" ||
 	fail "no console output: the kernel did not reach bootstrap::run"
-grep -q 'MMU on' "${log}" ||
+grep -qa 'MMU on' "${log}" ||
 	fail "the kernel map did not activate"
 # Why the board came up. QEMU models `PM_RSTS` and reports a power-on; the
 # assertion is on the *shape*, because a warm reset or an unmodelled block are
@@ -112,21 +118,21 @@ grep -q 'MMU on' "${log}" ||
 #
 # `None` is deliberately a distinct outcome from `PowerOn` in the decode, so a
 # register that latched nothing cannot be reported as a clean power cycle.
-grep -qE 'reset: (PowerOn|Watchdog|Software|Debug|None) partition=[0-9]+ \(PM_RSTS=0x[0-9a-f]{8}\)' "${log}" ||
-	fail "reset-cause line missing or malformed: $(grep '^reset:' "${log}" || echo '(no reset line at all)')"
+grep -qaE 'reset: (PowerOn|Watchdog|Software|Debug|None) partition=[0-9]+ \(PM_RSTS=0x[0-9a-f]{8}\)' "${log}" ||
+	fail "reset-cause line missing or malformed: $(grep -a '^reset:' "${log}" || echo '(no reset line at all)')"
 # RNG200 is always probed after the MMU. QEMU has no backend: expect soft
 # NotPresent. Silicon logs `ok word=…`. Either shape is a successful probe path;
 # silence would mean the probe panicked or never ran.
-grep -qE 'rng200: (ok |unavailable \()' "${log}" ||
+grep -qaE 'rng200: (ok |unavailable \()' "${log}" ||
 	fail "RNG200 probe line missing (expected ok or unavailable)"
-grep -q 'fully reclaimed' "${log}" ||
+grep -qa 'fully reclaimed' "${log}" ||
 	fail "the allocator did not return freed memory"
 # `mmu::unmap` (and the L2→L3 split when the heap is a block) then remap.
 # Failure prints `unmap: FAILED` / `remap FAILED`; silence would mean a hang
 # on the first post-unmap access instead.
-grep -q 'unmap: remapped and freed' "${log}" ||
+grep -qa 'unmap: remapped and freed' "${log}" ||
 	fail "unmap smoke did not complete (split/TLBI/remap)"
-if grep -q 'unmap: FAILED' "${log}"; then
+if grep -qa 'unmap: FAILED' "${log}"; then
 	fail "mmu::unmap refused a mapped heap page"
 fi
 # The break-before-make block split, exercised deliberately rather than left to
@@ -135,14 +141,14 @@ fi
 # split path would first run in production, the day the heap fills past 2 MiB.
 # Asserting `split 1` — not merely that the line appeared — is what proves a
 # block was actually rebuilt as a table.
-grep -qE 'split: page at 0x[0-9a-f]+ split 1, remapped' "${log}" ||
-	fail "block split path did not run: $(grep '^split:' "${log}" || echo '(no split line at all)')"
-if grep -qE 'split: (unmap|remap) FAILED|split: SKIPPED' "${log}"; then
+grep -qaE 'split: page at 0x[0-9a-f]+ split 1, remapped' "${log}" ||
+	fail "block split path did not run: $(grep -a '^split:' "${log}" || echo '(no split line at all)')"
+if grep -qaE 'split: (unmap|remap) FAILED|split: SKIPPED' "${log}"; then
 	fail "block split smoke did not complete"
 fi
 # A task stack leaked because its guard could not be remapped. The heap stays
 # consistent — that is why it leaks — so nothing else here would notice.
-if grep -q 'sched: ABANDONED' "${log}"; then
+if grep -qa 'sched: ABANDONED' "${log}"; then
 	fail "a task stack was abandoned (guard remap refused)"
 fi
 # An exit found a stack still parked from an earlier exit. The stack is released
@@ -150,7 +156,7 @@ fi
 # assertion here would move — which is exactly why this one exists. Bootstrap
 # spawns ten tasks that exit at different times, so if the drain in
 # `task_trampoline` regresses, this boot is where it shows.
-if grep -q 'sched: PENDING-OVERWRITE' "${log}"; then
+if grep -qa 'sched: PENDING-OVERWRITE' "${log}"; then
 	fail "an exit found a parked task stack — the pending_free drain has a hole"
 fi
 # M3 cooperative demo (ADR-0006): the console must show the two tasks *alternating*.
@@ -164,107 +170,130 @@ fi
 # `|| true`: no matching lines is the most interesting failure here (the tasks
 # never ran at all), and under `set -e` a failing grep inside a command
 # substitution kills the script before `fail` can report anything.
-observed="$(grep -oE '^task-[ab] [0-9]+' "${log}" | tr '\n' ' ' || true)"
+observed="$(grep -aoE '^task-[ab] [0-9]+' "${log}" | tr '\n' ' ' || true)"
 expected="task-a 0 task-b 0 task-a 1 task-b 1 task-a 2 task-b 2 task-a 3 task-b 3 "
 [[ "${observed}" == "${expected}" ]] ||
 	fail "task output not interleaved: ${observed}"
-if grep -q 'spawn task-a FAILED' "${log}" || grep -q 'spawn task-b FAILED' "${log}"; then
+if grep -qa 'spawn task-a FAILED' "${log}" || grep -qa 'spawn task-b FAILED' "${log}"; then
 	fail "cooperative task spawn failed"
 fi
 # ADR-0012 S1: named frame pool initialised (capacity matches BSP constant).
-grep -qE 'frames: [0-9]+ free / [0-9]+' "${log}" ||
+grep -qaE 'frames: [0-9]+ free / [0-9]+' "${log}" ||
 	fail "frame pool boot line missing"
 # M5 S2/S3: prepare AS + EL0 probes; destroy must not leak frames.
-grep -q 'aspace: prepare ok' "${log}" ||
+grep -qa 'aspace: prepare ok' "${log}" ||
 	fail "address-space prepare for EL0 failed"
-grep -q 'el0: SVC ok' "${log}" ||
+grep -qa 'el0: SVC ok' "${log}" ||
 	fail "EL0 SVC probe failed"
-grep -q 'el0: FAULT ok' "${log}" ||
+grep -qa 'el0: FAULT ok' "${log}" ||
 	fail "EL0 kernel-store fault probe failed"
-grep -q 'aspace: create/destroy ok' "${log}" ||
+grep -qa 'aspace: create/destroy ok' "${log}" ||
 	fail "address-space create/destroy smoke failed"
-if grep -q 'aspace: LEAK' "${log}"; then
+if grep -qa 'aspace: LEAK' "${log}"; then
 	fail "address-space leaked frames on destroy"
 fi
-grep -q 'aspace: dual create/destroy ok' "${log}" ||
+grep -qa 'aspace: dual create/destroy ok' "${log}" ||
 	fail "dual address-space create/destroy smoke failed"
-if grep -q 'aspace: dual LEAK' "${log}"; then
+if grep -qa 'aspace: dual LEAK' "${log}"; then
 	fail "dual address-space leaked frames"
 fi
 # M5-P1/P2: scheduled EL0 task + SVC dispatch.
-grep -q 'el0-task: svc ping' "${log}" ||
+grep -qa 'el0-task: svc ping' "${log}" ||
 	fail "scheduled el0-task did not complete svc ping"
-grep -q 'el0-task: svc refuse imm=0x99' "${log}" ||
+grep -qa 'el0-task: svc refuse imm=0x99' "${log}" ||
 	fail "scheduled el0-task did not refuse unknown svc imm"
-grep -q 'el0-task: resume pings=2' "${log}" ||
+grep -qa 'el0-task: resume pings=2' "${log}" ||
 	fail "EL0 SVC resume session did not complete two pings + exit"
-grep -q 'el0-task: putc bytes=2' "${log}" ||
+grep -qa 'el0-task: putc bytes=2' "${log}" ||
 	fail "EL0 SYS_PUTC session did not emit two bytes"
-grep -qE 'el0-task: irq resume irqs=[1-9]' "${log}" ||
+grep -qaE 'el0-task: irq resume irqs=[1-9]' "${log}" ||
 	fail "EL0 IRQ save/resume path did not handle at least one IRQ"
-grep -q 'el0-task: ok' "${log}" ||
+grep -qa 'el0-task: ok' "${log}" ||
 	fail "scheduled el0-task leaked frames or failed teardown"
 # M6 v1: PL011 page-only agent + kill (ADR-0013).
-grep -q 'pl011-agent: FR read + svc ok' "${log}" ||
+grep -qa 'pl011-agent: FR read + svc ok' "${log}" ||
 	fail "pl011 EL0 agent did not read FR and svc"
-grep -q 'pl011-agent: rx poll empty' "${log}" ||
+grep -qa 'pl011-agent: rx poll empty' "${log}" ||
 	fail "pl011 EL0 RX empty-poll path failed"
-grep -q 'pl011-agent: rx own begin' "${log}" ||
+grep -qa 'pl011-agent: rx own begin' "${log}" ||
 	fail "pl011 RX ownership window did not start"
-grep -q 'pl011-agent: rx own bytes=2' "${log}" ||
+grep -qa 'pl011-agent: rx own bytes=2' "${log}" ||
 	fail "pl011 RX ownership did not receive loopback bytes"
-grep -q 'pl011-agent: rx own end' "${log}" ||
+grep -qa 'pl011-agent: rx own end' "${log}" ||
 	fail "pl011 RX ownership window did not end (drain not restored path)"
-grep -q 'pl011-agent: killed ok' "${log}" ||
+grep -qa 'pl011-agent: killed ok' "${log}" ||
 	fail "pl011 agent AS destroy / kill path failed"
 # Multi-agent shell: two TCBs with AS live together, each EL0 once.
-grep -q 'agents: concurrent ok' "${log}" ||
+grep -qa 'agents: concurrent ok' "${log}" ||
 	fail "concurrent multi-agent shell smoke failed"
-if grep -q 'agents: concurrent LEAK' "${log}"; then
+if grep -qa 'agents: concurrent LEAK' "${log}"; then
 	fail "concurrent multi-agent shell leaked frames"
 fi
 # M4 IPC (ADR-0008 shape + mailbox): message delivered; forge refuse counted.
-grep -q 'ipc: sent tag=1 a=42' "${log}" ||
+grep -qa 'ipc: sent tag=1 a=42' "${log}" ||
 	fail "ipc sender did not deliver"
-grep -q 'ipc: got tag=1 a=42' "${log}" ||
+grep -qa 'ipc: got tag=1 a=42' "${log}" ||
 	fail "ipc receiver did not get the message"
 # The three refusal counters are separate on purpose: this one is authority
 # violations only. It used to be a single number covering a full mailbox and a
 # dead endpoint too, so a boot that filled a four-deep mailbox would have
 # satisfied this assertion without any capability ever being checked.
-grep -qE 'ipc: refuse count=[1-9]' "${log}" ||
-	fail "ipc forge was not refused (capability hold check)"
+#
+# Exactly two, not "at least one". The count is machine-wide and now has two
+# producers — the M4 forger with a capability it does not hold, and the EL0
+# agent naming a slot it was not granted. A range would let either one satisfy
+# the assertion for the other; it already did, while a bug had the counter
+# reset by any successful send in between.
+grep -qaE 'ipc: refuse count=2 ' "${log}" ||
+	fail "authority refusals are not exactly the two the boot performs"
 
 # Neither of the other two should move in a healthy boot: nothing here fills a
 # mailbox, and a refusal for `state` means an endpoint resolved and then named a
 # dead mailbox, which is kernel bookkeeping being wrong rather than a caller's
 # mistake.
-grep -qE 'ipc: refuse count=[0-9]+ full=0 state=0' "${log}" ||
+grep -qaE 'ipc: refuse count=[0-9]+ full=0 state=0' "${log}" ||
 	fail "ipc refused a send for capacity or hit a dead endpoint"
-if grep -q 'ipc: FORGE OK' "${log}"; then
+if grep -qa 'ipc: FORGE OK' "${log}"; then
 	fail "forged capability send succeeded"
 fi
+# M7 slice 2 (ADR-0017 §2): authority named by slot index, between EL0 agents.
+grep -qa 'el0-ipc: sent slot=0 tag=7 a=42' "${log}" ||
+	fail "EL0 agent did not send through the slot it holds"
+# The refusal on the good path. An agent naming slot 1 of a table holding one
+# capability is reaching past its own authority, and a boot where this line is
+# absent is a boot where nothing was ever refused — which this project treats
+# as a protection unverified rather than a protection unneeded.
+grep -qaE 'el0-ipc: refused slot=1 authority=[1-9]' "${log}" ||
+	fail "EL0 agent was not refused a slot it does not hold"
+# The payload crossing EL0 → kernel → EL0. The receiving agent moves the
+# message field into the putc argument itself, so the `*` on the console is the
+# byte the *other* agent sent (42), not a status code.
+grep -qa 'el0-ipc: got payload via EL0 recvs=1' "${log}" ||
+	fail "EL0 agent did not receive the message through its slot"
+grep -qa '\*el0-ipc: got payload' "${log}" ||
+	fail "the received payload was not printed by the receiving agent"
+
 # Two tick reports mean the timer IRQ fired repeatedly *and* the WFI idle loop
 # kept waking: a stalled idle loop prints the first and then goes quiet.
-grep -q 'ticks=20' "${log}" ||
+grep -qa 'ticks=20' "${log}" ||
 	fail "timer IRQ or WFI idle loop stalled"
-if grep -q 'irq: unhandled' "${log}"; then
+if grep -qa 'irq: unhandled' "${log}"; then
 	fail "unhandled interrupts were dispatched"
 fi
 # Both handlers registered before the table froze. A boot that registered none
 # looks exactly like a healthy one until the first interrupt nobody answers, and
 # by then the evidence is a counter rather than the moment it went wrong.
-grep -q 'irq: sealed with 2 handlers registered' "${log}" ||
-	fail "dispatch table sealed with the wrong number of handlers: $(grep '^irq: sealed' "${log}" || echo '(no seal line at all)')"
+grep -qa 'irq: sealed with 2 handlers registered' "${log}" ||
+	fail "dispatch table sealed with the wrong number of handlers: $(grep -a '^irq: sealed' "${log}" || echo '(no seal line at all)')"
 # The allocator refuses frees it cannot justify — a double free, or a pointer it
 # never handed out. Refusing keeps the heap intact, so nothing else here would
 # notice; the count is the only evidence that a caller is wrong about what it owns.
-if grep -q 'heap: REFUSED' "${log}"; then
+if grep -qa 'heap: REFUSED' "${log}"; then
 	fail "the allocator refused an invalid free"
 fi
 # Received bytes lost for want of ring space. Nothing types during this run, so
 # any count here is the RX path losing bytes it was handed.
-if grep -q 'console: DROPPED' "${log}"; then
+if grep -qa 'console: DROPPED' "${log}"; then
 	fail "the RX handler dropped received bytes"
 fi
 # A missed deadline means the timer handler did not run in time. Harmless at
@@ -289,7 +318,7 @@ fi
 # drives the guest timer from wall-clock time, so tick reports measure how long
 # the run lasted rather than how much CPU it got. What separates the two cases
 # is the host CPU the emulator was actually given, measured above.
-if grep -q 'timer: MISSED' "${log}"; then
+if grep -qa 'timer: MISSED' "${log}"; then
 	if [[ "${emulator_cores}" -lt "${CORES_TO_BE_MEASURABLE}" ]]; then
 		indeterminate "the timer missed deadlines on a host that starved the emulator"
 	fi
@@ -300,4 +329,4 @@ if grep -qi 'PANIC' "${log}"; then
 fi
 
 printf 'boot-check: clean (%s tick reports, emulator had %s.%02d cores)\n' \
-	"$(grep -c 'ticks=' "${log}")" $((emulator_cores / 100)) $((emulator_cores % 100))
+	"$(grep -ac 'ticks=' "${log}")" $((emulator_cores / 100)) $((emulator_cores % 100))

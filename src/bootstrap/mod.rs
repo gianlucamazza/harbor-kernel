@@ -411,6 +411,25 @@ pub fn run() -> ! {
         Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
     }
 
+    // M7 slice 2: the same exchange, but between two *EL0 agents*, each holding
+    // one capability at slot 0 of its own table. A second channel rather than a
+    // shared one: two tasks holding two ends of the same mailbox is M4's demo,
+    // and reusing it would have the EL1 receiver race the EL0 one for the
+    // message.
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            match crate::sched::spawn_with_caps(demos::el0_ipc_sender, &[ch.send]) {
+                Ok(_) => crate::kprintln!("el0-ipc: spawned sender"),
+                Err(e) => crate::kprintln!("el0-ipc: spawn sender FAILED {e:?}"),
+            }
+            match crate::sched::spawn_with_caps(demos::el0_ipc_receiver, &[ch.recv]) {
+                Ok(_) => crate::kprintln!("el0-ipc: spawned receiver"),
+                Err(e) => crate::kprintln!("el0-ipc: spawn receiver FAILED {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
+    }
+
     // Deliberate fault, last so the demo tasks are alive when it runs: the
     // probe must overflow its own guard while a peer stack exists, or it cannot
     // show that the fault landed there *instead of* in the peer (M3 done-when).

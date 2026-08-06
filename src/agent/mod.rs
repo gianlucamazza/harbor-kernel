@@ -29,10 +29,11 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use kernel_core::a64;
-use kernel_core::syscall::{self, Syscall};
+use kernel_core::syscall::{self, Status, Syscall};
 
 use crate::arch::{cpu, el0};
 use crate::console;
+use crate::ipc;
 use crate::irq;
 use crate::mm::{self, AddressSpace, AsError};
 use crate::sched;
@@ -75,6 +76,15 @@ pub struct SessionStats {
     pub pings: u32,
     pub putcs: u32,
     pub irqs: u32,
+    /// Messages the agent sent through a slot it holds.
+    pub sends: u32,
+    /// Messages the agent took through a slot it holds.
+    pub recvs: u32,
+    /// Calls refused because the agent named authority it does not have.
+    ///
+    /// The number the boot oracle asserts. A protection nobody has seen fire is
+    /// an assumption, so the good path is expected to contain one of these.
+    pub authority_refusals: u32,
     /// Why the session stopped. See [`SessionEnd`].
     pub end: SessionEnd,
 }
@@ -176,6 +186,60 @@ impl Agent {
                             // block's.
                             event = unsafe { el0::resume(session) };
                         }
+                        Syscall::Send => {
+                            let msg = ipc::Message {
+                                tag: el0::saved_gpr(session, 1) as u32,
+                                a: el0::saved_gpr(session, 2),
+                                b: el0::saved_gpr(session, 3),
+                            };
+                            let status =
+                                match ipc::send_from_slot(el0::saved_gpr(session, 0) as usize, msg)
+                                {
+                                    Ok(()) => {
+                                        stats.sends = stats.sends.saturating_add(1);
+                                        Status::Ok
+                                    }
+                                    Err(ipc::SendError::Full) => Status::Full,
+                                    Err(_) => {
+                                        stats.authority_refusals =
+                                            stats.authority_refusals.saturating_add(1);
+                                        Status::Authority
+                                    }
+                                };
+                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            // SAFETY: as `Ping` — a resumable `Svc` outcome with
+                            // IRQs masked. The reply is already in the saved
+                            // register file, so the resume delivers it.
+                            event = unsafe { el0::resume(session) };
+                        }
+                        Syscall::Recv => {
+                            let status = match ipc::try_recv_from_slot(
+                                el0::saved_gpr(session, 0) as usize
+                            ) {
+                                Ok(msg) => {
+                                    stats.recvs = stats.recvs.saturating_add(1);
+                                    el0::set_saved_gpr(session, 1, u64::from(msg.tag));
+                                    el0::set_saved_gpr(session, 2, msg.a);
+                                    el0::set_saved_gpr(session, 3, msg.b);
+                                    Status::Ok
+                                }
+                                Err(ipc::RecvError::Empty) => Status::Empty,
+                                Err(_) => {
+                                    stats.authority_refusals =
+                                        stats.authority_refusals.saturating_add(1);
+                                    Status::Authority
+                                }
+                            };
+                            // On anything but `Ok` the kernel writes no
+                            // payload, so `x1..x3` keep whatever the agent
+                            // itself left there. That is the ABI: the reply
+                            // registers are meaningful only when `x0` says
+                            // `Ok`, and the kernel does not clear an agent's
+                            // own registers to make a point.
+                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            // SAFETY: as `Send`.
+                            event = unsafe { el0::resume(session) };
+                        }
                         Syscall::Exit => {
                             // SAFETY: the session is resumable but will not be
                             // resumed — this returns, and EL0 is unreachable
@@ -231,6 +295,59 @@ fn push_word(out: &mut [u8], at: &mut usize, word: u32) {
     *at += 4;
 }
 
+/// A64: `movz x0,#slot; movz x1,#tag; movz x2,#a; svc #3; svc #1; b .`
+///
+/// Send one message through a slot, then exit. `b` is left zero — three
+/// immediates are enough to see a payload cross, and `movz` carries 16 bits.
+pub fn encode_send_exit(slot: u16, tag: u16, a: u16) -> [u8; 24] {
+    let mut out = [0u8; 24];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, tag));
+    push_word(&mut out, &mut i, a64::movz_x(2, a));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
+/// A64: `movz x0,#slot; svc #4; mov x0,x2; svc #2; svc #1; b .`
+///
+/// Receive through a slot, then `SYS_PUTC` the payload the kernel delivered.
+///
+/// The `mov` is the evidence. `SYS_RECV` returns the status in `x0` and the
+/// message in `x1..x3`, so an agent that printed `x0` would print a zero and
+/// prove only that it resumed. Moving `x2` — the message's `a` field — into the
+/// `putc` argument makes the byte on the console *the payload*, carried from
+/// another agent's registers through the kernel into this one's.
+pub fn encode_recv_putc_exit(slot: u16) -> [u8; 24] {
+    let mut out = [0u8; 24];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
+    push_word(&mut out, &mut i, a64::mov_x_reg(0, 2));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
+/// A64: `movz x0,#slot; svc #3; svc #1; b .` — send through a slot, then exit.
+///
+/// The hostile half of F22: pointed at a slot the task does not hold, this is
+/// an agent reaching for authority it was not granted. It is a demo program
+/// rather than a test because the refusal has to be *seen on the good path* —
+/// a protection nobody watches fire is an assumption.
+pub fn encode_send_bare_exit(slot: u16) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// A64: `svc #imm` ; `b .`
 pub fn encode_svc_imm(imm: u16) -> [u8; 8] {
     let mut out = [0u8; 8];
@@ -247,6 +364,8 @@ pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
             Syscall::Ping => crate::kprintln!("{prefix}: svc ping"),
             Syscall::Exit => crate::kprintln!("{prefix}: svc exit"),
             Syscall::Putc => crate::kprintln!("{prefix}: svc putc"),
+            Syscall::Send => crate::kprintln!("{prefix}: svc send"),
+            Syscall::Recv => crate::kprintln!("{prefix}: svc recv"),
             Syscall::Unknown { imm } => crate::kprintln!("{prefix}: svc refuse imm={imm:#x}"),
         },
         other => crate::kprintln!("{prefix}: unexpected {other:?}"),

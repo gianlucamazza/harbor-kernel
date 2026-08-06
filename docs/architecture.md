@@ -89,8 +89,10 @@ is not an import (a shared constant, an agreed register value) is still
 review-only — see [`verification.md`](verification.md).
 
 **Agent shell imports** (policy, not a lower layer): `arch`, `mm`, `sched`, plus
-`console` (`SYS_PUTC` TX) and `irq` (lower-EL IRQ → `handle_cpu_irq` then resume).
-No `drivers` / `bsp` from `agent` — board PA/VA for demos live in bootstrap.
+`console` (`SYS_PUTC` TX), `irq` (lower-EL IRQ → `handle_cpu_irq` then resume)
+and `ipc` (`SYS_SEND`/`SYS_RECV` by slot — the translation lives in `ipc`
+because the authority counter is `ipc`'s to maintain). No `drivers` / `bsp`
+from `agent` — board PA/VA for demos live in bootstrap.
 
 ## Interrupt / timer / console contract
 
@@ -201,6 +203,16 @@ show the same oracles
 | Preferred ELR for SVC                                   | documented    | AArch64 ELR already past SVC — no software `+4`            |
 
 Pi 4B stamp detail: [verification.md §M5-P / M6](verification.md#m5-p--m6-post).
+
+### Open (QEMU) — M7 slice 2
+
+| Slice                                   | Status          | Evidence                                                                                                                            |
+| --------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **`SYS_SEND` / `SYS_RECV` by slot**     | **done (QEMU)** | `el0-ipc: sent slot=0 tag=7 a=42`; the receiving agent moves the payload into `SYS_PUTC` itself, so the `*` on the console is the message |
+| **Authority refused on the good path**  | **done (QEMU)** | `el0-ipc: refused slot=1 authority=1` — an agent naming a slot its table does not have                                              |
+| **Full ≠ unauthorised**                 | **done (QEMU)** | five sends into a four-deep mailbox: `full=1`, authority unchanged                                                                   |
+| Silicon                                 | **open**        | the M7 done-when is an EL0→EL0 exchange on hardware, with a serial transcript                                                       |
+| Blocking `SYS_RECV`                     | **not done**    | needs a yield out of a live session; deliberately out of this slice (ADR-0017 consequences)                                         |
 
 ### Closed (HW) — M7 slice 1, stamped on silicon 2026-08-06 21:25
 

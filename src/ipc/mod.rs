@@ -2,7 +2,8 @@
 //!
 //! Tasks exchange fixed [`Message`] values through kernel mailboxes. A task
 //! holds [`CapId`]s minted by [`create_channel`]; a send with a missing, stale,
-//! or wrong-rights cap is refused and counted (M4 done-when).
+//! or wrong-rights cap is refused and counted (M4 done-when). EL0 agents reach
+//! the same mailboxes by slot index (M7 slice 2, ADR-0017 §2).
 //!
 //! No shared user-visible buffer: the only path for payload is this module.
 //! Blocking recv parks the task via [`crate::sched::block_current`]; send wakes
@@ -18,6 +19,21 @@
 //! What is left here is the four things a pure table cannot do: hold the
 //! global, take the interrupt mask, ask the scheduler whether the calling task
 //! actually holds the capability, and wake a task the table says to wake.
+//!
+//! # Two ways in, one authority model
+//!
+//! EL1 callers pass a [`CapId`] and are checked against what the task holds.
+//! EL0 agents cannot: they pass a **slot index** into their own table
+//! ([`send_from_slot`], [`try_recv_from_slot`], ADR-0017 §2), and there is
+//! nothing outside that array for them to name. The asymmetry is deliberate —
+//! EL1 is inside the TCB, EL0 is not, and the stronger form is worth its cost
+//! exactly at the boundary.
+//!
+//! Both paths end at the same table and the same counters. The slot translation
+//! lives here rather than in `agent` because [`refused_count`] is this module's
+//! to maintain: exporting a way to increment it so another module could count
+//! its own refusals would put the definition of "authority violation" in two
+//! places and make the number anyone's to move.
 //!
 //! The two checks on a send are deliberately separate.
 //! [`crate::sched::current_holds`] asks *"was this capability given to you"*;
@@ -39,12 +55,12 @@ use crate::sync::SyncCell;
 /// Mailboxes, endpoint capacity, and messages per mailbox.
 ///
 /// Fixed and small on purpose: no allocation on the IPC path, and a full
-/// mailbox is a refusal rather than unbounded growth. These are a de-facto ABI
-/// — an agent that assumes a deeper mailbox breaks when it fills — and no ADR
-/// states them. The EL0 capability ABI, when it is written, will have to.
-const MAX_MAILBOXES: usize = 8;
-const MAX_ENDPOINTS: usize = 16;
-const MAILBOX_DEPTH: usize = 4;
+/// mailbox is a refusal rather than unbounded growth. These are **part of the
+/// EL0 ABI** (ADR-0017 §4), not implementation detail: an agent that assumes a
+/// deeper mailbox breaks when it fills, and it has no way to ask.
+pub const MAX_MAILBOXES: usize = 8;
+pub const MAX_ENDPOINTS: usize = 16;
+pub const MAILBOX_DEPTH: usize = 4;
 
 static IPC: SyncCell<Table<MAX_MAILBOXES, MAX_ENDPOINTS, MAILBOX_DEPTH>> =
     SyncCell::new(Table::new());
@@ -52,7 +68,12 @@ static IPC: SyncCell<Table<MAX_MAILBOXES, MAX_ENDPOINTS, MAILBOX_DEPTH>> =
 /// Mirrors of [`Refusals`], published for callers that cannot take the mask.
 ///
 /// The table counts; these make the counts readable from a print in the idle
-/// loop or a bring-up path without borrowing the global.
+/// loop or a bring-up path without borrowing the global. **Mirrors only** —
+/// every increment goes through the table, because these are stores of the
+/// table's numbers and an increment written here would be erased by the next
+/// one. That was a real defect: a caller-side refusal was counted in the atomic
+/// and wiped by the following successful send, and the M4 gate asserting a
+/// non-zero count passed on a different refusal than the one it named.
 static REFUSED_AUTHORITY: AtomicU32 = AtomicU32::new(0);
 static REFUSED_FULL: AtomicU32 = AtomicU32::new(0);
 static REFUSED_STATE: AtomicU32 = AtomicU32::new(0);
@@ -110,9 +131,10 @@ pub fn create_channel() -> Result<Channel, CreateError> {
 /// The current task must **hold** `cap` in its local table (M4 done-when).
 pub fn send(cap: CapId, msg: Message) -> Result<(), SendError> {
     if !sched::current_holds(cap) {
-        // Counted here rather than by the table: the table cannot see who is
-        // calling, and this is an authority violation like any other.
-        REFUSED_AUTHORITY.fetch_add(1, Ordering::Relaxed);
+        // Counted *in* the table rather than beside it: the table cannot see
+        // who is calling, but it owns the number, and two writers with
+        // different semantics is how the count came to lie.
+        with_table(|t| t.note_authority_refusal());
         return Err(SendError::BadCap);
     }
     // The wake happens outside the mask, because `wake_task` takes it again and
@@ -124,10 +146,39 @@ pub fn send(cap: CapId, msg: Message) -> Result<(), SendError> {
     Ok(())
 }
 
+/// Send through the capability in `slot` of the calling task's own table.
+///
+/// The EL0 entry point (ADR-0017 §2). A slot out of range, an empty slot, and a
+/// capability the task does not hold are the same answer to the agent and the
+/// same counter: it asked for authority it was not granted.
+pub fn send_from_slot(slot: usize, msg: Message) -> Result<(), SendError> {
+    match sched::my_cap_slot(slot) {
+        Ok(cap) => send(cap, msg),
+        Err(_) => {
+            with_table(|t| t.note_authority_refusal());
+            Err(SendError::BadCap)
+        }
+    }
+}
+
+/// Take a message through the capability in `slot`. Never parks.
+///
+/// Non-blocking by construction: a blocking recv would have to yield out of a
+/// live EL0 session, and nothing performs a switch inside one yet.
+pub fn try_recv_from_slot(slot: usize) -> Result<Message, RecvError> {
+    match sched::my_cap_slot(slot) {
+        Ok(cap) => try_recv(cap),
+        Err(_) => {
+            with_table(|t| t.note_authority_refusal());
+            Err(RecvError::BadCap)
+        }
+    }
+}
+
 /// Take a message if one is queued. Never parks.
 pub fn try_recv(cap: CapId) -> Result<Message, RecvError> {
     if !sched::current_holds(cap) {
-        REFUSED_AUTHORITY.fetch_add(1, Ordering::Relaxed);
+        with_table(|t| t.note_authority_refusal());
         return Err(RecvError::BadCap);
     }
     with_table(|t| t.try_recv(cap))

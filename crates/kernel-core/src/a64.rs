@@ -21,6 +21,18 @@ pub const fn movz_x_lsl16(rd: u8, imm16: u16) -> u32 {
     0xD2A0_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
 }
 
+/// `mov xd, xm` — the register-to-register move, which A64 spells
+/// `orr xd, xzr, xm`.
+///
+/// Needed by an agent that has to move a syscall reply out of the register the
+/// ABI delivered it in before making the next call. Assembled by hand here for
+/// the same reason as everything else in this module: the alternative is a bare
+/// hex constant at the call site.
+#[inline]
+pub const fn mov_x_reg(rd: u8, rm: u8) -> u32 {
+    0xAA00_03E0 | ((rm as u32 & 0x1F) << 16) | (rd as u32 & 0x1F)
+}
+
 /// `b .` — branch to self (infinite wait until interrupted or replaced).
 #[inline]
 pub const fn b_self() -> u32 {
@@ -69,6 +81,15 @@ pub const fn le_bytes(word: u32) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mov_register_to_register() {
+        // Checked against the architectural encoding of `orr Xd, XZR, Xm`:
+        // sf=1 opc=01 01010 shift=00 N=0 Rm Rn=11111 Rd.
+        assert_eq!(mov_x_reg(0, 2), 0xAA02_03E0); // mov x0, x2
+        assert_eq!(mov_x_reg(1, 0), 0xAA00_03E1); // mov x1, x0
+        assert_eq!(mov_x_reg(30, 30), 0xAA1E_03FE); // mov x30, x30
+    }
 
     #[test]
     fn svc_encodings() {

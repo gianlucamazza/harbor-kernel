@@ -205,14 +205,55 @@ fn fault_syndrome() -> (u64, u64) {
     (live.esr, live.far)
 }
 
+/// Registers the kernel may write when answering a syscall.
+///
+/// `x0..x3` are the reply window of the EL0 ABI
+/// ([`kernel_core::syscall`]). Every other register is the agent's own
+/// context: writing one would not be answering the agent, it would be
+/// corrupting it — and the agent has no way to tell the difference.
+pub const ABI_REPLY_REGS: usize = 4;
+
 /// Low 64 bits of user `x0` at the last SVC/IRQ (for `SYS_PUTC`, etc.).
 #[inline]
 pub fn saved_x0(session: *mut El0Session) -> u64 {
+    saved_gpr(session, 0)
+}
+
+/// User `x{n}` as saved at the last SVC/IRQ.
+///
+/// Safe rather than `unsafe fn` because a mistimed call returns a stale value
+/// rather than breaking an invariant — the caller is expected to have just
+/// received `Svc` or `Irq`, and nothing else consults this.
+///
+/// # Panics
+/// If `n` is not a general-purpose register index (0..=30). An argument index
+/// is a constant at every call site, so this is a build-time mistake that
+/// deserves to be loud rather than a silent read of the wrong word.
+#[inline]
+pub fn saved_gpr(session: *mut El0Session, n: usize) -> u64 {
     require_published(session);
-    // Safe rather than `unsafe fn` because a mistimed call returns a stale
-    // value rather than breaking an invariant — the caller is expected to have
-    // just received `Svc` or `Irq`, and nothing else consults this.
-    current().saved.gpr[0]
+    let live = current();
+    match live.saved.gpr.get(n) {
+        Some(&value) => value,
+        None => panic!("el0::saved_gpr: x{n} is not a general-purpose register"),
+    }
+}
+
+/// Write user `x{n}`, which the agent will see when the session resumes.
+///
+/// Restricted to [`ABI_REPLY_REGS`] deliberately. This is the one place the
+/// kernel reaches into an agent's register file, and the bound is what keeps
+/// "answering a syscall" from being able to mean anything else.
+///
+/// # Panics
+/// If `n` is outside the reply window.
+#[inline]
+pub fn set_saved_gpr(session: *mut El0Session, n: usize, value: u64) {
+    require_published(session);
+    if n >= ABI_REPLY_REGS {
+        panic!("el0::set_saved_gpr: x{n} is outside the syscall reply window");
+    }
+    current().saved.gpr[n] = value;
 }
 
 /// Saved user context for SVC resume (`TrapFrame` field order without pad).
