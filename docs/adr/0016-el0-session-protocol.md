@@ -1,12 +1,35 @@
 ---
 id: 0016
 title: EL0 session protocol — one global slot, prose contract, named successor
-status: accepted
+status: superseded
 date: 2026-08-06
 accepted: 2026-08-06
+superseded: 2026-08-06
+related: [0017, 0018]
 ---
 
 # ADR-0016: The EL0 session protocol
+
+## Superseded
+
+**Superseded** (2026-08-06) by [ADR-0017](0017-el0-capability-abi.md) and
+[ADR-0018](0018-agent-fault-policy.md), accepted the same day. This ADR named
+both as its successors before either existed; they now exist, and the lifecycle
+in [`README.md`](README.md) says an accepted ADR is changed by a successor, not
+by editing it. So the text below is left exactly as it was accepted.
+
+**What it decided that is no longer in force:** decision 1 (one session at a
+time, machine-wide) and decision 2 (the nine globals stay). ADR-0017 §1 replaces
+both — session state moves into the `Tcb`, reached through a single published
+pointer, and two agents may be live at EL0. The "Successor" section below is the
+change that happened.
+
+**What survives it,** and is worth reading here rather than rediscovering:
+decisions 3, 5 and 6 are still the protocol (`end_session` is `unsafe`, an IRQ
+resumes by re-execution with no software `+4`, an unknown SVC ends the session
+without inventing a behaviour), and the _reason_ for `static mut` in decision 2
+is unchanged — a `SyncCell` has no linker-visible name for `adrp`/`add` to load.
+ADR-0017 does not remove `static mut`; it reduces nine of them to one.
 
 ## Acceptance status
 
@@ -102,6 +125,11 @@ agent's error, not the kernel's.
 Two of five are "nothing", which is the honest measure of this ADR: it documents
 a protocol whose central invariant no gate can currently see.
 
+> Both "nothing" rows are closed by the successor: with per-task session state
+> there is no second session to open, and the `CURRENT_EL0` assertion of
+> ADR-0017 §1 is what makes _session state read outside a session_ visible. This
+> is what naming the gap bought.
+
 ## Successor
 
 **Move EL0 session state into the TCB.** That is the change this ADR exists to
@@ -122,6 +150,10 @@ with no capability check at all, which is a separate hole in the same boundary.
 
 ## Related
 
+- [0017](0017-el0-capability-abi.md) — successor: session state in the TCB and
+  the EL0 capability ABI
+- [0018](0018-agent-fault-policy.md) — successor: what happens when an agent
+  faults
 - [0014](0014-ttbr-split-m5.md) — the TTBR regime this protocol runs under
 - [0006](0006-cooperative-execution-model.md) — why no preemption, which rule 4
   currently leans on

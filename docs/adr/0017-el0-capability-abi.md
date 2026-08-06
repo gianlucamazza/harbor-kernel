@@ -1,22 +1,24 @@
 ---
 id: 0017
 title: EL0 capability ABI — slot-indexed authority and session state in the TCB
-status: proposed
+status: accepted
 date: 2026-08-06
+accepted: 2026-08-06
 ---
 
 # ADR-0017: The EL0 capability ABI
 
 ## Acceptance status
 
-**Proposed** (2026-08-06). The four decisions below were taken by the project
-owner; what is not yet stamped is the acceptance itself, which
-[`README.md`](README.md) reserves for a human and this ADR will not assume.
+**Accepted** (2026-08-06), **with one refinement to decision 1** — see the note
+inside it. The lifecycle in [`README.md`](README.md) allows an acceptance to
+carry refinements, and this one was not cosmetic: as written, decision 1 could
+not be implemented without granting `check-layering.sh` its first exception.
 
 Required before M7 by [ADR-0001](0001-multi-role-analysis.md): M7 moves the
-authority boundary, and it is the boundary this project exists to defend.
-[ADR-0016](0016-el0-session-protocol.md) names this ADR as one of its two
-successors.
+authority boundary, and it is the boundary this project exists to defend. This
+acceptance is what unblocks M7. [ADR-0016](0016-el0-session-protocol.md) names
+this ADR as one of its two successors and is `superseded` as of the same date.
 
 ## Context
 
@@ -56,7 +58,7 @@ in the `Tcb`. The assembly's requirement is a _linker-visible symbol_, not a
 static object: it is satisfied by a single
 
 ```rust
-static mut CURRENT_TCB: *mut Tcb
+static mut CURRENT_EL0: *mut El0Session
 ```
 
 which the scheduler publishes on every switch, and which `vectors.s` and
@@ -67,6 +69,21 @@ This is what makes everything else in this ADR possible, and it is the
 structural precondition ADR-0016 named. It also repays part of that ADR's debt
 directly: the invariant _no second session while one is live_ stops being prose,
 because a second session is a second TCB and the states are per-task.
+
+> **Refinement at acceptance.** This decision was proposed as
+> `static mut CURRENT_TCB: *mut Tcb`, and that form cannot be built. `Tcb` lives
+> in `src/sched`, the symbol has to live in `arch` — it is what `el0_resume`
+> loads with `adrp`/`add` — and rule 3 of [`architecture.md`](../architecture.md)
+> forbids `arch` from seeing `sched`. `check-layering.sh` enforces that on every
+> import edge and has no exceptions; buying one here would cost more than the
+> indirection saves, a day after that same gate's sibling caught F23.
+>
+> The way out is that the nine globals are **all `arch` concepts** — saved GPRs,
+> TTBR, SPSR, ESR/FAR. So `El0Session` is owned by `arch::el0` along with the
+> pointer, and `Tcb` holds an `Option<El0Session>`, which is allowed because
+> `sched` may see `arch`. The substance of the decision is untouched: nine
+> symbols become one, published on switch, offsets asserted at compile time.
+> Only the pointee changes, from the task to the task's session.
 
 `static mut` remains, and remains for the same reason ADR-0016 gave — `SyncCell`
 has no name a `adrp`/`add` pair can load. What changes is the count and the
@@ -166,7 +183,7 @@ that no ADR states them. This one does.
   another name different things, so a slot index is meaningless if passed
   between agents. Capability _transfer_ is out of scope here: grants happen at
   creation, by the creator, and nothing delegates at runtime.
-- **The `CURRENT_TCB` pointer is a new single point of failure.** A stale value
+- **The `CURRENT_EL0` pointer is a new single point of failure.** A stale value
   after a switch means the wrong session state, and the compile-time offset
   assertions do not cover _when_ it is published, only _where_ the fields are.
 
@@ -179,14 +196,15 @@ that no ADR states them. This one does.
 | A slot index accepted beyond the array         | Host test in `kernel-core`: `get(slot)` bound, both sides of it                                                    |
 | Session state returned to machine-wide globals | `make boot-check`: the two-agent exchange stops interleaving                                                       |
 | An assembly field offset drifts                | `offset_of` assertion, at compile time                                                                             |
-| `CURRENT_TCB` not republished on a switch      | Nothing yet. See below                                                                                             |
+| `CURRENT_EL0` not republished on a switch      | Runtime assert on the EL0 entry path (M7 slice 1). See below                                                       |
 
-One "nothing", and it is the one that matters most: a stale `CURRENT_TCB` is
-silent until an agent reads another agent's saved registers. ADR-0016 had two
-such rows and saying so is what made it honest; the same applies here, and the
-first slice of M7 should close it — most likely by having the switch path
-publish and the entry path assert that `CURRENT_TCB` equals the current task's
-TCB, which is a cheap check on a path already inside `without_irqs`.
+That row said "nothing yet" when this ADR was proposed, and it was the one that
+mattered most: a stale pointer is silent until an agent reads another agent's
+saved registers. Acceptance closes it by requiring the fix **in the same commit
+as the risk** — the switch path publishes, and the EL0 entry path asserts that
+`CURRENT_EL0` is the current task's session before it `eret`s. It is a cheap
+check on a path already inside `without_irqs`, and shipping the pointer without
+it would be shipping a single point of failure with a note about it.
 
 ## Alternatives rejected
 

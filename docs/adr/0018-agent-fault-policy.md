@@ -1,20 +1,22 @@
 ---
 id: 0018
 title: Agent fault policy — the kernel ends the session, the creator decides the task
-status: proposed
+status: accepted
 date: 2026-08-06
+accepted: 2026-08-06
 ---
 
 # ADR-0018: Agent fault policy
 
 ## Acceptance status
 
-**Proposed** (2026-08-06). The decision below was taken by the project owner;
-the acceptance stamp is a human's and this ADR does not assume it.
+**Accepted** (2026-08-06), as proposed — the decision below is unchanged from
+the version the project owner took.
 
-Required before M7 by [ADR-0001](0001-multi-role-analysis.md).
-[ADR-0016](0016-el0-session-protocol.md) names this ADR as one of its two
-successors, and [ADR-0017](0017-el0-capability-abi.md) is the other.
+Required before M7 by [ADR-0001](0001-multi-role-analysis.md); together with
+[ADR-0017](0017-el0-capability-abi.md), accepted the same day, this is what
+unblocks the milestone. [ADR-0016](0016-el0-session-protocol.md) names this ADR
+as one of its two successors and is `superseded` as of the same date.
 
 ## Context
 
@@ -120,11 +122,20 @@ caller that ignores a `SessionEnd::Fault` is the bug — so `SessionEnd` is
 | A fault silently resumes the session            | `boot-check`: the fault count stays at zero while the injected fault happens                         |
 | `SessionEnd` ignored at a call site             | `cargo clippy -D warnings` — `#[must_use]`                                                           |
 | The fault counter stops counting                | Host test in `kernel-core`, and the `boot-check` assertion on the printed count                      |
-| A faulting agent's session state is left behind | Nothing yet, until the M7 slice that adds the assertion on `CURRENT_TCB` (see ADR-0017)              |
+| A faulting agent's session state is left behind | The `CURRENT_EL0` assertion on the EL0 entry path (M7 slice 1, see ADR-0017)                         |
 
-Four of five have a gate, and the fifth is the same open row ADR-0017 carries.
-That is deliberate: both ADRs depend on one unverified invariant, and it is
-better to name it twice than to let each assume the other covers it.
+All five have a gate as of acceptance. The fifth had none when this ADR was
+proposed — it was the same open row ADR-0017 carried, named twice on purpose so
+neither ADR could assume the other covered it — and ADR-0017's acceptance closes
+it by requiring the assertion in the slice that creates the risk.
+
+Note what that assertion does and does not do. It catches a session being read
+under the wrong task, which is how a faulting agent's leftovers would reach
+another agent. It does not observe the leftovers themselves: state belonging to
+a dead session stays in that task's `Tcb` until the task is reused, and nothing
+scrubs it. That is acceptable only because the session is per-task and
+unreachable from outside it — the moment anything makes it reachable, this row
+is a "nothing" again.
 
 ## Alternatives rejected
 

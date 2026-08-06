@@ -80,7 +80,7 @@ Post-M6 slices (EL0 IRQ resume, `SYS_PUTC`, RX ownership with real bytes) are
     selection is `target_arch`; board selection is a `board-*` Cargo feature.
     Boot entry and the linker script live under the active ISA tree
     (`src/arch/aarch64/`). The product supports AArch64 + Pi 4 only; the
-    structure is multi-arch *ready*, not multi-arch product. Contract:
+    structure is multi-arch _ready_, not multi-arch product. Contract:
     [`arch-contract.md`](arch-contract.md); port checklist: [`porting.md`](porting.md).
 
 Rules 1–4 and 10 are checked by `make layering` (`scripts/check-layering.sh`)
@@ -94,48 +94,48 @@ No `drivers` / `bsp` from `agent` — board PA/VA for demos live in bootstrap.
 
 ## Interrupt / timer / console contract
 
-| Role        | Module          | Responsibility                     |
-| ----------- | --------------- | ---------------------------------- |
-| Clocksource | `arch/timer`    | CNTP deadline, ISTATUS, re-arm     |
-| Irqchip     | `drivers/gicv2` | enable, claim/EOI, SPI target CPU0 |
-| Dispatch    | `irq` + `kernel_core::irqtable` | id → handler; seal freezes the table |
-| Tick policy | `time`          | `on_timer_irq`, `ticks()`          |
-| Console RX  | `console`       | ring / `suspend_rx`·`resume_rx`; agent poll when owned |
-| Bind        | `bsp/rpi4/irq`  | TIMER=30, UART=153, static GIC     |
-| Layout      | `mm/layout`     | regions and their permissions      |
-| Allocation  | `mm`            | free list + `GlobalAlloc`          |
-| Scheduler   | `sched`         | cooperative spawn / yield / exit   |
-| Task stacks | `mm/task_stack` | heap stack + unmapped guard        |
+| Role        | Module                          | Responsibility                                         |
+| ----------- | ------------------------------- | ------------------------------------------------------ |
+| Clocksource | `arch/timer`                    | CNTP deadline, ISTATUS, re-arm                         |
+| Irqchip     | `drivers/gicv2`                 | enable, claim/EOI, SPI target CPU0                     |
+| Dispatch    | `irq` + `kernel_core::irqtable` | id → handler; seal freezes the table                   |
+| Tick policy | `time`                          | `on_timer_irq`, `ticks()`                              |
+| Console RX  | `console`                       | ring / `suspend_rx`·`resume_rx`; agent poll when owned |
+| Bind        | `bsp/rpi4/irq`                  | TIMER=30, UART=153, static GIC                         |
+| Layout      | `mm/layout`                     | regions and their permissions                          |
+| Allocation  | `mm`                            | free list + `GlobalAlloc`                              |
+| Scheduler   | `sched`                         | cooperative spawn / yield / exit                       |
+| Task stacks | `mm/task_stack`                 | heap stack + unmapped guard                            |
 
 ## Agent model
 
 **Tasks** (M3), **messages/caps** (M4), **private AS + EL0** (M5), and a
 **PL011 driver agent** (M6) are in tree. Cooperative only ([ADR-0006](adr/0006-cooperative-execution-model.md)).
 
-| Concept    | Role                                                  | Status        |
-| ---------- | ----------------------------------------------------- | ------------- |
-| Task (M3)  | Schedulable EL1 entity + private stack                | **done (HW)** |
+| Concept    | Role                                                                                    | Status                           |
+| ---------- | --------------------------------------------------------------------------------------- | -------------------------------- |
+| Task (M3)  | Schedulable EL1 entity + private stack                                                  | **done (HW)**                    |
 | Agent      | Task + AS at EL0; multi-SVC (**HW**); IRQ resume + `SYS_PUTC` + PL011 RX own (**QEMU**) | **hybrid** — [Roadmap](#roadmap) |
-| Message    | Sole interaction channel (M4)                         | **done (HW)** |
-| Capability | Unforgeable handle (send/recv; future: IRQ notification) | **done (HW)** (IRQ caps later) |
+| Message    | Sole interaction channel (M4)                                                           | **done (HW)**                    |
+| Capability | Unforgeable handle (send/recv; future: IRQ notification)                                | **done (HW)** (IRQ caps later)   |
 
 `irq::register` is the hook for later capability mediation.
 
 ## Milestones
 
-| ID  | Deliverable                                              | Status                      |
-| --- | -------------------------------------------------------- | --------------------------- |
-| M0  | Hello UART + echo                                        | **done**                    |
-| M1  | Exceptions + timer IRQ ticks                             | **done** (HW)               |
-| M2  | MMU + kernel heap (+ atomics after attrs)                | **done** (HW)               |
-| P0  | Idle (WFI) + UART RX IRQ + ring                          | **done** (HW)               |
-| P1  | W^X + guard page + free-list `GlobalAlloc`               | **done** (HW, fault-probed) |
-| P2  | Early MMU, softfloat, build-enforced gates               | **done** (HW)               |
-| P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)               |
-| P4  | Exception stack, refused frees, fatal map failure         | **done** (HW, fault-probed) |
-| M3  | Cooperative tasks                                        | **done** (HW, fault-probed) |
-| M4  | IPC + capabilities                                       | **done (HW)**               |
-| M5  | EL0 agents                                               | **done (HW)**               |
+| ID  | Deliverable                                              | Status                                                 |
+| --- | -------------------------------------------------------- | ------------------------------------------------------ |
+| M0  | Hello UART + echo                                        | **done**                                               |
+| M1  | Exceptions + timer IRQ ticks                             | **done** (HW)                                          |
+| M2  | MMU + kernel heap (+ atomics after attrs)                | **done** (HW)                                          |
+| P0  | Idle (WFI) + UART RX IRQ + ring                          | **done** (HW)                                          |
+| P1  | W^X + guard page + free-list `GlobalAlloc`               | **done** (HW, fault-probed)                            |
+| P2  | Early MMU, softfloat, build-enforced gates               | **done** (HW)                                          |
+| P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)                                          |
+| P4  | Exception stack, refused frees, fatal map failure        | **done** (HW, fault-probed)                            |
+| M3  | Cooperative tasks                                        | **done** (HW, fault-probed)                            |
+| M4  | IPC + capabilities                                       | **done (HW)**                                          |
+| M5  | EL0 agents                                               | **done (HW)**                                          |
 | M6  | Driver-as-agent                                          | **done (HW)** page map+FR+kill; **RX own done (QEMU)** |
 
 **M** milestones add capability. **P** milestones add protection or evidence and
@@ -156,13 +156,13 @@ EL1t vector entries — and both fault probes were re-run at their new addresses
 The done column above was earned against a stated observable. The same standard
 applies forwards, or it is not the same standard.
 
-| ID  | Needs first                                                                                           | Done when                                                                                                                                                                                                               |
-| --- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M3  | [ADR-0006](adr/0006-cooperative-execution-model.md) (F12 done); per-task heap stack + unmapped guard  | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack |
-| M4  | [ADR-0008](adr/0008-irq-handler-policy.md) (**accepted**): cookie handlers + wake queue; mailbox ABI  | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console; IRQ wakes use the ADR-0008 queue only      |
-| M5  | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) + [ADR-0014](adr/0014-ttbr-split-m5.md) (TTBR0 v1); multi-role prep | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
-| M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**accepted**); F26                              | EL0 agent maps **only** the PL011 page, touches the device, is destroyed (kill); kernel console/ticks continue. RX ownership (poll + real bytes) is a post-v1 product slice gated on QEMU, HW stamp open. |
-| M7  | [ADR-0017](adr/0017-el0-capability-abi.md) (EL0 capability ABI) and [ADR-0018](adr/0018-agent-fault-policy.md) (agent fault policy), both **proposed**. [ADR-0001](adr/0001-multi-role-analysis.md) blocks the milestone until they are accepted | Two EL0 agents exchange a message neither can forge; one of them faults; its creator handles the fault and the other keeps running; the kernel stays alive — **on silicon**, with a serial transcript. Needs the EL0 session state in the `Tcb` first: today nine machine-wide `static mut` make two live sessions impossible, so the sentence is not merely unimplemented but unsayable |
+| ID  | Needs first                                                                                                                                                                                                                                                | Done when                                                                                                                                                                                                                                                                                                                                                                                |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| M3  | [ADR-0006](adr/0006-cooperative-execution-model.md) (F12 done); per-task heap stack + unmapped guard                                                                                                                                                       | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack                                                                                                                                                                  |
+| M4  | [ADR-0008](adr/0008-irq-handler-policy.md) (**accepted**): cookie handlers + wake queue; mailbox ABI                                                                                                                                                       | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console; IRQ wakes use the ADR-0008 queue only                                                                                                                                                                       |
+| M5  | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) + [ADR-0014](adr/0014-ttbr-split-m5.md) (TTBR0 v1); multi-role prep                                                                                                                             | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                                                                                                                                                                                              |
+| M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**accepted**); F26                                                                                                                                                                                 | EL0 agent maps **only** the PL011 page, touches the device, is destroyed (kill); kernel console/ticks continue. RX ownership (poll + real bytes) is a post-v1 product slice gated on QEMU, HW stamp open.                                                                                                                                                                                |
+| M7  | [ADR-0017](adr/0017-el0-capability-abi.md) (EL0 capability ABI) and [ADR-0018](adr/0018-agent-fault-policy.md) (agent fault policy), both **accepted** 2026-08-06 — which is what unblocks the milestone under [ADR-0001](adr/0001-multi-role-analysis.md) | Two EL0 agents exchange a message neither can forge; one of them faults; its creator handles the fault and the other keeps running; the kernel stays alive — **on silicon**, with a serial transcript. Needs the EL0 session state in the `Tcb` first: today nine machine-wide `static mut` make two live sessions impossible, so the sentence is not merely unimplemented but unsayable |
 
 M3 is **done (HW)**. [ADR-0006](adr/0006-cooperative-execution-model.md) is
 **accepted**. Observed on **Pi 4B silicon**: interleaved `task-a`/`task-b`,
@@ -191,14 +191,14 @@ show the same oracles
 
 ### Closed (HW) — through multi-SVC / M6 v1 map
 
-| Slice | Status | Evidence |
-| ----- | ------ | -------- |
-| **M5-P1…P3** | **done (HW)** | scheduled EL0, SVC refuse, dual AS |
-| **M6-D0** [ADR-0013](adr/0013-narrow-device-windows.md) | **accepted** | 2026-08-05 |
-| **M6 v1** PL011 page + FR + kill | **done (HW)** | `pl011-agent: FR read + svc ok` / `killed ok` |
-| **Agent shell** + concurrent dual agent | **done (HW)** | `agents: concurrent ok` |
-| **SVC resume** | **done (HW)** | `enter`/`resume`/`end_session`; `el0-task: resume pings=2` |
-| Preferred ELR for SVC | documented | AArch64 ELR already past SVC — no software `+4` |
+| Slice                                                   | Status        | Evidence                                                   |
+| ------------------------------------------------------- | ------------- | ---------------------------------------------------------- |
+| **M5-P1…P3**                                            | **done (HW)** | scheduled EL0, SVC refuse, dual AS                         |
+| **M6-D0** [ADR-0013](adr/0013-narrow-device-windows.md) | **accepted**  | 2026-08-05                                                 |
+| **M6 v1** PL011 page + FR + kill                        | **done (HW)** | `pl011-agent: FR read + svc ok` / `killed ok`              |
+| **Agent shell** + concurrent dual agent                 | **done (HW)** | `agents: concurrent ok`                                    |
+| **SVC resume**                                          | **done (HW)** | `enter`/`resume`/`end_session`; `el0-task: resume pings=2` |
+| Preferred ELR for SVC                                   | documented    | AArch64 ELR already past SVC — no software `+4`            |
 
 Pi 4B stamp detail: [verification.md §M5-P / M6](verification.md#m5-p--m6-post).
 
@@ -208,15 +208,15 @@ Every row below was QEMU-only until the hardware session of 2026-08-06.
 Transcript and the four register-level claims:
 [verification.md §the four changes of 2026-08-05](verification.md#hardware-evidence-the-four-changes-of-2026-08-05-closed).
 
-| Slice | Status | Evidence |
-| ----- | ------ | -------- |
-| **EL0 IRQ save/resume** | **done (HW)** | architectural re-execute; `el0-task: irq resume irqs=1` |
-| **`SYS_PUTC`** | **done (HW)** | imm 2; `el0-task: putc bytes=2` |
-| **RX poll empty** | **done (HW)** | `pl011-agent: rx poll empty` |
-| **RX-owned agent (poll)** | **done (HW)** | drain off + IMSC mask; `rx own begin/end`, and an injected byte reached the *agent* while the kernel drain was suspended (`rx poll unexpected putcs=1`) |
-| **Real RX bytes** | **done (HW)** | PL011 **LBE** inject; `rx own bytes=2`, intact underneath ~3500 injected bytes |
-| **Kill restores kernel drain** | **done (HW)** | `resume_rx` + `killed ok`; idle ticks ran to 270 with no storm |
-| Kernel TX / panic | preserved | TX never handed to agent |
+| Slice                          | Status        | Evidence                                                                                                                                                |
+| ------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **EL0 IRQ save/resume**        | **done (HW)** | architectural re-execute; `el0-task: irq resume irqs=1`                                                                                                 |
+| **`SYS_PUTC`**                 | **done (HW)** | imm 2; `el0-task: putc bytes=2`                                                                                                                         |
+| **RX poll empty**              | **done (HW)** | `pl011-agent: rx poll empty`                                                                                                                            |
+| **RX-owned agent (poll)**      | **done (HW)** | drain off + IMSC mask; `rx own begin/end`, and an injected byte reached the _agent_ while the kernel drain was suspended (`rx poll unexpected putcs=1`) |
+| **Real RX bytes**              | **done (HW)** | PL011 **LBE** inject; `rx own bytes=2`, intact underneath ~3500 injected bytes                                                                          |
+| **Kill restores kernel drain** | **done (HW)** | `resume_rx` + `killed ok`; idle ticks ran to 270 with no storm                                                                                          |
+| Kernel TX / panic              | preserved     | TX never handed to agent                                                                                                                                |
 
 QEMU gate: `make boot-check` / `scripts/qemu-boot-check.sh` (all of the above
 oracles). It has three outcomes, not two: `timer: MISSED` is corroborated
@@ -225,14 +225,14 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 
 ### Next (ordered)
 
-| # | Work | Done when |
-| - | ---- | --------- |
-| 1 | **Accept [ADR-0017](adr/0017-el0-capability-abi.md) and [ADR-0018](adr/0018-agent-fault-policy.md)** | Both `accepted` with a date; [ADR-0001](adr/0001-multi-role-analysis.md) blocks M7 until then, and `make doc-claims` enforces that status and date move together |
-| 2 | **M7 slice 1**: EL0 session state into the `Tcb` | Two agents live at EL0 at once; a single `CURRENT_TCB` replaces nine `static mut`; the entry path *asserts* the pointer matches the current task — the one "nothing" row [ADR-0017](adr/0017-el0-capability-abi.md) carries |
-| 3 | **M7 slices 2–4**: cap table + `SYS_SEND`/`SYS_RECV`; `SYS_PUTC` behind a console capability denied by default; fault policy | The M7 done-when above, on silicon |
-| 5 | **Threat model + `SECURITY.md`** | After [ADR-0017](adr/0017-el0-capability-abi.md), which is where authority is finally defined |
-| 6 | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without kernel draining `DR` |
-| 7 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
+| #   | Work                                                                                                                         | Done when                                                                                                                                                                                                                                                                    |
+| --- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **M7 slice 1**: EL0 session state into the `Tcb`                                                                             | Two agents live at EL0 at once; a single `CURRENT_EL0` replaces nine `static mut`; the entry path _asserts_ the pointer is the current task's session — the one "nothing" row [ADR-0017](adr/0017-el0-capability-abi.md) carried, closed in the commit that creates the risk |
+| 2   | **M7 slices 2–4**: cap table + `SYS_SEND`/`SYS_RECV`; `SYS_PUTC` behind a console capability denied by default; fault policy | The M7 done-when above, on silicon                                                                                                                                                                                                                                           |
+| 3   | **F22**: two hostile EL0 programs in the boot oracle                                                                         | One faults deliberately, one names a slot it does not hold; both refusals asserted by `make boot-check`. Writable only after slice 2                                                                                                                                         |
+| 4   | **Threat model + `SECURITY.md`**                                                                                             | After [ADR-0017](adr/0017-el0-capability-abi.md), which is where authority is finally defined                                                                                                                                                                                |
+| 5   | **Optional: IRQ-wake RX**                                                                                                    | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                                                                                            |
+| 6   | **Optional P-pass**                                                                                                          | Tighten kernel EL1 Device blankets (not required for M6 v1)                                                                                                                                                                                                                  |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 
@@ -241,8 +241,9 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 From [the multi-role review](reviews/2026-08-04-multi-role.md). Findings not
 listed here block nothing and are tracked in that report alone.
 
-| Finding | Blocks              | Why                                                                                                                                                      |
-| ------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Finding | Blocks | Why |
+| ------- | ------ | --- |
+
 Status for all thirty lives in the review itself, assigned by the 2026-08-06
 audit and verified against the code — this page used to track six of them while
 the report tracked none. **None is still open.** The last was F23, board
@@ -252,13 +253,13 @@ instead of a hiding place, and by `make arch-board-free`, which sees the way of
 knowing a board that `make layering` cannot — writing its addresses out by
 hand.
 
-| F12     | — (resolved)        | Closed by [ADR-0006](adr/0006-cooperative-execution-model.md); the ADR was the deliverable                                                               |
-| F18     | — (resolved)        | Absolute `CNTP_CVAL` deadlines + missed-tick counter; pure cooperative yield never depended on it                                                        |
-| F13     | — (resolved)        | Shape accepted: `Handler = fn(IrqCookie)` + IRQ→voluntary wake queue — [ADR-0008](adr/0008-irq-handler-policy.md); code lands with first M4 PR           |
-| F26     | — (resolved M6 v1)  | [ADR-0013](adr/0013-narrow-device-windows.md) **accepted**; agent maps are page-sized named windows only; kernel coarse Device may remain until a P-pass  |
-| F15     | — (resolved)        | Risk-accepted: board truth is BSP constants; DTB mapped RO for a future parser — [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)           |
-| F24     | — (resolved)        | Layering rules 1–4 are enforced by `make layering`; non-import coupling remains review-only (gate blind spots in verification)                           |
-| F23     | — (resolved)        | Early map in `mm::early`; board says which gigabyte is what via `memmap::EARLY_BLOCKS`; `make arch-board-free` refuses a physical range base under `src/arch/` |
+| F12 | — (resolved) | Closed by [ADR-0006](adr/0006-cooperative-execution-model.md); the ADR was the deliverable |
+| F18 | — (resolved) | Absolute `CNTP_CVAL` deadlines + missed-tick counter; pure cooperative yield never depended on it |
+| F13 | — (resolved) | Shape accepted: `Handler = fn(IrqCookie)` + IRQ→voluntary wake queue — [ADR-0008](adr/0008-irq-handler-policy.md); code lands with first M4 PR |
+| F26 | — (resolved M6 v1) | [ADR-0013](adr/0013-narrow-device-windows.md) **accepted**; agent maps are page-sized named windows only; kernel coarse Device may remain until a P-pass |
+| F15 | — (resolved) | Risk-accepted: board truth is BSP constants; DTB mapped RO for a future parser — [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md) |
+| F24 | — (resolved) | Layering rules 1–4 are enforced by `make layering`; non-import coupling remains review-only (gate blind spots in verification) |
+| F23 | — (resolved) | Early map in `mm::early`; board says which gigabyte is what via `memmap::EARLY_BLOCKS`; `make arch-board-free` refuses a physical range base under `src/arch/` |
 
 ### Side-track (not an M/P milestone)
 
@@ -271,7 +272,7 @@ feature (`debug-display`). **SPI0, regwidth-16 ILI bring-up, and the status
 surface are silicon-closed**
 ([verification](verification.md#rng200-and-spi0-hardware)). Missing
 peripherals soft-fail via `arch::probe` (QEMU RNG hole) rather than a feature
-gate. Must not block or redefine M4–M6; M6 may later *reuse* those drivers as
+gate. Must not block or redefine M4–M6; M6 may later _reuse_ those drivers as
 agents.
 
 ## Decisions and reviews
@@ -279,28 +280,28 @@ agents.
 The choices that constrain the code have an ADR, each naming the alternative
 that was rejected and the gate that would catch its reversal.
 
-| Artefact                                        | Role                                                                        |
-| ----------------------------------------------- | --------------------------------------------------------------------------- |
-| [`docs/adr/`](adr/README.md)                    | Architecture Decision Records (lifecycle: proposed → accepted → superseded) |
-| [ADR-0001](adr/0001-multi-role-analysis.md)     | Multi-role analysis as pre-milestone gate (**accepted**)                    |
-| [ADR-0002](adr/0002-softfloat-kernel.md)        | Kernel compiled softfloat, FP left trapping (**accepted**)                  |
-| [ADR-0003](adr/0003-early-mmu.md)               | MMU enabled before any Rust runs (**accepted**)                             |
-| [ADR-0004](adr/0004-gic-group0-firmware-pin.md) | GIC Group 0 with IAR/EOIR, and the firmware pin (**accepted**)              |
-| [ADR-0005](adr/0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator (**accepted**)         |
-| [ADR-0006](adr/0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks); closes F12 (**accepted**) |
-| [ADR-0007](adr/0007-project-identity-harbor-kernel.md) | Project identity Harbor / `harbor-kernel` (**accepted**) |
-| [ADR-0008](adr/0008-irq-handler-policy.md)      | IRQ handler shape for M4 wakes / caps; closes F13 (**accepted**) |
-| [ADR-0009](adr/0009-optional-spi-tft-debug-console.md) | Optional SPI TFT status surface; lab side-track (**accepted**) |
-| [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md) | SPI sessions + DBI stream; regwidth-16 SKU note (**accepted**) |
-| [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in; closes F15 (**accepted**) |
-| [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) | Frame allocator for user AS; M5 needs-first (**accepted**) |
-| [ADR-0013](adr/0013-narrow-device-windows.md) | Narrow device MMIO for agents; F26/M6 v1 (**accepted**) |
-| [ADR-0014](adr/0014-ttbr-split-m5.md) | TTBR regime M5 v1 (TTBR0 + kernel maps in user AS) (**accepted**) |
-| [ADR-0015](adr/0015-multi-arch-scaffold.md) | Multi-arch scaffold: cfg facade + board features (**accepted**) |
-| [ADR-0016](adr/0016-el0-session-protocol.md) | EL0 session protocol: one slot, prose contract, named successor (**accepted**) |
-| [ADR-0017](adr/0017-el0-capability-abi.md) | EL0 capability ABI: slot-indexed authority, session state in the TCB (**proposed**) |
-| [ADR-0018](adr/0018-agent-fault-policy.md) | Agent fault policy: the kernel ends the session, the creator decides the task (**proposed**) |
-| [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
+| Artefact                                                       | Role                                                                                                |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [`docs/adr/`](adr/README.md)                                   | Architecture Decision Records (lifecycle: proposed → accepted → superseded)                         |
+| [ADR-0001](adr/0001-multi-role-analysis.md)                    | Multi-role analysis as pre-milestone gate (**accepted**)                                            |
+| [ADR-0002](adr/0002-softfloat-kernel.md)                       | Kernel compiled softfloat, FP left trapping (**accepted**)                                          |
+| [ADR-0003](adr/0003-early-mmu.md)                              | MMU enabled before any Rust runs (**accepted**)                                                     |
+| [ADR-0004](adr/0004-gic-group0-firmware-pin.md)                | GIC Group 0 with IAR/EOIR, and the firmware pin (**accepted**)                                      |
+| [ADR-0005](adr/0005-static-page-table-arena.md)                | Static page-table arena instead of a frame allocator (**accepted**)                                 |
+| [ADR-0006](adr/0006-cooperative-execution-model.md)            | Cooperative execution model (M3 tasks); closes F12 (**accepted**)                                   |
+| [ADR-0007](adr/0007-project-identity-harbor-kernel.md)         | Project identity Harbor / `harbor-kernel` (**accepted**)                                            |
+| [ADR-0008](adr/0008-irq-handler-policy.md)                     | IRQ handler shape for M4 wakes / caps; closes F13 (**accepted**)                                    |
+| [ADR-0009](adr/0009-optional-spi-tft-debug-console.md)         | Optional SPI TFT status surface; lab side-track (**accepted**)                                      |
+| [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md)          | SPI sessions + DBI stream; regwidth-16 SKU note (**accepted**)                                      |
+| [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in; closes F15 (**accepted**)                                      |
+| [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md)     | Frame allocator for user AS; M5 needs-first (**accepted**)                                          |
+| [ADR-0013](adr/0013-narrow-device-windows.md)                  | Narrow device MMIO for agents; F26/M6 v1 (**accepted**)                                             |
+| [ADR-0014](adr/0014-ttbr-split-m5.md)                          | TTBR regime M5 v1 (TTBR0 + kernel maps in user AS) (**accepted**)                                   |
+| [ADR-0015](adr/0015-multi-arch-scaffold.md)                    | Multi-arch scaffold: cfg facade + board features (**accepted**)                                     |
+| [ADR-0016](adr/0016-el0-session-protocol.md)                   | EL0 session protocol: one slot, prose contract, named successor (**superseded**) — by 0017 and 0018 |
+| [ADR-0017](adr/0017-el0-capability-abi.md)                     | EL0 capability ABI: slot-indexed authority, session state in the TCB (**accepted**)                 |
+| [ADR-0018](adr/0018-agent-fault-policy.md)                     | Agent fault policy: the kernel ends the session, the creator decides the task (**accepted**)        |
+| [`docs/reviews/`](reviews/)                                    | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals
 
