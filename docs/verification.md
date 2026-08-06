@@ -494,6 +494,97 @@ instead.
 The W^X probe needs no re-run: `.text` and `.rodata` were not touched by the
 split, and its recorded ESR does not depend on an address that moved.
 
+## Hardware evidence: the four changes of 2026-08-05 (closed)
+
+Four changes from the multi-role review had never run on silicon, and QEMU is
+documentedly blind to the class each of them touches. Closed on a Pi 4B,
+2026-08-06, over five boots: two bring-up and three production.
+
+**`SCTLR_EL1` RES1 bits.** The image writes `0x30d01805`, where the previous
+value was `0x1005`. QEMU does not force the ARMv8.0-A RES1 bits, and an A72
+would be within its rights to. The bring-up gate reads the register back:
+
+```
+selftest: SCTLR_EL1=0x30d01805 RES1=0x30d00800/0x30d00800
+```
+
+Written is read: the hardware forced nothing beyond the pattern the image
+already sets. That is the whole claim — not that the value is *correct*, which
+the architecture manual settles, but that no bit arrives from somewhere else.
+
+**Table arena at 32 pages, reserve derived from `MAX_TASKS`.** The number QEMU
+reports is against a bring-up `.text`; production is what ships:
+
+```
+MMU on  (W^X, guard page at 0xbb000, 102400 B of table arena left)
+arena: 1 splits, 23 tables free
+```
+
+Twenty-three free against a derived reserve of fourteen. The arena was
+previously sized against a reserve of six that assumed `MAX_TASKS = 4`, long
+after the scheduler raised it to twelve — see the reversal row for that check
+above, which is what caught it.
+
+**GIC programming order (`disable` first).** `config.txt` sets `enable_gic=1`,
+so the firmware has already programmed the distributor before any of this
+kernel's code runs, and that pre-programmed state is exactly what QEMU does not
+reproduce. On the bring-up image:
+
+```
+gate: HPPIR=30 ok
+inject: IAR=0x1e id=30
+inject: ticks 0 -> 2
+IRQs enabled (timer + UART RX)
+```
+
+**PL011 RX handover.** The hardest of the four, because the window is a couple
+of instructions wide and needs a byte to arrive *inside* it — and the QEMU boot
+check types nothing at all. Driven here by streaming a byte every 2 ms into the
+board's RX for seven seconds, straddling the whole handover, rather than by
+typing: a hand cannot hit a window it cannot see.
+
+The first attempt covered only half of it. The injector was triggered on the
+`pl011-agent: rx own begin` line, which the kernel prints *after* `suspend_rx`
+has already returned, so bytes were only ever in flight across `resume_rx`.
+Re-run from the boot banner instead, and the suspend side reports itself:
+
+```
+pl011-agent: rx own begin
+ypl011-agent: rx poll unexpected putcs=1
+ tpl011-agent: rx own bytes=2
+pl011-agent: rx own end
+yyyy…pl011-agent: killed ok  pool=512
+yyyy…ticks=10 … ticks=270
+```
+
+Three separate things in that excerpt. `rx poll unexpected putcs=1` is an
+injected byte reaching the **agent** while the kernel's drain was suspended —
+the operational definition of the agent owning RX, and the evidence that bytes
+were arriving during the suspended region and not merely after it. `rx own
+bytes=2` is the loopback pair still arriving intact underneath the injected
+traffic. And the `y`s resuming after `rx own end` are the kernel drain echoing
+again.
+
+What must not happen is a storm. With the pre-fix inversion — the IRQ view
+disarmed before `IMSC` is masked — a byte in that window re-enters the handler
+with the base still zero, so it returns without popping `DR` or writing `ICR`,
+and on a level-triggered line the interrupt is never cleared. The tick counter
+would stop at the handover. It runs to 270 and beyond.
+
+**Honest limit.** The window is one instruction pair wide and both halves run
+inside `cpu::without_irqs`, so whether a byte landed in that exact pair is not
+knowable from outside. What is established is that ~3500 bytes crossed the
+region, the drain changed hands twice, a byte demonstrably arrived while it was
+suspended, and no storm occurred. That is strictly more than the boot check can
+say — it types nothing — and strictly less than proof.
+
+**Unexplained, and recorded rather than dropped.** After the bring-up image's
+guard probe panicked and halted, the board booted again on its own. Nothing in
+this kernel resets it, `*** halt ***` is a `wfi` loop, and no power cycle was
+performed between the two runs. It did not affect the evidence — the two
+bring-up boots agree line for line except the RNG word, which must differ — but
+a board that restarts after halt is doing something nobody has accounted for.
+
 ## Bring-up gates
 
 `cargo build --features bringup` adds masked CNTP / HPPIR / IAR gates that
