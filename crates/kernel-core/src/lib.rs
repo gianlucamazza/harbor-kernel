@@ -23,6 +23,7 @@ pub mod font8x8;
 pub mod frame;
 pub mod gic;
 pub mod heap;
+pub mod ipc;
 pub mod layout;
 pub mod paging;
 pub mod poll;
