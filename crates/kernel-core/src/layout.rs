@@ -371,6 +371,181 @@ mod tests {
     };
 
     #[test]
+    fn a_write_execute_region_is_recognised_as_one() {
+        // The positive half of the W^X check, which was missing: every test
+        // asserted that good regions are *not* W+X, and all of them passed
+        // just as well with `is_write_execute` hard-wired to `false`. Mutation
+        // testing found that; nothing else could have.
+        let rwx = Region {
+            base: 0x8_0000,
+            len: PAGE_SIZE,
+            kind: MemKind::NormalWb,
+            perms: Perms {
+                write: true,
+                execute: true,
+                user: false,
+            },
+            name: "deliberately writable and executable",
+        };
+        assert!(rwx.is_write_execute());
+
+        for benign in [Perms::RW, Perms::RX, Perms::RO] {
+            let r = Region {
+                perms: benign,
+                ..rwx
+            };
+            assert!(!r.is_write_execute(), "{benign:?} is not W+X");
+        }
+    }
+
+    #[test]
+    fn a_write_execute_region_is_refused_by_validation() {
+        // And the refusal reaches the caller with the offending name, rather
+        // than being noticed and dropped.
+        let boundaries = bounds();
+        let regions = [Region {
+            base: 0x8_0000,
+            len: PAGE_SIZE,
+            kind: MemKind::NormalWb,
+            perms: Perms {
+                write: true,
+                execute: true,
+                user: false,
+            },
+            name: "rwx",
+        }];
+        assert_eq!(
+            validate(&regions, &boundaries),
+            Err(LayoutError::WriteExecute { name: "rwx" })
+        );
+    }
+
+    #[test]
+    fn a_guard_may_fail_by_being_small_or_by_being_detached() {
+        // Two independent ways for a guard to be useless, joined by `||`. With
+        // `&&` a guard would have to fail both at once to be refused, so each
+        // is exercised alone — which is the only way to tell them apart.
+        let good = GuardedStack {
+            guard: (0x1000, 0x2000),
+            stack: (0x2000, 0x6000),
+            name: "aligned",
+        };
+        assert!(validate_guarded_stack(&good).is_ok());
+
+        let too_small = GuardedStack {
+            guard: (0x2000, 0x2000),
+            stack: (0x2000, 0x6000),
+            name: "zero-length guard, correctly placed",
+        };
+        assert!(matches!(
+            validate_guarded_stack(&too_small),
+            Err(LayoutError::GuardIneffective { .. })
+        ));
+
+        let detached = GuardedStack {
+            guard: (0x1000, 0x2000),
+            stack: (0x3000, 0x6000),
+            name: "full-page guard, but not against the stack",
+        };
+        assert!(matches!(
+            validate_guarded_stack(&detached),
+            Err(LayoutError::GuardIneffective { .. })
+        ));
+    }
+
+    #[test]
+    fn a_region_misaligned_in_base_or_in_length_is_refused() {
+        // Same shape one level up: `base % PAGE != 0 || len % PAGE != 0`.
+        // A region can be misaligned in either term on its own.
+        let b = bounds();
+        let base_off = [Region {
+            base: 0x8_0008,
+            len: PAGE_SIZE,
+            kind: MemKind::NormalWb,
+            perms: Perms::RO,
+            name: "odd base",
+        }];
+        assert!(matches!(
+            validate(&base_off, &b),
+            Err(LayoutError::Unaligned { .. })
+        ));
+
+        let len_off = [Region {
+            base: 0x8_0000,
+            len: PAGE_SIZE + 8,
+            kind: MemKind::NormalWb,
+            perms: Perms::RO,
+            name: "odd length",
+        }];
+        assert!(matches!(
+            validate(&len_off, &b),
+            Err(LayoutError::Unaligned { .. })
+        ));
+    }
+
+    #[test]
+    fn each_of_the_three_alignment_terms_is_checked_on_its_own() {
+        // Three conditions joined by `||`, and each has to be reachable alone
+        // or the chain is only tested as a whole. The first attempt at this
+        // test used `guard: (0x1008, 0x2000)`, which is *also* a guard shorter
+        // than a page — it was refused by the earlier check and never reached
+        // the alignment chain at all. It passed, and proved nothing; mutation
+        // testing is what said so.
+        let good = GuardedStack {
+            guard: (0x1000, 0x2000),
+            stack: (0x2000, 0x6000),
+            name: "aligned",
+        };
+        assert!(validate_guarded_stack(&good).is_ok());
+
+        // Each case below is a full-length, contiguous, non-empty guard+stack
+        // pair that is misaligned in exactly one of the three addresses.
+        let cases = [
+            (
+                GuardedStack {
+                    guard: (0x0FF8, 0x2000),
+                    ..good
+                },
+                "guard base",
+            ),
+            (
+                GuardedStack {
+                    guard: (0x1000, 0x2008),
+                    stack: (0x2008, 0x6000),
+                    ..good
+                },
+                "stack base",
+            ),
+            (
+                GuardedStack {
+                    stack: (0x2000, 0x6008),
+                    ..good
+                },
+                "stack top",
+            ),
+        ];
+        for (case, which) in cases {
+            assert!(
+                matches!(
+                    validate_guarded_stack(&case),
+                    Err(LayoutError::Unaligned { .. })
+                ),
+                "{which} misaligned, everything else in order"
+            );
+        }
+    }
+
+    #[test]
+    fn two_pages_is_the_smallest_usable_window() {
+        // The boundary itself: one text page and one stack page. `< 2` and
+        // `<= 2` differ only here, and only here does it matter.
+        let two = UserWindow { pages: 2, ..WIN };
+        assert_eq!(two.validate(), Ok(()), "text + one stack page is usable");
+        let one = UserWindow { pages: 1, ..WIN };
+        assert_eq!(one.validate(), Err(WindowError::TooSmall));
+    }
+
+    #[test]
     fn the_window_starts_where_el0_enters_and_ends_where_its_stack_begins() {
         assert_eq!(WIN.entry(), 0x4000_0000);
         assert_eq!(WIN.stack_top(), 0x4000_4000, "SP_EL0 starts at the top");
@@ -676,6 +851,44 @@ mod tests {
         let mut b = bounds();
         b.rodata.1 = b.rodata.0;
         assert!(matches!(build(&b), Err(LayoutError::Empty { .. })));
+    }
+
+    #[test]
+    fn the_returned_prefix_is_every_region_and_no_more() {
+        // `ram_count + devices.len()` appears twice, and both the capacity
+        // check and the returned slice are derived from it. Asserting the
+        // length pins both: with the sum mutated the validator would run over
+        // a short prefix and silently skip the device windows.
+        let mut out = [Region {
+            base: 0,
+            len: 0,
+            kind: MemKind::NormalWb,
+            perms: Perms::RW,
+            name: "unused",
+        }; 11];
+        let filled = kernel_regions(&bounds(), &devices(), &mut out).unwrap();
+        assert_eq!(filled.len(), 9 + devices().len());
+        assert!(
+            filled.iter().any(|r| r.name == "GIC"),
+            "the last device is inside the validated prefix"
+        );
+    }
+
+    #[test]
+    fn one_slot_short_is_one_slot_too_few() {
+        // The boundary itself: eleven regions fit, ten do not. A capacity check
+        // that is merely *some* inequality passes the existing four-slot test.
+        let mut ten = [Region {
+            base: 0,
+            len: 0,
+            kind: MemKind::NormalWb,
+            perms: Perms::RW,
+            name: "unused",
+        }; 10];
+        assert_eq!(
+            kernel_regions(&bounds(), &devices(), &mut ten),
+            Err(LayoutError::TooManyRegions)
+        );
     }
 
     #[test]

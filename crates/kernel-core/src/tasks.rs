@@ -144,13 +144,6 @@ impl<const N: usize> Tasks<N> {
         Some(id)
     }
 
-    /// Undo an [`Self::admit`] whose caller could not finish setting the task up.
-    pub fn withdraw(&mut self, id: TaskId) {
-        if let Some(slot) = self.states.get_mut(id.0 as usize) {
-            *slot = State::Empty;
-        }
-    }
-
     /// Make a blocked task runnable again. `false` if it was not blocked.
     pub fn wake(&mut self, id: TaskId) -> bool {
         let idx = id.0 as usize;
@@ -218,6 +211,16 @@ impl<const N: usize> Tasks<N> {
         let next = match self.queue.after_yield(requeue.then_some(current)) {
             Ok(Some(id)) => id,
             // Nothing ready: fall back to idle unless we are already it.
+            //
+            // Unreachable while the guard above holds. Idle is always exactly
+            // one of *current* or *queued*: it is popped when it starts running
+            // and requeued whenever it yields, and it may neither block nor
+            // exit. So a worker asking for the next task always finds at least
+            // idle waiting, and `Ok(None)` only ever arrives when idle itself
+            // is asking. Mutation testing reports this guard as untested, and
+            // no test can honestly cover it — it is what keeps the scheduler
+            // from running a task that is no longer ready if that invariant
+            // ever changes.
             Ok(None) if current != Self::IDLE => Self::IDLE,
             _ => {
                 // Either idle with an empty queue, or the queue refused the
@@ -297,6 +300,92 @@ mod tests {
         for id in ids {
             assert_eq!(t.state(id), Some(State::Ready));
         }
+    }
+
+    #[test]
+    fn a_yielding_task_is_marked_ready_and_not_left_running() {
+        // Two tasks cannot both be `Running`. The state is what `admit` reads
+        // to find a free slot and what the boot report prints, so leaving a
+        // queued task marked `Running` is not cosmetic.
+        let mut t = started();
+        let a = t.admit().unwrap();
+        t.switch(Switch::Yield); // idle → a
+        assert_eq!(t.state(T::IDLE), Some(State::Ready), "idle yielded, queued");
+        assert_eq!(t.state(a), Some(State::Running));
+    }
+
+    #[test]
+    fn idle_refuses_to_block_even_with_somewhere_to_go() {
+        // The guard reads `current == IDLE`, and with a ready task waiting the
+        // difference is total: the real kernel stays on idle, while a scheduler
+        // that let idle block would mark it `Blocked` with nothing left to
+        // wake it — the machine stops the moment that task exits.
+        let mut t = started();
+        let _a = t.admit().unwrap();
+        assert!(t.has_ready(), "somewhere to go, deliberately");
+
+        assert!(matches!(t.switch(Switch::Block), Decision::Stay));
+        assert_eq!(t.current(), T::IDLE);
+        assert_eq!(t.state(T::IDLE), Some(State::Running));
+
+        assert!(matches!(t.switch(Switch::Exit), Decision::Stay));
+        assert_eq!(t.state(T::IDLE), Some(State::Running), "idle never exits");
+    }
+
+    #[test]
+    fn has_ready_answers_both_ways() {
+        // The idle loop calls this to decide between `WFI` and another round.
+        // Hard-wired to `false` it would sleep with work waiting; hard-wired to
+        // `true` it would spin. Only asserting the false case leaves half of it
+        // uncovered.
+        let mut t = started();
+        assert!(!t.has_ready(), "nothing admitted yet");
+        let _ = t.admit().unwrap();
+        assert!(t.has_ready(), "a ready task is waiting");
+    }
+
+    #[test]
+    fn a_worker_may_block_and_exit_where_idle_may_not() {
+        // The guards are `current == IDLE`, and a test that only ever blocks
+        // idle cannot tell them from `false`. Both sides, same assertions.
+        let mut t = started();
+        let a = t.admit().unwrap();
+        t.switch(Switch::Yield); // → a
+        assert_eq!(t.current(), a);
+        assert!(
+            matches!(t.switch(Switch::Block), Decision::Switch { .. }),
+            "a worker blocking really switches away"
+        );
+        assert_eq!(t.state(a), Some(State::Blocked));
+
+        let mut t = started();
+        let b = t.admit().unwrap();
+        t.switch(Switch::Yield); // → b
+        assert!(
+            matches!(t.switch(Switch::Exit), Decision::Switch { .. }),
+            "a worker exiting really switches away"
+        );
+        assert_eq!(t.state(b), Some(State::Empty));
+    }
+
+    #[test]
+    fn a_worker_with_nothing_else_ready_falls_back_to_idle() {
+        // The `Ok(None) if current != IDLE` arm. With the guard inverted a
+        // worker would stay on itself forever after an exit, and with it always
+        // true idle would try to fall back to itself.
+        let mut t = started();
+        let a = t.admit().unwrap();
+        t.switch(Switch::Yield); // → a, queue now holds idle
+        t.switch(Switch::Yield); // → idle, queue holds a
+        assert_eq!(t.current(), T::IDLE);
+
+        // Drain a out of the queue so nothing is ready but idle itself.
+        t.switch(Switch::Yield); // → a
+        assert_eq!(t.current(), a);
+        assert!(
+            matches!(t.switch(Switch::Exit), Decision::Switch { to, .. } if to == T::IDLE),
+            "the last worker exits into idle"
+        );
     }
 
     #[test]

@@ -272,6 +272,11 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
             return Err(SendError::BadCap);
         };
         let mbox = &mut self.mailboxes[mb];
+        // Unreachable today, and kept anyway: see the note at the top of this
+        // module. `live` never returns to `false`, so a lookup that resolves
+        // cannot resolve to a dead mailbox. Mutation testing reports the
+        // increment below as untested, and that is the honest result — the
+        // arm guards an invariant that release-and-reuse will one day break.
         if !mbox.live {
             self.refusals.state += 1;
             return Err(SendError::BadCap);
@@ -291,6 +296,7 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
             return Err(RecvError::BadCap);
         };
         let mbox = &mut self.mailboxes[mb];
+        // Unreachable today; see [`Self::send`].
         if !mbox.live {
             self.refusals.state += 1;
             return Err(RecvError::BadCap);
@@ -317,6 +323,7 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
             return Err(RecvError::BadCap);
         };
         let mbox = &mut self.mailboxes[mb];
+        // Unreachable today; see [`Self::send`].
         if !mbox.live {
             self.refusals.state += 1;
             return Err(RecvError::BadCap);
@@ -484,6 +491,36 @@ mod tests {
             Ok(Some(TaskId(3))),
             "the first waiter is still the one woken"
         );
+    }
+
+    #[test]
+    fn a_refused_second_waiter_is_counted_as_a_state_refusal() {
+        // The refusal was asserted; the counter beside it was not, so mutating
+        // the increment survived. It is `state` and not `authority`: the caller
+        // had every right, the kernel simply has one slot.
+        let mut t = T::new();
+        let ch = t.create_channel().unwrap();
+        t.park(ch.recv, TaskId(3)).unwrap();
+        assert_eq!(t.park(ch.recv, TaskId(4)), Err(RecvError::Busy));
+        assert_eq!(t.refusals().state, 1);
+        assert_eq!(t.refusals().authority, 0, "not an authority violation");
+        assert_eq!(t.refusals().full, 0);
+    }
+
+    #[test]
+    fn every_authority_refusal_moves_the_count_by_exactly_one() {
+        // Each entry point counts once and only once. An increment mutated to
+        // a decrement or a multiply survives a test that only checks `!= 0`.
+        let mut t = T::new();
+        let bad = CapId::new(9999, 1);
+        for expected in 1..=3 {
+            t.send(bad, msg(1)).ok();
+            assert_eq!(t.refusals().authority, expected * 2 - 1);
+            t.try_recv(bad).ok();
+            assert_eq!(t.refusals().authority, expected * 2);
+        }
+        assert_eq!(t.park(bad, TaskId(1)), Err(RecvError::BadCap));
+        assert_eq!(t.refusals().authority, 7, "park counts too");
     }
 
     #[test]
