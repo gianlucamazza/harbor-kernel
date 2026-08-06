@@ -4,12 +4,6 @@
 //! coverage into it and maps the private user window. Destroy frees every
 //! tracked frame. EL0 entry is [`crate::arch::el0`].
 
-// Audit debt (2026-08-06): 4 unsafe blocks here predate
-// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
-// This comes off when the audit reaches this module and the SAFETY comments can
-// state something checkable rather than restate the code. See Cargo.toml.
-#![allow(clippy::undocumented_unsafe_blocks)]
-
 use kernel_core::frame::{FrameId, FrameLedger, LedgerFull};
 use kernel_core::paging::{
     self, ENTRIES_PER_TABLE, Level, MemKind, PAGE_SIZE, Perms, table_descriptor,
@@ -18,6 +12,39 @@ use kernel_core::paging::{
 use crate::arch::{cache, mmu};
 use crate::bsp::board::memmap::{FRAME_SIZE, USER_STACK_PAGES, USER_STACK_TOP, USER_VA_BASE};
 use crate::mm::frames;
+
+// ## Three things that are correct today for reasons written somewhere else
+//
+// The audit of 2026-08-06 checked each of these and found no bug. They are
+// recorded because in every case the reason lives in another file, and the day
+// one of them changes there is nothing here that would notice.
+//
+// **1. A cloned address space diverges from the kernel map.**
+// `prepare_for_el0` deep-copies kernel coverage into the user root, and
+// `mmu::map` / `mmu::unmap` afterwards mutate only the kernel root. Any spawn
+// or exit while a prepared AS is alive leaves that AS with a stale view — a
+// task-stack guard page unmapped after the clone is still mapped here.
+//
+// It is not reachable because of what runs under the user root: only EL0 code,
+// which every kernel leaf denies, and the few instructions of `kernel_entry` in
+// `vectors.s` between a lower-EL exception and `switch_ttbr0`, which touch the
+// exception stack and nothing else. The exception stack is a `link.ld` region
+// mapped once by `activate` and never re-mapped, so it cannot be the leaf that
+// drifted. It becomes reachable the moment kernel code runs under a user root
+// and touches the heap.
+//
+// **2. `destroy` frees frames with no TLB maintenance.**
+// Sound because every path out of EL0 goes through `vectors.s` →
+// `switch_ttbr0`, which ends with `tlbi vmalle1is` — the whole TLB, including
+// every translation this root produced. An AS that never entered EL0 was never
+// in `TTBR0` and has nothing cached. Neither fact is visible from this file.
+//
+// **3. The user window's pages are contiguous only by accident.**
+// `map_user_stack` takes `USER_STACK_PAGES` separate frames from a pool whose
+// free list is LIFO, so a fresh boot hands out consecutive ones. `poke_user`
+// used to validate against the whole window while writing from page 0's
+// physical address, which turned that accident into the bound. It now refuses
+// past one frame.
 
 /// Max frames one AS may hold (root + cloned tables + user stack pages).
 pub const MAX_AS_FRAMES: usize = 256;
@@ -87,7 +114,11 @@ impl AddressSpace {
             return Err(AsError::AlreadyPrepared);
         }
         let kroot = mmu::kernel_root_phys().ok_or(AsError::NoKernelRoot)?;
-        // SAFETY: kernel root is live identity-mapped table memory.
+        // SAFETY: both roots are pool frames, identity-mapped RW for EL1, and
+        // `kernel_root_phys` returned `Some` so the kernel map is live. The
+        // clone reads a table the kernel is currently translating through and
+        // writes one nothing has installed yet, so no walker can observe a
+        // half-copied level.
         unsafe {
             self.clone_table_into(kroot as *const u64, self.root_phys as *mut u64, Level::L1)?;
         }
@@ -130,7 +161,11 @@ impl AddressSpace {
         if !va.is_multiple_of(PAGE_SIZE) || !pa.is_multiple_of(PAGE_SIZE) {
             return Err(AsError::Unaligned);
         }
-        // SAFETY: exclusive AS tables; pa is a named BSP device page.
+        // SAFETY: this AS is not installed in `TTBR0` — it is prepared, not
+        // live — so these tables have no walker. `pa` is a BSP-named device
+        // page and the alignment of both addresses was checked above. Note what
+        // is *not* checked: nothing says this agent was granted this device.
+        // That is ADR-0016's missing capability ABI, not a gap in this call.
         unsafe { self.map_l3_page(va, pa, MemKind::Device, perms) }
     }
 
@@ -155,7 +190,13 @@ impl AddressSpace {
             return Err(AsError::OutOfRange);
         }
         let dest = self.user_base_phys + offset;
-        // SAFETY: prepared pages are pool frames, identity-mapped RW for EL1.
+        // SAFETY: `user_base_phys` is page 0 of the user window, a pool frame
+        // this AS owns, identity-mapped RW for EL1 — so the kernel may write it
+        // directly. The bound above keeps the copy inside that one frame, which
+        // is the only frame this address reaches. `publish_executable` is
+        // required, not optional: page 0 is mapped `USER_RX` and the bytes are
+        // about to be fetched as instructions on a core whose caches are not
+        // coherent.
         unsafe {
             core::ptr::copy_nonoverlapping(bytes.as_ptr(), dest as *mut u8, bytes.len());
             cache::publish_executable(dest, bytes.len());
@@ -176,6 +217,12 @@ impl AddressSpace {
     }
 
     /// Free every owned frame. Consumes the AS.
+    ///
+    /// No TLB maintenance, and that is not an omission: every path out of EL0
+    /// runs `switch_ttbr0` from `vectors.s`, which invalidates the whole TLB,
+    /// and an AS that never entered EL0 was never in `TTBR0`. See note 2 at the
+    /// top of this file — the reason lives in another file, so a change there
+    /// silently makes this wrong.
     pub fn destroy(mut self) {
         for &index in self.owned.as_slice() {
             let _ = frames::free(FrameId::from_index(index));
@@ -198,7 +245,10 @@ impl AddressSpace {
             if i == 0 {
                 first_phys = phys;
             }
-            // SAFETY: exclusive new frame.
+            // SAFETY: `frames::alloc` just returned this frame, so nothing
+            // else holds it, and pool frames are identity-mapped RW for EL1.
+            // Zeroing is what stops a user program from reading whatever the
+            // previous owner of the frame left behind.
             unsafe {
                 core::ptr::write_bytes(phys as *mut u8, 0, FRAME_SIZE);
             }
@@ -207,6 +257,8 @@ impl AddressSpace {
             } else {
                 Perms::USER_RW
             };
+            // SAFETY: as `map_device_page` — tables of an AS that is not yet
+            // installed, so no walker can see a partial update.
             unsafe {
                 self.map_l3_page(va, phys as u64, MemKind::NormalWb, perms)?;
             }
@@ -225,6 +277,12 @@ impl AddressSpace {
         kind: MemKind,
         perms: Perms,
     ) -> Result<(), AsError> {
+        // SAFETY: the walk starts at this AS's own root — a pool frame,
+        // identity-mapped RW for EL1 — and every step follows a descriptor the
+        // previous read proved to be a table, so no dereference leaves the
+        // tables this AS owns. The AS is prepared, not installed, so no walker
+        // can observe an intermediate state. Volatile accessors are used
+        // throughout because these words are also read by hardware.
         unsafe {
             let mut table = self.root_phys as *mut u64;
             let mut level = Level::L1;
@@ -263,6 +321,12 @@ impl AddressSpace {
         dst: *mut u64,
         level: Level,
     ) -> Result<(), AsError> {
+        // SAFETY: `src` is the live kernel root or a table reached from it, and
+        // `dst` is a frame this AS owns and nothing has installed. Both are
+        // identity-mapped tables of `ENTRIES_PER_TABLE` words, which bounds the
+        // loop. The recursion follows only descriptors `is_leaf` rejected, so
+        // it cannot walk into a block's output address as though it were a
+        // table.
         unsafe {
             for i in 0..ENTRIES_PER_TABLE {
                 let e = core::ptr::read_volatile(src.add(i));
@@ -302,7 +366,17 @@ impl Drop for AddressSpace {
     }
 }
 
+/// Blank one translation table.
+///
+/// # Safety
+/// `phys` is a page-aligned frame the caller owns and nothing has installed.
 unsafe fn zero_table(phys: usize) {
+    // SAFETY: a freshly allocated pool frame, identity-mapped RW for EL1 and
+    // not reachable by any walker yet. The loop writes exactly the
+    // `ENTRIES_PER_TABLE` words a table is made of, so it stays inside the
+    // frame. Every entry must be cleared before use: `alloc_table` in the
+    // kernel arena has the same requirement, because a stale non-zero word
+    // reads as a valid descriptor.
     unsafe {
         let table = phys as *mut u64;
         for i in 0..ENTRIES_PER_TABLE {

@@ -13,12 +13,6 @@
 //! linker symbol, the single instance, the interrupt discipline, and the
 //! conversion between offsets and raw pointers.
 
-// Audit debt (2026-08-06): 1 unsafe block here predate
-// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
-// This comes off when the audit reaches this module and the SAFETY comments can
-// state something checkable rather than restate the code. See Cargo.toml.
-#![allow(clippy::undocumented_unsafe_blocks)]
-
 pub mod aspace;
 pub mod frames;
 pub mod layout;
@@ -69,6 +63,11 @@ impl KernelHeap {
     /// such slice may exist at a time — guaranteed by every caller running
     /// inside `cpu::without_irqs`.
     unsafe fn arena(&mut self) -> &mut [u8] {
+        // SAFETY: `base` and `len` describe the mapped heap region, and taking
+        // `&mut self` is what makes the "one slice at a time" half of the
+        // contract enforceable rather than merely stated — a second slice would
+        // need a second `&mut` to this allocator, which the borrow checker
+        // refuses. The mapping and the masking remain the caller's.
         unsafe { core::slice::from_raw_parts_mut(self.base as *mut u8, self.len) }
     }
 }
