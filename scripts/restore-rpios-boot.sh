@@ -24,13 +24,25 @@ if [[ ! -f "${BACKUP}/kernel8.img.rpios" || ! -f "${BACKUP}/config.txt.rpios" ]]
 fi
 
 # Preserve our bare-metal bits under a timestamped name for easy re-deploy.
+#
+# The backup is a precondition, not a courtesy. These two `cp` calls used to end
+# in `|| true` and the overwrite below ran regardless: a full backup directory,
+# a permission error or a read failure destroyed the Harbor image with no copy
+# anywhere. This is the script reached for when something has already gone
+# wrong, which is the worst possible place to be best-effort about the only
+# remaining copy.
 ts="$(date +%Y%m%d-%H%M%S)"
-if [[ -f "${MOUNT}/kernel8.img" ]]; then
-  cp -a "${MOUNT}/kernel8.img" "${BACKUP}/kernel8.img.harbor.${ts}" || true
-fi
-if [[ -f "${MOUNT}/config.txt" ]]; then
-  cp -a "${MOUNT}/config.txt" "${BACKUP}/config.txt.harbor.${ts}" || true
-fi
+keep() {
+  local src="$1" dest="$2"
+  [[ -f "${src}" ]] || return 0
+  if ! cp -a "${src}" "${dest}"; then
+    echo "error: could not back up ${src} to ${dest}" >&2
+    echo "  refusing to overwrite it — the Pi OS files are still in ${BACKUP}" >&2
+    exit 1
+  fi
+}
+keep "${MOUNT}/kernel8.img" "${BACKUP}/kernel8.img.harbor.${ts}"
+keep "${MOUNT}/config.txt" "${BACKUP}/config.txt.harbor.${ts}"
 
 install -m 0644 "${BACKUP}/kernel8.img.rpios" "${MOUNT}/kernel8.img"
 install -m 0644 "${BACKUP}/config.txt.rpios" "${MOUNT}/config.txt"

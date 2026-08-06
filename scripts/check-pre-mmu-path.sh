@@ -63,12 +63,22 @@ fi
 # `|| true`: with `set -o pipefail` a grep that matches nothing — a leaf
 # function, which is the healthy case — would fail the assignment and end the
 # script. A benign non-match must not read as an error.
-callees="$(grep -oE '\bbl\b[^<]*<[^>]+>' <<<"${entry_disasm}" |
+#
+# `b` as well as `bl`. A direct tail branch leaves `_start` for code this script
+# never disassembles, and it used to be neither audited nor refused — the check
+# printed "clean" having walked past the edge. The thesis one screen up ("an
+# edge this script cannot follow is a hole in it") applies to an edge it simply
+# did not look for just as much as to an indirect one.
+#
+# Local labels (`.L_park`, `1f`) disassemble as `<_start+0x…>`, which the
+# `+0x…` strip below turns back into `_start` — a branch within the entry code
+# is not an edge out of it, and the self-name is dropped with the audited set.
+callees="$(grep -oE '\b(bl|b)\b[^<]*<[^>]+>' <<<"${entry_disasm}" |
 	grep -oE '<[^>]+>$' | tr -d '<>' | sed 's/+0x.*//' | sort -u || true)"
 
 for callee in ${callees}; do
 	case "${callee}" in
-	"${GATE}" | kernel_main) ;;
+	"${GATE}" | kernel_main | "${ENTRY}") ;;
 	*)
 		fail "${ENTRY} calls '${callee}': the pre-MMU window now includes code this check does not inspect. Move the call after ${GATE}, or add it to the audited set in $0."
 		;;

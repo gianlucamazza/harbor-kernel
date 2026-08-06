@@ -91,9 +91,12 @@ fi
 # Matched without the `crate::` prefix on purpose: `use crate::{arch::aarch64::cpu,
 # bsp}` carries the same edge and does not contain the literal `crate::arch`.
 # Bounded on both sides so `march::aarch64` or `aarch64_foo` cannot match.
-edge='(^|[^A-Za-z0-9_])%s::(%s)([^A-Za-z0-9_]|$)'
-isa_re="$(printf "${edge}" arch "${isa_alt}")"
-board_re="$(printf "${edge}" bsp "${board_alt}")"
+# Built by concatenation rather than `printf "${fmt}"`: a variable used as a
+# format string is how a `%` in a module name becomes a formatting directive.
+edge_prefix='(^|[^A-Za-z0-9_])'
+edge_suffix='([^A-Za-z0-9_]|$)'
+isa_re="${edge_prefix}arch::(${isa_alt})${edge_suffix}"
+board_re="${edge_prefix}bsp::(${board_alt})${edge_suffix}"
 
 report_facade() {
 	# $1 file, $2 regex, $3 message
@@ -101,7 +104,7 @@ report_facade() {
 	hits="$(grep -nE "$2" <<<"${body}" || true)"
 	[[ -z "${hits}" ]] && return 0
 	echo "layering: $1 $3" >&2
-	sed 's/^/  /' <<<"${hits}" >&2
+	echo "${hits//$'\n'/$'\n'  }" | sed '1s/^/  /' >&2
 	violations=$((violations + 1))
 }
 

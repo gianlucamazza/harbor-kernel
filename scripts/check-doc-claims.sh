@@ -64,11 +64,13 @@ facade="$(sed -n 's/^pub use aarch64::{\(.*\)};$/\1/p' src/arch/mod.rs |
 # One direction only: every facade module must appear in the contract. The
 # reverse would fire on the BSP table in the same file, which names modules the
 # arch facade has no business re-exporting.
+# shellcheck disable=SC2016  # the backticks are markdown table syntax, not a
+# command substitution: the pattern matches "| `mmu` |" in arch-contract.md.
 contract="$(sed -n 's/^| `\([a-z0-9_]\+\)` |.*/\1/p' docs/arch-contract.md | sort -u)"
 missing="$(comm -23 <(echo "${facade}") <(echo "${contract}"))"
 if [[ -n "${missing}" ]]; then
 	echo "doc-claims: the arch facade re-exports modules arch-contract.md does not list" >&2
-	sed 's/^/  missing from the contract: /' <<<"${missing}" >&2
+	echo "  missing from the contract: ${missing//$'\n'/, }" >&2
 	exit 1
 fi
 

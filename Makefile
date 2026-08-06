@@ -80,7 +80,7 @@ ifneq ($(strip $(FEATURES)),)
 endif
 
 .PHONY: all debug img elf check test miri bringup-builds debug-display-builds \
-	debug-builds board-guard no-simd no-early-exclusives boot-check doc-claims \
+	debug-builds board-guard shellcheck no-simd no-early-exclusives boot-check doc-claims \
 	layering fmt fmt-check qemu qemu-gdb blobs deploy restore-rpios serial clean
 
 all: img
@@ -101,9 +101,21 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering
+check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering shellcheck
 	cargo clippy --target $(TARGET) -- -D warnings
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
+
+# Every gate in this Makefile is a shell script, and two of them carry
+# `# shellcheck source=` directives — the intent was always there, the check was
+# not. `-x` follows the sourced library, `-P scripts` so it can find it.
+# Skipped loudly rather than silently when shellcheck is absent: a linter that
+# passes because it did not run is the failure `no-simd` was fixed for.
+shellcheck:
+	@if ! command -v shellcheck >/dev/null; then \
+	  echo "shellcheck: SKIPPED — not installed (pacman -S shellcheck)" >&2; \
+	  exit 0; \
+	fi; \
+	shellcheck -x -P scripts scripts/*.sh scripts/lib/*.sh && echo "shellcheck: clean"
 
 # The layering rules in docs/architecture.md, checked against real imports.
 # They are the architecture, and were enforced by review alone until now.
