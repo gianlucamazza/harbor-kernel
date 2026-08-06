@@ -1,8 +1,9 @@
 ---
 id: 0019
 title: The last static mut becomes an atomic — a premise two ADRs inherited was false
-status: proposed
+status: accepted
 date: 2026-08-06
+accepted: 2026-08-07
 related: [0016, 0017]
 ---
 
@@ -10,7 +11,12 @@ related: [0016, 0017]
 
 ## Acceptance status
 
-**Proposed** (2026-08-06). Successor to the second decision of
+**Accepted** (2026-08-07), as proposed — the decision below is unchanged from
+the version the project owner took. Landed the same day: `CURRENT_EL0` is an
+`AtomicPtr`, `make no-static-mut` is a `make check` prerequisite, and rule 7
+of [`architecture.md`](../architecture.md) no longer has an exception.
+
+Successor to the second decision of
 [ADR-0016](0016-el0-session-protocol.md) and to the paragraph of
 [ADR-0017](0017-el0-capability-abi.md) §1 that repeats it. Both are immutable —
 0016 as `superseded`, 0017 as `accepted` — so this exists rather than an edit.

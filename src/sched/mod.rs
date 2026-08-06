@@ -63,10 +63,12 @@ struct Tcb {
     /// EL0 session state (ADR-0017 §1). `None` for a slot that is not a task:
     /// an empty slot, or one whose task has exited.
     ///
-    /// This is what used to be nine machine-wide `static mut` in `arch::el0`,
-    /// and moving it here is what lets two agents be live at EL0 at once. The
-    /// assembly still needs one linker-visible name, so [`publish_el0`] hands
-    /// `arch` a pointer to the running task's copy on every switch.
+    /// This is what used to be nine machine-wide globals in `arch::el0`, and
+    /// moving it here is what lets two agents be live at EL0 at once. The
+    /// assembly still needs one linker-visible name for the *published*
+    /// pointer (`CURRENT_EL0`, an `AtomicPtr` since ADR-0019), so
+    /// [`publish_el0`] hands `arch` a pointer to the running task's copy on
+    /// every switch.
     el0: Option<El0Session>,
 }
 

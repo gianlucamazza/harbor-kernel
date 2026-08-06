@@ -12,6 +12,7 @@ covered.
 | Miri (`make miri`)                        | Interprets the host tests               | Aliasing, provenance and data races in the crate's only `unsafe` — the ring's `UnsafeCell` buffer and `Sync` assertion | The kernel crate's `unsafe`, which touches MMIO and system registers and cannot be interpreted |
 | Bring-up build (`make bringup-builds`)    | Compiles and lints `--features bringup` | A configuration nothing else builds, and the one you reach for when the board will not talk                            | Anything the gates do not _run_ — it compiles, it is not executed                              |
 | No-SIMD guard (`make no-simd`)            | Disassembles the linked image           | A build that silently regains FP/SIMD                                                                                  | FP that never reaches the image                                                                |
+| No-`static mut` (`make no-static-mut`)    | Greps `src/**/*.rs` for declarations    | A `static mut` reintroduced after ADR-0019 landed the last one as an `AtomicPtr`                                       | Prose that names the form; coupling that is not a declaration                                  |
 | Pre-MMU path (`make no-early-exclusives`) | Disassembles `_start` and its callees   | Atomic read-modify-write before translation is on, the path growing, and any indirect branch on it                     | Nothing on that path: an edge it cannot follow is refused rather than skipped                  |
 | QEMU boot (`make boot-check`)             | Boots the image, asserts on the log     | MMU activation, allocator reclaim, timer IRQ, WFI idle, unhandled interrupts, panics                                   | **Memory attributes.** Also cache behaviour, real clocks, firmware state. RNG200 is not modelled on `raspi4b` — init reports `NotPresent` via `arch::probe`, not a successful FIFO read. **CI note:** Ubuntu apt QEMU (≤8.2) lacks the `raspi4b` machine; GitHub Actions wraps an Arch-packaged QEMU that includes it. Local Arch/QEMU ≥9 already has `raspi4b`. |
 | Doc claims (`make doc-claims`)            | Compares README against the Makefile    | The two README claims a machine can settle: the `make check` gate list and the host test count                         | Every other sentence in the docs, which is prose and stays prose                               |
@@ -239,16 +240,17 @@ Protocol notes load-bearing for silicon:
 | PL011 agent map + FR load + kill | **closed (QEMU + HW)** | `pl011-agent: FR read + svc ok` / `killed ok` |
 | Concurrent multi-agent shell | **closed (QEMU + HW)** | `agents: concurrent ok` (`src/agent`) |
 | Multi-SVC resume (`enter`/`resume`) | **closed (QEMU + HW)** | `el0-task: resume pings=2` |
-| `SYS_PUTC` (imm 2) | **closed (QEMU)** | `el0-task: putc bytes=2` |
-| EL0 IRQ save/resume (re-execute) | **closed (QEMU)** | `el0-task: irq resume irqs=N` (N≥1) |
-| PL011 RX poll empty path | **closed (QEMU)** | `pl011-agent: rx poll empty` |
-| PL011 RX ownership + real bytes | **closed (QEMU)** | LBE inject; `rx own bytes=2`; `rx own begin/end` |
+| `SYS_PUTC` (imm 2) | **closed (QEMU + HW)** | `el0-task: putc bytes=2` |
+| EL0 IRQ save/resume (re-execute) | **closed (QEMU + HW)** | `el0-task: irq resume irqs=N` (N≥1) |
+| PL011 RX poll empty path | **closed (QEMU + HW)** | `pl011-agent: rx poll empty` |
+| PL011 RX ownership + real bytes | **closed (QEMU + HW)** | LBE inject; `rx own bytes=2`; `rx own begin/end` |
 | Silicon (through multi-SVC / M6 v1 map) | **closed (HW)** | Pi 4B transcript below |
-| Silicon (IRQ / putc / RX own) | **open** | same QEMU oracles on Pi 4B |
+| Silicon (IRQ / putc / RX own) | **closed (HW)** | Pi 4B 2026-08-06 — [four changes of 2026-08-05](#hardware-evidence-the-four-changes-of-2026-08-05-closed); reconfirmed under M7 2026-08-07 |
 
-**RX ownership (QEMU):** kernel drain suspended, PL011 RX IRQs masked; agent
-maps the UART page and polls `DR`. Real bytes via **PL011 LBE** (kernel TX
-looped to RX) — not invented ring writes. `resume_rx` re-arms IMSC. Roadmap:
+**RX ownership:** kernel drain suspended, PL011 RX IRQs masked; agent maps the
+UART page and polls `DR`. Real bytes via **PL011 LBE** (kernel TX looped to RX)
+— not invented ring writes. `resume_rx` re-arms IMSC. Closed on QEMU and on
+silicon (issue #1, 2026-08-06). Roadmap:
 [architecture.md §Roadmap](architecture.md#roadmap).
 
 ### Expected QEMU boot-check lines (post–issue #1)
@@ -823,6 +825,7 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Dispatch table populated                                         | drop the `println!` reporting the seal count | `boot-check: FAIL — dispatch table sealed with the wrong number of handlers: (no seal line at all)`. A boot that registers nothing is indistinguishable from a healthy one until the first interrupt nobody answers |
 | ADR table in `architecture.md`                                   | run the new `xrefs` check against the table as it stood | `0015-multi-arch-scaffold.md is missing from the artefact table`, and the same for 0016. Both had been written, accepted and merged while the table a reader meets first still stopped at ADR-0014 — the third copy of a fact the gate was already comparing in two places |
 | `CURRENT_EL0` published on switch                                | delete `publish_el0(sched, to)` from `switch_with`, boot | `panicked at src/arch/aarch64/el0.rs: el0: published session is not the current task's (stale after switch)` on the first EL0 entry from a spawned task. Before slice 1 this row read "Nothing yet" in ADR-0017 — a stale pointer is silent until one agent reads another's saved registers, so the check shipped in the same commit as the pointer |
+| No-`static mut` (ADR-0019)                                       | restore `static mut CURRENT_EL0: *mut El0Session`        | `no-static-mut: src/arch/aarch64/el0.rs:…: static mut CURRENT_EL0:…` then exit 1 — the gate greps declarations, not prose, so comments that name the form stay green |
 | `El0Session` field offsets                                       | insert a field before `user_ttbr` | eight `offset_of` assertions red at compile time, each naming its field and its expected offset. The assembly does not actually drift — its offsets are `.equ` symbols derived from the same struct — so this is a tripwire on an *unintended* reorder rather than the mechanism keeping the two in agreement |
 | Stale `#[allow(dead_code)]` | convert all thirteen to `#[expect(…, reason = …)]` | three came back *unfulfilled*: `TrapFrame`, `frames::alloc` and `frames::free` have had consumers for milestones while an attribute went on calling them dead. `allow` is silent forever; `expect` warns the moment the deroga stops being needed, which is the only difference and the whole reason to prefer it |
 | Console denied by default (ADR-0017 §3) | grant `CONSOLE_SLOT` to the agent that is meant to lack it | the refusal line disappears and the byte `X` appears on the console. Both halves are asserted: the boot check fails if the denial line is missing *and* if the denied agent's byte shows up |

@@ -82,8 +82,9 @@ ifneq ($(strip $(FEATURES)),)
 endif
 
 .PHONY: all debug img elf check test miri bringup-builds debug-display-builds \
-	debug-builds board-guard shellcheck xrefs no-simd no-early-exclusives boot-check doc-claims \
-	layering fmt fmt-check qemu qemu-gdb blobs deploy restore-rpios serial clean
+	debug-builds board-guard shellcheck xrefs no-simd no-early-exclusives no-static-mut \
+	boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy \
+	restore-rpios serial clean
 
 all: img
 
@@ -103,7 +104,7 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering arch-board-free shellcheck xrefs
+check: fmt-check test no-simd no-early-exclusives no-static-mut boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering arch-board-free shellcheck xrefs
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -194,6 +195,12 @@ no-simd: elf
 # path grows.
 no-early-exclusives: elf
 	./scripts/check-pre-mmu-path.sh $(ELF)
+
+# No `static mut` under src/ (ADR-0019). Rule 7 is absolute after CURRENT_EL0
+# became an AtomicPtr; this gate is what keeps a second exception from landing
+# as a comment nobody re-checks. Does not need the ELF — it greps source.
+no-static-mut:
+	./scripts/check-no-static-mut.sh
 
 # Miri interprets the host tests and checks the aliasing and provenance rules
 # that running the code cannot sample. It covers the only `unsafe` in

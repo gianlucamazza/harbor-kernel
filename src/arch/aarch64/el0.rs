@@ -29,17 +29,27 @@
 //! two answers is the whole point: a switch that stops publishing panics on the
 //! next EL0 entry instead of handing one agent another agent's saved registers.
 //!
-//! ## Why one `static mut` remains
+//! ## Why this is an atomic, not a `static mut`
 //!
-//! [`crate::sync`] argues that a `static mut` in edition 2024 has no way to
-//! state who may touch it. `CURRENT_EL0` is one anyway, and the reason is not
-//! laziness: the assembly here and in `vectors.s` reaches it **by symbol name**
-//! (`adrp`/`add`), and a `SyncCell` has no linker-visible name to load. That
-//! argument is ADR-0016's and it still holds; what ADR-0017 changed is that it
-//! now buys *one* symbol holding a pointer instead of nine holding state.
+//! The assembly here and in `vectors.s` reaches the published session **by
+//! symbol name** (`adrp`/`add` then `ldr`). ADR-0016 (and ADR-0017 repeating
+//! it) claimed that only a `static mut` can provide that name. The claim is
+//! false: [`AtomicPtr`] is `#[repr(transparent)]` over a pointer-sized cell,
+//! and `#[unsafe(no_mangle)]` gives *any* static a linker-visible symbol at a
+//! known address. Measured, same symbol section, assembly unchanged
+//! ([ADR-0019](../../../../docs/adr/0019-no-static-mut.md)).
+//!
+//! So `CURRENT_EL0` is an `AtomicPtr`: rule 7 of `architecture.md` has no
+//! exception, publication uses `Release`/`Acquire` so the ordering between
+//! "session fields written" and "pointer visible" is stated rather than a
+//! single-core accident, and `make no-static-mut` refuses a reintroduction.
 //!
 //! The field offsets the assembly applies to that pointer are derived from the
-//! struct rather than written out — see the `.equ` block below.
+//! struct rather than written out — see the `.equ` block below. Nothing still
+//! checks that the symbol *holds a pointer*; that is the residual debt ADR-0019
+//! records.
+
+use core::sync::atomic::{AtomicPtr, Ordering};
 
 use crate::arch::exception::{TrapFrame, read_esr_el1, read_far_el1};
 use crate::arch::mmu;
@@ -359,17 +369,26 @@ pub const KERNEL_TTBR0_OFFSET: usize = core::mem::offset_of!(El0Session, kernel_
 
 /// The session the assembly reaches, published by the scheduler on every switch.
 ///
-/// This is the one `static mut` that remains of the nine, and it remains for the
-/// reason ADR-0016 gave: `adrp`/`add` needs a linker-visible name and a
-/// `SyncCell` has none. What changed is that it holds a *pointer*, so the state
-/// it names is per-task and lives in the TCB.
+/// An [`AtomicPtr`], not a `static mut` (ADR-0019). The assembly loads this
+/// symbol with `adrp`/`add`/`ldr` — the same sequence as before the migration —
+/// because the atomic is transparent over a pointer cell at a fixed address.
+/// The state it *names* is per-task and lives in the TCB (ADR-0017 §1).
 ///
 /// Null means no task's session is published — every path that dereferences it
 /// says so rather than reading address zero.
+///
+/// Ordering: `publish` stores with [`Ordering::Release`]; every load that may
+/// be followed by a dereference uses [`Ordering::Acquire`]. On one core both
+/// are free; what they buy is a written dependency between "session fields
+/// initialised" and "pointer visible", instead of relying on single-core
+/// execution that a second core would silently remove.
 #[unsafe(no_mangle)]
-static mut CURRENT_EL0: *mut El0Session = core::ptr::null_mut();
+static CURRENT_EL0: AtomicPtr<El0Session> = AtomicPtr::new(core::ptr::null_mut());
 
 /// Publish `session` as the one the assembly will use.
+///
+/// The store itself needs no `unsafe` — the atomic is ordinary shared state.
+/// This function is still `unsafe` because of *when* it may be called: see below.
 ///
 /// # Safety
 /// `session` must be null or point to an `El0Session` that outlives every EL0
@@ -378,15 +397,13 @@ static mut CURRENT_EL0: *mut El0Session = core::ptr::null_mut();
 /// assembly a different task's saved registers.
 #[inline]
 pub unsafe fn publish(session: *mut El0Session) {
-    // SAFETY: the caller's obligation, forwarded.
-    unsafe { CURRENT_EL0 = session };
+    CURRENT_EL0.store(session, Ordering::Release);
 }
 
 /// The currently published session pointer (null if none).
 #[inline]
 pub fn published() -> *mut El0Session {
-    // SAFETY: a plain pointer read on one core.
-    unsafe { CURRENT_EL0 }
+    CURRENT_EL0.load(Ordering::Acquire)
 }
 
 /// The published session, or panic naming the reason.
@@ -396,14 +413,17 @@ pub fn published() -> *mut El0Session {
 /// message rather than a fault at address zero.
 #[inline]
 fn current() -> &'static mut El0Session {
+    let session = CURRENT_EL0.load(Ordering::Acquire);
     // SAFETY: single core with IRQs masked on every path that reaches here (the
     // vector handlers and the enter/resume calls, all inside `without_irqs`), so
     // this `&mut` cannot overlap another. Null is checked rather than assumed.
+    // The pointer was published by the scheduler against a TCB slot that
+    // outlives every EL0 entry made under it.
     unsafe {
-        if CURRENT_EL0.is_null() {
+        if session.is_null() {
             panic!("el0: no published session (scheduler did not publish on switch)");
         }
-        &mut *CURRENT_EL0
+        &mut *session
     }
 }
 

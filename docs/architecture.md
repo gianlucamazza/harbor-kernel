@@ -246,14 +246,21 @@ oracles). It has three outcomes, not two: `timer: MISSED` is corroborated
 against the host CPU the emulator received, and reports **INDETERMINATE**
 (exit 3) rather than a red it cannot attribute.
 
+### Closed — ADR-0019 (rule 7 absolute)
+
+| Slice | Status | Evidence |
+| ----- | ------ | -------- |
+| **`CURRENT_EL0` → `AtomicPtr`** | **done** | same `adrp`/`add`/`ldr` symbol; `Release` publish / `Acquire` load |
+| **`make no-static-mut`** | **done** | greps `src/` for declarations; prerequisite of `make check` |
+| Rule 7 exception | **gone** | no `static mut` remains; ADR-0016/0017 keep their false premise text (immutable) and point here |
+
 ### Next (ordered)
 
 | #   | Work                                                                                                                         | Done when                                                                                                                                                                                                                                                                    |
 | --- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Accept [ADR-0019](adr/0019-no-static-mut.md)**, then land it | The kernel's last `static mut` becomes an atomic and `make no-static-mut` refuses a new one. Rule 7 stops having an exception |
-| 2   | **Threat model + `SECURITY.md`**                                                                                             | After [ADR-0017](adr/0017-el0-capability-abi.md), which is where authority is finally defined                                                                                                                                                                                |
-| 3   | **Optional: IRQ-wake RX**                                                                                                    | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                                                                                            |
-| 4   | **Optional P-pass**                                                                                                          | Tighten kernel EL1 Device blankets (not required for M6 v1)                                                                                                                                                                                                                  |
+| 1   | **Threat model + `SECURITY.md`**                                                                                             | After [ADR-0017](adr/0017-el0-capability-abi.md), which is where authority is finally defined                                                                                                                                                                                |
+| 2   | **Optional: IRQ-wake RX**                                                                                                    | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                                                                                            |
+| 3   | **Optional P-pass**                                                                                                          | Tighten kernel EL1 Device blankets (not required for M6 v1)                                                                                                                                                                                                                  |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 
@@ -322,7 +329,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0016](adr/0016-el0-session-protocol.md)                   | EL0 session protocol: one slot, prose contract, named successor (**superseded**) — by 0017 and 0018 |
 | [ADR-0017](adr/0017-el0-capability-abi.md)                     | EL0 capability ABI: slot-indexed authority, session state in the TCB (**accepted**)                 |
 | [ADR-0018](adr/0018-agent-fault-policy.md)                     | Agent fault policy: the kernel ends the session, the creator decides the task (**accepted**)        |
-| [ADR-0019](adr/0019-no-static-mut.md) | No `static mut`: the last one becomes an atomic, rule 7 without an exception (**proposed**) |
+| [ADR-0019](adr/0019-no-static-mut.md) | No `static mut`: the last one becomes an atomic, rule 7 without an exception (**accepted**) |
 | [`docs/reviews/`](reviews/)                                    | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals
