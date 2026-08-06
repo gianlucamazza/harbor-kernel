@@ -5,12 +5,6 @@
 //!
 //! Reference: BCM2711 ARM Peripherals (GPFSEL / GPSET / GPCLR / GPPUPPDN).
 
-// Audit debt (2026-08-06): 1 unsafe block here predate
-// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
-// This comes off when the audit reaches this module and the SAFETY comments can
-// state something checkable rather than restate the code. See Cargo.toml.
-#![allow(clippy::undocumented_unsafe_blocks)]
-
 use crate::arch::mmio::Mmio;
 use crate::arch::timer;
 use crate::bsp::rpi4::memmap::GPIO_BASE;
@@ -72,6 +66,9 @@ impl Gpio {
     pub unsafe fn new() -> Self {
         // SAFETY: caller guarantees exclusive ownership of `GPIO_BASE`.
         Self {
+            // SAFETY: `GPIO_BASE` is this board's GPIO block, inside the
+            // peripheral window `mm::layout` maps Device-nGnRnE. The
+            // "one owner" obligation is this constructor's own `# Safety`.
             regs: unsafe { Mmio::new(GPIO_BASE) },
         }
     }
@@ -178,6 +175,8 @@ fn check_pin(pin: u8) -> Result<(), GpioError> {
 /// boot on a single active core before any other driver touches GPIO).
 pub unsafe fn configure_uart0_pins() {
     // SAFETY: caller holds exclusive GPIO ownership at early boot.
+    // SAFETY: forwarded from this function's `# Safety` — the caller owns the
+    // GPIO block for the duration, and the handle does not outlive this call.
     let gpio = unsafe { Gpio::new() };
     // UART0 is ALT0 on 14/15; pins are in range by construction.
     let _ = gpio.configure_alt(14, Function::Alt0, Pull::None);

@@ -1,11 +1,5 @@
 //! Board-level serial console: pinmux + PL011 UART0.
 
-// Audit debt (2026-08-06): 1 unsafe block here predate
-// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
-// This comes off when the audit reaches this module and the SAFETY comments can
-// state something checkable rather than restate the code. See Cargo.toml.
-#![allow(clippy::undocumented_unsafe_blocks)]
-
 use kernel_core::uart::{BaudConfig, Divisors};
 
 use crate::arch::mmio::Mmio;
@@ -38,6 +32,10 @@ const CONSOLE_DIVISORS: Divisors = match CONSOLE_RATE.divisors() {
 /// Exclusive access to GPIO and UART0 MMIO is required. On M0 this holds
 /// because only core 0 runs and no other subsystem touches these devices.
 pub unsafe fn init() -> Pl011 {
+    // SAFETY: the caller holds the exclusive console claim (`console::acquire`
+    // or `steal`), so nothing else is driving these pins or this register
+    // block. Pinmux precedes the UART programming because ALT0 is what
+    // connects the PL011 to the header at all.
     unsafe {
         gpio::configure_uart0_pins();
 
