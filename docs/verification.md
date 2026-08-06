@@ -18,6 +18,14 @@ covered.
 | Layering (`make layering`)                | Every `crate::` import edge in `src/`   | The rules in `architecture.md`: drivers never know the board, arch never names a driver, `exception` reaches only `irq` | Coupling that is not an import — a shared constant, an agreed register value, a naming convention |
 | Hardware                                  | A Pi 4B on a serial console             | Everything above, for real                                                                                             | Only what you actually boot and look at                                                        |
 
+**One assertion in the boot check measures the host, not the kernel.** TCG
+emulates the guest timer against wall-clock time, so `timer: MISSED` can fire
+because the machine running QEMU was busy — observed at load average 4 during a
+background `cargo install`, and clean on the same image a minute later. On an
+idle machine and on a CI runner it is a real signal. It is the only check here
+whose red can mean "try again", which is worth knowing before it costs someone
+an afternoon.
+
 `make check` runs every layer above except the hardware one, and is deliberately
 a superset of CI: each CI job has a target here, so a green locally predicts a
 green remotely. That claim is load-bearing and easy to break — it was false for

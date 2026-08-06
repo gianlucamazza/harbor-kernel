@@ -334,6 +334,22 @@ impl UserWindow {
     /// should refuse: at any offset past the first page it lands in whatever
     /// frame happens to follow, which after a create/destroy cycle is another
     /// address space's page tables.
+    ///
+    /// ```
+    /// use kernel_core::layout::{UserWindow, WindowError};
+    ///
+    /// let window = UserWindow { base: 0x4000_0000, pages: 4, frame: 0x1000 };
+    ///
+    /// // The whole text page is fair game.
+    /// assert_eq!(window.bound_text_write(0, 0x1000), Ok(()));
+    ///
+    /// // One byte past it is refused — even though the *window* is 16 KiB,
+    /// // the write goes to page 0's physical address and nowhere else.
+    /// assert_eq!(
+    ///     window.bound_text_write(0x1000, 1),
+    ///     Err(WindowError::OutOfTextPage)
+    /// );
+    /// ```
     #[inline]
     pub const fn bound_text_write(&self, offset: usize, len: usize) -> Result<(), WindowError> {
         match offset.checked_add(len) {

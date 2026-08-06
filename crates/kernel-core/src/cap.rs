@@ -37,6 +37,21 @@ impl CapId {
     pub const INDEX_MASK: u32 = (1 << Self::INDEX_BITS) - 1;
 
     /// Build from table index and generation (both masked to their fields).
+    ///
+    /// Note what this being `pub const fn` means: anyone can mint any id.
+    /// Unforgeability comes from the lookup, not from the type.
+    ///
+    /// ```
+    /// use kernel_core::cap::CapId;
+    ///
+    /// let cap = CapId::new(3, 0xAB);
+    /// assert_eq!(cap.index(), 3);
+    /// assert_eq!(cap.generation(), 0xAB);
+    ///
+    /// // Same slot, different generation: a stale handle does not compare
+    /// // equal to a live one, which is what the generation field is for.
+    /// assert_ne!(CapId::new(3, 0xAB), CapId::new(3, 0xAC));
+    /// ```
     #[inline]
     pub const fn new(index: u16, generation: u16) -> Self {
         Self(((generation as u32) << Self::INDEX_BITS) | (index as u32))

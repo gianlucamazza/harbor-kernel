@@ -40,15 +40,25 @@ fi
 #    `#[test]` attributes are counted directly. That is a different claim from
 #    "tests that passed" — but `make check` runs `test` before `doc-claims`, so
 #    a red suite has already stopped the gate before this line is reached.
-actual="$(grep -rhc '^\s*#\[test\]' crates/kernel-core/src/*.rs |
+#
+#    All three kinds count, because `cargo test` runs all three and the README
+#    says "host tests" without qualifying: unit tests beside the code,
+#    integration tests that use the crate from outside, and doc-tests, which are
+#    the examples in the public API and fail if the API changes under them.
+unit="$(grep -rhc '^\s*#\[test\]' crates/kernel-core/src/*.rs |
 	awk '{ n += $1 } END { print n + 0 }')"
-[[ "${actual}" -gt 0 ]] || fail "found no #[test] attributes under crates/kernel-core/src"
+integration="$(cat crates/kernel-core/tests/*.rs 2>/dev/null |
+	grep -c '^\s*#\[test\]' || true)"
+doc="$(grep -rhc '^\s*/// ```$' crates/kernel-core/src/*.rs |
+	awk '{ n += $1 } END { print int((n + 0) / 2) }')"
+actual=$((unit + integration + doc))
+[[ "${unit}" -gt 0 ]] || fail "found no #[test] attributes under crates/kernel-core/src"
 
-claimed="$(sed -n 's/^| Verification | \([0-9]\+\) host unit tests.*/\1/p' README.md)"
-[[ -n "${claimed}" ]] || fail "README has no 'N host unit tests' claim to check"
+claimed="$(sed -n 's/^| Verification | \([0-9]\+\) host tests.*/\1/p' README.md)"
+[[ -n "${claimed}" ]] || fail "README has no 'N host tests' claim to check"
 
 if [[ "${claimed}" != "${actual}" ]]; then
-	fail "README claims ${claimed} host unit tests, there are ${actual}"
+	fail "README claims ${claimed} host tests, there are ${actual} (${unit} unit, ${integration} integration, ${doc} doc)"
 fi
 
 # 3. The arch facade's re-export list, which ADR-0015 duplicates as a table in
@@ -88,6 +98,6 @@ if [[ -n "${missing_accept}" ]]; then
 	exit 1
 fi
 
-echo "doc-claims: clean (${actual} tests, ${#makefile_gates} chars of gate list agree, \
+echo "doc-claims: clean (${actual} tests = ${unit}+${integration}+${doc}, ${#makefile_gates} chars of gate list agree, \
 $(wc -l <<<"${facade}") facade modules in the contract, \
 $(grep -lc '^status: accepted' docs/adr/0*.md | wc -l) ADRs dated)"

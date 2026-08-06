@@ -171,6 +171,24 @@ impl<const N: usize> Tasks<N> {
     }
 
     /// Decide what a `switch_with(kind)` should do.
+    ///
+    /// ```
+    /// use kernel_core::tasks::{Decision, Switch, Tasks};
+    ///
+    /// let mut tasks: Tasks<4> = Tasks::new();
+    /// tasks.start(); // idle claims slot 0
+    ///
+    /// let worker = tasks.admit().unwrap();
+    /// match tasks.switch(Switch::Yield) {
+    ///     Decision::Switch { to, .. } => assert_eq!(to, worker),
+    ///     Decision::Stay => panic!("a ready task was waiting"),
+    /// }
+    ///
+    /// // The worker exits. Its stack cannot be freed from its own stack, so
+    /// // the decision parks it and whoever runs next collects it.
+    /// assert!(matches!(tasks.switch(Switch::Exit), Decision::Switch { .. }));
+    /// assert_eq!(tasks.collect(), Some(worker));
+    /// ```
     pub fn switch(&mut self, kind: Switch) -> Decision {
         let current = self.current;
         let cur = current.0 as usize;

@@ -248,6 +248,24 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
     /// Returns `Ok(Some(id))` when a receiver was parked on this mailbox. The
     /// caller wakes it — this type never touches the scheduler, which is what
     /// keeps it testable on the host.
+    ///
+    /// ```
+    /// use kernel_core::ipc::{Message, Table};
+    /// use kernel_core::runqueue::TaskId;
+    ///
+    /// let mut ipc: Table<4, 8, 4> = Table::new();
+    /// let ch = ipc.create_channel().unwrap();
+    /// let msg = Message { tag: 1, a: 42, b: 0 };
+    ///
+    /// // Nobody is waiting, so nobody is woken.
+    /// assert_eq!(ipc.send(ch.send, msg), Ok(None));
+    /// assert_eq!(ipc.try_recv(ch.recv), Ok(msg));
+    ///
+    /// // With a receiver parked, the send names it and the caller wakes it.
+    /// let receiver = TaskId(2);
+    /// assert_eq!(ipc.park(ch.recv, receiver), Ok(None));
+    /// assert_eq!(ipc.send(ch.send, msg), Ok(Some(receiver)));
+    /// ```
     pub fn send(&mut self, cap: CapId, msg: Message) -> Result<Option<TaskId>, SendError> {
         let Some(mb) = self.lookup(cap, CapRights::SEND) else {
             self.refusals.authority += 1;

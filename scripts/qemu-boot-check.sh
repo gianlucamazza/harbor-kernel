@@ -204,8 +204,15 @@ fi
 # A missed deadline means the timer handler did not run in time. Harmless at
 # 10 Hz with nothing else running, which is exactly why it must be loud here:
 # this is the quietest possible conditions.
+#
+# It is also the one assertion in this script that measures the *host*. TCG
+# emulates the guest timer against wall-clock time, so a loaded machine — a
+# parallel `cargo build`, a `cargo install` — makes the guest miss deadlines it
+# would never miss otherwise. Seen once, during a background install at load
+# average 4. On an idle machine and on a CI runner it is a real signal; if it
+# fires while something else is compiling, re-run before believing it.
 if grep -q 'timer: MISSED' "${log}"; then
-	fail "timer deadlines expired unserviced"
+	fail "timer deadlines expired unserviced (on a loaded host, re-run: see the note above this check)"
 fi
 if grep -qi 'PANIC' "${log}"; then
 	fail "the kernel panicked"
