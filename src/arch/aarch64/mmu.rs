@@ -19,18 +19,13 @@
 //! so [`activate`]'s caller supplies them. The bit encodings and the region
 //! splitting live in [`kernel_core::paging`] and are unit-tested on the host.
 
-// Audit debt (2026-08-06): 16 unsafe blocks here predate
-// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
-// This comes off when the audit reaches this module and the SAFETY comments can
-// state something checkable rather than restate the code. See Cargo.toml.
-#![allow(clippy::undocumented_unsafe_blocks)]
-
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use kernel_core::layout::Region;
 use kernel_core::paging::{self, Level, MemKind, Perms};
 
 use crate::arch::cache;
+use crate::arch::cpu;
 use crate::sync::SyncCell;
 
 /// Blocks split into next-level tables since boot. See [`splits`].
@@ -91,6 +86,9 @@ static EARLY_L1: Table = Table {
 /// translation off.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn early_mmu_enable() {
+    // SAFETY: order is load-bearing and cannot be rearranged: caches invalidated while
+    // they are still off, then the regime programmed, then the TLB dropped, and
+    // only then translation enabled. Each step assumes the previous one.
     unsafe {
         // Caches are about to be enabled. Anything the firmware left resident
         // would otherwise shadow memory — including this table.
@@ -129,15 +127,24 @@ struct Arena {
 static ARENA: SyncCell<Arena> = SyncCell::new(Arena { next: 0, end: 0 });
 
 /// Physical address of the root table, published for `TTBR0_EL1`.
-static ROOT: SyncCell<usize> = SyncCell::new(0);
+///
+/// An atomic rather than a `SyncCell`, because the access pattern is not the
+/// one `SyncCell` describes: this is written exactly once, by `activate`, and
+/// only read afterwards. As a `SyncCell` every reader needed `unsafe` and
+/// `kernel_root_phys` was reading it from a safe `pub fn` with no mask — the
+/// only accessor in the tree that did. Publication with `Release` / `Acquire`
+/// says write-once-then-read in the type, and costs nothing on this core.
+static ROOT: AtomicUsize = AtomicUsize::new(0);
 
 /// Kernel page-table root physical address (0 if not activated).
 ///
 /// Used by M5 user AS prepare (ADR-0014) to deep-clone kernel coverage.
 #[inline]
 pub fn kernel_root_phys() -> Option<usize> {
-    let root = unsafe { *ROOT.get() };
-    if root == 0 { None } else { Some(root) }
+    match ROOT.load(Ordering::Acquire) {
+        0 => None,
+        root => Some(root),
+    }
 }
 
 /// Why a mapping request could not be satisfied.
@@ -181,6 +188,10 @@ pub enum MmuError {
 /// Single core, IRQs masked, early map active. Every address the kernel touches
 /// after this returns must be inside one of `regions`.
 pub unsafe fn activate(regions: &[Region]) -> Result<(), (MmuError, &'static str)> {
+    // SAFETY: the sequence is the contract: arena first, then the root, then the regions,
+    // and `ROOT` published only once every region mapped. On any error nothing is
+    // switched and the early map stays live, which is what lets the failure be
+    // reported over a working console.
     unsafe {
         arena_init();
 
@@ -190,7 +201,7 @@ pub unsafe fn activate(regions: &[Region]) -> Result<(), (MmuError, &'static str
             map_region(root, region).map_err(|e| (e, region.name))?;
         }
 
-        *ROOT.get() = root as usize;
+        ROOT.store(root as usize, Ordering::Release);
         switch_ttbr0(root as u64);
     }
     Ok(())
@@ -207,8 +218,10 @@ pub unsafe fn activate(regions: &[Region]) -> Result<(), (MmuError, &'static str
 /// existing mapping. Called with interrupts masked: it mutates live tables and
 /// the arena, neither of which is protected against a concurrent walker.
 pub unsafe fn map(region: &Region) -> Result<(), MmuError> {
+    // SAFETY: root is non-zero (checked just above) and points at the live L1 table
+    // published by `activate`, which is the only writer of `ROOT`.
     unsafe {
-        let root = *ROOT.get();
+        let root = ROOT.load(Ordering::Acquire);
         if root == 0 {
             return Err(MmuError::NotActivated);
         }
@@ -240,8 +253,11 @@ pub unsafe fn map(region: &Region) -> Result<(), MmuError> {
 /// software must not touch the range except through a deliberate remapping;
 /// instruction fetches or data accesses there will fault.
 pub unsafe fn unmap(base: u64, len: u64) -> Result<(), MmuError> {
+    // SAFETY: root is non-zero (checked), IRQs masked by contract. `ensure_mapped` runs
+    // before any page is cleared, so a range that is only partly mapped is
+    // refused whole rather than half-unmapped.
     unsafe {
-        let root = *ROOT.get();
+        let root = ROOT.load(Ordering::Acquire);
         if root == 0 {
             return Err(MmuError::NotActivated);
         }
@@ -284,6 +300,9 @@ pub unsafe fn unmap(base: u64, len: u64) -> Result<(), MmuError> {
 /// Table updates for the range must already be visible to this core's view of
 /// memory; this only orders and invalidates.
 unsafe fn publish_and_invalidate(va: u64, len: u64) {
+    // SAFETY: only orders and invalidates — writes nothing. The caller has already made
+    // the table updates; this is what makes them visible to the walker and drops
+    // the stale entries.
     unsafe {
         core::arch::asm!("dsb ishst", options(nostack, preserves_flags));
 
@@ -331,6 +350,10 @@ pub unsafe extern "C" fn switch_ttbr0(root: u64) {
     if root == 0 {
         panic!("switch_ttbr0: refused null root");
     }
+    // SAFETY: barriers around the `TTBR0` write: `dsb ishst` so table writes are visible
+    // to the walker first, `isb` so the switch takes effect before the next
+    // fetch, then invalidate and order again. The null root was rejected above,
+    // which is what stops this from making the next instruction unfetchable.
     unsafe {
         core::arch::asm!(
             "dsb ishst",
@@ -350,6 +373,8 @@ pub unsafe extern "C" fn switch_ttbr0(root: u64) {
 /// # Safety
 /// Call once, before any [`alloc_table`].
 unsafe fn arena_init() {
+    // SAFETY: sole writer, before any `alloc_table` — the function's contract. The linker
+    // symbols bound a region reserved by `link.ld` and never otherwise written.
     unsafe {
         *ARENA.get() = Arena {
             next: core::ptr::addr_of!(__pagetables_start) as usize,
@@ -363,6 +388,9 @@ unsafe fn arena_init() {
 /// # Safety
 /// Single core, arena initialised.
 unsafe fn alloc_table() -> Result<*mut Table, MmuError> {
+    // SAFETY: exclusive `&mut` to the arena, valid because the caller guarantees single
+    // core with IRQs masked: `tables_remaining` takes a shared borrow of the same
+    // cell and masks for exactly this reason.
     unsafe {
         let arena = &mut *ARENA.get();
         let size = core::mem::size_of::<Table>();
@@ -396,6 +424,9 @@ unsafe fn map_region(root: *mut Table, region: &Region) -> Result<(), MmuError> 
         })?;
 
     for chunk in chunks {
+        // SAFETY: each chunk came from the planner, which only emits addresses inside the
+        // region the caller asked for — so this cannot map memory the caller did not
+        // request.
         unsafe { map_chunk(root, chunk, region.kind, region.perms)? };
     }
     Ok(())
@@ -413,6 +444,8 @@ unsafe fn map_chunk(
     kind: MemKind,
     perms: Perms,
 ) -> Result<(), MmuError> {
+    // SAFETY: writes one descriptor into a table reached from `root`. The level bound is
+    // checked first, so no write lands outside the 512 GiB the L1 table covers.
     unsafe {
         // Level 1 covers 512 GiB; beyond that there is no entry to write.
         if chunk.va >= (paging::L1_BLOCK_SIZE * paging::ENTRIES_PER_TABLE as u64) {
@@ -474,6 +507,8 @@ unsafe fn map_chunk(
 /// # Safety
 /// `root` is the live level-1 table; interrupts masked.
 unsafe fn ensure_mapped(root: *mut Table, va: u64) -> Result<(), MmuError> {
+    // SAFETY: read-only walk. Every dereference is of a table this walk reached through a
+    // valid table descriptor, starting from the live root the caller supplied.
     unsafe {
         if va >= (paging::L1_BLOCK_SIZE * paging::ENTRIES_PER_TABLE as u64) {
             return Err(MmuError::OutOfRange(va));
@@ -508,6 +543,9 @@ unsafe fn ensure_mapped(root: *mut Table, va: u64) -> Result<(), MmuError> {
 /// `root` is the live level-1 table; interrupts masked; [`ensure_mapped`] has
 /// succeeded for `va`. Intermediate break-before-make flushes run inside.
 unsafe fn unmap_page(root: *mut Table, va: u64) -> Result<(), MmuError> {
+    // SAFETY: `ensure_mapped` has already proved a leaf covers `va`, so every descriptor
+    // this walk reads exists. Splits it performs are individually published, per
+    // the function's contract.
     unsafe {
         let mut table = root;
         let mut level = Level::L1;
@@ -558,6 +596,10 @@ unsafe fn split_block(
     block_entry: u64,
     va: u64,
 ) -> Result<*mut Table, MmuError> {
+    // SAFETY: break-before-make: the block is cleared and invalidated before the table
+    // replacing it is installed, so no walker can observe both mappings. The
+    // decode-then-re-encode round trip is what keeps the split's leaves
+    // equivalent to the block they came from.
     unsafe {
         let (pa_base, kind, perms) =
             paging::decode_leaf(block_entry, level).ok_or(MmuError::BadDescriptor {
@@ -603,6 +645,9 @@ unsafe fn split_block(
 /// # Safety
 /// `root` is a complete translation table covering every address in use.
 unsafe fn program_regime(root: u64) {
+    // SAFETY: writes MAIR/TCR/TTBR0 and ends with `isb`, so the regime is in force before
+    // the caller enables translation. Ordering, not just the values, is what the
+    // `# Safety` above depends on.
     unsafe {
         core::arch::asm!(
             "msr mair_el1, {mair}",
@@ -623,6 +668,9 @@ unsafe fn program_regime(root: u64) {
 /// A valid regime must already be programmed; the code executing this call
 /// must be identity-mapped, or the next instruction fetch faults.
 unsafe fn enable_translation() {
+    // SAFETY: the read-modify-write is the point: `boot.s` has already programmed the
+    // RES1 pattern into this register, and overwriting rather than or-ing would
+    // clear it again.
     unsafe {
         let mut sctlr: u64;
         core::arch::asm!("mrs {v}, sctlr_el1", v = out(reg) sctlr, options(nostack));
@@ -639,9 +687,16 @@ unsafe fn enable_translation() {
 
 /// Bytes of the table arena still unused. Zero means the next map fails.
 pub fn tables_remaining() -> usize {
-    // SAFETY: single core; the arena is only mutated while building the map.
-    let arena = unsafe { &*ARENA.get() };
-    arena.end.saturating_sub(arena.next)
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked, so this shared borrow cannot overlap the `&mut`
+        // that `alloc_table` takes of the same cell. It was an unmasked read
+        // from a safe `pub fn`, which is two overlapping references to one
+        // `UnsafeCell` any time a mapping happens — true only because no
+        // interrupt handler maps anything, which is a fact about today's
+        // handlers rather than about this function.
+        let arena = unsafe { &*ARENA.get() };
+        arena.end.saturating_sub(arena.next)
+    })
 }
 
 /// Tables still available, in tables rather than bytes.
