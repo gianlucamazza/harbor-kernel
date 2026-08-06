@@ -9,42 +9,80 @@ Repository: **https://github.com/gianlucamazza/harbor-kernel** · Tracking:
 [issues](https://github.com/gianlucamazza/harbor-kernel/issues) ·
 [project](https://github.com/users/gianlucamazza/projects/3)
 
-A bare-metal AArch64 kernel for the **Raspberry Pi 4 Model B**, written in Rust
-(`no_std`), booting under the platform firmware. The long-term target is an
-agent-based microkernel; see _What exists_ below for the difference between
-that goal and the current tree.
+## What Harbor is
 
-*Verified* means the claims in this README are backed by host tests, Miri on
-the pure-logic `unsafe`, build-enforced invariants, a QEMU boot gate, and
-fault probes on real silicon — with known blind spots documented in
+Harbor aims to be an **agent-based microkernel** for the **Raspberry Pi 4
+Model B**: isolated units that share no memory and interact only through
+messages and capabilities. The name is the metaphor — a protected place where
+bounded components operate and talk over controlled channels
+([ADR-0007](docs/adr/0007-project-identity-harbor-kernel.md)).
+
+**Today** it is a single-core bare-metal AArch64 kernel in Rust (`no_std`),
+booting under the platform firmware. It runs cooperative EL1 tasks, IPC with
+unforgeable caps, and EL0 agents in private address spaces whose authority is
+named by capability slot. It is **not** a finished agent OS: agents still
+cannot block on receive, cannot wait on an interrupt as a first-class wake,
+and are not preempted. Full product surface:
+[`docs/architecture.md`](docs/architecture.md).
+
+*Verified* means claims in this README are backed by host tests, Miri on the
+pure-logic `unsafe`, build-enforced invariants, a QEMU boot gate, and fault
+probes on real silicon — with known blind spots in
 [`docs/verification.md`](docs/verification.md) (notably: QEMU does not model
-memory attributes the way Cortex-A72 does).
+memory attributes the way Cortex-A72 does). Authority and isolation claims
+(and their limits): [`SECURITY.md`](SECURITY.md).
 
-**Status:** M0–M7 **done (HW)** on Pi 4B. The post-M6 product slices (EL0 IRQ
-resume, `SYS_PUTC`, PL011 **RX-owned agent** with poll + LBE) were stamped on
-silicon 2026-08-06, closing
-[issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1); **M7** —
-EL0 authority named by capability slot, the console behind a capability denied
-by default, and an agent fault that its creator handles — on 2026-08-07, in one
-boot ([`docs/verification.md`](docs/verification.md)).
-Roadmap: [`docs/architecture.md`](docs/architecture.md#roadmap).
-Authority and isolation claims (and their limits): [`SECURITY.md`](SECURITY.md).
+## Status
+
+**M0–M7 done (HW)** on Pi 4B. Bring-up through EL0 authority-by-slot is
+stamped on silicon; the next work is product surface on top of that boundary,
+not another foundation milestone.
+
+| ID | Deliverable | Status |
+| -- | ----------- | ------ |
+| M0–M2, P0–P4 | Boot, exceptions, MMU, heap, W^X, idle, layout gates | **done (HW)** |
+| M3 | Cooperative EL1 tasks + guarded stacks | **done (HW)** |
+| M4 | IPC + capabilities (mailboxes, refuse, IRQ wake queue) | **done (HW)** |
+| M5 | EL0 agents (private AS, `TTBR0`, SVC + fault probes) | **done (HW)** |
+| M6 | Driver-as-agent (PL011 page map, FR, RX own, kill) | **done (HW)** |
+| M7 | EL0 authority by capability slot; console cap denied by default; creator-handled agent fault | **done (HW)** 2026-08-07 |
+
+Post-M6 product slices (EL0 IRQ resume, `SYS_PUTC`, PL011 RX-owned agent) closed
+[issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1) on silicon
+2026-08-06. M7 closed in one boot the next day — evidence in
+[`docs/verification.md`](docs/verification.md#hardware-evidence-m7-closed-on-silicon-2026-08-07).
+
+### Next
+
+Ordered from [`docs/architecture.md#roadmap`](docs/architecture.md#roadmap):
+
+| # | Work | Done when |
+| - | ---- | --------- |
+| 1 | **Blocking `SYS_RECV`** (yield out of a live EL0 session) | Agent parks on empty recv; peer send wakes it; authority checks still hold — QEMU + HW |
+| 2 | **M8: console endpoint** (retire transitional `SYS_PUTC`) | Same slot ABI; kernel or EL1 server drains; denied-by-default still gated |
+| 3 | Optional: IRQ-wake RX; P-pass on kernel Device blankets | Named in architecture when picked up |
+
+**Not goals** until their own ADR: preemption, SMP, high-half / `TTBR1`, ASID
+production, USB host, full framebuffer, a long-running interactive echo agent
+replacing the idle body. This is a **lab kernel**, not multi-tenant production
+software ([`SECURITY.md`](SECURITY.md)).
 
 ## What exists
 
 Boot to EL1, a mapped and protected address space, interrupts, a heap,
-**cooperative tasks** (M3), and an interactive serial console.
+**cooperative tasks** (M3), IPC/caps (M4), **EL0 agents** (M5–M7), and an
+interactive serial console.
 
 | Area         | State                                                                                                                               |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
 | Boot         | EL2→EL1, softfloat, DTB pointer captured (mapped RO; board truth is BSP constants — ADR-0011)                                       |
-| Memory       | Multi-level identity map, **W^X**, guarded kernel + exception stacks, runtime `map`/`unmap` (block split), TLB maintenance                                    |
+| Memory       | Multi-level identity map, **W^X**, guarded kernel + exception stacks, runtime `map`/`unmap` (block split), TLB maintenance          |
 | Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
 | Frames (M5)  | Named phys pool (ADR-0012); `AddressSpace` clone + user VA window; destroy returns frames                                           |
 | EL0 (M5)     | `enter`/`resume`/`end_session`, own `TTBR0`, SVC + fault probes (**done HW**) — ADR-0014                                           |
-| EL0 shell    | Scheduled agent: ping/refuse/exit, multi-SVC resume (**done HW**); `SYS_PUTC`, IRQ resume (**done QEMU**)                           |
-| Agent shell  | `src/agent::Agent` owns AS; concurrent dual-TCB (**done HW**)                                                                      |
-| PL011 agent  | Page map (ADR-0013); FR; RX own (drain off, LBE inject, poll, kill restores) — M6 v1 **HW**, own **QEMU**                           |
+| Agent shell  | `src/agent::Agent` owns AS; scheduled multi-SVC; concurrent dual-TCB (**done HW**); `SYS_PUTC` + IRQ resume (**done HW**)          |
+| Authority (M7) | Slot-indexed caps; console behind a cap denied by default; agent fault ends the session, creator decides the task (**done HW**)  |
+| PL011 agent  | Page map (ADR-0013); FR; RX own (drain off, LBE inject, poll, kill restores) — M6 **done HW**                                        |
 | Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
 | IPC (M4)     | Mailboxes + CapId send/recv; refuse counter; IRQ wake queue (ADR-0008); demo sender/receiver/forger                                 |
 | Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters; lower-EL IRQ → agent when session unmasks              |
@@ -53,18 +91,35 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
 | Verification | 265 host tests (unit, integration, doc), Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
 
-## What does not exist yet
+## What is not there yet
 
-No preemption, no SMP, no high-half/`TTBR1` kernel, no ASID production, no
-UART-IRQ-to-EL0 as the steady console path (ownership is poll-based). Longer
-product surface: [`docs/architecture.md`](docs/architecture.md).
+**Product path (next, above):** blocking `SYS_RECV`, console-as-endpoint (M8),
+optional IRQ-wake RX. Agents cannot yet park on an empty mailbox or treat an
+IRQ as a first-class wait; UART RX ownership for an agent is poll-based, not
+the steady console path.
 
-## Design
+**Not started (and not claimed):** preemption, SMP, high-half/`TTBR1` kernel,
+ASID production, Linux/POSIX compatibility, USB host, full framebuffer.
 
-- **Layers:** `arch` → `bsp` → `drivers` / `irq` → `bootstrap` / `time` / console.
-- **Memory:** early MMU before Rust, then a fine W^X kernel map — [`docs/mmu.md`](docs/mmu.md).
-- **Interrupts:** [`docs/interrupts.md`](docs/interrupts.md).
+Longer surface and milestone criteria:
+[`docs/architecture.md`](docs/architecture.md).
+
+## Design in brief
+
+- **Layers:** `arch` → `bsp` → `drivers` / `irq` → policy (`bootstrap`,
+  `sched`, `ipc`, `agent`, `mm`, console). Import edges are gated by
+  `make layering` — [`docs/architecture.md`](docs/architecture.md).
+- **Memory:** early MMU before any Rust runs, then a fine **W^X** kernel map;
+  user AS from a named frame pool — [`docs/mmu.md`](docs/mmu.md).
+- **Execution:** cooperative only ([ADR-0006](docs/adr/0006-cooperative-execution-model.md));
+  an agent is a task + private AS + EL0 session.
+- **Authority:** capability slots (ADR-0017); console denied by default; on
+  agent fault the kernel ends the session and the creator decides the task
+  (ADR-0018) — [`SECURITY.md`](SECURITY.md).
+- **Interrupts:** GICv2 + arch timer + UART RX — [`docs/interrupts.md`](docs/interrupts.md).
 - **Blobs:** EEPROM + `start4.elf` only — [`docs/blobs.md`](docs/blobs.md).
+- **Verification:** a claim is “done” only with a host/QEMU gate or a silicon
+  stamp — [`docs/verification.md`](docs/verification.md).
 
 ## Layout
 
@@ -214,7 +269,9 @@ QEMU: the SoC block is not modelled; presence is soft-failed via `arch::probe`.
 Full HW evidence: stack split in
 [`docs/verification.md`](docs/verification.md#hardware-evidence-stack-split-closed);
 RNG + SPI0 + panel in
-[`docs/verification.md`](docs/verification.md#rng200-and-spi0-hardware).
+[`docs/verification.md`](docs/verification.md#rng200-and-spi0-hardware);
+M7 authority boundary in
+[`docs/verification.md`](docs/verification.md#hardware-evidence-m7-closed-on-silicon-2026-08-07).
 
 Typed characters are echoed via the RX IRQ ring (main idles with `WFI` between
 events). `fully reclaimed` is the line that distinguishes a real allocator from
@@ -243,14 +300,15 @@ See [`docs/verification.md`](docs/verification.md#m3-cooperative-tasks-hardware)
 
 | Doc                                            | Content                                          |
 | ---------------------------------------------- | ------------------------------------------------ |
-| [`docs/architecture.md`](docs/architecture.md) | Layers, agent model, milestones                  |
+| [`docs/architecture.md`](docs/architecture.md) | Layers, agent model, milestones, **roadmap**     |
 | [`SECURITY.md`](SECURITY.md)                  | Threat model, TCB, authority surface, residuals  |
-| [`docs/mmu.md`](docs/mmu.md)                   | Two maps, regions, W^X, guard page               |
 | [`docs/verification.md`](docs/verification.md) | What is checked, and what each check is blind to |
+| [`docs/mmu.md`](docs/mmu.md)                   | Two maps, regions, W^X, guard page               |
 | [`docs/interrupts.md`](docs/interrupts.md)     | VBAR, GIC, timer, HW evidence                    |
 | [`docs/boot-chain.md`](docs/boot-chain.md)     | ROM → EEPROM → start4 → kernel                   |
 | [`docs/blobs.md`](docs/blobs.md)               | Closed firmware policy                           |
 | [`docs/hardware.md`](docs/hardware.md)         | Pinout, GIC bases, optional SPI TFT HAT          |
+| [`docs/porting.md`](docs/porting.md)           | Add an ISA or board (scaffold only today)        |
 | [`docs/adr/`](docs/adr/README.md)              | Architecture decisions (ADRs)                    |
 | [`docs/reviews/`](docs/reviews/)               | Multi-role analysis reports                      |
 

@@ -70,7 +70,7 @@ stack, disk encryption, remote attestation, SMP, preemption fairness.
 | **EL1 kernel** | Fully trusted. Bugs here are total compromise. |
 | **Creator (bootstrap)** | Fully trusted. Chooses AS, caps, and entry. Not itself isolated. |
 | **EL0 agent** | **Untrusted.** May be wrong, malicious, or hostile. Must not gain authority it was not granted, nor corrupt kernel or peer memory. |
-| **Serial adversary** | Can type bytes on PL011 when the kernel owns RX. Not a capability path into kernel memory; can stall interactive demos. |
+| **Serial adversary** | Can type bytes on PL011. While the **kernel** owns RX the bytes land in a bounded ring the idle loop drains, and an overflow is counted (`RX_DROPPED`), not a memory path. While an **agent** owns RX (M6/M7 handover) the bytes are delivered to untrusted EL0 code by design — that is the feature — so the adversary's reach is exactly the agent's, and the agent is already untrusted. What neither case gives is a way to reach kernel memory or another agent. |
 | **SPI TFT path** | Lab-only (`debug-display`). Not a security boundary; GPIO/SPI mistakes can hang the boot, not elevate EL0. |
 | **QEMU** | Not evidence for memory-attribute or firmware-state claims ([`docs/verification.md`](docs/verification.md)). |
 
@@ -92,6 +92,7 @@ the machine with other agents under the same kernel, tries to:
 | Steal another agent’s saved GPRs / session | Yes — `CURRENT_EL0` publish + assert on entry |
 | Exhaust frames / tables to DoS later agents | Partially — pool is finite; destroy should return frames |
 | Busy-loop at EL0 and starve the system | **Out of scope** — cooperative model (ADR-0006); no preemption |
+| Feed an RX-owning agent hostile input from the wire | Yes, and it is *supposed* to arrive — the agent is untrusted either way. What must hold is that the handover cannot leave the line armed with nothing to drain (`kernel_core::rxline`, host-tested) |
 | Attack via firmware / JTAG / SD swap | Out of physical-lab model (operator is trusted) |
 | Remote network exploit | No network stack |
 
