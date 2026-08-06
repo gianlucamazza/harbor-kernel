@@ -33,6 +33,15 @@ pub const fn mov_x_reg(rd: u8, rm: u8) -> u32 {
     0xAA00_03E0 | ((rm as u32 & 0x1F) << 16) | (rd as u32 & 0x1F)
 }
 
+/// `str xzr, [xn]` — store zero through a register, unscaled offset 0.
+///
+/// Exists so a deliberately faulting agent can be *written* rather than
+/// spelled out in hex at each call site, which is how the M5 probe carried it.
+#[inline]
+pub const fn str_xzr(rn: u8) -> u32 {
+    0xF900_001F | ((rn as u32 & 0x1F) << 5)
+}
+
 /// `b .` — branch to self (infinite wait until interrupted or replaced).
 #[inline]
 pub const fn b_self() -> u32 {
@@ -81,6 +90,15 @@ pub const fn le_bytes(word: u32) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn store_zero_through_a_register() {
+        // Checked against the M5 fault probe, which carried these bytes by hand:
+        // `str xzr, [x0]` is 1F 00 00 F9 little-endian.
+        assert_eq!(str_xzr(0), 0xF900_001F);
+        assert_eq!(le_bytes(str_xzr(0)), [0x1F, 0x00, 0x00, 0xF9]);
+        assert_eq!(str_xzr(3), 0xF900_007F);
+    }
 
     #[test]
     fn mov_register_to_register() {

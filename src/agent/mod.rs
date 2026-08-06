@@ -59,6 +59,15 @@ impl From<AsError> for AgentError {
 /// fault — who kills the agent, who restarts it, what is counted — which is the
 /// agent fault policy ADR-0016 names as missing. It stops the kernel from
 /// throwing away the only evidence that a fault happened.
+/// Why an EL0 session stopped (ADR-0018).
+///
+/// `#[must_use]` because ignoring one is the bug this type exists to prevent.
+/// The kernel ends the *session* — that is mechanism, and it is not optional —
+/// but what happens to the *task* is the creator's decision, and a creator that
+/// drops this value has not made it. Before `SessionEnd` existed a faulting
+/// agent returned `Ok(stats)` and its `ESR`/`FAR` went nowhere; the attribute is
+/// what keeps that from being reachable again by inattention.
+#[must_use = "the creator decides what happens to a faulting agent; the kernel only ended its session"]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SessionEnd {
     /// `SYS_EXIT`: the agent asked to stop.
@@ -70,7 +79,29 @@ pub enum SessionEnd {
     Fault { esr: u64, far: u64 },
 }
 
+/// EL0 faults since boot, machine-wide (ADR-0018 §3).
+///
+/// The kernel counts and does not act. The number exists so a fault is visible
+/// to something other than the immediate caller — the boot oracle, chiefly,
+/// which is how anything gets verified here. Same shape and same reason as
+/// `sched::pending_overwrites`.
+static FAULTS: AtomicU32 = AtomicU32::new(0);
+
+fn note_fault() {
+    FAULTS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// EL0 faults since boot.
+#[inline]
+pub fn fault_count() -> u32 {
+    FAULTS.load(Ordering::Relaxed)
+}
+
 /// Counters from one multi-event EL0 session.
+///
+/// `#[must_use]` for the reason [`SessionEnd`] is: the outcome it carries is the
+/// creator's to act on, and these have been returned into `let _ =` before.
+#[must_use = "the session outcome inside is the creator's decision to make"]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SessionStats {
     pub pings: u32,
@@ -176,14 +207,32 @@ impl Agent {
                             event = unsafe { el0::resume(session) };
                         }
                         Syscall::Putc => {
-                            let byte = (el0::saved_x0(session) & 0xFF) as u8;
-                            let _ = console::with_tx(|uart| uart.write_byte(byte));
-                            stats.putcs = stats.putcs.saturating_add(1);
+                            // The console is an ordinary capability in a slot
+                            // (ADR-0017 §3). Two questions, asked in order and
+                            // kept apart: does the agent *hold* what it named,
+                            // and is what it named *this console*.
+                            let slot = el0::saved_gpr(session, 0) as usize;
+                            let status = match sched::my_cap_slot(slot) {
+                                Ok(cap) if console::is_console_cap(cap) => {
+                                    let byte = (el0::saved_gpr(session, 1) & 0xFF) as u8;
+                                    let _ = console::with_tx(|uart| uart.write_byte(byte));
+                                    stats.putcs = stats.putcs.saturating_add(1);
+                                    Status::Ok
+                                }
+                                _ => {
+                                    // A slot it does not hold, and a slot
+                                    // holding something that is not the
+                                    // console, are the same answer: it asked
+                                    // for authority it was not granted.
+                                    ipc::note_authority_refusal();
+                                    stats.authority_refusals =
+                                        stats.authority_refusals.saturating_add(1);
+                                    Status::Authority
+                                }
+                            };
+                            el0::set_saved_gpr(session, 0, status.as_u64());
                             // SAFETY: as `Ping` — a resumable `Svc` outcome
-                            // with IRQs masked. Note the console write above is
-                            // granted to any agent with no capability check;
-                            // that is ADR-0017 §3, and slice 3 of M7, not this
-                            // block's.
+                            // with IRQs masked.
                             event = unsafe { el0::resume(session) };
                         }
                         Syscall::Send => {
@@ -269,6 +318,12 @@ impl Agent {
                     }
                     el0::El0Outcome::DataAbort { esr, far }
                     | el0::El0Outcome::OtherSync { esr, far } => {
+                        // Mechanism, unconditional: an EL0 context that took a
+                        // synchronous exception has no defined continuation,
+                        // and the kernel is the only party positioned to know
+                        // it. What happens to the *task* is not decided here
+                        // (ADR-0018 §1–2).
+                        note_fault();
                         // SAFETY: these are the outcomes that already ended the
                         // session — `EL0_CAN_RESUME` is clear and the vector
                         // path has released the kernel root. This makes it
@@ -320,12 +375,32 @@ pub fn encode_send_exit(slot: u16, tag: u16, a: u16) -> [u8; 24] {
 /// prove only that it resumed. Moving `x2` — the message's `a` field — into the
 /// `putc` argument makes the byte on the console *the payload*, carried from
 /// another agent's registers through the kernel into this one's.
-pub fn encode_recv_putc_exit(slot: u16) -> [u8; 24] {
-    let mut out = [0u8; 24];
+pub fn encode_recv_putc_exit(recv_slot: u16, console_slot: u16) -> [u8; 28] {
+    let mut out = [0u8; 28];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, recv_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
+    // The payload arrives in x2 and `SYS_PUTC` wants it in x1, under the
+    // console slot in x0. Two moves rather than one, because the two calls
+    // disagree about where a byte lives — which is what an ABI table is for.
+    push_word(&mut out, &mut i, a64::mov_x_reg(1, 2));
+    push_word(&mut out, &mut i, a64::movz_x(0, console_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
+/// A64: `movz x0,#slot; movz x1,#byte; svc #2; svc #1; b .`
+///
+/// One `SYS_PUTC` through a named slot, then exit. Pointed at a slot that holds
+/// no console capability, this is the agent that must be refused on the good
+/// path (ADR-0017 §3).
+pub fn encode_putc_once_exit(slot: u16, byte: u8) -> [u8; 20] {
+    let mut out = [0u8; 20];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
-    push_word(&mut out, &mut i, a64::mov_x_reg(0, 2));
+    push_word(&mut out, &mut i, a64::movz_x(1, u16::from(byte)));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
@@ -343,6 +418,23 @@ pub fn encode_send_bare_exit(slot: u16) -> [u8; 16] {
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
+/// A64: `movz x0,#8,lsl#16; str xzr,[x0]; svc #1; b .`
+///
+/// Writes to a kernel address the agent does not have, which takes a data abort
+/// at EL0. The `svc #1` after it is never reached — it is there so the program
+/// says what it *meant* to do, rather than trailing off into a branch-to-self
+/// that would look like the fault was the intent of the encoder rather than of
+/// the test.
+pub fn encode_fault_exit() -> [u8; 16] {
+    let mut out = [0u8; 16];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x_lsl16(0, 0x8));
+    push_word(&mut out, &mut i, a64::str_xzr(0));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
     out
@@ -384,14 +476,16 @@ pub fn encode_ping_ping_exit() -> [u8; 16] {
 }
 
 /// A64: `movz x0, #'H'; svc #2; movz x0, #'!'; svc #2; svc #1; b .`
-pub fn encode_putc_hi_exit() -> [u8; 24] {
-    let mut out = [0u8; 24];
+pub fn encode_putc_hi_exit(slot: u16) -> [u8; 32] {
+    let mut out = [0u8; 32];
     let mut i = 0;
-    push_word(&mut out, &mut i, a64::movz_x(0, u16::from(b'H')));
-    push_word(&mut out, &mut i, a64::svc(2));
-    push_word(&mut out, &mut i, a64::movz_x(0, u16::from(b'!')));
-    push_word(&mut out, &mut i, a64::svc(2));
-    push_word(&mut out, &mut i, a64::svc(1));
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, u16::from(b'H')));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, u16::from(b'!')));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
     out
 }
@@ -426,16 +520,17 @@ pub fn encode_spin_exit(iters: u16) -> [u8; 20] {
 ///
 /// Empty FIFO → zero putcs (honest “no data” path). A pending character → one
 /// putc. Does not invent receive data.
-pub fn encode_pl011_rx_poll_exit() -> [u8; 28] {
-    let mut out = [0u8; 28];
+pub fn encode_pl011_rx_poll_exit(console_slot: u16) -> [u8; 32] {
+    let mut out = [0u8; 32];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x_lsl16(0, 0x5000));
     push_word(&mut out, &mut i, a64::ldr_w_imm(1, 0, 0x18));
-    // RXFE (bit 4) set → empty → skip ldrb + putc
-    push_word(&mut out, &mut i, a64::tbnz_w(1, 4, 3));
-    push_word(&mut out, &mut i, a64::ldrb_w(0, 0));
-    push_word(&mut out, &mut i, a64::svc(2));
-    push_word(&mut out, &mut i, a64::svc(1));
+    // RXFE (bit 4) set → empty → skip the load, the slot and the putc
+    push_word(&mut out, &mut i, a64::tbnz_w(1, 4, 4));
+    push_word(&mut out, &mut i, a64::ldrb_w(1, 0));
+    push_word(&mut out, &mut i, a64::movz_x(0, console_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
     out
 }

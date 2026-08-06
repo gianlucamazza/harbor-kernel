@@ -204,7 +204,16 @@ show the same oracles
 
 Pi 4B stamp detail: [verification.md §M5-P / M6](verification.md#m5-p--m6-post).
 
-### Open (QEMU) — M7 slice 2
+### Open (QEMU) — M7 slices 2–4
+
+| Slice                                  | Status          | Evidence                                                                                                                                    |
+| -------------------------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`SYS_PUTC` behind a capability**     | **done (QEMU)** | `el0-ipc: console denied, printed nothing` — and the byte that agent tried to print is asserted *absent* from the log                       |
+| **Fault policy** (ADR-0018)            | **done (QEMU)** | `el0-ipc: agent faulted esr=0x9200004f far=0x80000 faults=1` then `creator alive after fault`; `SessionEnd` is `#[must_use]`                |
+| **The M7 done-when, end to end**       | **done (QEMU)** | two EL0 agents exchange a message neither can forge, one faults, its creator handles it and the other completes — all in one boot            |
+| Silicon                                | **open**        | the sentence above is only M7 when a serial transcript says it                                                                              |
+
+### Superseded by the rows above — M7 slice 2 alone
 
 | Slice                                   | Status          | Evidence                                                                                                                            |
 | --------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |

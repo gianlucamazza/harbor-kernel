@@ -10,6 +10,7 @@
 use core::fmt::Write;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 
+use kernel_core::cap::CapId;
 use kernel_core::ring::ByteRing;
 use kernel_core::rxline::{RxLine, Step};
 
@@ -133,6 +134,44 @@ pub fn install_tx(uart: Pl011) {
             *TX.get() = Some(uart);
         }
     });
+}
+
+/// The capability that authorises an EL0 agent to write on this console.
+///
+/// `None` until [`grant_console_cap`] runs, which is deliberate: an agent that
+/// asks before the console has an owner is refused rather than served, and the
+/// window where "nobody has it yet" and "everybody has it" look the same does
+/// not exist (ADR-0017 §3).
+///
+/// Written once at boot with IRQs masked; read on the `SYS_PUTC` path.
+static CONSOLE_CAP: SyncCell<Option<CapId>> = SyncCell::new(None);
+
+/// Name the capability that stands for this console.
+///
+/// Called once, by bootstrap, with the send capability of the console channel.
+/// Making it a channel's capability rather than a new kind of handle is what
+/// lets M8 replace `SYS_PUTC` with `SYS_SEND` on the same slot without the
+/// agent-side ABI changing: the authority is already the right one, only the
+/// drain moves from the kernel to a server (ADR-0017 §4).
+pub fn grant_console_cap(cap: CapId) {
+    cpu::without_irqs(|| {
+        // SAFETY: single core, IRQs masked, called once during bring-up before
+        // any task can reach the console path.
+        unsafe { *CONSOLE_CAP.get() = Some(cap) };
+    });
+}
+
+/// True if `cap` is the console capability.
+///
+/// Note what this does **not** ask: whether the caller holds it. That question
+/// is `sched`'s and is asked first — this one only says which object the
+/// capability names. Two separate questions, the way `ipc` keeps *were you
+/// given this* apart from *does it still name a live endpoint*.
+pub fn is_console_cap(cap: CapId) -> bool {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked, single core; a plain read of a once-written slot.
+        unsafe { *CONSOLE_CAP.get() == Some(cap) }
+    })
 }
 
 /// Run `f` with the installed TX handle, IRQs masked for the duration.

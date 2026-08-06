@@ -158,12 +158,32 @@ pub fn spawn(entry: fn()) -> Result<TaskId, SpawnError> {
     spawn_with_caps(entry, &[])
 }
 
-/// Create a ready task that starts at `entry` holding `caps` (M4).
+/// Create a ready task holding `caps` from slot 0 upwards (M4).
+///
+/// Convenience over [`spawn_with_slots`] for the common case where the slots
+/// are simply the order the capabilities are listed in.
 pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError> {
+    if caps.len() > MAX_CAPS_PER_TASK {
+        return Err(SpawnError::TooManyCaps);
+    }
+    let mut slots = [None; MAX_CAPS_PER_TASK];
+    for (slot, &cap) in slots.iter_mut().zip(caps) {
+        *slot = Some(cap);
+    }
+    spawn_with_slots(entry, &slots)
+}
+
+/// Create a ready task whose capability table is `slots`, holes included.
+///
+/// The creator decides which slot holds what, and *may leave gaps*
+/// (ADR-0017 §2). A gap is not padding: an agent that miscounts its own slots
+/// is refused rather than handed whatever sits next to the one it meant, and
+/// the boot oracle uses exactly that to show the refusal on the good path.
+pub fn spawn_with_slots(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, SpawnError> {
     if STARTED.load(Ordering::Acquire) == 0 {
         return Err(SpawnError::NotStarted);
     }
-    if caps.len() > MAX_CAPS_PER_TASK {
+    if slots.len() > MAX_CAPS_PER_TASK {
         return Err(SpawnError::TooManyCaps);
     }
 
@@ -188,9 +208,7 @@ pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError
         context.sp = stack.initial_sp() as u64;
 
         let mut held = [None; MAX_CAPS_PER_TASK];
-        for (i, &c) in caps.iter().enumerate() {
-            held[i] = Some(c);
-        }
+        held[..slots.len()].copy_from_slice(slots);
 
         sched.tcbs[slot] = Tcb {
             context,

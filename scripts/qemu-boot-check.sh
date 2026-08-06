@@ -239,13 +239,14 @@ grep -qa 'ipc: got tag=1 a=42' "${log}" ||
 # dead endpoint too, so a boot that filled a four-deep mailbox would have
 # satisfied this assertion without any capability ever being checked.
 #
-# Exactly two, not "at least one". The count is machine-wide and now has two
-# producers — the M4 forger with a capability it does not hold, and the EL0
-# agent naming a slot it was not granted. A range would let either one satisfy
-# the assertion for the other; it already did, while a bug had the counter
-# reset by any successful send in between.
-grep -qaE 'ipc: refuse count=2 ' "${log}" ||
-	fail "authority refusals are not exactly the two the boot performs"
+# Exactly three, not "at least one". The count is machine-wide and has three
+# producers — the M4 forger with a capability it does not hold, the EL0 agent
+# naming a slot it was not granted, and the EL0 agent denied the console. A
+# range would let any one of them satisfy the assertion for the others; it
+# already did, while a bug had the counter reset by any successful send in
+# between.
+grep -qaE 'ipc: refuse count=3 ' "${log}" ||
+	fail "authority refusals are not exactly the three the boot performs"
 
 # Neither of the other two should move in a healthy boot: nothing here fills a
 # mailbox, and a refusal for `state` means an endpoint resolved and then named a
@@ -265,6 +266,24 @@ grep -qa 'el0-ipc: sent slot=0 tag=7 a=42' "${log}" ||
 # as a protection unverified rather than a protection unneeded.
 grep -qaE 'el0-ipc: refused slot=1 authority=[1-9]' "${log}" ||
 	fail "EL0 agent was not refused a slot it does not hold"
+# ADR-0017 §3: the console is a capability, and one agent is deliberately
+# without it. This line is the protection being *seen* to fire on the good path
+# — and its second half matters as much: the byte that agent tried to print
+# must not appear on the console.
+grep -qa 'el0-ipc: console denied, printed nothing' "${log}" ||
+	fail "the agent without a console capability was not refused"
+if grep -qa 'Xel0-ipc: console denied' "${log}"; then
+	fail "the denied agent printed its byte anyway"
+fi
+
+# ADR-0018: the kernel ends the session, the creator decides the task. Three
+# separate claims, and the third is the one a single "it faulted" line would
+# hide — the creator has to still be running afterwards, and so does the peer.
+grep -qaE 'el0-ipc: agent faulted esr=0x[0-9a-f]+ far=0x[0-9a-f]+ faults=[1-9]' "${log}" ||
+	fail "the deliberate EL0 fault was not reported with its syndrome and count"
+grep -qa 'el0-ipc: creator alive after fault' "${log}" ||
+	fail "the creator did not survive its agent's fault"
+
 # The payload crossing EL0 → kernel → EL0. The receiving agent moves the
 # message field into the putc argument itself, so the `*` on the console is the
 # byte the *other* agent sent (42), not a status code.

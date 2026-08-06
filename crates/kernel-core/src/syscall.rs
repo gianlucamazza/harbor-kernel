@@ -9,7 +9,7 @@
 //! | ----------- | ------- | ------- | ------- | ------- | ---------- | ------------- |
 //! | `SYS_PING`  | —       | —       | —       | —       | unchanged  | unchanged     |
 //! | `SYS_EXIT`  | —       | —       | —       | —       | —          | —             |
-//! | `SYS_PUTC`  | byte    | —       | —       | —       | unchanged  | unchanged     |
+//! | `SYS_PUTC`  | slot    | byte    | —       | —       | [`Status`] | unchanged     |
 //! | `SYS_SEND`  | slot    | tag     | a       | b       | [`Status`] | unchanged     |
 //! | `SYS_RECV`  | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
 //!
@@ -29,10 +29,15 @@ pub const SYS_PING: u16 = 0;
 /// `svc #1` — cooperative exit from an EL0 multi-SVC session (no resume).
 pub const SYS_EXIT: u16 = 1;
 
-/// `svc #2` — write low 8 bits of `x0` to the kernel console (TX).
+/// `svc #2` — write the low 8 bits of `x1` to the console named by slot `x0`.
+///
+/// Requires a console capability, and is **denied by default**: an agent that
+/// was not granted one is refused and the refusal is counted as an authority
+/// violation (ADR-0017 §3).
 ///
 /// **Transitional** (ADR-0017 §4). M8 replaces it with `SYS_SEND` on a console
-/// endpoint: the agent-side ABI does not change, only who drains the message.
+/// endpoint: the agent-side ABI does not change — the slot already names the
+/// right capability — only who drains the message.
 pub const SYS_PUTC: u16 = 2;
 
 /// `svc #3` — send a message through the capability in slot `x0`.

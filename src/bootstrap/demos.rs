@@ -23,6 +23,13 @@ use crate::sched;
 use kernel_core::paging::Perms;
 use kernel_core::syscall::{self, Syscall};
 
+/// Slot every demo task keeps its console capability in.
+///
+/// A convention between the spawn sites in `bootstrap` and the programs here,
+/// not something the kernel knows: an agent's slots mean whatever its creator
+/// put in them, which is the point of naming authority per task (ADR-0017 §2).
+pub(super) const CONSOLE_SLOT: u16 = 1;
+
 /// Bit pattern of a valid send cap the forger does **not** hold (M4 refuse).
 pub(super) static IPC_FORGE_RAW: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
@@ -195,7 +202,7 @@ pub(super) fn el0_scheduled_task() {
     }
 
     // SYS_PUTC: two bytes via kernel TX, then exit.
-    match agent.run_user_prog_resuming(&agent::encode_putc_hi_exit()) {
+    match agent.run_user_prog_resuming(&agent::encode_putc_hi_exit(CONSOLE_SLOT)) {
         Ok(s) if s.putcs == 2 => crate::kprintln!("el0-task: putc bytes=2"),
         Ok(s) => crate::kprintln!("el0-task: putc unexpected putcs={}", s.putcs),
         Err(e) => crate::kprintln!("el0-task: putc FAILED {e:?}"),
@@ -286,7 +293,7 @@ pub(super) fn pl011_agent_task() {
     crate::sched::yield_now();
 
     // Empty path first (honest): no invented data.
-    match agent.run_user_prog_resuming(&agent::encode_pl011_rx_poll_exit()) {
+    match agent.run_user_prog_resuming(&agent::encode_pl011_rx_poll_exit(CONSOLE_SLOT)) {
         Ok(s) if s.putcs == 0 => crate::kprintln!("pl011-agent: rx poll empty"),
         Ok(s) => crate::kprintln!("pl011-agent: rx poll unexpected putcs={}", s.putcs),
         Err(e) => crate::kprintln!("pl011-agent: rx poll FAILED {e:?}"),
@@ -312,7 +319,7 @@ pub(super) fn pl011_agent_task() {
     let mut got = 0u32;
     for _ in 0..OWN_BYTES.len() {
         crate::sched::yield_now();
-        match agent.run_user_prog_resuming(&agent::encode_pl011_rx_poll_exit()) {
+        match agent.run_user_prog_resuming(&agent::encode_pl011_rx_poll_exit(CONSOLE_SLOT)) {
             Ok(s) if s.putcs == 1 => got = got.saturating_add(1),
             Ok(s) if s.putcs == 0 => {
                 crate::kprintln!("pl011-agent: rx own short putcs=0 after {got}");
@@ -393,9 +400,26 @@ pub(super) fn el0_ipc_sender() {
         Err(e) => crate::kprintln!("el0-ipc: send FAILED {e:?}"),
     }
 
-    // The same agent, now naming slot 1. This task holds exactly one
-    // capability, so slot 1 is empty and there is nothing there to name — the
-    // refusal is structural, not a check that happened to be written.
+    // Denied the console, deliberately. This task was spawned holding only a
+    // send capability, so `CONSOLE_SLOT` is empty in *its* table — and the byte
+    // it tries to print never reaches the UART. ADR-0017 §3 requires exactly
+    // this on the good path: a capability nobody is ever seen to lack is a
+    // protection nobody has seen fire.
+    match agent.run_user_prog_resuming(&agent::encode_putc_once_exit(CONSOLE_SLOT, b'X')) {
+        Ok(s) if s.putcs == 0 && s.authority_refusals == 1 => {
+            crate::kprintln!("el0-ipc: console denied, printed nothing")
+        }
+        Ok(s) => crate::kprintln!(
+            "el0-ipc: console denial unexpected putcs={} refusals={}",
+            s.putcs,
+            s.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-ipc: console denial FAILED {e:?}"),
+    }
+
+    // The same agent, now naming slot 1 for a *send*. This task holds exactly
+    // one capability, so slot 1 is empty and there is nothing there to name —
+    // the refusal is structural, not a check that happened to be written.
     match agent.run_user_prog_resuming(&agent::encode_send_bare_exit(1)) {
         Ok(s) if s.authority_refusals == 1 && s.sends == 0 => crate::kprintln!(
             "el0-ipc: refused slot=1 authority={}",
@@ -408,6 +432,23 @@ pub(super) fn el0_ipc_sender() {
         ),
         Err(e) => crate::kprintln!("el0-ipc: refuse FAILED {e:?}"),
     }
+
+    // ADR-0018: the agent faults, the kernel ends its session, and *this task*
+    // — the creator, which allocated the address space and granted the slots —
+    // decides what happens next. It decides to carry on: the fault is reported,
+    // the agent is not restarted, and the peer that is still waiting for the
+    // message this task already sent is unaffected.
+    match agent.run_user_prog_resuming(&agent::encode_fault_exit()) {
+        Ok(s) => match s.end {
+            agent::SessionEnd::Fault { esr, far } => crate::kprintln!(
+                "el0-ipc: agent faulted esr={esr:#x} far={far:#x} faults={}",
+                agent::fault_count()
+            ),
+            other => crate::kprintln!("el0-ipc: fault unexpected end {other:?}"),
+        },
+        Err(e) => crate::kprintln!("el0-ipc: fault path FAILED {e:?}"),
+    }
+    crate::kprintln!("el0-ipc: creator alive after fault");
 
     agent.destroy();
 }
@@ -433,7 +474,7 @@ pub(super) fn el0_ipc_receiver() {
     };
 
     // One `putc`, and the byte it prints is the payload the other agent sent.
-    match agent.run_user_prog_resuming(&agent::encode_recv_putc_exit(0)) {
+    match agent.run_user_prog_resuming(&agent::encode_recv_putc_exit(0, CONSOLE_SLOT)) {
         Ok(s) if s.recvs == 1 && s.putcs == 1 => {
             crate::kprintln!("el0-ipc: got payload via EL0 recvs=1")
         }

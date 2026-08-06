@@ -256,12 +256,6 @@ fn fault_syndrome() -> (u64, u64) {
 /// corrupting it — and the agent has no way to tell the difference.
 pub const ABI_REPLY_REGS: usize = 4;
 
-/// Low 64 bits of user `x0` at the last SVC/IRQ (for `SYS_PUTC`, etc.).
-#[inline]
-pub fn saved_x0(session: *mut El0Session) -> u64 {
-    saved_gpr(session, 0)
-}
-
 /// User `x{n}` as saved at the last SVC/IRQ.
 ///
 /// Safe rather than `unsafe fn` because a mistimed call returns a stale value

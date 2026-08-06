@@ -146,6 +146,17 @@ pub fn send(cap: CapId, msg: Message) -> Result<(), SendError> {
     Ok(())
 }
 
+/// Count an authority violation detected outside this module.
+///
+/// `SYS_PUTC` is the one authority check that is not about a mailbox — the
+/// console is named by a capability but drained by the kernel — so `agent`
+/// performs it. The *number* still belongs here, for the reason the atomics
+/// carry in their doc-comment: one definition of "authority violation", one
+/// writer, and a counter nobody else can move.
+pub fn note_authority_refusal() {
+    with_table(|t| t.note_authority_refusal());
+}
+
 /// Send through the capability in `slot` of the calling task's own table.
 ///
 /// The EL0 entry point (ADR-0017 §2). A slot out of range, an empty slot, and a

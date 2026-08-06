@@ -359,6 +359,26 @@ pub fn run() -> ! {
     // Shared TX for idle + worker tasks (cooperative only; serialized in with_tx).
     console::install_tx(uart);
 
+    // The console stops being something an agent obtains by asking (ADR-0017
+    // §3). It is a channel's send capability from here on: the kernel drains it
+    // today, an EL1 console server drains it in M8, and the agent-side ABI does
+    // not change when that happens.
+    //
+    // `None` here is not fatal for the kernel — EL1 printing does not go
+    // through capabilities — but every EL0 agent that prints will be refused,
+    // and the boot oracle will say so rather than going quiet.
+    let console_cap = match crate::ipc::create_channel() {
+        Ok(ch) => {
+            console::grant_console_cap(ch.send);
+            crate::kprintln!("console: capability minted");
+            Some(ch.send)
+        }
+        Err(e) => {
+            crate::kprintln!("console: capability FAILED {e:?}");
+            None
+        }
+    };
+
     match crate::sched::spawn(demos::demo_task_a) {
         Ok(_) => crate::kprintln!("sched: spawned task-a"),
         Err(e) => crate::kprintln!("sched: spawn task-a FAILED {e:?}"),
@@ -368,14 +388,18 @@ pub fn run() -> ! {
         Err(e) => crate::kprintln!("sched: spawn task-b FAILED {e:?}"),
     }
 
+    // Slot 0 is left empty for these two on purpose: their programs name
+    // `CONSOLE_SLOT` (1), so the table has a hole under it, and an agent that
+    // miscounts its own slots is refused rather than served something adjacent.
+    let console_caps: [Option<kernel_core::cap::CapId>; 2] = [None, console_cap];
     // M5-P1/P2: EL0 from a scheduled task + SVC decode.
-    match crate::sched::spawn(demos::el0_scheduled_task) {
+    match crate::sched::spawn_with_slots(demos::el0_scheduled_task, &console_caps) {
         Ok(_) => crate::kprintln!("sched: spawned el0-task"),
         Err(e) => crate::kprintln!("sched: spawn el0-task FAILED {e:?}"),
     }
 
     // M6 v1: PL011 page-only agent (ADR-0013); destroy = kill.
-    match crate::sched::spawn(demos::pl011_agent_task) {
+    match crate::sched::spawn_with_slots(demos::pl011_agent_task, &console_caps) {
         Ok(_) => crate::kprintln!("sched: spawned pl011-agent"),
         Err(e) => crate::kprintln!("sched: spawn pl011-agent FAILED {e:?}"),
     }
@@ -422,7 +446,10 @@ pub fn run() -> ! {
                 Ok(_) => crate::kprintln!("el0-ipc: spawned sender"),
                 Err(e) => crate::kprintln!("el0-ipc: spawn sender FAILED {e:?}"),
             }
-            match crate::sched::spawn_with_caps(demos::el0_ipc_receiver, &[ch.recv]) {
+            match crate::sched::spawn_with_slots(
+                demos::el0_ipc_receiver,
+                &[Some(ch.recv), console_cap],
+            ) {
                 Ok(_) => crate::kprintln!("el0-ipc: spawned receiver"),
                 Err(e) => crate::kprintln!("el0-ipc: spawn receiver FAILED {e:?}"),
             }
