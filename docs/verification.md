@@ -576,6 +576,59 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | User-window text bound                                           | widen `bound_text_write` back to `pages * frame`                                               | two tests fail, including `a_write_past_the_text_page_is_refused_even_though_the_window_is_bigger` — the P0-3 defect, where every offset in the window looked legal while the write went to page 0's physical address alone |
 | User-window offset overflow                                      | `checked_add` back to a wrapping add                                                           | `an_offset_that_would_overflow_is_refused_not_wrapped` fails: `usize::MAX + 1` wraps to zero and reads as a legal write at the start of the page |
 
+## Mutation testing: what the tests actually cover (2026-08-06)
+
+The table above is hand-curated, and that is its limit: it records the checks
+someone thought to break. It says nothing about the other hundred and fifty
+tests, which are known to pass and not known to cover anything.
+
+`cargo-mutants` settles that mechanically. It rewrites one expression at a time
+— an `||` into an `&&`, a `+=` into a `-=`, a match guard into `false` — and
+reports which mutations the suite fails to notice. It is a tooling dependency
+only: nothing enters the kernel's dependency graph.
+
+Run over the three modules that carry the authority and scheduling logic:
+
+```
+cargo mutants -p kernel-core --file '**/ipc.rs' --file '**/tasks.rs' --file '**/layout.rs'
+```
+
+**First run: 129 caught, 23 missed.** The score is not the useful part; the
+survivors are. Four things came out of it that no amount of reading would have:
+
+| Survivor | What it meant |
+| -------- | ------------- |
+| `Region::is_write_execute -> false` | **The serious one.** W^X is one of the three protections this project claims, and every test asserted that good regions are *not* W+X — all of which pass just as well with the check hard-wired to "no". There was no positive test: nothing had ever watched the check recognise a violation. It is precisely the doctrine this document opens with, applied to a test instead of a gate. |
+| `refusals.state += 1` on the second-waiter path | The refusal was asserted, the counter beside it was not. The counters are what the boot oracle reads, so an increment that stopped incrementing would be reported as a clean boot. |
+| `current == Self::IDLE` guards, mutated to `false` | Both were only ever exercised from idle, which cannot tell a guard from a constant. |
+| `Tasks::withdraw` | Never called by anything. Written for symmetry during the extraction, and nobody noticed because a dead function passes every test. Removed rather than tested. |
+
+Nine tests were written against the survivors, and one of them was itself wrong
+in a way only the second run exposed: the alignment test used
+`guard: (0x1008, 0x2000)`, which is *also* a guard shorter than a page, so it
+was refused by an earlier check and never reached the alignment chain at all.
+It passed, and proved nothing. Rewritten to isolate each of the three terms, it
+goes red under the mutation as it should.
+
+**Final: 142 caught, 9 missed, 16 unviable — 94% of viable mutants.**
+
+The nine survivors are all the same shape, and none of them is worth a test:
+
+| Site | Why it survives |
+| ---- | --------------- |
+| `Table::{send,try_recv,park}`, the `!mbox.live` arms (6) | `live` never returns to `false`: no endpoint is ever released, so a lookup that resolves cannot resolve to a dead mailbox. The arm is unreachable until release-and-reuse exists. |
+| `Tasks::switch`, `Ok(None) if current != IDLE` (3) | Idle is always exactly one of *current* or *queued* — popped when it runs, requeued when it yields, and forbidden to block or exit. So a worker asking for the next task always finds at least idle, and `Ok(None)` only ever arrives when idle itself is asking. |
+
+Both are guards on invariants stated elsewhere in the same file, kept because
+those invariants are the kind that a later change breaks quietly. A test that
+reached them would have to break the invariant first, which would be testing the
+test. Recording them here is the honest alternative, and it is the same
+convention this document already uses for gates that cannot exist.
+
+Not wired into `make check`: a full run is seven minutes, and the value is in
+reading the survivors rather than in a threshold. It belongs where the ADRs say
+the multi-role review belongs — before a milestone that moves a boundary.
+
 ## Four defects no gate caught (2026-08-05)
 
 The table above records checks proven to work. This section records the
