@@ -14,12 +14,6 @@
 //! Default entry masks IRQs in EL0. Call [`el0::set_entry_irqs_unmasked`] before
 //! a session that should take lower-EL IRQs.
 
-// Audit debt (2026-08-06): 4 unsafe blocks here predate
-// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
-// This comes off when the audit reaches this module and the SAFETY comments can
-// state something checkable rather than restate the code. See Cargo.toml.
-#![allow(clippy::undocumented_unsafe_blocks)]
-
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use kernel_core::a64;
@@ -44,12 +38,33 @@ impl From<AsError> for AgentError {
     }
 }
 
+/// How an EL0 session finished.
+///
+/// A faulting agent used to be indistinguishable from a clean exit: both
+/// returned `Ok(stats)` and the `ESR`/`FAR` that `El0Outcome::DataAbort`
+/// carries were dropped on the floor. This does not decide what to *do* about a
+/// fault — who kills the agent, who restarts it, what is counted — which is the
+/// agent fault policy ADR-0016 names as missing. It stops the kernel from
+/// throwing away the only evidence that a fault happened.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SessionEnd {
+    /// `SYS_EXIT`: the agent asked to stop.
+    #[default]
+    Exit,
+    /// An SVC this kernel does not implement. The agent's error, not a fault.
+    UnknownSvc { imm: u16 },
+    /// The agent took a fault at EL0. Session is over and cannot be resumed.
+    Fault { esr: u64, far: u64 },
+}
+
 /// Counters from one multi-event EL0 session.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SessionStats {
     pub pings: u32,
     pub putcs: u32,
     pub irqs: u32,
+    /// Why the session stopped. See [`SessionEnd`].
+    pub end: SessionEnd,
 }
 
 /// EL1-owned user address space ready for one-shot EL0 entry.
@@ -75,6 +90,10 @@ impl Agent {
         self.aspace
             .poke_user(0, prog)
             .map_err(|_| AgentError::Poke)?;
+        // SAFETY: the AS was prepared by `create_prepared`, the whole entry runs
+        // inside `without_irqs` so EL1 interrupts are masked as `el0::run`
+        // requires, and one session at a time holds because nothing in this
+        // closure yields (ADR-0016).
         let outcome = cpu::without_irqs(|| unsafe {
             el0::run(
                 self.aspace.root_phys(),
@@ -121,12 +140,19 @@ impl Agent {
                     el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
                         Syscall::Ping => {
                             stats.pings = stats.pings.saturating_add(1);
+                            // SAFETY: the outcome being matched is `Svc`, which
+                            // is resumable by definition; IRQs are still masked
+                            // by the enclosing `without_irqs`.
                             event = unsafe { el0::resume() };
                         }
                         Syscall::Putc => {
                             let byte = (el0::saved_x0() & 0xFF) as u8;
                             let _ = console::with_tx(|uart| uart.write_byte(byte));
                             stats.putcs = stats.putcs.saturating_add(1);
+                            // SAFETY: as `Ping` — a resumable `Svc` outcome
+                            // with IRQs masked. Note the console write above is
+                            // granted to any agent with no capability check;
+                            // that is ADR-0016's missing ABI, not this block's.
                             event = unsafe { el0::resume() };
                         }
                         Syscall::Exit => {
@@ -135,32 +161,35 @@ impl Agent {
                             // without another `enter`. Ending it here is what
                             // clears `el0_kernel_ttbr0` while nothing can fault.
                             unsafe { el0::end_session() };
+                            stats.end = SessionEnd::Exit;
                             return Ok(stats);
                         }
-                        Syscall::Unknown { .. } => {
+                        Syscall::Unknown { imm } => {
                             // SAFETY: as `Exit`. An SVC this kernel does not
                             // implement ends the session rather than inventing
                             // a behaviour for it.
                             unsafe { el0::end_session() };
+                            stats.end = SessionEnd::UnknownSvc { imm };
                             return Ok(stats);
                         }
                     },
                     el0::El0Outcome::Irq => {
                         irq::handle_cpu_irq();
                         stats.irqs = stats.irqs.saturating_add(1);
+                        // SAFETY: `Irq` is resumable, and the handler above has
+                        // run to completion. `ELR` still points at the
+                        // interrupted instruction, which the architecture
+                        // re-executes — resuming here does not skip it.
                         event = unsafe { el0::resume() };
                     }
-                    _ => {
-                        // SAFETY: `DataAbort` and `OtherSync` are the outcomes
-                        // that already ended the session — `EL0_CAN_RESUME` is
-                        // clear and the vector path has released the kernel
-                        // root. This makes that explicit.
-                        //
-                        // Note what is *not* here: the ESR and FAR carried by
-                        // those variants are dropped, and a faulting agent
-                        // returns `Ok`. That is the missing agent fault policy,
-                        // not an oversight of this call site.
+                    el0::El0Outcome::DataAbort { esr, far }
+                    | el0::El0Outcome::OtherSync { esr, far } => {
+                        // SAFETY: these are the outcomes that already ended the
+                        // session — `EL0_CAN_RESUME` is clear and the vector
+                        // path has released the kernel root. This makes it
+                        // explicit rather than relying on it.
                         unsafe { el0::end_session() };
+                        stats.end = SessionEnd::Fault { esr, far };
                         return Ok(stats);
                     }
                 }
