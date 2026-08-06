@@ -32,6 +32,7 @@ pub mod rng;
 pub mod runqueue;
 pub mod spi;
 pub mod syscall;
+pub mod tasks;
 pub mod textgrid;
 pub mod timer;
 pub mod uart;

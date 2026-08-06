@@ -9,12 +9,24 @@
 //! another stack would leave IRQs masked with no matching restore. Bookkeeping
 //! runs with IRQs hard-masked; each task re-enables on the way out of
 //! [`yield_now`] / on trampoline entry.
+//!
+//! # What is here and what is not
+//!
+//! Which task runs next, what happens to the one leaving, and whose stack is
+//! now safe to free are decisions, and they live in [`kernel_core::tasks`]
+//! where they are host-tested. What is left here is the part that cannot be:
+//! the context switch, the heap-allocated stacks and their guard pages, and the
+//! interrupt mask.
+//!
+//! The stack of an exited task stays attached to its slot until someone
+//! collects it — one place holding it, rather than a `pending_free` beside the
+//! table that has to agree with it.
 
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use kernel_core::cap::CapId;
-use kernel_core::runqueue::RunQueue;
 pub use kernel_core::runqueue::TaskId;
+use kernel_core::tasks::{Decision, Switch, Tasks};
 use kernel_core::wake::WakeQueue;
 
 use crate::arch::cpu;
@@ -34,23 +46,12 @@ pub const MAX_CAPS_PER_TASK: usize = 4;
 /// Usable stack bytes per spawned task (plus one guard page).
 const TASK_STACK_USABLE: usize = 16 * 1024;
 
-/// Idle's fixed id — bootstrap stack, never heap-allocated.
-pub const IDLE_ID: TaskId = TaskId(0);
-
 /// IRQ → voluntary wake queue capacity (usable = N−1).
 const WAKE_Q: usize = 16;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum State {
-    Empty,
-    Ready,
-    Running,
-    /// Parked on IPC (or similar); not on the ready queue.
-    Blocked,
-}
-
+/// Per-slot resources. The *state* of a slot lives in [`Tasks`]; this is what
+/// the kernel has to own because it cannot be modelled on a host.
 struct Tcb {
-    state: State,
     context: Context,
     /// `None` for idle.
     stack: Option<TaskStack>,
@@ -63,7 +64,6 @@ struct Tcb {
 impl Tcb {
     const fn empty() -> Self {
         Self {
-            state: State::Empty,
             context: Context::zeroed(),
             stack: None,
             entry: None,
@@ -73,29 +73,15 @@ impl Tcb {
 }
 
 struct Sched {
+    tasks: Tasks<MAX_TASKS>,
     tcbs: [Tcb; MAX_TASKS],
-    runqueue: RunQueue<MAX_TASKS>,
-    current: TaskId,
-    /// Stack of a task that has exited, awaiting release by the next task to
-    /// run. A task cannot free the stack its own SP points into.
-    ///
-    /// At most one is ever pending, because every way of arriving on another
-    /// stack drains it first: [`switch_with`] after `context_switch` returns,
-    /// and [`task_trampoline`] on a task's first entry. The trampoline half
-    /// used to be missing, which silently dropped a `TaskStack` — whose `Drop`
-    /// is a deliberate no-op — whenever an exit was followed by a never-yet-run
-    /// task. [`pending_overwrites`] now counts any recurrence rather than
-    /// trusting the invariant.
-    pending_free: Option<TaskStack>,
 }
 
 impl Sched {
     const fn new() -> Self {
         Self {
+            tasks: Tasks::new(),
             tcbs: [const { Tcb::empty() }; MAX_TASKS],
-            runqueue: RunQueue::new(),
-            current: IDLE_ID,
-            pending_free: None,
         }
     }
 }
@@ -129,14 +115,7 @@ pub fn init() {
     cpu::without_irqs(|| {
         // SAFETY: single core; first init; IRQs masked.
         let sched = unsafe { &mut *SCHED.get() };
-        sched.tcbs[IDLE_ID.0 as usize] = Tcb {
-            state: State::Running,
-            context: Context::zeroed(),
-            stack: None,
-            entry: None,
-            caps: [None; MAX_CAPS_PER_TASK],
-        };
-        sched.current = IDLE_ID;
+        sched.tasks.start();
         STARTED.store(1, Ordering::Release);
     });
 }
@@ -164,16 +143,13 @@ pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError
         // SAFETY: IRQs masked.
         let sched = unsafe { &mut *SCHED.get() };
 
-        let slot = match sched.tcbs.iter().position(|t| t.state == State::Empty) {
-            Some(slot) => slot,
-            None => {
-                // SAFETY: never scheduled.
-                unsafe { stack.release() };
-                return Err(SpawnError::Full);
-            }
+        let Some(id) = sched.tasks.admit() else {
+            // SAFETY: never scheduled.
+            unsafe { stack.release() };
+            return Err(SpawnError::Full);
         };
+        let slot = id.0 as usize;
 
-        let id = TaskId(slot as u32);
         let mut context = Context::zeroed();
         context.x30 = task_trampoline as *const () as u64;
         context.sp = stack.initial_sp() as u64;
@@ -184,22 +160,11 @@ pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError
         }
 
         sched.tcbs[slot] = Tcb {
-            state: State::Ready,
             context,
             stack: Some(stack),
             entry: Some(entry),
             caps: held,
         };
-
-        if sched.runqueue.enqueue(id).is_err() {
-            let mut tcb = core::mem::replace(&mut sched.tcbs[slot], Tcb::empty());
-            if let Some(owned) = tcb.stack.take() {
-                // SAFETY: never scheduled.
-                unsafe { owned.release() };
-            }
-            return Err(SpawnError::Full);
-        }
-
         Ok(id)
     })
 }
@@ -209,7 +174,7 @@ pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError
 pub fn current_task_id() -> TaskId {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
-        unsafe { (*SCHED.get()).current }
+        unsafe { (*SCHED.get()).tasks.current() }
     })
 }
 
@@ -221,7 +186,7 @@ pub fn my_cap(i: usize) -> Option<CapId> {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &*SCHED.get() };
-        let idx = sched.current.0 as usize;
+        let idx = sched.tasks.current().0 as usize;
         sched.tcbs.get(idx).and_then(|t| t.caps[i])
     })
 }
@@ -231,7 +196,7 @@ pub fn current_holds(cap: CapId) -> bool {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &*SCHED.get() };
-        let idx = sched.current.0 as usize;
+        let idx = sched.tasks.current().0 as usize;
         sched
             .tcbs
             .get(idx)
@@ -245,19 +210,19 @@ pub fn current_holds(cap: CapId) -> bool {
 /// Never call from an IRQ handler.
 pub fn yield_now() {
     poll_wakes();
-    switch_with(SwitchKind::Yield);
+    switch_with(Switch::Yield);
 }
 
 /// Park the current non-idle task until [`wake_task`] / [`wake_from_irq`].
 ///
 /// Never call from an IRQ handler or from idle.
 pub fn block_current() {
-    switch_with(SwitchKind::Block);
+    switch_with(Switch::Block);
 }
 
 /// Terminate the current non-idle task and switch to the next ready (or idle).
 pub fn exit() -> ! {
-    switch_with(SwitchKind::Exit);
+    switch_with(Switch::Exit);
     // Idle called exit, or no one left to run.
     cpu::halt()
 }
@@ -267,7 +232,7 @@ pub fn wake_task(id: TaskId) {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &mut *SCHED.get() };
-        make_ready(sched, id);
+        sched.tasks.wake(id);
     });
 }
 
@@ -313,25 +278,6 @@ pub fn wake_drops() -> u32 {
     WAKES.drops()
 }
 
-fn make_ready(sched: &mut Sched, id: TaskId) {
-    let idx = id.0 as usize;
-    if idx >= MAX_TASKS || id == IDLE_ID {
-        return;
-    }
-    let tcb = &mut sched.tcbs[idx];
-    if tcb.state == State::Blocked {
-        tcb.state = State::Ready;
-        let _ = sched.runqueue.enqueue(id);
-    }
-}
-
-#[derive(Clone, Copy)]
-enum SwitchKind {
-    Yield,
-    Exit,
-    Block,
-}
-
 /// One task's stack geometry, as reported to a bring-up probe.
 #[cfg(feature = "bringup")]
 #[derive(Clone, Copy)]
@@ -347,7 +293,7 @@ pub struct StackReport {
 impl StackReport {
     pub const fn empty() -> Self {
         Self {
-            id: IDLE_ID,
+            id: Tasks::<MAX_TASKS>::IDLE,
             guard: (0, 0),
             stack: (0, 0),
         }
@@ -390,33 +336,39 @@ pub fn stack_map(out: &mut [StackReport]) -> usize {
 pub fn current_id() -> TaskId {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked; single core.
-        unsafe { (*SCHED.get()).current }
+        unsafe { (*SCHED.get()).tasks.current() }
     })
 }
 
 /// True when the ready queue holds at least one task.
 pub fn has_ready() -> bool {
-    !cpu::without_irqs(|| {
+    cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
-        unsafe { (*SCHED.get()).runqueue.is_empty() }
+        unsafe { (*SCHED.get()).tasks.has_ready() }
     })
 }
 
-/// Return an exited task's stack, now that we are running on a different one.
+/// Release the stack of a task that has exited, if one is waiting.
+///
+/// The model says *which* slot; the stack itself is still attached to it, so
+/// there is one owner rather than a `pending_free` beside the table.
 ///
 /// # Safety
-/// IRQs masked, and the caller is not the task that owned the pending stack.
-unsafe fn drain_pending_free() {
+/// IRQs masked, and the caller is not the task that parked it.
+unsafe fn collect_exited() {
     // SAFETY: IRQs masked; the borrow ends before this returns and never
     // crosses a context switch.
-    let pending = unsafe { (*SCHED.get()).pending_free.take() };
-    if let Some(stack) = pending {
+    let sched = unsafe { &mut *SCHED.get() };
+    let Some(id) = sched.tasks.collect() else {
+        return;
+    };
+    if let Some(stack) = sched.tcbs[id.0 as usize].stack.take() {
         // SAFETY: its owner has exited and we are on another stack.
         unsafe { stack.release() };
     }
 }
 
-fn switch_with(kind: SwitchKind) {
+fn switch_with(kind: Switch) {
     if STARTED.load(Ordering::Acquire) == 0 {
         return;
     }
@@ -425,93 +377,39 @@ fn switch_with(kind: SwitchKind) {
 
     // SAFETY: IRQs masked for schedule + switch.
     let sched = unsafe { &mut *SCHED.get() };
-    let current = sched.current;
-    let cur_idx = current.0 as usize;
 
-    let requeue_current = match kind {
-        SwitchKind::Yield => {
-            if sched.tcbs[cur_idx].state == State::Running {
-                sched.tcbs[cur_idx].state = State::Ready;
-            }
-            true
-        }
-        SwitchKind::Block => {
-            if current == IDLE_ID {
-                // SAFETY: closes the section this function opened with
-                // `irq_save`, on the path that returns without switching —
-                // idle has no other task to fall back to, so blocking it would
-                // stop the machine.
-                unsafe { cpu::irq_restore(daif) };
-                return;
-            }
-            sched.tcbs[cur_idx].state = State::Blocked;
-            false
-        }
-        SwitchKind::Exit => {
-            if current == IDLE_ID {
-                // Idle must not exit.
-                // SAFETY: as the `Block` arm — closes the same section on a
-                // path that returns without switching stacks.
-                unsafe { cpu::irq_restore(daif) };
-                return;
-            }
-            sched.tcbs[cur_idx].state = State::Empty;
-            // A stack already parked here is not ours — its owner exited
-            // earlier — so it can be released immediately instead of being
-            // overwritten and leaked. With both drain points in place this
-            // should never fire; count it so the invariant stays observable
-            // rather than assumed.
-            if let Some(stale) = sched.pending_free.take() {
-                PENDING_OVERWRITES.fetch_add(1, Ordering::Relaxed);
-                // SAFETY: parked by a task that has already exited; we are
-                // running on our own stack, which is the one parked below.
-                unsafe { stale.release() };
-            }
-            // Not released here: still running on that stack — park for drain.
-            sched.pending_free = sched.tcbs[cur_idx].stack.take();
-            sched.tcbs[cur_idx].entry = None;
-            sched.tcbs[cur_idx].caps = [None; MAX_CAPS_PER_TASK];
-            sched.tcbs[cur_idx].context = Context::zeroed();
-            false
-        }
-    };
-
-    let requeue = requeue_current.then_some(current);
-    let next = match sched.runqueue.after_yield(requeue) {
-        Ok(Some(id)) => id,
-        Ok(None) => {
-            // No ready work: run idle if we are not already idle.
-            if current != IDLE_ID {
-                IDLE_ID
-            } else {
-                sched.tcbs[cur_idx].state = State::Running;
-                // SAFETY: closes the section opened above.
-                unsafe { cpu::irq_restore(daif) };
-                return;
-            }
-        }
-        Err(_) => {
-            // Requeue failed (capacity): stay on current.
-            sched.tcbs[cur_idx].state = State::Running;
-            // SAFETY: closes the section opened above.
+    let (from, to, release) = match sched.tasks.switch(kind) {
+        Decision::Stay => {
+            // SAFETY: closes the section opened above, on the path that does
+            // not change stacks.
             unsafe { cpu::irq_restore(daif) };
             return;
         }
+        Decision::Switch { from, to, release } => (from, to, release),
     };
 
-    if next == current {
-        sched.tcbs[cur_idx].state = State::Running;
-        // SAFETY: closes the section opened above.
-        unsafe { cpu::irq_restore(daif) };
-        return;
+    if kind == Switch::Exit {
+        // The slot is `Empty` and its stack stays attached until collected —
+        // the model refuses to hand the slot out again until then.
+        let slot = &mut sched.tcbs[from.0 as usize];
+        slot.entry = None;
+        slot.caps = [None; MAX_CAPS_PER_TASK];
+        slot.context = Context::zeroed();
     }
 
-    let next_idx = next.0 as usize;
-    sched.tcbs[next_idx].state = State::Running;
-    sched.current = next;
+    if let Some(stranded) = release {
+        // An exit that found the parked slot already taken. The model counts
+        // it; this frees the stack rather than losing the pointer to it. With
+        // both collection points in place it never happens.
+        if let Some(stack) = sched.tcbs[stranded.0 as usize].stack.take() {
+            // SAFETY: parked by a task that exited earlier; we are running on
+            // our own stack, which is the one being parked now.
+            unsafe { stack.release() };
+        }
+    }
 
-    let prev = core::ptr::addr_of_mut!(sched.tcbs[cur_idx].context);
-    let next_ctx = core::ptr::addr_of!(sched.tcbs[next_idx].context);
+    let prev = core::ptr::addr_of_mut!(sched.tcbs[from.0 as usize].context);
+    let next_ctx = core::ptr::addr_of!(sched.tcbs[to.0 as usize].context);
 
     // SAFETY: both contexts in static TCBs; stacks valid; IRQs masked.
     unsafe { context_switch(prev, next_ctx) };
@@ -519,7 +417,7 @@ fn switch_with(kind: SwitchKind) {
     // Resumed as some task that was switched away from earlier, on its own
     // stack. Anything an exiting task left behind can be freed now.
     // SAFETY: IRQs still masked; we are not the task that parked it.
-    unsafe { drain_pending_free() };
+    unsafe { collect_exited() };
 
     // `daif` is this task's own saved mask, restored from its own frame — a
     // task always resumes at the level it left, and only first entry needs the
@@ -541,14 +439,14 @@ extern "C" fn task_trampoline() -> ! {
     // an exit followed by a never-yet-run task drops the parked `TaskStack`.
     // SAFETY: IRQs masked; the parked stack belongs to a task that has exited,
     // never to this one (this one has not run before).
-    unsafe { drain_pending_free() };
+    unsafe { collect_exited() };
 
     cpu::irq_enable();
 
     let entry = cpu::without_irqs(|| {
         // SAFETY: IRQs masked; we are the current task.
         let sched = unsafe { &mut *SCHED.get() };
-        let idx = sched.current.0 as usize;
+        let idx = sched.tasks.current().0 as usize;
         sched.tcbs[idx].entry.take()
     });
 
