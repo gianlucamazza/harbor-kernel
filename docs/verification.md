@@ -18,13 +18,42 @@ covered.
 | Layering (`make layering`)                | Every `crate::` import edge in `src/`   | The rules in `architecture.md`: drivers never know the board, arch never names a driver, `exception` reaches only `irq` | Coupling that is not an import — a shared constant, an agreed register value, a naming convention |
 | Hardware                                  | A Pi 4B on a serial console             | Everything above, for real                                                                                             | Only what you actually boot and look at                                                        |
 
-**One assertion in the boot check measures the host, not the kernel.** TCG
-emulates the guest timer against wall-clock time, so `timer: MISSED` can fire
-because the machine running QEMU was busy — observed at load average 4 during a
-background `cargo install`, and clean on the same image a minute later. On an
-idle machine and on a CI runner it is a real signal. It is the only check here
-whose red can mean "try again", which is worth knowing before it costs someone
-an afternoon.
+**One assertion in the boot check cannot always be answered, and now says so.**
+TCG emulates the guest timer against wall-clock time, so `timer: MISSED` fires
+when the machine running QEMU is too busy to execute the guest — observed at
+load average 4 during a background `cargo install`, clean on the same image a
+minute later.
+
+For a while this was a comment telling the reader to re-run before believing the
+red. That is an invitation to ignore a failing gate, and there is not another one
+anywhere in this project. The check now corroborates instead of advising: it
+measures the host CPU the emulator actually received and reports a **third
+outcome** beside pass and fail.
+
+| Outcome | Meaning | Exit |
+| --- | --- | --- |
+| clean | every assertion held | 0 |
+| FAIL | a deadline was missed and the emulator had the CPU to meet it | 1 |
+| INDETERMINATE | a deadline was missed on a host that starved the emulator | 3 |
+
+Indeterminate is non-zero on purpose. The run did not establish its claim, and
+an unestablished claim must not read as a verified one.
+
+Two candidate signals were tried and discarded before the third worked, which is
+worth recording because both look reasonable:
+
+- **Load average** was 4 on this machine while the boot was clean. It measures
+  the machine, not this process, and the load sat on other cores.
+- **The guest's own tick reports.** TCG drives the guest timer from wall-clock
+  time, so the count tracks how long the run lasted rather than how much CPU it
+  received: under a 20% cgroup quota the guest still reported 13 ticks while
+  running on a fifth of one core.
+
+What separates the cases is the host CPU the emulator was given, read from
+`/proc/self/stat` (`cutime` + `cstime`) with no added dependency. Measured: 2.97
+cores idle, 0.07 cores under the 8% quota where `timer: MISSED` first appears —
+two orders of magnitude, so the one-core threshold sits nowhere near either
+edge.
 
 `make check` runs every layer above except the hardware one, and is deliberately
 a superset of CI: each CI job has a target here, so a green locally predicts a
@@ -648,6 +677,7 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Table-arena reserve, derived                                     | restore `PAGE_TABLE_ARENA_SIZE = 16 * 0x1000` under the reserve now derived from `MAX_TASKS` | `BOOT REFUSED: table arena nearly exhausted: 9 tables left, need 14` — the arena had been sized against a reserve of six that assumed `MAX_TASKS = 4`, long after the scheduler raised it to 12 |
 | Facade isolation (ADR-0015)                                      | `use crate::arch::riscv64::cpu`, `use crate::{arch::aarch64::cpu, bsp}`, `use crate::bsp::rpi4::memmap` in one file outside both trees | three violations named with their line numbers — the first two were invisible to the gate as first written, which listed `aarch64` literally and looked for the `crate::` prefix a grouped import does not carry |
 | Arch contract vs facade                                          | delete the `probe` row from `arch-contract.md`                                                | `missing from the contract: probe` — the surface a port is written against and the surface the facade actually re-exports had nothing comparing them |
+| Boot check, host starvation                                      | `systemd-run --user --scope -p CPUQuota=8%` around the boot check, the level at which `timer: MISSED` first appears | `boot-check: INDETERMINATE — … the emulator got 0.07 cores of host CPU over 15s`, exit 3. The same script on an idle host reports `2.97 cores` and passes; with the assertion rewired to a line that is always present it reports `FAIL — … the emulator had the CPU to meet them`. All three outcomes seen, which is what makes the third one a verdict rather than a comment |
 | No-SIMD guard, tool absent                                       | `make no-simd OBJDUMP=llvm-objdump-does-not-exist`                                            | `no-simd: FAIL — refusing to report clean`. Before the check, the same run printed `no-simd: clean`: an empty pipeline made `grep .` fail and `!` inverted that into success, so the gate passed having disassembled nothing |
 | No-SIMD guard, FP present                                        | build the same tree for `aarch64-unknown-none` (hard float)                                   | `error: FP/SIMD registers found`, on `v0`. The image carries 9 scalar `h` registers the earlier `[qv]` pattern ignored — on this tree they share lines with `v`, so the widened pattern adds coverage for a class (`fmov d0, x1` with no vector register) rather than a detection |
 | Board feature guard                                              | `cargo build --no-default-features`                                                            | `no board selected — enable a board-* feature`; `make board-guard` asserts the refusal names the feature rather than cascading about a missing `bsp::board` |
