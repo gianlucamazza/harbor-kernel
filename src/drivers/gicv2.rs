@@ -43,7 +43,12 @@ impl GicV2 {
     /// `dist_base` / `cpu_base` must be GICD/GICC MMIO for the lifetime of use.
     pub const unsafe fn new(dist_base: usize, cpu_base: usize) -> Self {
         Self {
+            // SAFETY: the address is the caller's obligation, forwarded
+            // verbatim to `Mmio::new`, which carries the same one. This driver
+            // never invents a base — the BSP names both, from the compiled-in
+            // board constants (ADR-0011).
             dist: unsafe { Mmio::new(dist_base) },
+            // SAFETY: as above, for the CPU interface.
             cpu: unsafe { Mmio::new(cpu_base) },
         }
     }
@@ -65,6 +70,16 @@ impl IrqChip for GicV2 {
     }
 
     fn enable(&self, irq: u32) {
+        // Mask *first*. The comment here used to say exactly that while the
+        // code did it fourth: group, priority, target and trigger were all
+        // reprogrammed before the line was masked. That is the case the comment
+        // is about — `enable_gic=1` means the firmware has already programmed
+        // this distributor (ADR-0004), so a line can arrive live with a
+        // configuration of someone else's choosing, and changing its trigger
+        // mode underneath is precisely what should not happen while it can
+        // fire.
+        self.disable(irq);
+
         self.set_group0(irq);
         // Highest priority (0) so PMR never filters it.
         self.set_priority(irq, 0x00);
@@ -73,9 +88,9 @@ impl IrqChip for GicV2 {
             self.set_target_cpu0(irq);
             self.set_level_sensitive(irq);
         }
-        // Mask before re-enabling: the line may already be live with the old
-        // configuration, and clearing a stale pending bit under it is racy.
-        self.disable(irq);
+
+        // Only now is a stale pending bit safe to drop: nothing can set it
+        // again between here and the unmask below.
         self.clear_pending(irq);
 
         let (offset, mask) = gic::bit_slot(irq);
@@ -102,6 +117,11 @@ impl IrqChip for GicV2 {
 
     fn end(&self, ack: Ack) {
         self.cpu.write32(GICC_EOIR, ack.raw());
+        // SAFETY: a barrier instruction. It is here because the Device-nGnRnE
+        // mapping orders this write against other device accesses but not
+        // against the normal-memory bookkeeping the handler does next — see the
+        // note in `arch::mmio` on why ordering belongs at the call site. Without
+        // it the interrupt can be retired after the counters that record it.
         unsafe {
             core::arch::asm!("dsb sy", options(nostack, preserves_flags));
         }
@@ -133,6 +153,8 @@ impl GicV2 {
     /// Raw EOIR. Bring-up / selftest only.
     pub fn debug_eoir(&self, val: u32) {
         self.cpu.write32(GICC_EOIR, val);
+        // SAFETY: as [`IrqChip::end`] — a barrier, ordering this completion
+        // against what the bring-up probe does afterwards.
         unsafe {
             core::arch::asm!("dsb sy", options(nostack, preserves_flags));
         }

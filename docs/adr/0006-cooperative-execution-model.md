@@ -3,6 +3,7 @@ id: 0006
 title: Cooperative execution model (M3 tasks)
 status: accepted
 date: 2026-08-04
+accepted: 2026-08-04
 ---
 
 # ADR-0006: Cooperative execution model (M3 tasks)

@@ -63,6 +63,11 @@ impl KernelHeap {
     /// such slice may exist at a time — guaranteed by every caller running
     /// inside `cpu::without_irqs`.
     unsafe fn arena(&mut self) -> &mut [u8] {
+        // SAFETY: `base` and `len` describe the mapped heap region, and taking
+        // `&mut self` is what makes the "one slice at a time" half of the
+        // contract enforceable rather than merely stated — a second slice would
+        // need a second `&mut` to this allocator, which the borrow checker
+        // refuses. The mapping and the masking remain the caller's.
         unsafe { core::slice::from_raw_parts_mut(self.base as *mut u8, self.len) }
     }
 }

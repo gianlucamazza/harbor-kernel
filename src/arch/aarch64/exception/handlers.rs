@@ -44,9 +44,16 @@ pub extern "C" fn exception_irq_el1() {
     irq::handle_cpu_irq();
 }
 
+/// `ESR_EL1` — the syndrome of the exception currently being handled.
+///
+/// Shared with [`crate::arch::el0`], which needs the same two registers for
+/// lower-EL events and had its own byte-identical copies.
 #[inline(always)]
-fn read_esr_el1() -> u64 {
+pub fn read_esr_el1() -> u64 {
     let value: u64;
+    // SAFETY: `ESR_EL1` is readable at EL1 and has no side effects. It is only
+    // meaningful inside a handler, before another exception overwrites it —
+    // which is what every caller here is.
     unsafe {
         core::arch::asm!(
             "mrs {}, esr_el1",
@@ -57,9 +64,11 @@ fn read_esr_el1() -> u64 {
     value
 }
 
+/// `FAR_EL1` — the faulting address for aborts. Meaningless for other classes.
 #[inline(always)]
-fn read_far_el1() -> u64 {
+pub fn read_far_el1() -> u64 {
     let value: u64;
+    // SAFETY: as [`read_esr_el1`]; a system register read with no side effects.
     unsafe {
         core::arch::asm!(
             "mrs {}, far_el1",

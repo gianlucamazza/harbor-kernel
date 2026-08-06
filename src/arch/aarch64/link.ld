@@ -27,7 +27,9 @@ ENTRY(_start)
 GUARD_PAGE_SIZE = 0x1000;
 
 /* Root table + one L2 per mapped GiB + one L3 per 2 MiB window that is not a
-   whole block. Six are used by `activate`, and the boot prints the remainder.
+   whole block. How many that is moves with `.text`, so it is not written down
+   here — the boot line prints what is left, and `bootstrap` refuses to boot if
+   the remainder falls under its reserve.
 
    Two things consume tables after that, both permanently: `mmu::map` for the
    DTB, and every `mmu::unmap` that has to split a 2 MiB block to punch out a
@@ -35,9 +37,14 @@ GUARD_PAGE_SIZE = 0x1000;
    split is never given back — spawning tasks into distinct blocks is what
    grows this number over a long uptime.
 
-   Sixteen leaves ten free, against a `MIN_SPARE_TABLES` reserve of six that
-   `bootstrap::run` refuses to boot below. Raise both together. */
-PAGE_TABLE_ARENA_SIZE = 16 * 0x1000;
+   The reserve is no longer a written-down number: `bootstrap` derives
+   `MIN_SPARE_TABLES` from `sched::MAX_TASKS`, because the two had drifted to 4
+   and 12 and the reserve was under-counting by 3×. At `MAX_TASKS = 12` that is
+   14 tables, so the arena must hold what `activate` and the DTB consume (seven,
+   as the boot line reports) plus those 14. Thirty-two leaves margin for the map
+   growing with `.text`; `bootstrap::run` refuses to boot if it ever does not,
+   and names this symbol when it does. */
+PAGE_TABLE_ARENA_SIZE = 32 * 0x1000;
 
 STACK_SIZE = 0x10000;
 

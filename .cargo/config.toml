@@ -5,20 +5,33 @@
 # saving q0–q31 on every IRQ would cost 512 bytes of trap frame per exception.
 # Linux (`-mgeneral-regs-only`), seL4 and Zephyr all compile kernels this way.
 # `make no-simd` enforces the invariant on the built image.
+#
+# Setting `build.target` here means a bare `cargo test` tries to run host tests
+# on a bare-metal target and fails confusingly. Every host-side invocation in
+# the Makefile therefore passes `--target $(HOST_TARGET)` explicitly.
 [build]
 target = "aarch64-unknown-none-softfloat"
 
 [target.aarch64-unknown-none-softfloat]
 rustflags = [
+  # The memory map lives in the ISA tree (ADR-0015). `build.rs` tracks this
+  # path, because rustflags are invisible to cargo's dependency graph.
   "-C",
-  "link-arg=--script=link.ld",
+  "link-arg=--script=src/arch/aarch64/link.ld",
+  # No loader, no dynamic linker, no ASLR: the firmware copies the image to the
+  # fixed 0x80000 `link.ld` assumes and jumps there. PIC would add a GOT to
+  # resolve at a point where nothing exists to resolve it.
   "-C",
   "relocation-model=static",
+  # The BCM2711 is a Cortex-A72, and QEMU's `raspi4b` models the same core, so
+  # the two agree on what is legal to emit. This is a floor as much as an
+  # optimisation: the kernel is never run on an earlier ARMv8 part, and pinning
+  # the model keeps codegen identical between the emulator and the board.
   "-C",
   "target-cpu=cortex-a72",
+  # rust-lld ships with the toolchain, so the build needs no cross binutils and
+  # CI installs nothing to link. `llvm-objcopy` is still required to turn the
+  # ELF into `kernel8.img` — that one is a real external dependency.
   "-C",
   "linker=rust-lld",
 ]
-
-[term]
-quiet = false

@@ -32,13 +32,17 @@ if [[ "${makefile_gates}" != "${readme_gates}" ]]; then
 	exit 1
 fi
 
-# 2. The host test count. `make test` prints one result line per target; only
-#    the unit-test binary has tests, so the counts are summed rather than
-#    assuming which line carries them.
-actual="$(make test 2>/dev/null |
-	sed -n 's/^test result: ok\. \([0-9]\+\) passed.*/\1/p' |
+# 2. The host test count. Counted from the source rather than by running the
+#    suite: `make check` has already run `make test` by the time it gets here,
+#    and re-running it doubled the cheapest gate while `2>/dev/null` swallowed
+#    any build error into a generic "could not read a test count".
+#
+#    `#[test]` attributes are counted directly. That is a different claim from
+#    "tests that passed" — but `make check` runs `test` before `doc-claims`, so
+#    a red suite has already stopped the gate before this line is reached.
+actual="$(grep -rhc '^\s*#\[test\]' crates/kernel-core/src/*.rs |
 	awk '{ n += $1 } END { print n + 0 }')"
-[[ "${actual}" -gt 0 ]] || fail "could not read a test count from 'make test'"
+[[ "${actual}" -gt 0 ]] || fail "found no #[test] attributes under crates/kernel-core/src"
 
 claimed="$(sed -n 's/^| Verification | \([0-9]\+\) host unit tests.*/\1/p' README.md)"
 [[ -n "${claimed}" ]] || fail "README has no 'N host unit tests' claim to check"
@@ -47,4 +51,43 @@ if [[ "${claimed}" != "${actual}" ]]; then
 	fail "README claims ${claimed} host unit tests, there are ${actual}"
 fi
 
-echo "doc-claims: clean (${actual} tests, ${#makefile_gates} chars of gate list agree)"
+# 3. The arch facade's re-export list, which ADR-0015 duplicates as a table in
+#    `arch-contract.md`. The contract is what a port is checked against, so a
+#    module that leaves the facade and stays in the table is a port built to a
+#    surface that no longer exists. `docs/mmu.md` records what happens to a fact
+#    kept in two files with nothing comparing them: both copies go stale
+#    together.
+facade="$(sed -n 's/^pub use aarch64::{\(.*\)};$/\1/p' src/arch/mod.rs |
+	tr ',' '\n' | tr -d ' ' | grep . | sort -u)"
+[[ -n "${facade}" ]] || fail "no 'pub use aarch64::{…}' re-export list found in src/arch/mod.rs"
+
+# One direction only: every facade module must appear in the contract. The
+# reverse would fire on the BSP table in the same file, which names modules the
+# arch facade has no business re-exporting.
+# shellcheck disable=SC2016  # the backticks are markdown table syntax, not a
+# command substitution: the pattern matches "| `mmu` |" in arch-contract.md.
+contract="$(sed -n 's/^| `\([a-z0-9_]\+\)` |.*/\1/p' docs/arch-contract.md | sort -u)"
+missing="$(comm -23 <(echo "${facade}") <(echo "${contract}"))"
+if [[ -n "${missing}" ]]; then
+	echo "doc-claims: the arch facade re-exports modules arch-contract.md does not list" >&2
+	echo "  missing from the contract: ${missing//$'\n'/, }" >&2
+	exit 1
+fi
+
+# 4. Every accepted ADR says when it was accepted. The field is not derivable
+#    from `date:` — 0008 was proposed on the 4th and accepted on the 5th — and
+#    five of sixteen had drifted without it, which nothing noticed because
+#    nothing read the field. Reading it here is what makes it a claim.
+missing_accept=""
+for adr in docs/adr/0*.md; do
+	grep -q '^status: accepted' "${adr}" || continue
+	grep -q '^accepted: [0-9]' "${adr}" || missing_accept="${missing_accept} $(basename "${adr}")"
+done
+if [[ -n "${missing_accept}" ]]; then
+	echo "doc-claims: accepted ADRs with no acceptance date:${missing_accept}" >&2
+	exit 1
+fi
+
+echo "doc-claims: clean (${actual} tests, ${#makefile_gates} chars of gate list agree, \
+$(wc -l <<<"${facade}") facade modules in the contract, \
+$(grep -lc '^status: accepted' docs/adr/0*.md | wc -l) ADRs dated)"

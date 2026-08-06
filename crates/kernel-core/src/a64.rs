@@ -79,7 +79,10 @@ mod tests {
 
     #[test]
     fn movz_x0_ascii() {
-        assert_eq!(movz_x(0, u16::from(b'H')), 0xD280_0000 | ((u16::from(b'H') as u32) << 5));
+        assert_eq!(
+            movz_x(0, u16::from(b'H')),
+            0xD280_0000 | ((u16::from(b'H') as u32) << 5)
+        );
     }
 
     #[test]

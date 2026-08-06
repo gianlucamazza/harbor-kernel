@@ -49,7 +49,7 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                   |
 | TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
-| Verification | 168 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
+| Verification | 172 host unit tests, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
 
 ## What does not exist yet
 
@@ -71,9 +71,12 @@ crates/kernel-core/  pure logic, unit-tested on the host:
                      paging, allocators, GIC maths, SPSC ring, runqueue (M3),
                      display/textgrid (debug-display math)
 src/
-  arch/aarch64/   MMIO, CPU/DAIF, cache, vectors, MMU, unmap, switch, CNTP, probe, bootinfo
+  arch/           facade (`cfg(target_arch)`); only path policy imports
+  arch/aarch64/   MMIO, CPU/DAIF, cache, vectors, MMU, switch, CNTP, probe, bootinfo,
+                  boot.s, link.ld (ISA-owned entry + memory map)
   irq/            IrqChip trait, dispatch table, counters
   drivers/        PL011, GICv2, RNG200; spi + ili9486 (+ delay/pin) behind debug-display
+  bsp/            board feature select → `board` re-export
   bsp/rpi4/       memmap, GPIO, console, IRQ bind, RNG bind; display bind (feature)
   bootstrap/      mod: boot sequence · console_loop: idle body · selftest: gates
   sched/          cooperative TCB, spawn, yield, block, wake queue (ADR-0006/0008)
@@ -84,13 +87,14 @@ src/
   console.rs      TX claim/install + RX ring + print / kprintln
   sync.rs         SyncCell for globals the IRQ path shares
   panic.rs        mask IRQ → steal console → halt (+ TFT banner if feature)
-  boot.s          DTB pointer, EL2→EL1, early MMU, BSS, stack
   main.rs         → bootstrap::run()
 boot/config.txt   arm_64bit, enable_uart, enable_gic
-link.ld           load address, stack/guard, table arena
-docs/             architecture, mmu, verification, interrupts, boot, blobs, hardware, adr
+docs/             architecture, arch-contract, porting, mmu, verification, adr, …
 scripts/          fetch-blobs, deploy-sd, serial, restore-rpios-boot, gate checks
 ```
+
+Multi-arch **scaffold** (ADR-0015): AArch64 + Pi 4 only as product; see
+[`docs/porting.md`](docs/porting.md) to add an ISA or board later.
 
 ## Requirements
 
@@ -109,7 +113,7 @@ is fine.
 
 ```bash
 make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
-make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds miri doc-claims layering, then clippy
+make check        # fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering shellcheck xrefs, then clippy
 make test         # host unit tests only
 make fmt
 ```
@@ -141,7 +145,7 @@ Details: [`docs/hardware.md`](docs/hardware.md).
 Harbor: hello
 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
 no DTB (x0 was 0x100); board constants are compiled in
-MMU on  (W^X, guard page at 0xa3000, 40960 B of table arena left)
+MMU on  (W^X, guard page at 0xbb000, 102400 B of table arena left)
 heap remaining = 67108864 bytes
 rng200: unavailable (NotPresent)
 CNTFRQ=62500000 Hz  timer=10 Hz  PPI=30
@@ -155,7 +159,7 @@ unmap: remapped and freed
 split: page at 0x200000 split 1, remapped
 sched: spawned task-a
 sched: spawned task-b
-arena: 1 splits, 9 tables free
+arena: 1 splits, 24 tables free
 task-a 0
 task-b 0
 task-a 1

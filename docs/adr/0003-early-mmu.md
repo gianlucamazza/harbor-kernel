@@ -81,5 +81,5 @@ before touching any shared state.
 
 ## References
 
-`src/boot.s`, `src/arch/aarch64/mmu.rs`, [`mmu.md`](../mmu.md),
+`src/arch/aarch64/boot.s`, `src/arch/aarch64/mmu.rs`, [`mmu.md`](../mmu.md),
 [`verification.md`](../verification.md).

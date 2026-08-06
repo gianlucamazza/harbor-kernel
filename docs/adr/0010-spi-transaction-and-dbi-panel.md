@@ -3,6 +3,7 @@ id: 0010
 title: SPI transactions and DBI panel streaming (no full-frame alloc)
 status: accepted
 date: 2026-08-05
+accepted: 2026-08-05
 ---
 
 # ADR-0010: SPI transactions and DBI panel streaming

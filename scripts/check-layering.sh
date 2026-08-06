@@ -72,6 +72,53 @@ for file in $(find src -name '*.rs' | sort); do
 	done
 done
 
+# Facade isolation (ADR-0015): outside the owning tree, never name an ISA or a
+# concrete board path. Policy uses `crate::arch::*` and `crate::bsp::board::*`.
+# Without this, layering only sees the first path segment (`arch` / `bsp`) and
+# a `use crate::arch::aarch64::cpu` would pass silently.
+#
+# The names come from the tree, never from a list written here. A gate that
+# enumerates what exists today goes quiet exactly when the second ISA arrives —
+# which is the only moment it was written for. `check-pre-mmu-path.sh` refuses
+# to inspect nothing for the same reason.
+isa_alt="$(find src/arch -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | paste -sd'|' -)"
+board_alt="$(find src/bsp -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | paste -sd'|' -)"
+if [[ -z "${isa_alt}" || -z "${board_alt}" ]]; then
+	echo "layering: no ISA or board directory found under src/ — refusing to report clean" >&2
+	exit 1
+fi
+
+# Matched without the `crate::` prefix on purpose: `use crate::{arch::aarch64::cpu,
+# bsp}` carries the same edge and does not contain the literal `crate::arch`.
+# Bounded on both sides so `march::aarch64` or `aarch64_foo` cannot match.
+# Built by concatenation rather than `printf "${fmt}"`: a variable used as a
+# format string is how a `%` in a module name becomes a formatting directive.
+edge_prefix='(^|[^A-Za-z0-9_])'
+edge_suffix='([^A-Za-z0-9_]|$)'
+isa_re="${edge_prefix}arch::(${isa_alt})${edge_suffix}"
+board_re="${edge_prefix}bsp::(${board_alt})${edge_suffix}"
+
+report_facade() {
+	# $1 file, $2 regex, $3 message
+	local hits
+	hits="$(grep -nE "$2" <<<"${body}" || true)"
+	[[ -z "${hits}" ]] && return 0
+	echo "layering: $1 $3" >&2
+	echo "${hits//$'\n'/$'\n'  }" | sed '1s/^/  /' >&2
+	violations=$((violations + 1))
+}
+
+for file in $(find src -name '*.rs' | sort); do
+	# Strip line comments; do not treat doc prose as imports.
+	body="$(sed 's|//.*||' "${file}")"
+	if [[ "${file}" != src/arch/* ]]; then
+		report_facade "${file}" "${isa_re}" "names an ISA directly — use the facade crate::arch::*"
+	fi
+	if [[ "${file}" != src/bsp/* ]]; then
+		report_facade "${file}" "${board_re}" "names a board directly — use crate::bsp::board"
+	fi
+done
+
 if [[ "${violations}" -ne 0 ]]; then
 	echo "layering: ${violations} violation(s) of the rules in docs/architecture.md" >&2
 	exit 1

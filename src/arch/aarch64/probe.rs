@@ -34,7 +34,16 @@ const DFSC_SYNC_EXTERNAL: u64 = 0x10;
 /// vector path can `eret`.
 #[inline]
 pub fn take_data_abort(far: u64, esr: u64) -> bool {
-    if !ACTIVE.load(Ordering::Relaxed) {
+    // Acquire, pairing with the Release store in `try_write32`. This used to be
+    // `Relaxed`, which made the store's "handler must see ACTIVE before the
+    // access" comment describe a pairing that did not exist — a release with no
+    // acquire orders nothing. It was true anyway, because a synchronous
+    // exception on one core orders everything either side of it, which is the
+    // kind of accident this module already refuses for `FAULTED`.
+    //
+    // `ADDR` below can stay `Relaxed`: it is written before that Release store,
+    // so this Acquire makes it visible too.
+    if !ACTIVE.load(Ordering::Acquire) {
         return false;
     }
 

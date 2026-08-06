@@ -10,7 +10,7 @@
 //! runs with IRQs hard-masked; each task re-enables on the way out of
 //! [`yield_now`] / on trampoline entry.
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use kernel_core::cap::CapId;
 use kernel_core::runqueue::RunQueue;
@@ -79,9 +79,13 @@ struct Sched {
     /// Stack of a task that has exited, awaiting release by the next task to
     /// run. A task cannot free the stack its own SP points into.
     ///
-    /// At most one is ever pending: the drain runs immediately after every
-    /// context switch, so a second exit cannot happen before the first is
-    /// collected.
+    /// At most one is ever pending, because every way of arriving on another
+    /// stack drains it first: [`switch_with`] after `context_switch` returns,
+    /// and [`task_trampoline`] on a task's first entry. The trampoline half
+    /// used to be missing, which silently dropped a `TaskStack` — whose `Drop`
+    /// is a deliberate no-op — whenever an exit was followed by a never-yet-run
+    /// task. [`pending_overwrites`] now counts any recurrence rather than
+    /// trusting the invariant.
     pending_free: Option<TaskStack>,
 }
 
@@ -99,6 +103,10 @@ impl Sched {
 static SCHED: SyncCell<Sched> = SyncCell::new(Sched::new());
 static STARTED: AtomicUsize = AtomicUsize::new(0);
 
+/// Exits that found a stack still parked from an earlier exit. See
+/// [`pending_overwrites`].
+static PENDING_OVERWRITES: AtomicU32 = AtomicU32::new(0);
+
 /// ADR-0008: IRQ posts here; [`poll_wakes`] drains on the voluntary path.
 static WAKES: WakeQueue<WAKE_Q> = WakeQueue::new();
 
@@ -112,20 +120,25 @@ pub enum SpawnError {
 }
 
 /// Claim idle as the running task on the bootstrap stack.
+///
+/// Runs under [`cpu::without_irqs`], not an unconditional unmask: bootstrap
+/// calls this after a failed `board::irq::init()` has deliberately left IRQs
+/// masked, and enabling them there would arm the CPU against a GIC nothing is
+/// bound to.
 pub fn init() {
-    cpu::irq_disable();
-    // SAFETY: single core; first init; IRQs masked.
-    let sched = unsafe { &mut *SCHED.get() };
-    sched.tcbs[IDLE_ID.0 as usize] = Tcb {
-        state: State::Running,
-        context: Context::zeroed(),
-        stack: None,
-        entry: None,
-        caps: [None; MAX_CAPS_PER_TASK],
-    };
-    sched.current = IDLE_ID;
-    STARTED.store(1, Ordering::Release);
-    cpu::irq_enable();
+    cpu::without_irqs(|| {
+        // SAFETY: single core; first init; IRQs masked.
+        let sched = unsafe { &mut *SCHED.get() };
+        sched.tcbs[IDLE_ID.0 as usize] = Tcb {
+            state: State::Running,
+            context: Context::zeroed(),
+            stack: None,
+            entry: None,
+            caps: [None; MAX_CAPS_PER_TASK],
+        };
+        sched.current = IDLE_ID;
+        STARTED.store(1, Ordering::Release);
+    });
 }
 
 /// Create a ready task that starts at `entry` with no capabilities.
@@ -144,50 +157,51 @@ pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError
 
     let stack = TaskStack::allocate(TASK_STACK_USABLE).map_err(SpawnError::Stack)?;
 
-    cpu::irq_disable();
-    // SAFETY: IRQs masked.
-    let sched = unsafe { &mut *SCHED.get() };
+    // Restore rather than unmask: bootstrap spawns before the IRQ path is
+    // necessarily live, and a caller that arrived here with IRQs masked must
+    // leave with them masked.
+    cpu::without_irqs(move || {
+        // SAFETY: IRQs masked.
+        let sched = unsafe { &mut *SCHED.get() };
 
-    let slot = match sched.tcbs.iter().position(|t| t.state == State::Empty) {
-        Some(slot) => slot,
-        None => {
-            cpu::irq_enable();
-            // SAFETY: never scheduled.
-            unsafe { stack.release() };
+        let slot = match sched.tcbs.iter().position(|t| t.state == State::Empty) {
+            Some(slot) => slot,
+            None => {
+                // SAFETY: never scheduled.
+                unsafe { stack.release() };
+                return Err(SpawnError::Full);
+            }
+        };
+
+        let id = TaskId(slot as u32);
+        let mut context = Context::zeroed();
+        context.x30 = task_trampoline as *const () as u64;
+        context.sp = stack.initial_sp() as u64;
+
+        let mut held = [None; MAX_CAPS_PER_TASK];
+        for (i, &c) in caps.iter().enumerate() {
+            held[i] = Some(c);
+        }
+
+        sched.tcbs[slot] = Tcb {
+            state: State::Ready,
+            context,
+            stack: Some(stack),
+            entry: Some(entry),
+            caps: held,
+        };
+
+        if sched.runqueue.enqueue(id).is_err() {
+            let mut tcb = core::mem::replace(&mut sched.tcbs[slot], Tcb::empty());
+            if let Some(owned) = tcb.stack.take() {
+                // SAFETY: never scheduled.
+                unsafe { owned.release() };
+            }
             return Err(SpawnError::Full);
         }
-    };
 
-    let id = TaskId(slot as u32);
-    let mut context = Context::zeroed();
-    context.x30 = task_trampoline as *const () as u64;
-    context.sp = stack.initial_sp() as u64;
-
-    let mut held = [None; MAX_CAPS_PER_TASK];
-    for (i, &c) in caps.iter().enumerate() {
-        held[i] = Some(c);
-    }
-
-    sched.tcbs[slot] = Tcb {
-        state: State::Ready,
-        context,
-        stack: Some(stack),
-        entry: Some(entry),
-        caps: held,
-    };
-
-    if sched.runqueue.enqueue(id).is_err() {
-        let mut tcb = core::mem::replace(&mut sched.tcbs[slot], Tcb::empty());
-        if let Some(owned) = tcb.stack.take() {
-            // SAFETY: never scheduled.
-            unsafe { owned.release() };
-        }
-        cpu::irq_enable();
-        return Err(SpawnError::Full);
-    }
-
-    cpu::irq_enable();
-    Ok(id)
+        Ok(id)
+    })
 }
 
 /// Running task id (including idle).
@@ -259,8 +273,16 @@ pub fn wake_task(id: TaskId) {
 
 /// Post a wake from IRQ context (ADR-0008). Never switches.
 ///
-/// Reserved for IRQ-sourced readiness (e.g. future UART wait). Drained by
-/// [`poll_wakes`] on the voluntary path only.
+/// **No handler calls this.** The mechanism is complete and host-tested
+/// ([`kernel_core::wake`]), and it has no producer: the timer handler counts
+/// ticks and the UART handler drains bytes into a ring, and neither needs to
+/// make a task Ready. So [`poll_wakes`] runs on every `yield_now` and every
+/// idle iteration to drain a queue nothing fills — two atomic loads, which is
+/// not the cost worth removing; the reason to say it is that ADR-0008 reads as
+/// though this path were live.
+///
+/// It becomes live with the first blocking device wait — a UART agent that
+/// sleeps until a byte arrives rather than polling (ADR-0013).
 #[allow(dead_code)]
 pub fn wake_from_irq(id: TaskId) {
     let _ = WAKES.push(id.0);
@@ -271,6 +293,17 @@ pub fn poll_wakes() {
     while let Some(token) = WAKES.pop() {
         wake_task(TaskId(token));
     }
+}
+
+/// Exits that found a stack still parked from an earlier exit.
+///
+/// Must stay zero: the parked stack is drained after every `context_switch` and
+/// on first entry in [`task_trampoline`], so an exit can never find one. A
+/// non-zero value means some path reaches `Exit` without draining. The stack is
+/// still released rather than leaked, but the single-slot design no longer
+/// holds — which is the interesting half.
+pub fn pending_overwrites() -> u32 {
+    PENDING_OVERWRITES.load(Ordering::Relaxed)
 }
 
 /// Wake queue drop count (full queue under IRQ pressure).
@@ -404,6 +437,10 @@ fn switch_with(kind: SwitchKind) {
         }
         SwitchKind::Block => {
             if current == IDLE_ID {
+                // SAFETY: closes the section this function opened with
+                // `irq_save`, on the path that returns without switching —
+                // idle has no other task to fall back to, so blocking it would
+                // stop the machine.
                 unsafe { cpu::irq_restore(daif) };
                 return;
             }
@@ -413,10 +450,23 @@ fn switch_with(kind: SwitchKind) {
         SwitchKind::Exit => {
             if current == IDLE_ID {
                 // Idle must not exit.
+                // SAFETY: as the `Block` arm — closes the same section on a
+                // path that returns without switching stacks.
                 unsafe { cpu::irq_restore(daif) };
                 return;
             }
             sched.tcbs[cur_idx].state = State::Empty;
+            // A stack already parked here is not ours — its owner exited
+            // earlier — so it can be released immediately instead of being
+            // overwritten and leaked. With both drain points in place this
+            // should never fire; count it so the invariant stays observable
+            // rather than assumed.
+            if let Some(stale) = sched.pending_free.take() {
+                PENDING_OVERWRITES.fetch_add(1, Ordering::Relaxed);
+                // SAFETY: parked by a task that has already exited; we are
+                // running on our own stack, which is the one parked below.
+                unsafe { stale.release() };
+            }
             // Not released here: still running on that stack — park for drain.
             sched.pending_free = sched.tcbs[cur_idx].stack.take();
             sched.tcbs[cur_idx].entry = None;
@@ -478,19 +528,29 @@ fn switch_with(kind: SwitchKind) {
     unsafe { cpu::irq_restore(daif) };
 }
 
-/// First code a spawned task runs: IRQs on, call entry, then exit.
+/// First code a spawned task runs: collect, IRQs on, call entry, then exit.
+///
+/// This is the one place in `sched` that unmasks unconditionally, and it has to:
+/// a task entered here through `context_switch`, which restores no PSTATE, so it
+/// arrives with the mask [`switch_with`] was holding and has no saved `daif` of
+/// its own to restore. Every other path uses [`cpu::irq_save`] /
+/// [`cpu::irq_restore`].
 extern "C" fn task_trampoline() -> ! {
+    // Still masked from `switch_with`, and we are on our own stack — so this is
+    // the same collection point the post-`context_switch` path has. Without it,
+    // an exit followed by a never-yet-run task drops the parked `TaskStack`.
+    // SAFETY: IRQs masked; the parked stack belongs to a task that has exited,
+    // never to this one (this one has not run before).
+    unsafe { drain_pending_free() };
+
     cpu::irq_enable();
 
-    let entry = {
-        cpu::irq_disable();
+    let entry = cpu::without_irqs(|| {
         // SAFETY: IRQs masked; we are the current task.
         let sched = unsafe { &mut *SCHED.get() };
         let idx = sched.current.0 as usize;
-        let entry = sched.tcbs[idx].entry.take();
-        cpu::irq_enable();
-        entry
-    };
+        sched.tcbs[idx].entry.take()
+    });
 
     if let Some(entry) = entry {
         entry();

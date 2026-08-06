@@ -74,11 +74,19 @@ Post-M6 slices (EL0 IRQ resume, `SYS_PUTC`, RX ownership with real bytes) are
    emptiness check runs with IRQs masked so a wakeup cannot be lost.
 9. Nothing is both writable and executable, and diagnostic scaffolding lives
    behind the `bringup` feature rather than in the production surface.
+10. **Facade isolation (ADR-0015).** Outside `src/arch/`, import only
+    `crate::arch::{…}` — never `crate::arch::<isa>`. Outside a board package,
+    import only `crate::bsp::board` — never `crate::bsp::<board>`. ISA
+    selection is `target_arch`; board selection is a `board-*` Cargo feature.
+    Boot entry and the linker script live under the active ISA tree
+    (`src/arch/aarch64/`). The product supports AArch64 + Pi 4 only; the
+    structure is multi-arch *ready*, not multi-arch product. Contract:
+    [`arch-contract.md`](arch-contract.md); port checklist: [`porting.md`](porting.md).
 
-Rules 1–4 are checked by `make layering` (`scripts/check-layering.sh`) against
-every `crate::` import edge. Coupling that is not an import (a shared constant,
-an agreed register value) is still review-only — see
-[`verification.md`](verification.md).
+Rules 1–4 and 10 are checked by `make layering` (`scripts/check-layering.sh`)
+against every `crate::` import edge (and ISA/board path leaks). Coupling that
+is not an import (a shared constant, an agreed register value) is still
+review-only — see [`verification.md`](verification.md).
 
 **Agent shell imports** (policy, not a lower layer): `arch`, `mm`, `sched`, plus
 `console` (`SYS_PUTC` TX) and `irq` (lower-EL IRQ → `handle_cpu_irq` then resume).
@@ -224,6 +232,11 @@ listed here block nothing and are tracked in that report alone.
 
 | Finding | Blocks              | Why                                                                                                                                                      |
 | ------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+Status for all thirty lives in the review itself, assigned by the 2026-08-06
+audit and verified against the code — this page used to track six of them while
+the report tracked none. One is still open: **F23**, board topology encoded in
+`arch` through the early map, assigned to an ADR that was never written.
+
 | F12     | — (resolved)        | Closed by [ADR-0006](adr/0006-cooperative-execution-model.md); the ADR was the deliverable                                                               |
 | F18     | — (resolved)        | Absolute `CNTP_CVAL` deadlines + missed-tick counter; pure cooperative yield never depended on it                                                        |
 | F13     | — (resolved)        | Shape accepted: `Handler = fn(IrqCookie)` + IRQ→voluntary wake queue — [ADR-0008](adr/0008-irq-handler-policy.md); code lands with first M4 PR           |

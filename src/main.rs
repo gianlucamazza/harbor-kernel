@@ -23,7 +23,7 @@ mod status;
 mod sync;
 mod time;
 
-core::arch::global_asm!(include_str!("boot.s"));
+// Boot assembly is owned by the active ISA module (`arch`); see `arch/mod.rs`.
 
 /// Called from `_start` after EL1, BSS, stack.
 #[unsafe(no_mangle)]

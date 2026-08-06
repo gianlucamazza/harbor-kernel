@@ -66,6 +66,9 @@ impl Gpio {
     pub unsafe fn new() -> Self {
         // SAFETY: caller guarantees exclusive ownership of `GPIO_BASE`.
         Self {
+            // SAFETY: `GPIO_BASE` is this board's GPIO block, inside the
+            // peripheral window `mm::layout` maps Device-nGnRnE. The
+            // "one owner" obligation is this constructor's own `# Safety`.
             regs: unsafe { Mmio::new(GPIO_BASE) },
         }
     }
@@ -172,6 +175,8 @@ fn check_pin(pin: u8) -> Result<(), GpioError> {
 /// boot on a single active core before any other driver touches GPIO).
 pub unsafe fn configure_uart0_pins() {
     // SAFETY: caller holds exclusive GPIO ownership at early boot.
+    // SAFETY: forwarded from this function's `# Safety` — the caller owns the
+    // GPIO block for the duration, and the handle does not outlive this call.
     let gpio = unsafe { Gpio::new() };
     // UART0 is ALT0 on 14/15; pins are in range by construction.
     let _ = gpio.configure_alt(14, Function::Alt0, Pull::None);

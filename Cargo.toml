@@ -5,7 +5,6 @@ members = ["crates/kernel-core"]
 name = "harbor-kernel"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
 description = "Agent-based microkernel for Raspberry Pi 4 Model B"
 license = "MIT OR Apache-2.0"
 publish = false
@@ -14,7 +13,10 @@ categories = ["embedded", "no-std", "os"]
 keywords = ["raspberry-pi", "aarch64", "kernel", "bare-metal"]
 
 [features]
-default = []
+default = ["board-rpi4"]
+# Active board package (exactly one board-* for a product image).
+# Selection is compile-time; see docs/porting.md and ADR-0015.
+board-rpi4 = []
 # Bring-up scaffolding: the masked CNTP/HPPIR/IAR gates used to debug the M1
 # GIC path, and the raw GIC register accessors they need. Off by default so
 # none of it is compiled into a production image — and so the diagnostic
@@ -29,16 +31,47 @@ debug-display = []
 # Pure register/allocator arithmetic, unit-tested on the host.
 kernel-core = { path = "crates/kernel-core" }
 
+[lints.clippy]
+# `kernel-core` can deny `unsafe_code` outright; this crate cannot — it is the
+# half that touches MMIO, system registers and assembly. What it can require is
+# that every one of those blocks says what makes it sound.
+#
+# Turned on with 64 of 179 blocks still undocumented, so the modules holding
+# them carry a file-level `#[allow]` with a count. That is deliberate: writing
+# 64 SAFETY comments in one pass, without having re-derived each invariant,
+# produces decoration that reads like verification. Each `#[allow]` comes off
+# when the audit reaches that module and the comments can state something
+# checkable. The list is the debt, and it only shrinks.
+undocumented_unsafe_blocks = "deny"
+
+# `panic = "abort"` in both profiles is not a size preference: there is no
+# unwinder in a `no_std` kernel, and `panic = "unwind"` asks for a personality
+# routine and `.eh_frame` that nothing here can service. The panic handler in
+# `src/panic.rs` masks IRQs, steals the console and parks — it never returns,
+# so unwinding has nothing to unwind to.
 [profile.dev]
-panic = "abort"
 opt-level = 1
+panic = "abort"
 lto = false
+# Not `opt-level = 0`: at zero the image roughly triples and every MMIO helper
+# becomes a real call, which changes the timing of the bring-up paths enough to
+# be a different kernel from the one that gets flashed. One is the lowest level
+# that still inlines the accessors. Reached with `make debug`, and built by
+# `make check` so it cannot rot between the two times a year someone needs gdb.
 debug = true
 
 [profile.release]
 panic = "abort"
+# Size over speed: the image is copied to an SD card and the whole kernel is
+# cold on every boot, so `-O3`-style expansion costs more in i-cache and load
+# time than it returns.
 opt-level = "s"
 lto = true
 codegen-units = 1
+# Debug info and symbols are kept deliberately. `llvm-objcopy -O binary` drops
+# every non-alloc section, so `kernel8.img` is unaffected — but `make no-simd`
+# and `scripts/check-pre-mmu-path.sh` disassemble the *ELF*, and both need
+# symbol names to say which function they are complaining about. Stripping here
+# would leave those gates reporting hex addresses.
 debug = true
 strip = false

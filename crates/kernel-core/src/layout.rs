@@ -211,9 +211,9 @@ pub const fn validate_guarded_stack(guarded: &GuardedStack) -> Result<(), Layout
     if guarded.stack.1 <= guarded.stack.0 {
         return Err(LayoutError::Empty { name: guarded.name });
     }
-    if guarded.guard.0 % PAGE_SIZE != 0
-        || guarded.stack.0 % PAGE_SIZE != 0
-        || guarded.stack.1 % PAGE_SIZE != 0
+    if !guarded.guard.0.is_multiple_of(PAGE_SIZE)
+        || !guarded.stack.0.is_multiple_of(PAGE_SIZE)
+        || !guarded.stack.1.is_multiple_of(PAGE_SIZE)
     {
         return Err(LayoutError::Unaligned {
             name: guarded.name,

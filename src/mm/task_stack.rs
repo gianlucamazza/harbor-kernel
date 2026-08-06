@@ -60,7 +60,7 @@ impl TaskStack {
     /// The guard is unmapped before this returns. Physical memory for the guard
     /// stays part of the allocation so the free-list never sees a virtual hole.
     pub fn allocate(usable_bytes: usize) -> Result<Self, StackError> {
-        if usable_bytes == 0 || usable_bytes % PAGE_SIZE as usize != 0 {
+        if usable_bytes == 0 || !usable_bytes.is_multiple_of(PAGE_SIZE as usize) {
             return Err(StackError::BadSize);
         }
         let total = usable_bytes

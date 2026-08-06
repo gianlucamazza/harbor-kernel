@@ -107,7 +107,7 @@ impl Level {
 /// (APTable, XNTable…) only ever restrict further, and mixing the two makes
 /// permissions unreadable at the point they matter.
 pub const fn table_descriptor(pa: u64) -> Option<u64> {
-    if pa % PAGE_SIZE != 0 || pa >= (1 << 48) {
+    if !pa.is_multiple_of(PAGE_SIZE) || pa >= (1 << 48) {
         return None;
     }
     Some((pa & ADDR_MASK) | DESC_TABLE)
@@ -119,7 +119,7 @@ pub const fn table_descriptor(pa: u64) -> Option<u64> {
 /// 48-bit output address.
 pub const fn leaf(level: Level, pa: u64, kind: MemKind, perms: Perms) -> Option<u64> {
     let size = level.entry_size();
-    if pa % size != 0 || pa >= (1 << 48) {
+    if !pa.is_multiple_of(size) || pa >= (1 << 48) {
         return None;
     }
 
@@ -260,7 +260,10 @@ pub struct Chunks {
 /// correct rounding: growing it maps memory the caller did not ask for and
 /// shrinking it leaves a hole.
 pub const fn chunks(va: u64, pa: u64, len: u64) -> Option<Chunks> {
-    if va % PAGE_SIZE != 0 || pa % PAGE_SIZE != 0 || len % PAGE_SIZE != 0 {
+    if !va.is_multiple_of(PAGE_SIZE)
+        || !pa.is_multiple_of(PAGE_SIZE)
+        || !len.is_multiple_of(PAGE_SIZE)
+    {
         return None;
     }
     Some(Chunks {
@@ -282,7 +285,9 @@ impl Iterator for Chunks {
             .into_iter()
             .find(|level| {
                 let size = level.entry_size();
-                self.va % size == 0 && self.pa % size == 0 && self.remaining >= size
+                self.va.is_multiple_of(size)
+                    && self.pa.is_multiple_of(size)
+                    && self.remaining >= size
             })
             // Every address is 4 KiB aligned by construction, so L3 always fits.
             .unwrap_or(Level::L3);
@@ -358,7 +363,7 @@ impl Perms {
 /// Returns `None` if `pa` is not 1 GiB aligned or does not fit the 48-bit
 /// output address, rather than silently masking the offending bits.
 pub const fn l1_block(pa: u64, kind: MemKind, perms: Perms) -> Option<u64> {
-    if pa % L1_BLOCK_SIZE != 0 {
+    if !pa.is_multiple_of(L1_BLOCK_SIZE) {
         return None;
     }
     // The descriptor carries a 48-bit output address.
@@ -433,7 +438,7 @@ pub enum TlbiPlan {
 /// invalidate, and rounding would either miss entries or invalidate a
 /// neighbour's.
 pub const fn tlbi_plan(va: u64, len: u64) -> Option<TlbiPlan> {
-    if va % PAGE_SIZE != 0 || len % PAGE_SIZE != 0 || len == 0 {
+    if !va.is_multiple_of(PAGE_SIZE) || !len.is_multiple_of(PAGE_SIZE) || len == 0 {
         return None;
     }
 
@@ -511,9 +516,6 @@ mod tests {
         assert_eq!((mair_el1() >> 8) & 0xFF, MAIR_DEVICE_NGNRNE);
     }
 
-    /// The kernel maps nothing in the upper half. Leaving `EPD1` clear means a
-    /// stray high virtual address starts a page-table walk through whatever
-    /// `TTBR1_EL1` happened to contain at reset.
     // --- multi-level descriptors -------------------------------------------
 
     /// The AArch64 trap: at levels 1 and 2 a leaf is `0b01` and `0b11` means
@@ -752,6 +754,9 @@ mod tests {
         assert!(is_leaf(table, Level::L3));
     }
 
+    /// The kernel maps nothing in the upper half. Leaving `EPD1` clear means a
+    /// stray high virtual address starts a page-table walk through whatever
+    /// `TTBR1_EL1` happened to contain at reset.
     #[test]
     fn tcr_disables_ttbr1_walks() {
         let tcr = tcr_el1_ttbr0_only(25);

@@ -1,7 +1,18 @@
 //! Memory-mapped I/O primitives for AArch64.
 //!
-//! All device register access goes through these helpers so volatility and
-//! ordering are defined in one place.
+//! All device register access goes through these helpers, so *volatility* has
+//! one definition: no compiler is free to merge, reorder or elide a device
+//! access.
+//!
+//! **Ordering is not defined here, and deliberately so.** The peripheral window
+//! is mapped Device-nGnRnE, which already orders device accesses against each
+//! other in program order — that is what the mapping buys, and it is why no
+//! barrier appears below. What it does *not* order is a device access against
+//! normal memory, and that pairing is specific to the device: `drivers::gicv2`
+//! issues its own `dsb` after writing `EOIR` because the interrupt it just
+//! retired has to be visible before the handler's bookkeeping lands. A barrier
+//! placed here would be right for that case and wrong, or merely wasteful, for
+//! every other. Callers that need one write it, next to the reason.
 
 use core::ptr::{read_volatile, write_volatile};
 

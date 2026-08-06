@@ -12,7 +12,7 @@ use kernel_core::font8x8::{GLYPH_H, GLYPH_W};
 use kernel_core::textgrid::TextGrid;
 
 use crate::arch::cpu;
-use crate::bsp::rpi4::display;
+use crate::bsp::board::display;
 use crate::mm;
 use crate::sync::SyncCell;
 use crate::time;

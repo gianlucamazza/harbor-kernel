@@ -11,7 +11,7 @@
 
 ## Two maps
 
-Translation is enabled **before any Rust runs**, from `boot.s`, using a coarse
+Translation is enabled **before any Rust runs**, from `arch/aarch64/boot.s`, using a coarse
 identity map resolved at compile time (`arch::mmu::EARLY_L1`): 1 GiB blocks
 covering 3 GiB of RAM plus the device window. Its purpose is not the mapping —
 it is that no kernel code ever executes without memory attributes, because
@@ -117,9 +117,11 @@ Derived from the linker symbols by `mm::layout::kernel_regions`:
 | peripherals (`0xFE00_0000`, 16 MiB) | Device-nGnRnE | RW, no execute    |
 | GIC (`0xFF84_0000`, 16 KiB)         | Device-nGnRnE | RW, no execute    |
 
-Anything else faults. Tables come from a 64 KiB arena reserved by `link.ld`;
-six are used today, and `mmu::tables_remaining()` is printed at boot so
-exhaustion is visible before it becomes a mapping failure.
+Anything else faults. Tables come from a 128 KiB arena reserved by `link.ld`.
+How many are used moves with `.text`, so the number is not written down here:
+`mmu::tables_remaining()` is printed at boot, and `bootstrap` refuses to boot if
+what is left is under the reserve it derives from `sched::MAX_TASKS` — that
+reserve used to be a hand-written six against a `MAX_TASKS` of twelve.
 
 ### Verifying the protections
 
@@ -185,7 +187,7 @@ by hand after any change to `link.ld` or to the region list, following
 | `mm/layout.rs`                     | Regions and their permissions, from the linker                   |
 | `mm/mod.rs`                        | Kernel heap + `GlobalAlloc`                                      |
 | `bsp/rpi4/memmap.rs`               | Device windows                                                   |
-| `link.ld`                          | Page-aligned region boundaries, table arena, guard page          |
+| `src/arch/aarch64/link.ld`         | Page-aligned region boundaries, table arena, guard page          |
 
 `activate` takes the region list from the caller and returns `Result`: which
 physical ranges are RAM is board knowledge, and a failure reports over the

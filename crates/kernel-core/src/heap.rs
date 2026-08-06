@@ -254,7 +254,7 @@ impl FreeList {
         }
         // Every block this allocator creates starts on a `GRAIN` boundary and
         // begins at least `HEADER` bytes before its own payload.
-        if block % GRAIN != 0 || header_end > payload {
+        if !block.is_multiple_of(GRAIN) || header_end > payload {
             return Err(FreeError::Corrupt);
         }
         if !is_allocated(arena, block) {

@@ -83,17 +83,61 @@ impl Ipc {
 
 static IPC: SyncCell<Ipc> = SyncCell::new(Ipc::new());
 
-/// Send / recv refused (bad cap, full, etc.).
-static REFUSED: AtomicU32 = AtomicU32::new(0);
+/// Operations refused because the caller had no right to them.
+///
+/// A capability the task does not hold, or one that does not resolve to a live
+/// endpoint with the required rights. This is the **security** signal: the M4
+/// done-when is that a forged capability is rejected, and this is the number
+/// that says so.
+static REFUSED_AUTHORITY: AtomicU32 = AtomicU32::new(0);
 
-/// How many IPC operations were refused (M4 done-when counter).
+/// Sends refused because the mailbox was full.
+///
+/// Flow control, not a violation. It shares nothing with the counter above
+/// except that both end in `Err` — a full four-deep mailbox is the system
+/// working, and a forged capability is the system defending itself.
+static REFUSED_FULL: AtomicU32 = AtomicU32::new(0);
+
+/// Operations refused because an endpoint resolved but was not live.
+///
+/// Neither of the above: a capability that passed `lookup_endpoint` and then
+/// named a dead mailbox is a kernel bookkeeping error, not a caller's mistake.
+static REFUSED_STATE: AtomicU32 = AtomicU32::new(0);
+
+/// Refusals that were authority violations (M4 done-when counter).
+///
+/// These three used to be one number. The M4 gate asserts this is non-zero to
+/// prove the forger was rejected — and a merely full mailbox would have raised
+/// it just as well, leaving the gate green while having observed nothing about
+/// capabilities. The security signal and the flow-control signal now count
+/// separately.
 #[inline]
 pub fn refused_count() -> u32 {
-    REFUSED.load(Ordering::Relaxed)
+    REFUSED_AUTHORITY.load(Ordering::Relaxed)
 }
 
-fn bump_refused() {
-    REFUSED.fetch_add(1, Ordering::Relaxed);
+/// Sends refused for want of space.
+#[inline]
+pub fn refused_full_count() -> u32 {
+    REFUSED_FULL.load(Ordering::Relaxed)
+}
+
+/// Refusals that indicate kernel bookkeeping is wrong. Should stay zero.
+#[inline]
+pub fn refused_state_count() -> u32 {
+    REFUSED_STATE.load(Ordering::Relaxed)
+}
+
+fn bump_refused_authority() {
+    REFUSED_AUTHORITY.fetch_add(1, Ordering::Relaxed);
+}
+
+fn bump_refused_full() {
+    REFUSED_FULL.fetch_add(1, Ordering::Relaxed);
+}
+
+fn bump_refused_state() {
+    REFUSED_STATE.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Why a channel could not be created.
@@ -172,6 +216,8 @@ pub enum SendError {
 /// Why recv failed (non-blocking try).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecvError {
+    /// Another task is already blocked on this mailbox (one waiter slot).
+    Busy,
     BadCap,
     Empty,
 }
@@ -193,7 +239,7 @@ fn lookup_endpoint(ipc: &Ipc, cap: CapId, need: CapRights) -> Result<(u16, u8), 
 /// The current task must **hold** `cap` in its local table (M4 done-when).
 pub fn send(cap: CapId, msg: Message) -> Result<(), SendError> {
     if !sched::current_holds(cap) {
-        bump_refused();
+        bump_refused_authority();
         return Err(SendError::BadCap);
     }
     let wake = cpu::without_irqs(|| {
@@ -202,17 +248,17 @@ pub fn send(cap: CapId, msg: Message) -> Result<(), SendError> {
         let mailbox = match lookup_endpoint(ipc, cap, CapRights::SEND) {
             Ok((_, mb)) => mb as usize,
             Err(()) => {
-                bump_refused();
+                bump_refused_authority();
                 return Err(SendError::BadCap);
             }
         };
         let mbox = &mut ipc.mailboxes[mailbox];
         if !mbox.live {
-            bump_refused();
+            bump_refused_state();
             return Err(SendError::BadCap);
         }
         if mbox.len == MAILBOX_DEPTH {
-            bump_refused();
+            bump_refused_full();
             return Err(SendError::Full);
         }
         mbox.buf[mbox.head] = msg;
@@ -231,7 +277,7 @@ pub fn send(cap: CapId, msg: Message) -> Result<(), SendError> {
 /// Non-blocking recv.
 pub fn try_recv(cap: CapId) -> Result<Message, RecvError> {
     if !sched::current_holds(cap) {
-        bump_refused();
+        bump_refused_authority();
         return Err(RecvError::BadCap);
     }
     cpu::without_irqs(|| {
@@ -240,13 +286,13 @@ pub fn try_recv(cap: CapId) -> Result<Message, RecvError> {
         let mailbox = match lookup_endpoint(ipc, cap, CapRights::RECV) {
             Ok((_, mb)) => mb as usize,
             Err(()) => {
-                bump_refused();
+                bump_refused_authority();
                 return Err(RecvError::BadCap);
             }
         };
         let mbox = &mut ipc.mailboxes[mailbox];
         if !mbox.live {
-            bump_refused();
+            bump_refused_state();
             return Err(RecvError::BadCap);
         }
         if mbox.len == 0 {
@@ -266,7 +312,10 @@ pub fn recv(cap: CapId) -> Result<Message, RecvError> {
     loop {
         match try_recv(cap) {
             Ok(msg) => return Ok(msg),
-            Err(RecvError::BadCap) => return Err(RecvError::BadCap),
+            // `try_recv` never parks, so it cannot report `Busy` — but naming
+            // it here rather than adding a catch-all keeps the compiler on the
+            // hook if a future variant appears.
+            Err(e @ (RecvError::BadCap | RecvError::Busy)) => return Err(e),
             Err(RecvError::Empty) => {
                 let parked = cpu::without_irqs(|| {
                     // SAFETY: IRQs masked.
@@ -274,7 +323,7 @@ pub fn recv(cap: CapId) -> Result<Message, RecvError> {
                     let mailbox = match lookup_endpoint(ipc, cap, CapRights::RECV) {
                         Ok((_, mb)) => mb as usize,
                         Err(()) => {
-                            bump_refused();
+                            bump_refused_authority();
                             return Err(RecvError::BadCap);
                         }
                     };
@@ -287,7 +336,20 @@ pub fn recv(cap: CapId) -> Result<Message, RecvError> {
                         return Ok(Some(msg));
                     }
                     let me = sched::current_task_id();
-                    mbox.waiter = Some(me);
+                    // One waiter slot per mailbox. A second blocking receiver
+                    // used to overwrite the first, which then never woke: the
+                    // sender wakes `waiter`, and the task whose id had been
+                    // replaced stayed `Blocked` with nothing left to make it
+                    // Ready. Refusing is the honest answer for a single-slot
+                    // design — the caller learns the mailbox is taken instead
+                    // of parking forever.
+                    match mbox.waiter {
+                        Some(existing) if existing != me => {
+                            bump_refused_state();
+                            return Err(RecvError::Busy);
+                        }
+                        _ => mbox.waiter = Some(me),
+                    }
                     Ok(None)
                 })?;
 

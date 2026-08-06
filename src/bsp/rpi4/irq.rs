@@ -8,6 +8,11 @@ use crate::irq;
 use crate::time;
 
 /// Platform GIC — single owner for M1 (core 0 only).
+// SAFETY: `GICD_BASE` / `GICC_BASE` are this board's distributor and CPU
+// interface, compiled in rather than read from the device tree (ADR-0011), and
+// both are inside the GIC region `mm::layout` maps Device-nGnRnE. A `static`
+// so there is exactly one handle: a second would be a second owner of the same
+// registers, which the `Mmio` contract forbids.
 static GIC: GicV2 = unsafe { GicV2::new(GICD_BASE, GICC_BASE) };
 
 /// Arch timer IRQ line on this board (CNTP NS → PPI 30).
@@ -34,6 +39,9 @@ pub enum BindError {
 /// # Safety
 /// Single core; exclusive GIC ownership; call once.
 pub unsafe fn init(timer_hz: u32) -> Result<(), BindError> {
+    // SAFETY: the caller guarantees this runs once, on the primary core, with
+    // IRQs masked — which is what makes registering handlers and then sealing
+    // the table a sequence no interrupt can observe half-done.
     unsafe {
         irq::init(&GIC);
 
