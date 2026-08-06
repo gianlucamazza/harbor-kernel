@@ -755,6 +755,11 @@ fn ipc_forger() {
     };
     match crate::ipc::send(stolen, msg) {
         Ok(()) => crate::kprintln!("ipc: FORGE OK — capability check failed"),
-        Err(_) => crate::kprintln!("ipc: refuse count={}", crate::ipc::refused_count()),
+        Err(_) => crate::kprintln!(
+            "ipc: refuse count={} full={} state={}",
+            crate::ipc::refused_count(),
+            crate::ipc::refused_full_count(),
+            crate::ipc::refused_state_count()
+        ),
     }
 }

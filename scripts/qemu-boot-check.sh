@@ -167,8 +167,19 @@ grep -q 'ipc: sent tag=1 a=42' "${log}" ||
 	fail "ipc sender did not deliver"
 grep -q 'ipc: got tag=1 a=42' "${log}" ||
 	fail "ipc receiver did not get the message"
+# The three refusal counters are separate on purpose: this one is authority
+# violations only. It used to be a single number covering a full mailbox and a
+# dead endpoint too, so a boot that filled a four-deep mailbox would have
+# satisfied this assertion without any capability ever being checked.
 grep -qE 'ipc: refuse count=[1-9]' "${log}" ||
 	fail "ipc forge was not refused (capability hold check)"
+
+# Neither of the other two should move in a healthy boot: nothing here fills a
+# mailbox, and a refusal for `state` means an endpoint resolved and then named a
+# dead mailbox, which is kernel bookkeeping being wrong rather than a caller's
+# mistake.
+grep -qE 'ipc: refuse count=[0-9]+ full=0 state=0' "${log}" ||
+	fail "ipc refused a send for capacity or hit a dead endpoint" 
 if grep -q 'ipc: FORGE OK' "${log}"; then
 	fail "forged capability send succeeded"
 fi

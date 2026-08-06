@@ -10,12 +10,6 @@
 //! runs with IRQs hard-masked; each task re-enables on the way out of
 //! [`yield_now`] / on trampoline entry.
 
-// Audit debt (2026-08-06): 2 unsafe blocks here predate
-// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
-// This comes off when the audit reaches this module and the SAFETY comments can
-// state something checkable rather than restate the code. See Cargo.toml.
-#![allow(clippy::undocumented_unsafe_blocks)]
-
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use kernel_core::cap::CapId;
@@ -279,8 +273,16 @@ pub fn wake_task(id: TaskId) {
 
 /// Post a wake from IRQ context (ADR-0008). Never switches.
 ///
-/// Reserved for IRQ-sourced readiness (e.g. future UART wait). Drained by
-/// [`poll_wakes`] on the voluntary path only.
+/// **No handler calls this.** The mechanism is complete and host-tested
+/// ([`kernel_core::wake`]), and it has no producer: the timer handler counts
+/// ticks and the UART handler drains bytes into a ring, and neither needs to
+/// make a task Ready. So [`poll_wakes`] runs on every `yield_now` and every
+/// idle iteration to drain a queue nothing fills — two atomic loads, which is
+/// not the cost worth removing; the reason to say it is that ADR-0008 reads as
+/// though this path were live.
+///
+/// It becomes live with the first blocking device wait — a UART agent that
+/// sleeps until a byte arrives rather than polling (ADR-0013).
 #[allow(dead_code)]
 pub fn wake_from_irq(id: TaskId) {
     let _ = WAKES.push(id.0);
@@ -435,6 +437,10 @@ fn switch_with(kind: SwitchKind) {
         }
         SwitchKind::Block => {
             if current == IDLE_ID {
+                // SAFETY: closes the section this function opened with
+                // `irq_save`, on the path that returns without switching —
+                // idle has no other task to fall back to, so blocking it would
+                // stop the machine.
                 unsafe { cpu::irq_restore(daif) };
                 return;
             }
@@ -444,6 +450,8 @@ fn switch_with(kind: SwitchKind) {
         SwitchKind::Exit => {
             if current == IDLE_ID {
                 // Idle must not exit.
+                // SAFETY: as the `Block` arm — closes the same section on a
+                // path that returns without switching stacks.
                 unsafe { cpu::irq_restore(daif) };
                 return;
             }

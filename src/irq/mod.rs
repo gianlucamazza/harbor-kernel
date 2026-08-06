@@ -20,12 +20,6 @@
 //! Handlers are [`Handler`] = `fn(IrqCookie)`. The cookie is assigned at
 //! registration and is what a future capability names — not a raw GIC id.
 
-// Audit debt (2026-08-06): 3 unsafe blocks here predate
-// `clippy::undocumented_unsafe_blocks` and do not yet say what makes them sound.
-// This comes off when the audit reaches this module and the SAFETY comments can
-// state something checkable rather than restate the code. See Cargo.toml.
-#![allow(clippy::undocumented_unsafe_blocks)]
-
 mod chip;
 
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -103,6 +97,10 @@ pub fn counters() -> Counters {
 /// after it, by there being no mutator at all.
 #[inline]
 unsafe fn state() -> &'static IrqState {
+    // SAFETY: a shared reference to the dispatch table, whose immutability is
+    // the caller's obligation stated above — before `seal`, every mutator runs
+    // inside `cpu::without_irqs`; after it, there is no mutator at all. That is
+    // what makes a `'static` shared borrow sound while an IRQ can arrive.
     unsafe { &*STATE.get() }
 }
 
@@ -119,6 +117,10 @@ pub fn seal() {
 /// # Safety
 /// Single active core; no concurrent `handle_cpu_irq` until init completes.
 pub unsafe fn init(chip: &'static dyn IrqChip) {
+    // SAFETY: the caller guarantees no `handle_cpu_irq` can run until this
+    // returns, and the write itself is inside `without_irqs` so it cannot be
+    // observed half-done by this core either. `chip.init()` follows the store
+    // so the dispatch table already names the chip it is about to program.
     unsafe {
         cpu::without_irqs(|| {
             (*STATE.get()).chip = Some(chip);
@@ -136,6 +138,15 @@ pub unsafe fn init(chip: &'static dyn IrqChip) {
 /// Call only while IRQs that use this id are masked or not yet enabled.
 #[must_use = "an unregistered handler means the line will be EOI-ed and dropped"]
 pub unsafe fn register(irq: u32, handler: Handler, cookie: IrqCookie) -> bool {
+    // SAFETY: the caller guarantees this line is masked or not yet enabled, so
+    // no handler can be dispatched for `irq` while its slot is being written.
+    // The seal check comes first: after sealing the table is immutable and this
+    // returns `false` rather than mutating state a live IRQ path is reading.
+    //
+    // `cookie` is stored and never read. Both handlers take it and ignore it
+    // (`fn on_timer_irq(_cookie: u32)`); ADR-0008 specifies the shape, and the
+    // consumer it was specified for — per-line context for a driver agent —
+    // does not exist yet.
     unsafe {
         let id = irq as usize;
         if id >= MAX_IRQ || SEALED.load(Ordering::Acquire) {
