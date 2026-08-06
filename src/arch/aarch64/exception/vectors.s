@@ -112,20 +112,27 @@ exc_irq_el1t:
     kernel_exit
 
 // ADR-0014: never call switch_ttbr0 with a null root.
-// Live el0 session → el0_kernel_ttbr0 holds the kernel root to reinstall.
+// Live el0 session → the published El0Session (ADR-0017 §1) holds the kernel
+// root to reinstall. Two ways to have none: no session published for the
+// running task, or one published with the root cleared. Both mean the same
+// thing here — nobody owns this lower-EL event — and both take the same exit.
 .macro restore_kernel_ttbr0_require_session
-    adrp    x16, el0_kernel_ttbr0
-    add     x16, x16, :lo12:el0_kernel_ttbr0
-    ldr     x0, [x16]
+    adrp    x16, CURRENT_EL0
+    add     x16, x16, :lo12:CURRENT_EL0
+    ldr     x16, [x16]
+    cbz     x16, el0_missing_kernel_ttbr
+    ldr     x0, [x16, #EL0S_SESSION_KERNEL_TTBR]
     cbz     x0, el0_missing_kernel_ttbr
     bl      switch_ttbr0
 .endm
 
 // Optional restore: only if a session published a root (never switch to 0).
 .macro restore_kernel_ttbr0_if_session
-    adrp    x16, el0_kernel_ttbr0
-    add     x16, x16, :lo12:el0_kernel_ttbr0
-    ldr     x0, [x16]
+    adrp    x16, CURRENT_EL0
+    add     x16, x16, :lo12:CURRENT_EL0
+    ldr     x16, [x16]
+    cbz     x16, 1f
+    ldr     x0, [x16, #EL0S_SESSION_KERNEL_TTBR]
     cbz     x0, 1f
     bl      switch_ttbr0
 1:

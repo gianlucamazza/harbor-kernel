@@ -13,6 +13,18 @@
 //!
 //! Default entry masks IRQs in EL0. Call [`el0::set_entry_irqs_unmasked`] before
 //! a session that should take lower-EL IRQs.
+//!
+//! ## One session per agent, not per machine
+//!
+//! The session state belongs to the task (ADR-0017 §1), so the loop below runs
+//! against `sched::current_el0_session()` and every `arch::el0` call checks that
+//! it is the published one. Until ADR-0017 this was a single machine-wide slot,
+//! and "do not `yield_now` inside a session" was a rule with nothing enforcing
+//! it — a yield would have let the next agent overwrite this one's saved
+//! context. That rule is gone: a second agent has a second session.
+//!
+//! The loop still runs inside `cpu::without_irqs`, which is now about EL1
+//! interrupt timing rather than about protecting a shared slot.
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -96,6 +108,7 @@ impl Agent {
         // closure yields (ADR-0016).
         let outcome = cpu::without_irqs(|| unsafe {
             el0::run(
+                sched::current_el0_session(),
                 self.aspace.root_phys(),
                 self.aspace.user_entry_va(),
                 self.aspace.user_sp(),
@@ -132,8 +145,15 @@ impl Agent {
         let sp = self.aspace.user_sp();
         cpu::without_irqs(|| {
             before_enter();
-            // SAFETY: prepared AS; sole session; IRQs masked at EL1 around enter/resume.
-            let mut event = unsafe { el0::enter(root, entry, sp) };
+            // The session this task owns. Every call below passes it, and
+            // `arch::el0` refuses to act on a session the assembly would not
+            // see — a switch that stopped publishing panics here instead of
+            // handing this loop another task's saved registers (ADR-0017 §1).
+            let session = sched::current_el0_session();
+            // SAFETY: prepared AS; IRQs masked at EL1 around enter/resume; the
+            // session belongs to the running task, which is what the call
+            // checks rather than assumes.
+            let mut event = unsafe { el0::enter(session, root, entry, sp) };
             let mut stats = SessionStats::default();
             loop {
                 match event {
@@ -143,24 +163,25 @@ impl Agent {
                             // SAFETY: the outcome being matched is `Svc`, which
                             // is resumable by definition; IRQs are still masked
                             // by the enclosing `without_irqs`.
-                            event = unsafe { el0::resume() };
+                            event = unsafe { el0::resume(session) };
                         }
                         Syscall::Putc => {
-                            let byte = (el0::saved_x0() & 0xFF) as u8;
+                            let byte = (el0::saved_x0(session) & 0xFF) as u8;
                             let _ = console::with_tx(|uart| uart.write_byte(byte));
                             stats.putcs = stats.putcs.saturating_add(1);
                             // SAFETY: as `Ping` — a resumable `Svc` outcome
                             // with IRQs masked. Note the console write above is
                             // granted to any agent with no capability check;
-                            // that is ADR-0016's missing ABI, not this block's.
-                            event = unsafe { el0::resume() };
+                            // that is ADR-0017 §3, and slice 3 of M7, not this
+                            // block's.
+                            event = unsafe { el0::resume(session) };
                         }
                         Syscall::Exit => {
                             // SAFETY: the session is resumable but will not be
                             // resumed — this returns, and EL0 is unreachable
                             // without another `enter`. Ending it here is what
                             // clears `el0_kernel_ttbr0` while nothing can fault.
-                            unsafe { el0::end_session() };
+                            unsafe { el0::end_session(session) };
                             stats.end = SessionEnd::Exit;
                             return Ok(stats);
                         }
@@ -168,7 +189,7 @@ impl Agent {
                             // SAFETY: as `Exit`. An SVC this kernel does not
                             // implement ends the session rather than inventing
                             // a behaviour for it.
-                            unsafe { el0::end_session() };
+                            unsafe { el0::end_session(session) };
                             stats.end = SessionEnd::UnknownSvc { imm };
                             return Ok(stats);
                         }
@@ -180,7 +201,7 @@ impl Agent {
                         // run to completion. `ELR` still points at the
                         // interrupted instruction, which the architecture
                         // re-executes — resuming here does not skip it.
-                        event = unsafe { el0::resume() };
+                        event = unsafe { el0::resume(session) };
                     }
                     el0::El0Outcome::DataAbort { esr, far }
                     | el0::El0Outcome::OtherSync { esr, far } => {
@@ -188,7 +209,7 @@ impl Agent {
                         // session — `EL0_CAN_RESUME` is clear and the vector
                         // path has released the kernel root. This makes it
                         // explicit rather than relying on it.
-                        unsafe { el0::end_session() };
+                        unsafe { el0::end_session(session) };
                         stats.end = SessionEnd::Fault { esr, far };
                         return Ok(stats);
                     }

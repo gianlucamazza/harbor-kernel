@@ -19,6 +19,7 @@ use crate::console;
 use crate::drivers::pl011::Pl011;
 use crate::mm;
 use crate::println;
+use crate::sched;
 use kernel_core::paging::Perms;
 use kernel_core::syscall::{self, Syscall};
 
@@ -74,7 +75,12 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
     // so EL1 IRQs are masked as `el0::run` requires, and this is the second of two
     // one-shot sessions run one after the other, never overlapping (ADR-0016).
     let outcome = cpu::without_irqs(|| unsafe {
-        el0::run(aspace.root_phys(), aspace.user_entry_va(), aspace.user_sp())
+        el0::run(
+            sched::current_el0_session(),
+            aspace.root_phys(),
+            aspace.user_entry_va(),
+            aspace.user_sp(),
+        )
     });
     match outcome {
         el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
@@ -95,7 +101,12 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
     // program stores to a kernel address — which is still a terminating outcome
     // for a one-shot session, not a resumable one.
     let outcome = cpu::without_irqs(|| unsafe {
-        el0::run(aspace.root_phys(), aspace.user_entry_va(), aspace.user_sp())
+        el0::run(
+            sched::current_el0_session(),
+            aspace.root_phys(),
+            aspace.user_entry_va(),
+            aspace.user_sp(),
+        )
     });
     match outcome {
         el0::El0Outcome::DataAbort { esr, far } => {
@@ -191,7 +202,7 @@ pub(super) fn el0_scheduled_task() {
     // EL0 IRQ resume (architectural re-execute): arm the next tick under the
     // EL1 IRQ mask so EL1 does not claim it first; finite spin with EL0 IRQs
     // open; handle + resume re-executes; GPRs survive; SYS_EXIT ends.
-    el0::set_entry_irqs_unmasked();
+    el0::set_entry_irqs_unmasked(sched::current_el0_session());
     match agent.run_user_prog_resuming_prep(&agent::encode_spin_exit(0x800), || {
         timer::accelerate_next_tick(1);
     }) {
@@ -199,7 +210,7 @@ pub(super) fn el0_scheduled_task() {
         Ok(s) => crate::kprintln!("el0-task: irq resume unexpected irqs={}", s.irqs),
         Err(e) => crate::kprintln!("el0-task: irq resume FAILED {e:?}"),
     }
-    el0::set_entry_irqs_masked();
+    el0::set_entry_irqs_masked(sched::current_el0_session());
 
     agent.destroy();
     let free_after = mm::frames::free_count();

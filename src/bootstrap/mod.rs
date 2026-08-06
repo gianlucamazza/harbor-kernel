@@ -232,6 +232,14 @@ pub fn run() -> ! {
             mm::frames::capacity(),
             board::memmap::FRAME_POOL_BYTES / 1024
         );
+        // The scheduler before the first EL0 entry: since ADR-0017 §1 the EL0
+        // session lives in the TCB, so *something* has to be the current task
+        // before anyone can enter EL0. `init` claims idle — which is the task
+        // this bootstrap is already running on — and publishes its session.
+        // It used to run after the demos, which was only tenable while the
+        // session was a machine-wide global that existed from link time.
+        crate::sched::init();
+
         // M5 S2/S3: AS create → prepare (kernel clone + user stack) → EL0 probes.
         demos::m5_aspace_and_el0_smoke(&mut uart);
     } else {
@@ -350,7 +358,6 @@ pub fn run() -> ! {
 
     // Shared TX for idle + worker tasks (cooperative only; serialized in with_tx).
     console::install_tx(uart);
-    crate::sched::init();
 
     match crate::sched::spawn(demos::demo_task_a) {
         Ok(_) => crate::kprintln!("sched: spawned task-a"),

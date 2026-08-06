@@ -30,6 +30,7 @@ use kernel_core::tasks::{Decision, Switch, Tasks};
 use kernel_core::wake::WakeQueue;
 
 use crate::arch::cpu;
+use crate::arch::el0::El0Session;
 use crate::arch::switch::{Context, context_switch};
 use crate::mm::{StackError, TaskStack};
 use crate::sync::SyncCell;
@@ -59,6 +60,14 @@ struct Tcb {
     entry: Option<fn()>,
     /// Unforgeable caps this task holds (M4).
     caps: [Option<CapId>; MAX_CAPS_PER_TASK],
+    /// EL0 session state (ADR-0017 §1). `None` for a slot that is not a task:
+    /// an empty slot, or one whose task has exited.
+    ///
+    /// This is what used to be nine machine-wide `static mut` in `arch::el0`,
+    /// and moving it here is what lets two agents be live at EL0 at once. The
+    /// assembly still needs one linker-visible name, so [`publish_el0`] hands
+    /// `arch` a pointer to the running task's copy on every switch.
+    el0: Option<El0Session>,
 }
 
 impl Tcb {
@@ -68,8 +77,27 @@ impl Tcb {
             stack: None,
             entry: None,
             caps: [None; MAX_CAPS_PER_TASK],
+            el0: None,
         }
     }
+}
+
+/// Hand `arch` the EL0 session of the task that is about to run.
+///
+/// Called on every switch and once at [`init`], and nowhere else. Every EL0
+/// entry checks that what `arch` has published is the session the running task
+/// owns ([`El0Session`] / `el0::enter`), so a switch that stops calling this is
+/// a panic on the next EL0 entry rather than one agent reading another's saved
+/// registers — the one "nothing" row ADR-0017 carried.
+fn publish_el0(sched: &mut Sched, to: TaskId) {
+    let session = match sched.tcbs[to.0 as usize].el0.as_mut() {
+        Some(session) => session as *mut El0Session,
+        None => core::ptr::null_mut(),
+    };
+    // SAFETY: the pointer names a slot of the `SCHED` static, which outlives
+    // every session, and this runs with IRQs masked on the switch path — no
+    // session can be live at EL0 while the scheduler is between tasks.
+    unsafe { crate::arch::el0::publish(session) };
 }
 
 struct Sched {
@@ -116,6 +144,11 @@ pub fn init() {
         // SAFETY: single core; first init; IRQs masked.
         let sched = unsafe { &mut *SCHED.get() };
         sched.tasks.start();
+        // Idle is a task like any other here: bootstrap runs on it, and
+        // bootstrap is what enters EL0 for the demo agents.
+        let idle = sched.tasks.current();
+        sched.tcbs[idle.0 as usize].el0 = Some(El0Session::new());
+        publish_el0(sched, idle);
         STARTED.store(1, Ordering::Release);
     });
 }
@@ -164,6 +197,10 @@ pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError
             stack: Some(stack),
             entry: Some(entry),
             caps: held,
+            // Created here rather than on first use: the switch publishes
+            // whatever the slot holds, so a session that appears later would be
+            // a pointer the last switch could not have published.
+            el0: Some(El0Session::new()),
         };
         Ok(id)
     })
@@ -188,6 +225,23 @@ pub fn my_cap(i: usize) -> Option<CapId> {
         let sched = unsafe { &*SCHED.get() };
         let idx = sched.tasks.current().0 as usize;
         sched.tcbs.get(idx).and_then(|t| t.caps[i])
+    })
+}
+
+/// Pointer to the current task's EL0 session, or null if it has none.
+///
+/// The scheduler's answer to *whose session is this*. `arch::el0` compares it
+/// against what it has published before it will enter or resume EL0, which is
+/// what makes a missing publication loud.
+pub fn current_el0_session() -> *mut El0Session {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked, single core.
+        let sched = unsafe { &mut *SCHED.get() };
+        let idx = sched.tasks.current().0 as usize;
+        match sched.tcbs[idx].el0.as_mut() {
+            Some(session) => session as *mut El0Session,
+            None => core::ptr::null_mut(),
+        }
     })
 }
 
@@ -395,6 +449,9 @@ fn switch_with(kind: Switch) {
         slot.entry = None;
         slot.caps = [None; MAX_CAPS_PER_TASK];
         slot.context = Context::zeroed();
+        // The session dies with the task. Nothing scrubs what a faulting agent
+        // left in it before this point — see ADR-0018's fifth reversal row.
+        slot.el0 = None;
     }
 
     if let Some(stranded) = release {
@@ -407,6 +464,8 @@ fn switch_with(kind: Switch) {
             unsafe { stack.release() };
         }
     }
+
+    publish_el0(sched, to);
 
     let prev = core::ptr::addr_of_mut!(sched.tcbs[from.0 as usize].context);
     let next_ctx = core::ptr::addr_of!(sched.tcbs[to.0 as usize].context);
