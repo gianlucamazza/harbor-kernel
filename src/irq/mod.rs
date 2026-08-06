@@ -15,6 +15,18 @@
 //! writer left to race with, so it is an invariant the code enforces rather
 //! than a rule the reader has to keep. [`register`] after sealing fails.
 //!
+//! # What is here and what is not
+//!
+//! The table itself — which handler owns a line, the bounds, the seal, and the
+//! three-way answer for a claimed interrupt — is
+//! [`kernel_core::irqtable::Table`], where it is host-tested. It had to move:
+//! the safety argument above rests on registration failing after the seal, and
+//! nothing had ever registered a handler after sealing to watch it fail.
+//!
+//! What stays here is what a pure table cannot do: own the chip, take the
+//! interrupt mask, publish the counters an exception context can reach, and
+//! call the handler.
+//!
 //! # Cookies (ADR-0008)
 //!
 //! Handlers are [`Handler`] = `fn(IrqCookie)`. The cookie is assigned at
@@ -22,9 +34,12 @@
 
 mod chip;
 
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering};
+
+use kernel_core::irqtable::{Dispatch, Table};
 
 pub use chip::{Ack, IrqChip};
+pub use kernel_core::irqtable::RegisterError;
 
 use crate::arch::cpu;
 use crate::sync::SyncCell;
@@ -44,14 +59,9 @@ pub type IrqCookie = u32;
 /// Registered IRQ handler. Always takes a cookie (may be ignored).
 pub type Handler = fn(IrqCookie);
 
-struct Slot {
-    handler: Handler,
-    cookie: IrqCookie,
-}
-
 struct IrqState {
     chip: Option<&'static dyn IrqChip>,
-    slots: [Option<Slot>; MAX_IRQ],
+    table: Table<Handler, MAX_IRQ>,
 }
 
 /// Chip + dispatch table.
@@ -59,11 +69,8 @@ struct IrqState {
 /// Written only during bootstrap with IRQs masked; read from the IRQ path.
 static STATE: SyncCell<IrqState> = SyncCell::new(IrqState {
     chip: None,
-    slots: [const { None }; MAX_IRQ],
+    table: Table::new(),
 });
-
-/// Set once bring-up finishes; the dispatch table is read-only from then on.
-static SEALED: AtomicBool = AtomicBool::new(false);
 
 /// Interrupts claimed with no registered handler.
 static UNHANDLED: AtomicU32 = AtomicU32::new(0);
@@ -109,7 +116,22 @@ unsafe fn state() -> &'static IrqState {
 /// After this the IRQ path is the only reader of immutable state, so no
 /// discipline is required of anyone to keep it sound.
 pub fn seal() {
-    SEALED.store(true, Ordering::Release);
+    // One flag, in the table. An earlier draft kept a separate `AtomicBool`
+    // beside it so a reader outside the interrupt mask could observe the seal —
+    // and nothing ever read it. Two sources of truth for one fact, one of them
+    // dead, is how they drift; the compiler said so and the atomic is gone.
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked and one core, so this `&mut` cannot overlap the
+        // IRQ path's shared borrow.
+        unsafe { (*STATE.get()).table.seal() };
+    });
+}
+
+/// How many lines have a handler. Reported at bring-up, so a boot that
+/// registered nothing is visible before the first interrupt rather than after.
+pub fn registered() -> usize {
+    // SAFETY: shared read; mutation only happens with IRQs masked.
+    unsafe { state() }.table.registered()
 }
 
 /// Install the platform irqchip. Call once before [`register`] / [`enable`].
@@ -137,26 +159,18 @@ pub unsafe fn init(chip: &'static dyn IrqChip) {
 /// # Safety
 /// Call only while IRQs that use this id are masked or not yet enabled.
 #[must_use = "an unregistered handler means the line will be EOI-ed and dropped"]
-pub unsafe fn register(irq: u32, handler: Handler, cookie: IrqCookie) -> bool {
+pub unsafe fn register(irq: u32, handler: Handler, cookie: IrqCookie) -> Result<(), RegisterError> {
     // SAFETY: the caller guarantees this line is masked or not yet enabled, so
-    // no handler can be dispatched for `irq` while its slot is being written.
-    // The seal check comes first: after sealing the table is immutable and this
-    // returns `false` rather than mutating state a live IRQ path is reading.
+    // no handler can be dispatched for `irq` while its slot is being written,
+    // and the write happens inside `without_irqs` so it cannot overlap the IRQ
+    // path's shared borrow either. The table refuses after sealing, which is
+    // what keeps this from mutating state a live IRQ path is reading.
     //
     // `cookie` is stored and never read. Both handlers take it and ignore it
     // (`fn on_timer_irq(_cookie: u32)`); ADR-0008 specifies the shape, and the
     // consumer it was specified for — per-line context for a driver agent —
     // does not exist yet.
-    unsafe {
-        let id = irq as usize;
-        if id >= MAX_IRQ || SEALED.load(Ordering::Acquire) {
-            return false;
-        }
-        cpu::without_irqs(|| {
-            (*STATE.get()).slots[id] = Some(Slot { handler, cookie });
-        });
-        true
-    }
+    unsafe { cpu::without_irqs(|| (*STATE.get()).table.register(irq, handler, cookie)) }
 }
 
 /// Enable `irq` on the platform chip. No-op if no chip is installed.
@@ -202,13 +216,12 @@ pub fn handle_cpu_irq_counted() -> u32 {
         };
         claimed += 1;
 
-        let id = ack.interrupt_id() as usize;
-        match state.slots.get(id) {
-            Some(Some(slot)) => (slot.handler)(slot.cookie),
-            Some(None) => {
+        match state.table.lookup(ack.interrupt_id()) {
+            Dispatch::Handle { handler, cookie } => handler(cookie),
+            Dispatch::Unhandled => {
                 UNHANDLED.fetch_add(1, Ordering::Relaxed);
             }
-            None => {
+            Dispatch::OutOfRange => {
                 OUT_OF_RANGE.fetch_add(1, Ordering::Relaxed);
             }
         }

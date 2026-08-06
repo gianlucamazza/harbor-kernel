@@ -24,6 +24,7 @@ pub mod frame;
 pub mod gic;
 pub mod heap;
 pub mod ipc;
+pub mod irqtable;
 pub mod layout;
 pub mod paging;
 pub mod poll;

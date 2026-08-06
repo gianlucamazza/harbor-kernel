@@ -306,7 +306,16 @@ pub fn run() -> ! {
 
     // No further handlers are registered: freeze the dispatch table so the IRQ
     // path reads state nothing can mutate under it.
+    //
+    // The count is printed because a boot that registered nothing looks exactly
+    // like a healthy one until the first interrupt that nobody answers — and by
+    // then the evidence is a counter rather than a line at the point of failure.
     irq::seal();
+    println!(
+        uart,
+        "irq: sealed with {} handlers registered",
+        irq::registered()
+    );
 
     // Arm PL011 RX IRQ into the console ring (GIC line already enabled).
     if interrupts_bound {

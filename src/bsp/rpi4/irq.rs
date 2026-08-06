@@ -29,9 +29,14 @@ pub const UART_IRQ: u32 = UART0_SPI;
 /// Everything that can go wrong binding the board's interrupt sources.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BindError {
-    /// A handler id was beyond the dispatch table: the line would be
-    /// acknowledged and dropped, so the console would silently receive nothing.
-    HandlerNotRegistered(u32),
+    /// A handler could not be registered: the line would be acknowledged and
+    /// dropped, so the console would silently receive nothing.
+    ///
+    /// Carries the reason rather than only the id. The two are different
+    /// failures with different fixes — an id past the table is a constant to
+    /// correct, while a sealed table is a bring-up ordering bug — and this
+    /// error is what a refusal to boot prints.
+    HandlerNotRegistered(irq::RegisterError),
     /// The arch timer would not start at the requested rate.
     Timer(timer::TimerError),
 }
@@ -46,11 +51,11 @@ pub unsafe fn init(timer_hz: u32) -> Result<(), BindError> {
         irq::init(&GIC);
 
         // Cookies are kernel-internal ids (ADR-0008), not GIC numbers.
-        if !irq::register(TIMER_IRQ, time::on_timer_irq, 1) {
-            return Err(BindError::HandlerNotRegistered(TIMER_IRQ));
+        if let Err(e) = irq::register(TIMER_IRQ, time::on_timer_irq, 1) {
+            return Err(BindError::HandlerNotRegistered(e));
         }
-        if !irq::register(UART_IRQ, console::on_uart_rx_irq, 2) {
-            return Err(BindError::HandlerNotRegistered(UART_IRQ));
+        if let Err(e) = irq::register(UART_IRQ, console::on_uart_rx_irq, 2) {
+            return Err(BindError::HandlerNotRegistered(e));
         }
 
         timer::init(timer_hz).map_err(BindError::Timer)?;

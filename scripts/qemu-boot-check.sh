@@ -251,6 +251,11 @@ grep -q 'ticks=20' "${log}" ||
 if grep -q 'irq: unhandled' "${log}"; then
 	fail "unhandled interrupts were dispatched"
 fi
+# Both handlers registered before the table froze. A boot that registered none
+# looks exactly like a healthy one until the first interrupt nobody answers, and
+# by then the evidence is a counter rather than the moment it went wrong.
+grep -q 'irq: sealed with 2 handlers registered' "${log}" ||
+	fail "dispatch table sealed with the wrong number of handlers: $(grep '^irq: sealed' "${log}" || echo '(no seal line at all)')"
 # The allocator refuses frees it cannot justify — a double free, or a pointer it
 # never handed out. Refusing keeps the heap intact, so nothing else here would
 # notice; the count is the only evidence that a caller is wrong about what it owns.
