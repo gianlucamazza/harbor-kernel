@@ -103,7 +103,11 @@ img: elf
 # letting the claim quietly become false.
 check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering shellcheck xrefs
 	cargo clippy --target $(TARGET) -- -D warnings
-	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
+# `--all-targets` so the host tests are linted too. Without it `make check` was
+# no longer a superset of CI, which is the one property this target claims: CI
+# grew a clippy pass over test code and found an orphaned doc comment that no
+# local run could have seen.
+	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) --all-targets -- -D warnings
 
 # Every gate in this Makefile is a shell script, and two of them carry
 # `# shellcheck source=` directives — the intent was always there, the check was

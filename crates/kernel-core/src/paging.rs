@@ -516,9 +516,6 @@ mod tests {
         assert_eq!((mair_el1() >> 8) & 0xFF, MAIR_DEVICE_NGNRNE);
     }
 
-    /// The kernel maps nothing in the upper half. Leaving `EPD1` clear means a
-    /// stray high virtual address starts a page-table walk through whatever
-    /// `TTBR1_EL1` happened to contain at reset.
     // --- multi-level descriptors -------------------------------------------
 
     /// The AArch64 trap: at levels 1 and 2 a leaf is `0b01` and `0b11` means
@@ -757,6 +754,9 @@ mod tests {
         assert!(is_leaf(table, Level::L3));
     }
 
+    /// The kernel maps nothing in the upper half. Leaving `EPD1` clear means a
+    /// stray high virtual address starts a page-table walk through whatever
+    /// `TTBR1_EL1` happened to contain at reset.
     #[test]
     fn tcr_disables_ttbr1_walks() {
         let tcr = tcr_el1_ttbr0_only(25);
