@@ -162,7 +162,7 @@ applies forwards, or it is not the same standard.
 | M4  | [ADR-0008](adr/0008-irq-handler-policy.md) (**accepted**): cookie handlers + wake queue; mailbox ABI  | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console; IRQ wakes use the ADR-0008 queue only      |
 | M5  | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) + [ADR-0014](adr/0014-ttbr-split-m5.md) (TTBR0 v1); multi-role prep | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                             |
 | M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**accepted**); F26                              | EL0 agent maps **only** the PL011 page, touches the device, is destroyed (kill); kernel console/ticks continue. RX ownership (poll + real bytes) is a post-v1 product slice gated on QEMU, HW stamp open. |
-| M7  | The EL0 capability ABI and agent fault policy ADRs — written, **proposed**, open in PR #7. [ADR-0001](adr/0001-multi-role-analysis.md) blocks the milestone until they are accepted, and this table gains their ids when they merge (the `xrefs` gate refuses an id that names no file) | Two EL0 agents exchange a message neither can forge; one of them faults; its creator handles the fault and the other keeps running; the kernel stays alive — **on silicon**, with a serial transcript. Needs the EL0 session state in the `Tcb` first: today nine machine-wide `static mut` make two live sessions impossible, so the sentence is not merely unimplemented but unsayable |
+| M7  | [ADR-0017](adr/0017-el0-capability-abi.md) (EL0 capability ABI) and [ADR-0018](adr/0018-agent-fault-policy.md) (agent fault policy), both **proposed**. [ADR-0001](adr/0001-multi-role-analysis.md) blocks the milestone until they are accepted | Two EL0 agents exchange a message neither can forge; one of them faults; its creator handles the fault and the other keeps running; the kernel stays alive — **on silicon**, with a serial transcript. Needs the EL0 session state in the `Tcb` first: today nine machine-wide `static mut` make two live sessions impossible, so the sentence is not merely unimplemented but unsayable |
 
 M3 is **done (HW)**. [ADR-0006](adr/0006-cooperative-execution-model.md) is
 **accepted**. Observed on **Pi 4B silicon**: interleaved `task-a`/`task-b`,
@@ -227,10 +227,10 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 
 | # | Work | Done when |
 | - | ---- | --------- |
-| 1 | **Accept the two M7 ADRs** (PR #7) | Both `accepted` with a date; [ADR-0001](adr/0001-multi-role-analysis.md) blocks M7 until then, and `make doc-claims` enforces that status and date move together |
-| 2 | **M7 slice 1**: EL0 session state into the `Tcb` | Two agents live at EL0 at once; a single `CURRENT_TCB` replaces nine `static mut`; the entry path *asserts* the pointer matches the current task — the one "nothing" row the capability-ABI ADR carries |
+| 1 | **Accept [ADR-0017](adr/0017-el0-capability-abi.md) and [ADR-0018](adr/0018-agent-fault-policy.md)** | Both `accepted` with a date; [ADR-0001](adr/0001-multi-role-analysis.md) blocks M7 until then, and `make doc-claims` enforces that status and date move together |
+| 2 | **M7 slice 1**: EL0 session state into the `Tcb` | Two agents live at EL0 at once; a single `CURRENT_TCB` replaces nine `static mut`; the entry path *asserts* the pointer matches the current task — the one "nothing" row [ADR-0017](adr/0017-el0-capability-abi.md) carries |
 | 3 | **M7 slices 2–4**: cap table + `SYS_SEND`/`SYS_RECV`; `SYS_PUTC` behind a console capability denied by default; fault policy | The M7 done-when above, on silicon |
-| 5 | **Threat model + `SECURITY.md`** | After the capability-ABI ADR, which is where authority is finally defined |
+| 5 | **Threat model + `SECURITY.md`** | After [ADR-0017](adr/0017-el0-capability-abi.md), which is where authority is finally defined |
 | 6 | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without kernel draining `DR` |
 | 7 | **Optional P-pass** | Tighten kernel EL1 Device blankets (not required for M6 v1) |
 
@@ -298,6 +298,8 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0014](adr/0014-ttbr-split-m5.md) | TTBR regime M5 v1 (TTBR0 + kernel maps in user AS) (**accepted**) |
 | [ADR-0015](adr/0015-multi-arch-scaffold.md) | Multi-arch scaffold: cfg facade + board features (**accepted**) |
 | [ADR-0016](adr/0016-el0-session-protocol.md) | EL0 session protocol: one slot, prose contract, named successor (**accepted**) |
+| [ADR-0017](adr/0017-el0-capability-abi.md) | EL0 capability ABI: slot-indexed authority, session state in the TCB (**proposed**) |
+| [ADR-0018](adr/0018-agent-fault-policy.md) | Agent fault policy: the kernel ends the session, the creator decides the task (**proposed**) |
 | [`docs/reviews/`](reviews/)                     | Pass outcomes (findings), not decisions                                     |
 
 ## Non-goals
