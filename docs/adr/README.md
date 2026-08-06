@@ -29,6 +29,8 @@ the code that follows.
 | [0014](0014-ttbr-split-m5.md) | TTBR regime for M5 (TTBR0 + shared kernel maps v1) | accepted |
 | [0015](0015-multi-arch-scaffold.md) | Multi-arch scaffold (cfg facade, board features) | accepted |
 | [0016](0016-el0-session-protocol.md) | EL0 session protocol (one slot, prose contract) | accepted |
+| [0017](0017-el0-capability-abi.md) | EL0 capability ABI (slot-indexed authority, session in TCB) | proposed |
+| [0018](0018-agent-fault-policy.md) | Agent fault policy (kernel ends session, creator decides task) | proposed |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).
