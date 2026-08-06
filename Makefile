@@ -80,7 +80,7 @@ ifneq ($(strip $(FEATURES)),)
 endif
 
 .PHONY: all debug img elf check test miri bringup-builds debug-display-builds \
-	debug-builds board-guard shellcheck no-simd no-early-exclusives boot-check doc-claims \
+	debug-builds board-guard shellcheck xrefs no-simd no-early-exclusives boot-check doc-claims \
 	layering fmt fmt-check qemu qemu-gdb blobs deploy restore-rpios serial clean
 
 all: img
@@ -101,7 +101,7 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering shellcheck
+check: fmt-check test no-simd no-early-exclusives boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering shellcheck xrefs
 	cargo clippy --target $(TARGET) -- -D warnings
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) -- -D warnings
 
@@ -116,6 +116,13 @@ shellcheck:
 	  exit 0; \
 	fi; \
 	shellcheck -x -P scripts scripts/*.sh scripts/lib/*.sh && echo "shellcheck: clean"
+
+# Facts that live in two places with nothing comparing them: markdown links,
+# `ADR-NNNN` citations, and the status and id each ADR repeats in the index.
+# All four were true when the gate was written — by attention, which does not
+# survive a rename.
+xrefs:
+	./scripts/check-xrefs.sh
 
 # The layering rules in docs/architecture.md, checked against real imports.
 # They are the architecture, and were enforced by review alone until now.
