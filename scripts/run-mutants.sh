@@ -48,7 +48,8 @@ fi
 CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core \
 	--file '**/ipc.rs' --file '**/tasks.rs' --file '**/layout.rs' \
 	--file '**/irqtable.rs' --file '**/rxline.rs' --file '**/reset.rs' \
-	--file '**/cap.rs' --file '**/syscall.rs' --file '**/prog.rs'
+	--file '**/cap.rs' --file '**/syscall.rs' --file '**/prog.rs' \
+	--file '**/manifest.rs'
 status=$?
 
 # 0 = nothing survived, 3 = something did. Anything else is the tool failing.

@@ -60,8 +60,9 @@ one boot after that — evidence in
 
 ### Next
 
-The next work is **M8: the console as an endpoint**, which retires the
-transitional `SYS_PUTC` — and gives the product manifest its first inhabitant.
+The next work is **M8: the console as an endpoint** ([#12](https://github.com/gianlucamazza/harbor-kernel/issues/12)), which
+retires the transitional `SYS_PUTC` — and gives the product manifest its first
+inhabitant. Current state and what is open: [#15](https://github.com/gianlucamazza/harbor-kernel/issues/15).
 
 The ordered list, with the done-when criterion for each item, lives in
 [`docs/architecture.md#roadmap`](docs/architecture.md#roadmap). It is not

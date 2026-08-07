@@ -320,13 +320,20 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 
 ### Next (ordered)
 
-| #   | Work                                                                                                                                                               | Done when                                                                                                                                                                                                        |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ~~**Agent loading**~~ — **done (HW)** 2026-08-07 ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | `bootstrap::loader` is one loop over `kernel_core::manifest`; an agent's window is per entry rather than fixed at 4 KiB; two entries running the same bytes differ only in whether the table granted a console. The product manifest is still empty — M8 is its first inhabitant |
-| 2   | ~~**Blocking `SYS_RECV`**~~ — **done (HW)** 2026-08-07 ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)) | The receiver is spawned first, parks on an empty mailbox, and the peer's send wakes it 41 ms later. `make irq-scope` keeps the `DAIF` scoping rule true rather than remembered |
-| 3   | **M8: console endpoint** (retire transitional `SYS_PUTC`)                                                                                                          | Same slot ABI; kernel or EL1 server drains; boot-check still asserts denied-by-default                                                                                                                           |
-| 4   | **Optional: IRQ-wake RX**                                                                                                                                          | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                                |
-| 5   | **Optional P-pass**                                                                                                                                                | Tighten kernel EL1 Device blankets (not required for M6 v1)                                                                                                                                                      |
+Rows 1 and 2 of this table landed on 2026-08-07 and are recorded in
+[`verification.md`](verification.md#hardware-evidence-the-loader-and-the-park-on-silicon-2026-08-07)
+rather than kept here as struck-through work: the loader
+([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) and blocking
+`SYS_RECV` ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)).
+Tracking issue: [#15](https://github.com/gianlucamazza/harbor-kernel/issues/15).
+
+| #   | Work | Done when | Issue |
+| --- | ---- | --------- | ----- |
+| 1   | **M8: console endpoint** — retire the transitional `SYS_PUTC` | Same slot ABI; a server drains the mailbox; boot-check still asserts denied-by-default; **and the product manifest stops being empty** — this is its first inhabitant | [#12](https://github.com/gianlucamazza/harbor-kernel/issues/12) |
+| 2   | **The parked agent** — no timeout, no reclaim | An ADR decides between a deadline queue, creator-side reaping, endpoint release, or simply reporting it. Availability surface [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md) opened and deliberately did not close | [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) |
+| 3   | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
+| 4   | **Optional P-pass** | Tighten the kernel's EL1 Device blankets (not required for M6 v1) | [#2](https://github.com/gianlucamazza/harbor-kernel/issues/2) |
+| 5   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 
