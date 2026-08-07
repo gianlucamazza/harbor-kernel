@@ -412,27 +412,26 @@ they mean.
 
 [ADR-0013](adr/0013-narrow-device-windows.md) already closed F26 for **agent**
 maps (page-sized only). Kernel EL1 may keep coarse Device windows until a
-P-pass. That P-pass ([#2](https://github.com/gianlucamazza/harbor-kernel/issues/2))
-is **not scheduled**:
+P-pass. That P-pass ([#2](https://github.com/gianlucamazza/harbor-kernel/issues/2),
+**closed not planned** 2026-08-07) is risk-accepted rather than implemented:
 
 | Layer | Window | Status |
 | --- | --- | --- |
 | Agent AS | Named page(s) only (`map_device_page`) | **done (HW)** M6 |
 | Kernel EL1 | `DEVICE_REGIONS`: 16 MiB peripherals + 16 KiB GIC (`memmap`) | **risk-accepted** — EL1-only TCB; no agent sees the blanket |
 
-Re-open only if a new agent needs a peripheral still covered only by a blanket,
-or if an audit shows EL1 stray stores into Device as a live bug class. Not a
-foundation blocker after M8.
+Re-open #2 only if a new agent needs a peripheral still covered only by a
+blanket, or if an audit shows EL1 stray stores into Device as a live bug class.
 
-### Current frontier (optional only)
+### Current frontier (standing only)
 
-No foundation milestone is open. Remaining items are lab features or standing
-watches — not work that blocks “M8 complete”.
+No foundation or protection milestone is open. The only tracked open item is a
+conditional watch; IRQ-wake RX remains unissued lab work.
 
 | #   | Work | Done when | Issue |
 | --- | ---- | --------- | ----- |
-| 1   | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
-| 2   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
+| 1   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
+| —   | **Optional: IRQ-wake RX** (untracked) | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 
