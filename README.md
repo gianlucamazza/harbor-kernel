@@ -58,9 +58,9 @@ in [`SECURITY.md`](SECURITY.md). Platform and hardware assumptions are in the
 
 ## Current status
 
-The foundation through M7 is stamped **done on Raspberry Pi 4B**. M8, the
-console endpoint and product beacon, is **QEMU-verified**; its hardware stamp
-remains open.
+The foundation through **M8** is stamped **done on Raspberry Pi 4B**: console
+endpoint, product beacon, and `SYS_PUTC` retirement included
+([evidence](docs/verification.md#hardware-evidence-m8-console-endpoint-closed-on-silicon-2026-08-07)).
 
 | Area | Current state |
 | --- | --- |

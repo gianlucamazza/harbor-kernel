@@ -339,17 +339,13 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 | **Threat model + reporting** | **done** | Root [`SECURITY.md`](../SECURITY.md): TCB, attacker, authority surface, claims with gates, residual non-guarantees |
 | Bound to M7 authority        | **yes**  | Slot ABI, console denied-by-default, fault policy, refusal counters — as of silicon 2026-08-07                     |
 
-### Closed — M8 console endpoint (QEMU)
-
-The console endpoint is implemented and covered by the product QEMU gate. The
-remaining hardware stamp is intentionally tracked as verification work, not as
-a missing architecture feature.
+### Closed — M8 console endpoint (HW) 2026-08-07
 
 | Slice | Status | Evidence |
 | --- | --- | --- |
-| EL1 console server drains the endpoint | **done (QEMU)** | [`design-m8-console-endpoint.md`](design-m8-console-endpoint.md), product boot gate |
-| Product manifest carries the beacon | **done (QEMU)** | product boot gate and loader path |
-| `SYS_PUTC` removed; denied-by-default preserved | **done (QEMU)** | syscall and authority gates |
+| EL1 console server drains the endpoint | **done (HW)** | [`verification.md` §M8](verification.md#hardware-evidence-m8-console-endpoint-closed-on-silicon-2026-08-07); design: [`design-m8-console-endpoint.md`](design-m8-console-endpoint.md) |
+| Product manifest carries the beacon | **done (HW)** | same transcript + product QEMU gate |
+| `SYS_PUTC` removed; denied-by-default preserved | **done (HW)** | mute refusals=2; refuse count=5; syscall gate |
 
 ### Current frontier (ordered)
 

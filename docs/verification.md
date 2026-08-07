@@ -1491,19 +1491,45 @@ Keep the lab path as PC adapter ↔ header UART ([`hardware.md`](hardware.md#ser
 The on-Pi dongle is for Linux-side work only.
 
 
-## Hardware evidence: M8 console endpoint (QEMU; silicon open)
+## Hardware evidence: M8 console endpoint closed on silicon (2026-08-07)
 
 M8 retires `SYS_PUTC`. Console output is `SYS_SEND` with `CONSOLE_TAG_BYTE` (0)
 and the byte in `Message.a`. An EL1 `console_server` holds the recv end and
 drains via `console::with_tx`. Creators call `ipc::yield_until_empty` before
-report lines so `H!loader: beacon ran…` adjacency holds.
+report lines so agent bytes land on the wire before the creator's report line.
 
-| Claim | Gate |
-| ----- | ---- |
-| Server up | `console-server: up` in boot-check and product-boot-check |
-| Product beacon | `loader: beacon ran sends=2 refusals=0` + `H!loader: beacon ran` |
+| Claim | Gate / evidence |
+| ----- | --------------- |
+| Server up | `console-server: up` — QEMU + Pi 4B |
+| Product beacon | `loader: beacon ran sends=2 refusals=0` + wire `H!` before the report |
 | Mute denial (oracle) | `loader: mute ran sends=0 refusals=2`; refuse count=5 |
-| `SYS_PUTC` gone | `decode(2) == Unknown`; no `SYS_PUTC` in SECURITY table |
-| Product image | `make product-builds` markers + size; `make product-boot-check` |
+| Console via SEND (not putc) | `el0-task: console sends=2`; `decode(2) == Unknown` |
+| Product image | `make product-builds` + `make product-boot-check` |
+| Payload still crosses EL0 | `*el0-ipc: got payload via EL0 recvs=1` |
 
-Silicon stamp: open (record a Pi 4B transcript here when available).
+**Status: done (HW)** on Pi 4B, 2026-08-07 ~15:25 host time. Transcript:
+`.serial-log/20260807-152525.log` (oracle `kernel8.img` @ `ea24a24` lineage).
+
+### Silicon excerpt (Pi 4B, PL011 @ 115200)
+
+```
+console-server: up
+console: capability minted
+loader: beacon loaded text=1 stack=3
+loader: mute loaded text=2 stack=3
+…
+loader: mute ran sends=0 refusals=2
+…
+H!H!loader: beacon ran sends=2 refusals=0
+…
+el0-task: console sends=2
+…
+ipc: refuse count=5 full=0 state=0
+*el0-ipc: got payload via EL0 recvs=1
+…
+ticks=10
+```
+
+`H!H!loader` is two agents printing `H!` (beacon then el0-task) before the
+loader report; the adjacency claim for the barrier is that the beacon's bytes
+precede `loader: beacon ran`, which they do. Idle ticks continued past 300.
