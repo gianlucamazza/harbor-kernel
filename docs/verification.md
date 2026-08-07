@@ -1533,3 +1533,18 @@ ticks=10
 `H!H!loader` is two agents printing `H!` (beacon then el0-task) before the
 loader report; the adjacency claim for the barrier is that the beacon's bytes
 precede `loader: beacon ran`, which they do. Idle ticks continued past 300.
+
+## Parked-task visibility and cancel (ADR-0024 / 0025)
+
+| Claim | Gate / evidence |
+| ----- | --------------- |
+| Parks are counted | Host tests; boot-check `sched: blocked=… block_events=…` |
+| Orphan wait cancelled | Boot-check `ipc: reaped cancelled` + `ipc: cancel issued cancel_events=` |
+| Waiter cleared without send | Host test `clear_waiter_drops_the_parked_slot_without_a_send` |
+| EL0 status | `Status::Cancelled = 5`; SECURITY authority table |
+
+**Status: done (QEMU)** on `main` (`e0e905e` lineage). **Silicon stamp:** open
+until an oracle image including the reaping demos is flashed and a transcript
+records the same two lines on Pi 4B (same procedure as M8).
+
+Timeout and auto-reap on last send-capability drop remain **non-goals** (ADR-0025).

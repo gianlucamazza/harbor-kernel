@@ -392,23 +392,29 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 | Product manifest carries the beacon | **done (HW)** | same transcript + product QEMU gate |
 | `SYS_PUTC` removed; denied-by-default preserved | **done (HW)** | mute refusals=2; refuse count=5; syscall gate |
 
-### Current frontier (ordered)
+### Closed — parked-task policy (ADR-0024 / 0025)
 
-M0–M8 are **done (HW)**. Trackers [#15](https://github.com/gianlucamazza/harbor-kernel/issues/15)
-(M7 era) and [#12](https://github.com/gianlucamazza/harbor-kernel/issues/12) (M8)
-are closed. The ordered work below is availability and optional protection —
-not another foundation milestone.
+| Slice | Status | Evidence |
+| --- | --- | --- |
+| Visibility (`blocked_count` / `block_events`) | **done (QEMU)** | [ADR-0024](adr/0024-parked-task-visibility.md); boot-check |
+| Supervisor `cancel_blocked` → `Cancelled` | **done (QEMU)**; HW stamp if present below | [ADR-0025](adr/0025-cancel-blocked-wait.md); oracle `ipc: reaped cancelled` |
+| Timeout / auto-reap on last send drop | **non-goal** (named residual) | SECURITY; needs successor ADR |
+
+Issue [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) is **closed**.
+[ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) (agent = driver
++ EL0 program) is accepted so preemption/reaping discussions name **which half**
+they mean.
+
+### Current frontier (optional only)
+
+No foundation milestone is open. Remaining items are optional protection, lab
+features, or standing watches — not work that blocks “M8 complete”.
 
 | #   | Work | Done when | Issue |
 | --- | ---- | --------- | ----- |
-| 1   | **Parked-task policy** | [ADR-0024](adr/0024-parked-task-visibility.md) counters + [ADR-0025](adr/0025-cancel-blocked-wait.md) `cancel_blocked` — **done (QEMU)**; timeout still non-goal | [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) |
-| 2   | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
-| 3   | **Optional P-pass** | Tighten the kernel's EL1 Device blankets (not required for M6 v1) | [#2](https://github.com/gianlucamazza/harbor-kernel/issues/2) |
-| 4   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
-
-[ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) (agent = driver
-+ EL0 program) is accepted so reaping/preemption discussions name **which half**
-they mean.
+| 1   | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
+| 2   | **Optional P-pass** | Tighten the kernel's EL1 Device blankets (not required for M6 v1) | [#2](https://github.com/gianlucamazza/harbor-kernel/issues/2) |
+| 3   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 

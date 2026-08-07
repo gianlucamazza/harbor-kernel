@@ -97,7 +97,7 @@ the machine with other agents under the same kernel, tries to:
 | Steal another agent’s saved GPRs / session | Yes — `CURRENT_EL0` publish + assert on entry |
 | Exhaust frames / tables to DoS later agents | Partially — pool is finite; destroy should return frames |
 | Busy-loop at EL0 and starve the system | **Out of scope** — cooperative model (ADR-0006); no preemption |
-| Park forever on a mailbox nobody sends to | **Partially** — the park is voluntary and cannot be forced on a peer, but nothing reclaims the slot. See the residual risk below; new with [ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md) |
+| Park forever on a mailbox nobody sends to | **Mitigated** — supervisor may `cancel_blocked` ([ADR-0025](docs/adr/0025-cancel-blocked-wait.md)); no timeout and no auto-reap on last send drop. Residual below. |
 | Take a second waiter's place on an endpoint | Yes — `Table::park` refuses (`Status::Busy`) and counts a state refusal. One endpoint, one waiter |
 | Feed an RX-owning agent hostile input from the wire | Yes, and it is *supposed* to arrive — the agent is untrusted either way. What must hold is that the handover cannot leave the line armed with nothing to drain (`kernel_core::rxline`, host-tested) |
 | Attack via firmware / JTAG / SD swap | Out of physical-lab model (operator is trusted) |

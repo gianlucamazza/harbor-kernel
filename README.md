@@ -71,12 +71,14 @@ in [`SECURITY.md`](SECURITY.md). Platform and hardware assumptions are in the
 The foundation through **M8** is stamped **done on Raspberry Pi 4B**: console
 endpoint, product beacon, and `SYS_PUTC` retirement included
 ([evidence](docs/verification.md#hardware-evidence-m8-console-endpoint-closed-on-silicon-2026-08-07)).
+Parked-task **visibility and supervisor cancel** are in tree (ADR-0024/0025);
+timeout and auto-reap on last send drop remain named non-goals.
 
 | Area | Current state |
 | --- | --- |
 | Boot and memory | EL2→EL1 boot, early MMU, W^X kernel map, heap, guarded stacks and runtime page-table operations |
 | Execution | Cooperative EL1 tasks; no preemption or SMP |
-| IPC and authority | Mailboxes, capability checks, slot-indexed EL0 authority and refusal accounting |
+| IPC and authority | Mailboxes, capability checks, slot-indexed EL0 authority, cancel of blocked waits |
 | Agents | Private address spaces, multi-SVC sessions, fault termination, manifest loader and blocking receive |
 | Drivers | PL011 driver-agent path with narrow mapping, RX ownership and restoration on kill |
 | Console | EL1 endpoint server plus product beacon; transitional `SYS_PUTC` removed in M8 |
