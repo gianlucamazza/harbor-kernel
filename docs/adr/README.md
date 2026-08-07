@@ -41,6 +41,7 @@ the code that follows.
 | [0022](0022-blocking-recv-and-the-mask-that-travels.md) | Blocking `SYS_RECV`: an agent parks, and `without_irqs` stops spanning a switch   | accepted   |
 | [0023](0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is an EL1 driver task **and** an EL0 program; the driver is what the scheduler runs | accepted   |
 | [0024](0024-parked-task-visibility.md)                      | Parked tasks are counted; reclaim/timeout deferred (issue #13 phase 1)                        | accepted   |
+| [0025](0025-cancel-blocked-wait.md)                         | Cancel a blocked wait — supervisor reaping without a timeout queue (issue #13 phase 2)        | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

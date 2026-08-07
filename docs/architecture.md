@@ -356,7 +356,7 @@ not another foundation milestone.
 
 | #   | Work | Done when | Issue |
 | --- | ---- | --------- | ----- |
-| 1   | **Parked-task visibility / reclaim policy** | [ADR-0024](adr/0024-parked-task-visibility.md): counters land (phase 1); reclaim/timeout is a stated non-goal or a successor | [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) |
+| 1   | **Parked-task policy** | [ADR-0024](adr/0024-parked-task-visibility.md) counters + [ADR-0025](adr/0025-cancel-blocked-wait.md) `cancel_blocked` — **done (QEMU)**; timeout still non-goal | [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) |
 | 2   | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
 | 3   | **Optional P-pass** | Tighten the kernel's EL1 Device blankets (not required for M6 v1) | [#2](https://github.com/gianlucamazza/harbor-kernel/issues/2) |
 | 4   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
@@ -439,6 +439,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md) | Blocking `SYS_RECV`: the agent parks; `without_irqs` stops spanning a switch (**accepted**)         |
 | [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is a **pair**: an EL1 driver task and the EL0 program it drives; the driver is what the scheduler runs (**accepted**) |
 | [ADR-0024](adr/0024-parked-task-visibility.md) | Parked tasks are counted (`blocked_count` / `block_events`); reclaim/timeout deferred (**accepted**) |
+| [ADR-0025](adr/0025-cancel-blocked-wait.md) | Supervisor `cancel_blocked` aborts a parked wait (`Cancelled`); no timeout queue (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

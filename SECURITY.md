@@ -118,6 +118,9 @@ Defined by [ADR-0017](docs/adr/0017-el0-capability-abi.md) and
 | 4 | `SYS_RECV` | `CapRights::RECV` on endpoint in slot — **waits** if the mailbox is empty ([ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md)) |
 | 5 | `SYS_TRY_RECV` | `CapRights::RECV` on endpoint in slot, **never waits** — answers `Empty` |
 
+Reply statuses include `Cancelled` (5) when a parked `SYS_RECV` is aborted by
+supervisor reaping ([ADR-0025](docs/adr/0025-cancel-blocked-wait.md)).
+
 Imm 2 is unassigned (formerly transitional `SYS_PUTC`); `decode(2)` is `Unknown`.
 
 **Structural property:** EL0 passes a **slot index** into its own
@@ -133,7 +136,7 @@ Imm 2 is unassigned (formerly transitional `SYS_PUTC`); `decode(2)` is `Unknown`
 
 Constants load-bearing for the model: mailboxes **8**, endpoints **16**, mailbox
 depth **4** (ADR-0017); capability slots per task **4**; concurrent tasks
-including idle **16** (`sched::MAX_TASKS` — it bounds how many agents can be
+including idle **18** (`sched::MAX_TASKS` — it bounds how many agents can be
 parked at once, see the residual risk below); executable pages an agent may
 declare **16** (`mm::MAX_TEXT_PAGES`, 64 KiB).
 
@@ -184,7 +187,7 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | ----- | ------ |
 | **Preemption** | None. Hostile infinite loop at EL0 or EL1 is DoS. |
 | **Wait-on-IRQ** | Not implemented; an agent that wants an interrupt polls or yields cooperatively. Blocking recv *is* implemented (ADR-0022). |
-| **A parked task may wait forever** | `SYS_RECV` / `ipc::recv` still have **no timeout** and **no reclaim** for an orphaned waiter (endpoint with no live send holder). The task keeps its slot, stack, AS and frames until reset. **Visibility (ADR-0024):** `sched::blocked_count` / `block_events` report how many slots are `Blocked` and how often parks happened — including intentional waiters (console server). Counters do not free capacity. `MAX_TASKS` is 16. Availability surface from ADR-0022; phase-1 fix is observability, not reaping. Not reachable by a hostile agent *alone* — parking requires a grant — but reachable by a buggy one. |
+| **A parked task may wait until cancelled** | **No timeout** still (ADR-0022). **Reaping (ADR-0025):** a supervisor may `ipc::cancel_blocked(id)` — clears the mailbox waiter, wakes the **driver task**, and `recv` returns `Cancelled`. Does not free frames until the task exits and destroys its AS. **Visibility (ADR-0024):** `blocked_count` / `block_events` / `cancel_events`. Intentional waiters (console server) are not auto-reaped. Residual: nothing auto-cancels when the last send holder exits — a buggy creator that never cancels still leaks a slot until reset. `MAX_TASKS` is 18. |
 | **Console TX depends on the server task** | After M8, agent console output is drained by an EL1 server. If that task exits or never runs, agents get `Full` / silent loss; kernel `kprintln` and panic steal still work. |
 | **Capability transfer / revocation** | Not implemented. |
 | **Endpoint release / generation recycle** | No kernel path releases an endpoint, so no kernel path mints a stale handle. The *check* is no longer unexercised: `tests/model_ipc.rs` offers a stale `CapId` — same index, previous generation — at every step of every sequence, and removing the generation comparison from `lookup` is caught in two operations. What stays untested is release itself, which does not exist. |

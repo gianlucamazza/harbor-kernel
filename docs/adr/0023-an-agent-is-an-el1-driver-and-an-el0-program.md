@@ -42,7 +42,7 @@ So an agent is a **pair**, and the schedulable entity is the second half.
 
 | Per agent         | Cost                                                                  |
 | ----------------- | --------------------------------------------------------------------- |
-| One `sched` slot  | `MAX_TASKS = 16`, machine-wide, shared with every EL1 demo and the console server |
+| One `sched` slot  | `MAX_TASKS = 18`, machine-wide, shared with every EL1 demo and the console server |
 | One kernel stack  | `TASK_STACK_USABLE = 16 KiB` on the heap, plus an unmapped guard page |
 | One `El0Session`  | In the TCB (ADR-0017 §1)                                              |
 | One address space | Root, cloned kernel tables, and its window's frames                   |
@@ -70,9 +70,9 @@ because the driver kills itself.
 
 **`MAX_TASKS` is scarce for a reason nobody states.** It went 12 → 14 when the
 loader landed, because two manifest entries needed two _driver_ tasks, then
-14 → 16 for M8's always-on console server plus product beacon. A design where
-the EL0 context were the schedulable entity would not have spent a task slot on
-the loop that drives each agent.
+14 → 16 for M8's always-on console server plus product beacon, then 16 → 18 for
+the reaping oracle. A design where the EL0 context were the schedulable entity
+would not have spent a task slot on the loop that drives each agent.
 
 ### Why this was never written down
 
@@ -108,7 +108,7 @@ should say so in its own Context rather than inheriting the ambiguity.
 
 **4. The measurement is part of the record.**
 
-16 KiB of kernel stack and one of sixteen task slots per agent is the price of
+16 KiB of kernel stack and one of eighteen task slots per agent is the price of
 the current shape. Any future proposal to collapse the pair is arguing against
 those numbers, and they belong here so the argument can be made against
 something.
