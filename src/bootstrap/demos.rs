@@ -601,6 +601,70 @@ pub(super) fn auto_reap_sender() {
 pub(super) static REVOKE_STALE: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 
+/// ADR-0033 / K10: parks until supervisor reaps (Cancelled → return → exit).
+pub(super) fn supervised_child() {
+    let Some(cap) = crate::sched::my_cap(0) else {
+        crate::kprintln!("supervised: no cap");
+        return;
+    };
+    match crate::ipc::recv(cap) {
+        Err(crate::ipc::RecvError::Cancelled) => crate::kprintln!("supervised: cancelled"),
+        Ok(msg) => crate::kprintln!("supervised: unexpected tag={} a={}", msg.tag, msg.a),
+        Err(e) => crate::kprintln!("supervised: FAILED {e:?}"),
+    }
+}
+
+/// ADR-0033: reap a blocked child, wait for Empty, re-spawn (restart), reap again.
+pub(super) fn supervisor_task() {
+    let Ok(ch) = crate::ipc::create_channel() else {
+        crate::kprintln!("supervisor: channel FAILED");
+        return;
+    };
+    let Ok(id) = crate::sched::spawn_with_caps(supervised_child, &[ch.recv]) else {
+        crate::kprintln!("supervisor: child spawn FAILED");
+        return;
+    };
+    // `ch.send` not installed: child parks until reap (default channel, no auto-reap).
+    crate::sched::yield_now();
+    crate::sched::yield_now();
+    match crate::sched::supervisor_reap_blocked(id) {
+        Ok(()) => crate::kprintln!(
+            "supervisor: reaped id={} reap_events={}",
+            id.0,
+            crate::sched::reap_events()
+        ),
+        Err(e) => crate::kprintln!("supervisor: reap FAILED {e:?}"),
+    }
+    for _ in 0..16 {
+        if matches!(
+            crate::sched::task_state(id),
+            Some(kernel_core::tasks::State::Empty)
+        ) {
+            break;
+        }
+        crate::sched::yield_now();
+    }
+    // Restart: same recv grant after slot is free (restart = re-spawn, ADR-0033).
+    match crate::sched::spawn_with_caps(supervised_child, &[ch.recv]) {
+        Ok(id2) => {
+            crate::kprintln!("supervisor: restarted id={}", id2.0);
+            crate::sched::yield_now();
+            crate::sched::yield_now();
+            let _ = crate::sched::supervisor_reap_blocked(id2);
+            for _ in 0..16 {
+                if matches!(
+                    crate::sched::task_state(id2),
+                    Some(kernel_core::tasks::State::Empty)
+                ) {
+                    break;
+                }
+                crate::sched::yield_now();
+            }
+        }
+        Err(e) => crate::kprintln!("supervisor: restart FAILED {e:?}"),
+    }
+}
+
 /// ADR-0032: holds SEND, revokes the channel, then bootstrap sees stale refuse.
 pub(super) fn revoke_held_task() {
     let Some(cap) = crate::sched::my_cap(0) else {

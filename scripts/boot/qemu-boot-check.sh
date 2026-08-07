@@ -285,6 +285,13 @@ grep -qa 'ipc: auto-reaped cancelled' "${log}" ||
 # ADR-0032 / K3: product-path revoke makes a stale CapId refuse send.
 grep -qa 'ipc: release stale refused' "${log}" ||
 	fail "channel revoke did not refuse a stale CapId (ADR-0032)"
+# ADR-0033 / K10: supervisor reaps a blocked child and restarts by re-spawn.
+grep -qaE 'supervisor: reaped id=[0-9]+ reap_events=[1-9]' "${log}" ||
+	fail "supervisor did not reap a blocked child (ADR-0033)"
+grep -qaE 'supervisor: restarted id=[0-9]+' "${log}" ||
+	fail "supervisor did not restart by re-spawn (ADR-0033)"
+grep -qa 'supervised: cancelled' "${log}" ||
+	fail "supervised child did not observe Cancelled"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

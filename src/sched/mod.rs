@@ -44,9 +44,9 @@ use crate::sync::SyncCell;
 ///
 /// It went 12 → 14 when the loader landed, 14 → 16 for M8 console server +
 /// product beacon, 16 → 18 for the ADR-0025 reaping oracle, then 18 → 19 for the K1 irq-wait oracle (ADR-0028),
-/// 19 → 21 for ADR-0031 auto-reap sender/receiver. Raising it costs task stacks and
+/// 19 → 24 for K2/K3 oracles + K10 supervisor. Raising it costs task stacks and
 /// page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 22;
+pub const MAX_TASKS: usize = 24;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -469,6 +469,56 @@ pub fn take_cancel_wait() -> bool {
 #[inline]
 pub fn cancel_events() -> u32 {
     CANCEL_EVENTS.load(Ordering::Relaxed)
+}
+
+/// Why [`supervisor_reap_blocked`] refused (ADR-0033 / K10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReapError {
+    /// Target is the idle task.
+    Idle,
+    /// Unknown task id.
+    BadId,
+    /// Task is not currently [`kernel_core::tasks::State::Blocked`].
+    NotBlocked,
+}
+
+static REAP_EVENTS: AtomicU32 = AtomicU32::new(0);
+
+/// Observe a task's lifecycle state (creator/supervisor path, ADR-0033).
+pub fn task_state(id: TaskId) -> Option<kernel_core::tasks::State> {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; single core.
+        let sched = unsafe { &*SCHED.get() };
+        sched.tasks.state(id)
+    })
+}
+
+/// Reap a **blocked** non-idle task: cancel its wait so it can exit (ADR-0033).
+///
+/// Product API over [`crate::ipc::cancel_blocked`]. The child must treat
+/// `Cancelled` as terminal for this wait and return from its entry (trampoline
+/// exits). Does **not** force-kill a Running EL0 session or destroy a remote AS.
+pub fn supervisor_reap_blocked(id: TaskId) -> Result<(), ReapError> {
+    if id == Tasks::<MAX_TASKS>::IDLE {
+        return Err(ReapError::Idle);
+    }
+    match task_state(id) {
+        None => Err(ReapError::BadId),
+        Some(kernel_core::tasks::State::Blocked) => {
+            if !ipc::cancel_blocked(id) {
+                return Err(ReapError::NotBlocked);
+            }
+            REAP_EVENTS.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
+        Some(_) => Err(ReapError::NotBlocked),
+    }
+}
+
+/// Successful [`supervisor_reap_blocked`] calls since boot.
+#[inline]
+pub fn reap_events() -> u32 {
+    REAP_EVENTS.load(Ordering::Relaxed)
 }
 
 /// Wake queue drop count (full queue under IRQ pressure).

@@ -54,7 +54,7 @@ design ADRs.
 | Evidence ≠ compile | Boundaries stay claims with gates |
 
 Open work that realises these at scale (design ADR before code): cap **transfer**
-(K3 residual), supervisor lifecycle (**K10**), denser agents (**K5**),
+(K3 residual), denser agents (**K5**),
 preemption/budget (**K4**), SMP (**K8**), product storage/network/naming
 (**P2–P5**), K2 timeout residual. First slices paid: external load (**K6**),
 IRQ wait EL1+EL0 (**K1**), last-SEND-hold auto-reap (**K2**), channel revoke
@@ -122,13 +122,14 @@ concrete composition needs them — not as ambient kernel features.
 [ADR-0029](adr/0029-agent-store-in-image.md)); wait-on-IRQ EL1+EL0 (**K1**,
 [ADR-0028](adr/0028-wait-on-irq.md) + [ADR-0030](adr/0030-el0-irq-capability.md));
 last-SEND-hold auto-reap (**K2**, [ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md));
-channel revoke (**K3**, [ADR-0032](adr/0032-k3-channel-revoke.md)); multi-agent
+channel revoke (**K3**, [ADR-0032](adr/0032-k3-channel-revoke.md)); supervisor
+reap/restart (**K10**, [ADR-0033](adr/0033-k10-supervisor-reap.md)); multi-agent
 product store (**P1**); host compose tools (**P6**).
 
-**Must still pay (H1 critical path):** supervisor lifecycle (**K10**), second
-driver-agent (**K9**), naming (**P5**), on-target storage (**P2**); network
-(**P3**) and product display (**P4**) when an appliance composition needs them;
-density (**K5**); K2 **timeout** and K3 **transfer** residuals. Working order:
+**Must still pay (H1 critical path):** second driver-agent (**K9**), naming
+(**P5**), on-target storage (**P2**); network (**P3**) and product display
+(**P4**) when needed; density (**K5**). Residuals: K2 **timeout**, K3 **transfer**,
+K10 creator-exit cascade. Working order:
 [roadmap § H1 working order](roadmap.md#h1-working-order-product-critical-path).
 
 ### H2 — Boundary operating system

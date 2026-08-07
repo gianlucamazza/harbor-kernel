@@ -43,7 +43,7 @@ the named level — not when prose wishes it.
 | Horizon | Product outcome | Tracks that close it |
 | --- | --- | --- |
 | **H0 — Foundation** | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel | **Done (HW)** — M0–M8 + ADR-0024/0025 |
-| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** K1, K2 (auto-reap), K3 (revoke), K6, P1, P6. **Still on the critical path:** K10, K9, then P2 / P5 (and P3/P4 as the appliance needs them). K5 helps density; K2 timeout and K3 transfer residuals open |
+| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** K1, K2 (auto-reap), K3 (revoke), K10 (reap/restart), K6, P1, P6. **Still on the critical path:** K9, then P2 / P5 (and P3/P4 as the appliance needs them). K5 helps density; residuals: K2 timeout, K3 transfer, K10 creator-exit cascade |
 | **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | K4, K5 (remainder), K7, K8, remainder of P2–P5, hardening of first slices to **done (HW)** where claimed |
 
 **H1 product bar (what “composition OS” means here):**
@@ -52,7 +52,7 @@ the named level — not when prose wishes it.
 2. **Run several agents** from a product store, not a single beacon (P1; first slice done QEMU).
 3. **Load without rebuild-only** — external store path (K6; done QEMU); on-target persist/load still P2.
 4. **Wait and drive devices as agents** — IRQ wait EL0/EL1 (K1 done QEMU); second driver-agent (K9 open).
-5. **Supervise** — cancel (HW) + K2 last-hold auto-reap (QEMU); restart policy (**K10** open); K2 timeout residual.
+5. **Supervise** — cancel (HW) + K2 auto-reap + K10 reap/restart (QEMU); creator-exit cascade residual; K2 timeout residual.
 6. **Move authority** — channel revoke done (QEMU); **transfer** still open (K3 residual).
 7. **Find services** — naming without hard-wired oracle tables (P5; wants K3).
 
@@ -75,7 +75,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | K7 | ASID (+ TTBR1 if required) | **open** | Production isolation without cloned-kernel-only story as the end state | Design ADR |
 | K8 | SMP | **open** | Multi-core runqueue/IRQ model on silicon | Design ADR |
 | K9 | Driver-as-agent beyond PL011 (+ IRQ caps) | **open** | Second peripheral on the M6 pattern; IRQ-cap path | K1 useful; ADR-0013 pattern |
-| K10 | Supervisor lifecycle (restart, creator exit) | **open** | Product supervisor can restart/reap without ad-hoc demos | Builds on 0018/0025 |
+| K10 | Supervisor lifecycle (restart, creator exit) | **done (QEMU)** first slice ([ADR-0033](adr/0033-k10-supervisor-reap.md) reap blocked + re-spawn); creator-exit cascade still open | `supervisor_reap_blocked`; restart = spawn after Empty | 0018/0025 → 0033 |
 
 ---
 
@@ -102,12 +102,12 @@ its design ADR before boundary code.
 
 | Step | Track(s) | Why now (mission fit) |
 | --- | --- | --- |
-| 1 | **K10** supervisor lifecycle | Creator/supervisor restarts and reaps real product agents |
-| 2 | **K9** second driver-as-agent | Proves device agents beyond PL011 using IRQ caps (K1) |
-| 3 | **P5** naming / discovery | Compositions find endpoints without oracle hard-wiring (K3 revoke helps) |
-| 4 | **P2** storage path | Appliance load/persist without rebuild-only workflow |
-| 5 | **P3** / **P4** as needed | Edge net / product display when a concrete composition needs them |
-| 6 | **K5** density | Scale agent count for multi-agent appliances (can interleave earlier if blocked on slots) |
+| 1 | **K9** second driver-as-agent | Proves device agents beyond PL011 using IRQ caps (K1) |
+| 2 | **P5** naming / discovery | Compositions find endpoints without oracle hard-wiring (K3 revoke helps) |
+| 3 | **P2** storage path | Appliance load/persist without rebuild-only workflow |
+| 4 | **P3** / **P4** as needed | Edge net / product display when a concrete composition needs them |
+| 5 | **K5** density | Scale agent count for multi-agent appliances (can interleave earlier if blocked on slots) |
+| — | **K10 creator-exit cascade** (later) | Reap children when creator exits |
 | — | **K3 transfer** (later slice) | Move caps between TCB slots; revoke first slice done |
 | — | **K2 timeout** (later slice) | Deadline queue; not required for last-hold auto-reap |
 
@@ -115,15 +115,16 @@ its design ADR before boundary code.
 **K7** ASID/TTBR1, **K8** SMP — production fairness and isolation depth, not
 the first composition demo.
 
-First slices already paid for H1 entry: **K1**, **K2** (auto-reap), **K3** (revoke), **K6**, **P1**, **P6**.
+First slices already paid for H1 entry: **K1**, **K2** (auto-reap), **K3** (revoke),
+**K10** (reap/restart), **K6**, **P1**, **P6**.
 
 ```text
 Mission: agents · grants · evidence · finish the OS
                 │
     H0 foundation ████████ done (HW)
                 │
-    H1 composition ████░░░░ K1 K2 K3 K6 P1 P6 done (QEMU)
-                │          next: K10 → K9 → P5 → P2 → (P3|P4) · K5
+    H1 composition █████░░░ K1 K2 K3 K10 K6 P1 P6 done (QEMU)
+                │          next: K9 → P5 → P2 → (P3|P4) · K5
                 │
     H2 boundary    ░░░░░░░░ K4 K7 K8 + HW stamps + remaining P depth
 ```

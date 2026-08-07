@@ -564,6 +564,12 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("ipc: orphan channel FAILED {e:?}"),
         }
 
+        // ADR-0033 / K10: product supervisor reaps a blocked child and restarts.
+        match crate::sched::spawn(demos::supervisor_task) {
+            Ok(_) => crate::kprintln!("sched: spawned supervisor"),
+            Err(e) => crate::kprintln!("sched: spawn supervisor FAILED {e:?}"),
+        }
+
         // ADR-0031 / K2: ephemeral channel — sole SEND holder exits, waiter
         // is auto-cancelled without a supervisor reaper.
         match crate::ipc::create_channel_ephemeral() {

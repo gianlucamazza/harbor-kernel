@@ -193,7 +193,7 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | **Capability transfer / revocation** | **Revoke (ADR-0032, done QEMU):** `creator_revoke` / `revoke_held` kill both channel ends; stale CapId refused on product path (`ipc: release stale refused`). **Transfer** between TCB slots still open (K3 residual). |
 | **Endpoint release / generation recycle** | **Done (QEMU first slice):** real `Table::revoke_channel` frees endpoints for reuse; host tests + boot oracle. Model still offers synthetic stale handles at every step. |
 | **IRQ notification capabilities** | **Done (QEMU first slice):** `kernel_core::irqcap` + bootstrap mint of timer cookie; EL0 `SYS_WAIT_IRQ` (ADR-0030). Residual: no transfer/revoke of IRQ caps; no manifest grant of IRQ caps yet. |
-| **Creator lifecycle** | Bootstrap outlives agents; product restart/reap policy **open (K10)**. Supervisor cancel of waits is done (HW). |
+| **Creator lifecycle** | **Reap/restart first slice (ADR-0033, QEMU):** `supervisor_reap_blocked` + re-spawn after Empty. Residual: creator-exit cascade; force-kill Running EL0 without cooperation; remote AS destroy. |
 | **Heap wild free** | Double-free refused; adversarial pointer that looks like a header can still corrupt. |
 | **DTB** | Mapped RO; board truth is compiled-in (ADR-0011). |
 | **Firmware / GIC Group 0** | Inherited from pinned `start4.elf` (ADR-0004). |
