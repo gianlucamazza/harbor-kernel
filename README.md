@@ -93,8 +93,8 @@ Snapshot, 2026-08-07 — status of record is [`docs/roadmap.md`](docs/roadmap.md
 | | |
 | --- | --- |
 | **Foundation** | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits |
-| **H1 first slices (QEMU)** | Store (**K6**), wait-on-IRQ (**K1**), auto-reap (**K2**), revoke (**K3**), supervisor reap/restart (**K10**), multi-agent product (**P1**), compose tools (**P6**) |
-| **H1 next** | Second driver-agent, naming, storage — [roadmap](docs/roadmap.md) |
+| **H1 first slices (QEMU)** | Store (**K6**), wait-on-IRQ (**K1**), auto-reap (**K2**), revoke (**K3**), RNG agent (**K9**), supervisor (**K10**), multi-agent (**P1**), compose (**P6**) |
+| **H1 next** | Naming, storage — [roadmap](docs/roadmap.md) |
 | **Not yet (later)** | Preemption/budget, SMP, ASID, full product net/display depth, … |
 
 **What works today (short list):** cooperative tasks; message IPC; EL0 agents

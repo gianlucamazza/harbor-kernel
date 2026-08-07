@@ -292,6 +292,11 @@ grep -qaE 'supervisor: restarted id=[0-9]+' "${log}" ||
 	fail "supervisor did not restart by re-spawn (ADR-0033)"
 grep -qa 'supervised: cancelled' "${log}" ||
 	fail "supervised child did not observe Cancelled"
+# ADR-0034 / K9: second driver-as-agent (RNG200 page); QEMU may fault the load.
+grep -qaE 'rng-agent: map (read|fault) ok' "${log}" ||
+	fail "rng-agent did not exercise the Device page map (ADR-0034)"
+grep -qa 'rng-agent: killed ok' "${log}" ||
+	fail "rng-agent did not destroy/unmap (ADR-0034)"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

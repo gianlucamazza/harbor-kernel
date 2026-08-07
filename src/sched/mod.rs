@@ -46,7 +46,7 @@ use crate::sync::SyncCell;
 /// product beacon, 16 → 18 for the ADR-0025 reaping oracle, then 18 → 19 for the K1 irq-wait oracle (ADR-0028),
 /// 19 → 24 for K2/K3 oracles + K10 supervisor. Raising it costs task stacks and
 /// page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 24;
+pub const MAX_TASKS: usize = 25;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,

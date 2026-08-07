@@ -370,6 +370,63 @@ pub(super) fn pl011_agent_task() {
     crate::kprintln!("pl011-agent: killed ok  pool={free_after} (was {free_before})");
 }
 
+/// K9 / ADR-0034: RNG200 page agent — second peripheral on the M6 map pattern.
+///
+/// Maps one Device page, EL0 loads `RNG_CTRL`, destroy = kill. QEMU has no
+/// RNG200 backend: a data abort on the load is an accepted path (`map fault ok`).
+pub(super) fn rng_agent_task() {
+    use crate::bsp::board::memmap::{FRAME_SIZE, RNG200_BASE, RNG200_REG_BYTES, USER_RNG_VA};
+    use kernel_core::a64;
+
+    if RNG200_REG_BYTES != FRAME_SIZE {
+        crate::kprintln!("rng-agent: RNG200_REG_BYTES must be one page");
+        return;
+    }
+
+    let free_before = mm::frames::free_count();
+    let mut agent = match Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("rng-agent: create FAILED {e:?}");
+            return;
+        }
+    };
+    if let Err(e) =
+        agent
+            .aspace_mut()
+            .map_device_page(USER_RNG_VA, RNG200_BASE as u64, Perms::USER_RW)
+    {
+        crate::kprintln!("rng-agent: map FAILED {e:?}");
+        agent.destroy();
+        return;
+    }
+
+    // USER_RNG_VA = 0x5100_0000 → movz x0, #0x5100, lsl #16; ldr w1, [x0]; svc #0
+    let mut prog = [0u8; 12];
+    let w0 = a64::le_bytes(a64::movz_x_lsl16(0, 0x5100));
+    let w1 = a64::le_bytes(a64::ldr_w_imm(1, 0, 0));
+    let w2 = a64::le_bytes(a64::svc(0));
+    prog[0..4].copy_from_slice(&w0);
+    prog[4..8].copy_from_slice(&w1);
+    prog[8..12].copy_from_slice(&w2);
+
+    match agent.run_user_prog(&prog) {
+        Ok(el0::El0Outcome::Svc { imm }) if matches!(syscall::decode(imm), Syscall::Ping) => {
+            crate::kprintln!("rng-agent: map read ok");
+        }
+        Ok(el0::El0Outcome::DataAbort { .. }) | Ok(el0::El0Outcome::OtherSync { .. }) => {
+            // Missing bus backend (typical QEMU): map still granted and revoked.
+            crate::kprintln!("rng-agent: map fault ok");
+        }
+        Ok(other) => crate::kprintln!("rng-agent: unexpected {other:?}"),
+        Err(e) => crate::kprintln!("rng-agent: el0 FAILED {e:?}"),
+    }
+
+    agent.destroy();
+    let free_after = mm::frames::free_count();
+    crate::kprintln!("rng-agent: killed ok  pool={free_after} (was {free_before})");
+}
+
 /// M3 demo: yield so the peer's lines interleave on the console.
 pub(super) fn demo_task_a() {
     for i in 0..4 {

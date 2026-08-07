@@ -107,8 +107,8 @@ Do **not** treat this block as a second status table — it only steers readers.
 | Layer | State (2026-08-07) |
 | --- | --- |
 | **H0 foundation** | **done (HW)** on Pi 4B (M0–M8 + parked cancel) |
-| **H1 first slices** | **done (QEMU):** K1, K2 auto-reap, K3 revoke, K10 reap/restart, K6, P1, P6 |
-| **H1 next** | K9 → P5 → P2 → (P3\|P4) · K5 |
+| **H1 first slices** | **done (QEMU):** K1–K3, K9 RNG map, K10, K6, P1, P6 |
+| **H1 next** | P5 → P2 → (P3\|P4) · K5 |
 | **Residuals** | K2 timeout · K3 transfer · K10 creator-exit cascade · H2 · HW stamps |
 | **Standing watch** | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020 |
 

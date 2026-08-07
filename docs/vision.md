@@ -154,10 +154,11 @@ concrete composition needs them — not as ambient kernel features.
 [ADR-0028](adr/0028-wait-on-irq.md) + [ADR-0030](adr/0030-el0-irq-capability.md));
 last-SEND-hold auto-reap (**K2**, [ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md));
 channel revoke (**K3**, [ADR-0032](adr/0032-k3-channel-revoke.md)); supervisor
-reap/restart (**K10**, [ADR-0033](adr/0033-k10-supervisor-reap.md)); multi-agent
+reap/restart (**K10**, [ADR-0033](adr/0033-k10-supervisor-reap.md)); RNG map agent
+(**K9**, [ADR-0034](adr/0034-k9-rng-driver-agent.md)); multi-agent
 product store (**P1**); host compose tools (**P6**).
 
-**Must still pay (H1 critical path):** second driver-agent (**K9**), naming
+**Must still pay (H1 critical path):** naming
 (**P5**), on-target storage (**P2**); network (**P3**) and product display
 (**P4**) when needed; density (**K5**). Residuals: K2 **timeout**, K3 **transfer**,
 K10 creator-exit cascade. Working order:

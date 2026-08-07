@@ -451,6 +451,12 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("sched: spawn pl011-agent FAILED {e:?}"),
         }
 
+        // K9 / ADR-0034: second peripheral agent (RNG200 page map + kill).
+        match crate::sched::spawn(demos::rng_agent_task) {
+            Ok(_) => crate::kprintln!("sched: spawned rng-agent"),
+            Err(e) => crate::kprintln!("sched: spawn rng-agent FAILED {e:?}"),
+        }
+
         // Multi-agent shell: two TCBs, two AS live together, each EL0 once.
         match crate::sched::spawn(agent::concurrent_agent_alpha) {
             Ok(_) => crate::kprintln!("sched: spawned agent-a"),

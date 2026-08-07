@@ -52,8 +52,16 @@ pub const PM_BASE: usize = PERIPHERAL_BASE + 0x0010_0000;
 /// RNG200 (iproc-rng200) register block — 0x28 bytes.
 ///
 /// Low peripheral mode: legacy bus `0x7E10_4000` → ARM `0xFE10_4000`.
-/// Covered by the existing peripherals Device window (no extra map).
+/// Covered by the existing peripherals Device window (no extra map for EL1).
 pub const RNG200_BASE: usize = PERIPHERAL_BASE + 0x0010_4000;
+
+/// RNG200 register block size for **agent** Stage-1 maps (ADR-0013 / ADR-0034).
+pub const RNG200_REG_BYTES: usize = FRAME_SIZE;
+
+/// User VA where an EL0 agent maps the RNG200 page (PA = [`RNG200_BASE`]).
+///
+/// Disjoint from [`USER_PL011_VA`] and from [`USER_VA_BASE`].
+pub const USER_RNG_VA: u64 = 0x0000_0000_5100_0000;
 
 /// SPI0 (SPI master 0) register block.
 ///
