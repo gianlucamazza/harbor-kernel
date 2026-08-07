@@ -242,7 +242,7 @@ grep -qa 'ipc: got tag=1 a=42' "${log}" ||
 # dead endpoint too, so a boot that filled a four-deep mailbox would have
 # satisfied this assertion without any capability ever being checked.
 #
-# Exactly five, not "at least one". The count is machine-wide and every
+# Exactly six, not "at least one". The count is machine-wide and every
 # producer is deliberate:
 #
 #   1. the M4 forger, with a capability it does not hold
@@ -250,13 +250,14 @@ grep -qa 'ipc: got tag=1 a=42' "${log}" ||
 #   3. the EL0 agent denied the console
 #   4-5. the manifest's `mute`, twice — it runs the same image as `beacon` and was
 #        granted no console slot, so both of its console SYS_SEND calls are refused
+#   6. ADR-0032 creator_try_send of a CapId after channel revoke (stale handle)
 #
 # A range would let any one of them satisfy the assertion for the others; it
 # already did, while a bug had the counter reset by any successful send in
-# between. It was three until the loader landed, and the two it gained are the
-# manifest demonstrating that authority is in the table.
-grep -qaE 'ipc: refuse count=5 ' "${log}" ||
-	fail "authority refusals are not exactly the five the boot performs"
+# between. It was three until the loader landed, five with the loader, six with
+# product-path revoke.
+grep -qaE 'ipc: refuse count=6 ' "${log}" ||
+	fail "authority refusals are not exactly the six the boot performs"
 # ADR-0024: parks leave a non-zero event count (console server parks repeatedly).
 # Instantaneous blocked= can be zero if sampled while the server is draining.
 grep -qaE 'sched: blocked=[0-9]+ block_events=[1-9][0-9]*' "${log}" ||
@@ -281,6 +282,9 @@ grep -qaE 'ipc: cancel issued cancel_events=[1-9]' "${log}" ||
 # ADR-0031 / K2: last SEND-hold drop on an ephemeral channel auto-cancels.
 grep -qa 'ipc: auto-reaped cancelled' "${log}" ||
 	fail "ephemeral last-hold auto-reap did not cancel the waiter (ADR-0031)"
+# ADR-0032 / K3: product-path revoke makes a stale CapId refuse send.
+grep -qa 'ipc: release stale refused' "${log}" ||
+	fail "channel revoke did not refuse a stale CapId (ADR-0032)"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

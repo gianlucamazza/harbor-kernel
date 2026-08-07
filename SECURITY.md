@@ -97,7 +97,7 @@ the machine with other agents under the same kernel, tries to:
 | Steal another agent’s saved GPRs / session | Yes — `CURRENT_EL0` publish + assert on entry |
 | Exhaust frames / tables to DoS later agents | Partially — pool is finite; destroy should return frames |
 | Busy-loop at EL0 and starve the system | **Open residual (K4)** — cooperative today (ADR-0006); preemption/budget is a completeness track, not a permanent non-goal ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)) |
-| Park forever on a mailbox nobody sends to | **Mitigated** — supervisor may `cancel_blocked` ([ADR-0025](docs/adr/0025-cancel-blocked-wait.md)); timeout/auto-reap still **open (K2)**. Residual below. |
+| Park forever on a mailbox nobody sends to | **Mitigated** — supervisor `cancel_blocked` ([ADR-0025](docs/adr/0025-cancel-blocked-wait.md)); last-SEND-hold auto-reap on ephemeral channels ([ADR-0031](docs/adr/0031-k2-last-send-hold-auto-reap.md), QEMU). Residual: **timeout queue** (K2 later); see residual table. |
 | Take a second waiter's place on an endpoint | Yes — `Table::park` refuses (`Status::Busy`) and counts a state refusal. One endpoint, one waiter |
 | Feed an RX-owning agent hostile input from the wire | Yes, and it is *supposed* to arrive — the agent is untrusted either way. What must hold is that the handover cannot leave the line armed with nothing to drain (`kernel_core::rxline`, host-tested) |
 | Attack via firmware / JTAG / SD swap | Out of physical-lab model (operator is trusted) |
@@ -150,7 +150,7 @@ declare **16** (`mm::MAX_TEXT_PAGES`, 64 KiB).
 | W^X kernel map + guard pages | Yes (fault-probed HW) | Protects kernel **from itself** more than from a mapped peer |
 | Per-agent `TTBR0` + user VA window | Yes (M5 HW) | Kernel maps **cloned** into user root with EL0-denied AP ([ADR-0014](docs/adr/0014-ttbr-split-m5.md) option C) — not TTBR1 high-half |
 | Page-sized device maps for agents | Yes (M6, PL011) | Kernel EL1 keeps coarse `DEVICE_REGIONS` (16 MiB peripherals + GIC) — **risk-accepted** 2026-08-07; agents never receive those blankets ([ADR-0013](docs/adr/0013-narrow-device-windows.md)) |
-| Slot-indexed caps | Yes (M7 HW) | No transfer; grants only at creation |
+| Slot-indexed caps | Yes (M7 HW) | Creator channel revoke (ADR-0032, QEMU); **transfer** between agents still open |
 | Fault → end session, creator decides | Yes (ADR-0018, M7 HW) | Creator exit leaves agents unsupervised; no restart policy |
 | Published `CURRENT_EL0` (`AtomicPtr`, ADR-0019) | Yes (HW 2026-08-07) | Stale publish panics on entry; residual: assembly assumes symbol is a pointer |
 | Grants bounded by the loader's own table ([ADR-0021](docs/adr/0021-agents-as-data-and-the-manifest.md)) | Yes (HW 2026-08-07) | The manifest is **in the image** — as trusted as the code it replaced. It makes authority legible, not dynamic: no revocation, no delegation |
@@ -190,8 +190,8 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | **Wait-on-IRQ** | **Done (QEMU):** EL1 `wait_for_irq` ([ADR-0028](docs/adr/0028-wait-on-irq.md)); EL0 `SYS_WAIT_IRQ` via IRQ notification cap ([ADR-0030](docs/adr/0030-el0-irq-capability.md)). Residual: no multi-waiter, no dynamic register, no cancel of IRQ parks. |
 | **A parked task may wait until cancelled** | **Reaping (ADR-0025, done HW):** supervisor `ipc::cancel_blocked`. **Last-SEND-hold auto-reap (ADR-0031, done QEMU):** ephemeral channels cancel the waiter when the last TCB SEND hold drops (`create_channel_ephemeral`); default `create_channel` (console) does **not**. **Visibility (ADR-0024).** Residual: **no timeout queue** (K2 later slice); frames free only when the task exits and destroys its AS. |
 | **Console TX depends on the server task** | After M8, agent console output is drained by an EL1 server. If that task exits or never runs, agents get `Full` / silent loss; kernel `kprintln` and panic steal still work. |
-| **Capability transfer / revocation** | Not implemented. |
-| **Endpoint release / generation recycle** | No kernel path releases an endpoint, so no kernel path mints a stale handle. The *check* is no longer unexercised: `tests/model_ipc.rs` offers a stale `CapId` — same index, previous generation — at every step of every sequence, and removing the generation comparison from `lookup` is caught in two operations. What stays untested is release itself, which does not exist. |
+| **Capability transfer / revocation** | **Revoke (ADR-0032, done QEMU):** `creator_revoke` / `revoke_held` kill both channel ends; stale CapId refused on product path (`ipc: release stale refused`). **Transfer** between TCB slots still open (K3 residual). |
+| **Endpoint release / generation recycle** | **Done (QEMU first slice):** real `Table::revoke_channel` frees endpoints for reuse; host tests + boot oracle. Model still offers synthetic stale handles at every step. |
 | **IRQ notification capabilities** | **Done (QEMU first slice):** `kernel_core::irqcap` + bootstrap mint of timer cookie; EL0 `SYS_WAIT_IRQ` (ADR-0030). Residual: no transfer/revoke; no manifest grant of IRQ caps yet. |
 
 | **Creator lifecycle** | Bootstrap outlives agents; reaping undefined. |

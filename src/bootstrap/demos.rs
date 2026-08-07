@@ -597,6 +597,40 @@ pub(super) fn auto_reap_sender() {
     // Exit without sending — last SEND hold drop auto-cancels the waiter.
 }
 
+/// Raw CapId bits published so bootstrap can try a stale send after revoke.
+pub(super) static REVOKE_STALE: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+/// ADR-0032: holds SEND, revokes the channel, then bootstrap sees stale refuse.
+pub(super) fn revoke_held_task() {
+    let Some(cap) = crate::sched::my_cap(0) else {
+        crate::kprintln!("ipc: revoke-held has no cap");
+        return;
+    };
+    match crate::ipc::revoke_held(cap) {
+        Ok(()) => {
+            crate::kprintln!("ipc: held-revoke ok");
+            // Prove the dead handle cannot send (same CapId bits).
+            let stale = kernel_core::cap::CapId::from_raw(cap.raw());
+            match crate::ipc::creator_try_send(
+                stale,
+                kernel_core::ipc::Message {
+                    tag: 99,
+                    a: 0,
+                    b: 0,
+                },
+            ) {
+                Err(crate::ipc::SendError::BadCap) => {
+                    crate::kprintln!("ipc: release stale refused")
+                }
+                Ok(()) => crate::kprintln!("ipc: release stale UNEXPECTED send ok"),
+                Err(e) => crate::kprintln!("ipc: release stale unexpected {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("ipc: held-revoke FAILED {e:?}"),
+    }
+}
+
 /// K1 / ADR-0028 + ADR-0030: EL1 timer wait, then EL0 `SYS_WAIT_IRQ` on the
 /// same cookie (sequential so the one-waiter table is free).
 ///

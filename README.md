@@ -46,8 +46,8 @@ Full contrast:
 | | |
 | --- | --- |
 | **Foundation** | **Complete on Pi 4B** (2026-08-07): tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits |
-| **H1 first slices (QEMU)** | External agent store (**K6**), wait-on-IRQ EL1+EL0 (**K1**), last-SEND-hold auto-reap (**K2**), multi-agent product store (**P1**), host compose tools (**P6**) |
-| **H1 next** | Cap economy, supervisor lifecycle, second driver-agent, naming, storage — [roadmap](docs/roadmap.md) |
+| **H1 first slices (QEMU)** | External agent store (**K6**), wait-on-IRQ EL1+EL0 (**K1**), last-SEND-hold auto-reap (**K2**), channel revoke (**K3**), multi-agent product store (**P1**), host compose tools (**P6**) |
+| **H1 next** | Supervisor lifecycle, second driver-agent, naming, storage — [roadmap](docs/roadmap.md) |
 | **Goal** | Complete microkernel (**K**) and product OS (**P**) under agents + grants + evidence |
 | **Not yet (later)** | Preemption/budget, SMP, ASID, full product net/display depth, … |
 
@@ -59,9 +59,9 @@ composition via injected store (beacon + chirp); EL1+EL0 IRQ wait on timer cooki
 | --- | --- |
 | Platform | Single-core AArch64, Pi 4B, early MMU, W^X, heap, guarded stacks |
 | Execution | Cooperative only — preemption/SMP **open** |
-| Authority | Slot caps, refuse accounting, cancel blocked wait — transfer/timeout **open** |
+| Authority | Slot caps, refuse accounting, cancel, last-hold auto-reap, channel revoke — transfer/timeout **open** |
 | Product OS | Multi-agent store composition (QEMU); broader services **open** |
-| Verification | 309 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 312 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

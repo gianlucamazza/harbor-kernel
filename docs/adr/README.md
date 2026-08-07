@@ -48,6 +48,7 @@ the code that follows.
 | [0029](0029-agent-store-in-image.md)                        | Agent store lives in the kernel image section (placement)                                         | accepted   |
 | [0030](0030-el0-irq-capability.md)                          | K1 remainder — EL0 IRQ notification capability and `SYS_WAIT_IRQ`                                   | accepted   |
 | [0031](0031-k2-last-send-hold-auto-reap.md)                 | K2 first slice — last SEND-hold auto-cancel on ephemeral channels                                   | accepted   |
+| [0032](0032-k3-channel-revoke.md)                           | K3 first slice — channel revoke and generation recycle                                              | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

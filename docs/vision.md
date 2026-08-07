@@ -53,12 +53,13 @@ design ADRs.
 | Authority is enumerable | Audit reads a grant table |
 | Evidence ≠ compile | Boundaries stay claims with gates |
 
-Open work that realises these at scale (design ADR before code): reclaim and
-cap economy (**K2**/**K3**), supervisor lifecycle (**K10**), denser agents
-(**K5**), preemption/budget (**K4**), SMP (**K8**), product storage/network/
-naming (**P2–P5**). First slices paid: external load (**K6**), IRQ wait EL1+EL0
-(**K1**), multi-agent product store (**P1**), compose tools (**P6**). Status and
-H1 order: [roadmap](roadmap.md).
+Open work that realises these at scale (design ADR before code): cap **transfer**
+(K3 residual), supervisor lifecycle (**K10**), denser agents (**K5**),
+preemption/budget (**K4**), SMP (**K8**), product storage/network/naming
+(**P2–P5**), K2 timeout residual. First slices paid: external load (**K6**),
+IRQ wait EL1+EL0 (**K1**), last-SEND-hold auto-reap (**K2**), channel revoke
+(**K3**), multi-agent product store (**P1**), compose tools (**P6**). Status
+and H1 order: [roadmap](roadmap.md).
 
 ---
 
@@ -121,13 +122,13 @@ concrete composition needs them — not as ambient kernel features.
 [ADR-0029](adr/0029-agent-store-in-image.md)); wait-on-IRQ EL1+EL0 (**K1**,
 [ADR-0028](adr/0028-wait-on-irq.md) + [ADR-0030](adr/0030-el0-irq-capability.md));
 last-SEND-hold auto-reap (**K2**, [ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md));
-multi-agent product store (**P1**); host compose tools (**P6**).
+channel revoke (**K3**, [ADR-0032](adr/0032-k3-channel-revoke.md)); multi-agent
+product store (**P1**); host compose tools (**P6**).
 
-**Must still pay (H1 critical path):** cap transfer/revoke (**K3**), supervisor
-lifecycle (**K10**), second driver-agent (**K9**), naming (**P5**), on-target
-storage (**P2**); network (**P3**) and product display (**P4**) when an
-appliance composition needs them; density (**K5**) as agent count grows; K2
-**timeout** residual. Working order:
+**Must still pay (H1 critical path):** supervisor lifecycle (**K10**), second
+driver-agent (**K9**), naming (**P5**), on-target storage (**P2**); network
+(**P3**) and product display (**P4**) when an appliance composition needs them;
+density (**K5**); K2 **timeout** and K3 **transfer** residuals. Working order:
 [roadmap § H1 working order](roadmap.md#h1-working-order-product-critical-path).
 
 ### H2 — Boundary operating system

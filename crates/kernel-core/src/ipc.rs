@@ -13,14 +13,14 @@
 //! boot log — and that assertion could be satisfied by a full mailbox, which is
 //! not a capability check at all.
 //!
-//! # The generation field, and what it cannot do yet
+//! # The generation field
 //!
 //! [`CapId`] carries a generation so a **recycled** slot cannot be mistaken for
-//! a live one. [`Table::lookup`] checks it. Nothing exercises that check,
-//! because no endpoint is ever released: `live` never returns to `false`, so a
-//! slot is never reused and no capability can outlive the entry it names. The
-//! tests below cover the check anyway, by building the stale handle directly —
-//! which is the only way to reach it until endpoints can be revoked.
+//! a live one. [`Table::lookup`] checks it. [ADR-0032](../../../docs/adr/0032-k3-channel-revoke.md)
+//! makes release a real table operation: `revoke_channel` marks ends dead so a
+//! later `create_channel` may reuse indices with a new generation. Host tests
+//! and the boot oracle exercise stale handles on the product path, not only by
+//! forging them in the model.
 
 use crate::cap::{CapId, CapRights};
 use crate::runqueue::TaskId;
@@ -79,6 +79,12 @@ pub enum RecvError {
 /// (M8), not an agent syscall.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QueuedError {
+    BadCap,
+}
+
+/// Why [`Table::revoke_channel`] refused (ADR-0032).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RevokeError {
     BadCap,
 }
 
@@ -339,6 +345,38 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
         Some(self.mailboxes[mb].send_holders)
     }
 
+    /// Kill both ends of the channel named by `cap` (ADR-0032 / K3).
+    ///
+    /// `cap` may be the SEND or RECV end. Returns a parked waiter (already
+    /// cleared from the mailbox) for the policy half to cancel.
+    pub fn revoke_channel(&mut self, cap: CapId) -> Result<Option<TaskId>, RevokeError> {
+        let idx = cap.index() as usize;
+        let Some(ep) = self.endpoints.get(idx).copied() else {
+            self.refusals.authority += 1;
+            return Err(RevokeError::BadCap);
+        };
+        if !ep.live || ep.generation != cap.generation() {
+            self.refusals.authority += 1;
+            return Err(RevokeError::BadCap);
+        }
+        let mb = ep.mailbox as usize;
+        if mb >= self.mailboxes.len() {
+            self.refusals.state += 1;
+            return Err(RevokeError::BadCap);
+        }
+
+        for e in &mut self.endpoints {
+            if e.live && e.mailbox as usize == mb {
+                e.live = false;
+            }
+        }
+
+        let mbox = &mut self.mailboxes[mb];
+        let waiter = mbox.waiter.take();
+        *mbox = Mailbox::EMPTY;
+        Ok(waiter)
+    }
+
     /// Resolve a capability to its mailbox, or say why it does not resolve.
     ///
     /// Three ways to fail, and they are all the same answer to the caller: the
@@ -511,6 +549,44 @@ mod tests {
             a: u64::from(tag) * 2,
             b: 0,
         }
+    }
+
+    #[test]
+    fn revoke_kills_both_ends_and_stale_send_is_refused() {
+        let mut t = T::new();
+        let ch = t.create_channel().unwrap();
+        let stale = ch.send;
+        assert_eq!(t.revoke_channel(ch.recv), Ok(None));
+        assert_eq!(t.send(stale, msg(1)), Err(SendError::BadCap));
+        assert_eq!(t.try_recv(ch.recv), Err(RecvError::BadCap));
+        assert!(t.refusals().authority >= 2);
+    }
+
+    #[test]
+    fn revoke_frees_slots_for_reuse_with_new_generation() {
+        let mut t = T::new();
+        let ch1 = t.create_channel().unwrap();
+        let old_send = ch1.send;
+        assert_eq!(t.revoke_channel(ch1.send), Ok(None));
+        let ch2 = t.create_channel().unwrap();
+        // Same index may be reused; generation must differ so old handle dies.
+        if ch2.send.index() == old_send.index() {
+            assert_ne!(ch2.send.generation(), old_send.generation());
+        }
+        assert_eq!(t.send(old_send, msg(9)), Err(SendError::BadCap));
+        assert_eq!(t.send(ch2.send, msg(9)), Ok(None));
+        assert_eq!(t.try_recv(ch2.recv), Ok(msg(9)));
+    }
+
+    #[test]
+    fn revoke_returns_parked_waiter() {
+        let mut t = T::new();
+        let ch = t.create_channel().unwrap();
+        let waiter = TaskId(7);
+        assert_eq!(t.park(ch.recv, waiter), Ok(None));
+        assert_eq!(t.revoke_channel(ch.send), Ok(Some(waiter)));
+        // No second wake invented after revoke.
+        assert_eq!(t.send(ch.send, msg(1)), Err(SendError::BadCap));
     }
 
     #[test]

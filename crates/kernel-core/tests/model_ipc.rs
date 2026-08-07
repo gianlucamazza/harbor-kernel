@@ -17,13 +17,11 @@
 //! `SECURITY.md` rests every authority claim on this type, and two of its rows
 //! say the check is *latent*:
 //!
-//! - *"Endpoint release / generation recycle: never exercised in product path;
-//!   stale-handle check is latent"* — nothing in the kernel ever mints a stale
-//!   `CapId`, so the generation field's whole purpose goes unexercised. Here a
-//!   stale handle is in the alphabet, and it is offered at every step.
-//! - Six mutants survive on the `!mbox.live` arms because no endpoint is ever
-//!   released. The model shows the branch is unreachable *by exhaustion* over
-//!   the API, rather than by reading the code and agreeing with it.
+//! - *"Endpoint release / generation recycle"* — product path now has
+//!   `revoke_channel` (ADR-0032); this model still offers a synthetic stale
+//!   `CapId` at every step so the generation check cannot go latent again.
+//! - Dead-mailbox arms are reachable after revoke; the model still explores
+//!   forged/stale handles exhaustively alongside the live API.
 //!
 //! # What is bounded
 //!

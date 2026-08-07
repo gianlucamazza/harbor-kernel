@@ -46,7 +46,9 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use kernel_core::cap::CapId;
 use kernel_core::ipc::{Refusals, Table};
 
-pub use kernel_core::ipc::{Channel, CreateError, Message, QueuedError, RecvError, SendError};
+pub use kernel_core::ipc::{
+    Channel, CreateError, Message, QueuedError, RecvError, RevokeError, SendError,
+};
 
 /// Default yield budget for [`yield_until_empty`] (M8 creator drain barrier).
 ///
@@ -299,6 +301,40 @@ pub fn cancel_blocked(id: kernel_core::runqueue::TaskId) -> bool {
     }
     clear_waiter(id);
     true
+}
+
+/// Kill both ends of the channel named by `cap` (ADR-0032 / K3).
+///
+/// Trusted creator/bootstrap path: no TCB hold required (the CapId may still
+/// sit only on the stack after [`create_channel`]). Cancels a parked waiter if
+/// any. EL0 never sees raw CapIds.
+pub fn creator_revoke(cap: CapId) -> Result<(), RevokeError> {
+    let waiter = with_table(|t| t.revoke_channel(cap))?;
+    if let Some(id) = waiter {
+        let _ = sched::prepare_cancel_blocked(id);
+    }
+    Ok(())
+}
+
+/// Like [`creator_revoke`], but the calling task must **hold** `cap`.
+pub fn revoke_held(cap: CapId) -> Result<(), RevokeError> {
+    if !sched::current_holds(cap) {
+        with_table(|t| t.note_authority_refusal());
+        return Err(RevokeError::BadCap);
+    }
+    creator_revoke(cap)
+}
+
+/// Table-level send without a hold check — creator/oracle only (ADR-0032).
+///
+/// Used to prove a stale CapId fails lookup after revoke without installing it
+/// in a TCB. Not an agent path.
+pub fn creator_try_send(cap: CapId, msg: Message) -> Result<(), SendError> {
+    let wake = with_table(|t| t.send(cap, msg))?;
+    if let Some(id) = wake {
+        sched::wake_task(id);
+    }
+    Ok(())
 }
 
 /// Blocking recv: parks the current task until a message is available.

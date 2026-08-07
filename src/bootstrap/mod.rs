@@ -531,6 +531,19 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("sched: spawn el0-irq-refuse FAILED {e:?}"),
         }
 
+        // ADR-0032 / K3: a task that holds SEND revokes the channel; bootstrap
+        // then proves the stale CapId refuses send (product path, not forged).
+        match crate::ipc::create_channel() {
+            Ok(ch) => {
+                demos::REVOKE_STALE.store(ch.send.raw(), core::sync::atomic::Ordering::Relaxed);
+                match crate::sched::spawn_with_caps(demos::revoke_held_task, &[ch.send]) {
+                    Ok(_) => crate::kprintln!("ipc: revoke-held spawned"),
+                    Err(e) => crate::kprintln!("ipc: revoke-held spawn FAILED {e:?}"),
+                }
+            }
+            Err(e) => crate::kprintln!("ipc: revoke channel FAILED {e:?}"),
+        }
+
         // ADR-0025: park with no sender, then cancel from a supervisor task.
         // The send capability is dropped — the orphan cannot be woken by IPC.
         match crate::ipc::create_channel() {
