@@ -59,7 +59,7 @@ contained driver agent; product beacon via the console endpoint.
 | Execution | Cooperative only — preemption/SMP **open** |
 | Authority | Slot caps, refuse accounting, cancel blocked wait — transfer/timeout **open** |
 | Product OS | Beacon composition; broader services **open** |
-| Verification | 293 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 299 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

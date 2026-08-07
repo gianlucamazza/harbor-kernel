@@ -1,70 +1,71 @@
 //! IRQ wait port (ADR-0028 / K1): arm on the voluntary path, signal from IRQ.
 //!
 //! Handlers must not import `sched`. They call [`signal`]; [`crate::sched::poll_wakes`]
-//! drains the queue into Ready. One armed waiter at a time (v1).
+//! drains the queue into Ready. Wait table rules live in
+//! [`kernel_core::irqwait`] (host-tested): one waiter per cookie, no overwrite.
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use kernel_core::irqwait::{ArmError, WaitTable};
 use kernel_core::wake::WakeQueue;
 
-/// Sentinel: no armed task / cookie.
-const NONE: u32 = u32::MAX;
+use crate::arch::cpu;
+use crate::sync::SyncCell;
 
-/// Cookie the current waiter is waiting for, or [`NONE`].
-static ARM_COOKIE: AtomicU32 = AtomicU32::new(NONE);
+/// SPSC: IRQ producer → voluntary consumer (ADR-0008). Sized for all tasks.
+const Q: usize = 32;
 
-/// Task token (scheduler id) armed for [`ARM_COOKIE`], or [`NONE`].
-static ARM_TASK: AtomicU32 = AtomicU32::new(NONE);
+static TABLE: SyncCell<WaitTable> = SyncCell::new(WaitTable::new());
+static QUEUE: WakeQueue<Q> = WakeQueue::new();
+static SIGNAL_IDLE: AtomicU32 = AtomicU32::new(0);
 
-/// Set by [`signal`] when it matches an armed waiter; cleared by the waiter.
-static DELIVERED: AtomicU32 = AtomicU32::new(0);
-
-/// SPSC: IRQ producer → voluntary consumer (same rules as ADR-0008).
-static QUEUE: WakeQueue<16> = WakeQueue::new();
-
-/// How many `signal` calls found no matching waiter (observability).
-static SIGNAL_NO_WAITER: AtomicU32 = AtomicU32::new(0);
-
-/// Arm `task` to be woken when `cookie` is signalled.
-///
-/// Last arm wins (v1 single waiter). Call from the voluntary path only.
-pub fn arm(cookie: u32, task: u32) {
-    ARM_TASK.store(task, Ordering::Release);
-    ARM_COOKIE.store(cookie, Ordering::Release);
+/// Arm `task` for `cookie`. Returns an error instead of overwriting another waiter.
+pub fn arm(cookie: u32, task: u32) -> Result<(), ArmError> {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; single core.
+        let table = unsafe { &mut *TABLE.get() };
+        table.arm(cookie, task)
+    })
 }
 
-/// Disarm without waking. Safe if nothing is armed.
-pub fn disarm() {
-    ARM_COOKIE.store(NONE, Ordering::Release);
-    ARM_TASK.store(NONE, Ordering::Release);
+/// Drop any arm for `task`.
+pub fn disarm_task(task: u32) {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; single core.
+        let table = unsafe { &mut *TABLE.get() };
+        table.disarm_task(task);
+    });
 }
 
-/// IRQ path: if a waiter is armed for `cookie`, post a wake and mark delivered.
+/// IRQ path: match cookie, mark pending, enqueue wake token.
 ///
-/// Never switches. Safe to call with no waiter (counts and returns).
+/// Never switches. If the queue is full, pending remains set so the waiter can
+/// still observe delivery via [`take_pending`] after a spurious resume path;
+/// [`crate::sched::poll_wakes`] also re-checks pending for ready promotion when
+/// drops are non-zero is unnecessary if we scan — waiters always check pending
+/// before and after block.
 pub fn signal(cookie: u32) {
-    let armed = ARM_COOKIE.load(Ordering::Acquire);
-    if armed != cookie {
+    let task = cpu::without_irqs(|| {
+        // SAFETY: IRQs masked for table mutation; handler may run nested only
+        // with DAIF set, so this is the sole writer for the duration.
+        let table = unsafe { &mut *TABLE.get() };
+        table.signal(cookie)
+    });
+    let Some(task) = task else {
+        SIGNAL_IDLE.fetch_add(1, Ordering::Relaxed);
         return;
-    }
-    let task = ARM_TASK.load(Ordering::Acquire);
-    if task == NONE {
-        SIGNAL_NO_WAITER.fetch_add(1, Ordering::Relaxed);
-        return;
-    }
-    // Disarm first so a level-triggered storm does not flood the queue.
-    ARM_COOKIE.store(NONE, Ordering::Release);
-    DELIVERED.store(1, Ordering::Release);
-    if !QUEUE.push(task) {
-        // Queue full: delivered flag still lets the waiter return if it has not
-        // blocked yet; if already blocked, cancel_blocked / timeout is K2 debt.
-        SIGNAL_NO_WAITER.fetch_add(1, Ordering::Relaxed);
-    }
+    };
+    // Pending bit is already set inside `signal`. Queue is the fast path to Ready.
+    enqueue(task);
 }
 
-/// Consume the delivered flag. Returns true if an IRQ already posted for us.
-pub fn take_delivered() -> bool {
-    DELIVERED.swap(0, Ordering::AcqRel) != 0
+/// Consume pending for `task`. True if an IRQ already posted.
+pub fn take_pending(task: u32) -> bool {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let table = unsafe { &mut *TABLE.get() };
+        table.take_pending(task)
+    })
 }
 
 /// Drain IRQ wake tokens into `f` (voluntary path only).
@@ -74,10 +75,11 @@ pub fn drain(mut f: impl FnMut(u32)) {
     }
 }
 
-/// Direct post of a task token (used by [`crate::sched::wake_from_irq`]).
-#[allow(dead_code)] // public IRQ port; call sites grow with device waits
-pub fn post_task(task: u32) {
-    let _ = QUEUE.push(task);
+fn enqueue(task: u32) {
+    // Capacity is ≥ task count; a full queue under a correct arm is a fault class.
+    if !QUEUE.push(task) {
+        SIGNAL_IDLE.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 /// Wakes dropped because the IRQ queue was full.
@@ -85,8 +87,7 @@ pub fn drops() -> u32 {
     QUEUE.drops()
 }
 
-/// Signals that found no usable waiter (or failed to push).
-#[allow(dead_code)] // observability for drivers / later gates
-pub fn signal_no_waiter() -> u32 {
-    SIGNAL_NO_WAITER.load(Ordering::Relaxed)
+/// Signals with no waiter, or queue-push failures after a match.
+pub fn signal_idle() -> u32 {
+    SIGNAL_IDLE.load(Ordering::Relaxed)
 }

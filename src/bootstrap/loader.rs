@@ -1,5 +1,5 @@
 //! The loader: one loop over a table, instead of a grant written as code
-//! (ADR-0021), optionally filled from an external agent store (ADR-0027).
+//! (ADR-0021), optionally filled from an external agent store (ADR-0027 / 0029).
 //!
 //! # What is product here and what is not
 //!
@@ -8,8 +8,10 @@
 //! `SYS_SEND`. Oracle-only **mute** runs the same image without the grant so
 //! the denial path is seen on the good path.
 //!
-//! When a valid store is present at [`AGENT_STORE_PA`] (ADR-0027), that table
-//! **replaces** the built-in one for the boot.
+//! When a valid store is present in the image `.agent_store` section
+//! ([ADR-0029](../../docs/adr/0029-agent-store-in-image.md)), that table
+//! **replaces** the built-in one for the boot. The host injects the blob after
+//! link (`scripts/inject-agent-store.py`); the same image boots on QEMU and Pi.
 
 use core::mem::MaybeUninit;
 
@@ -20,19 +22,25 @@ use kernel_core::paging::Perms;
 use kernel_core::prog;
 
 use crate::agent::{Agent, SessionEnd};
-use crate::arch::{cpu, mmu};
+use crate::arch::cpu;
 use crate::ipc;
 use crate::mm::AddressSpace;
 use crate::sched::{self, MAX_TASKS, TaskId};
 use crate::sync::SyncCell;
-use kernel_core::layout::Region;
-use kernel_core::paging::{MemKind, Perms as MapPerms};
 
-/// Physical address where a boot loader may place an agent store (ADR-0027).
-pub const AGENT_STORE_PA: usize = 0x1000_0000;
+/// Capacity of the image-resident agent store (ADR-0029).
+///
+/// Sized for several small EL0 programs; the host injects into this window.
+/// Must match the size reserved in `link.ld` for `__agent_store_*`.
+pub const AGENT_STORE_CAPACITY: usize = 16 * 1024;
 
-/// Bytes scanned from [`AGENT_STORE_PA`].
-pub const AGENT_STORE_MAX: usize = 256 * 1024;
+// Linker-provided window (zeros at link, host inject after objcopy). Not a
+// Rust `static` with a known initializer: LTO would fold those zeros forever
+// and the product would never see an inject (seen: `ldr wzr` + always-builtin).
+unsafe extern "C" {
+    safe static __agent_store_start: u8;
+    safe static __agent_store_end: u8;
+}
 
 /// Slot the loader puts the console capability in, when it grants one.
 const CONSOLE_SLOT: usize = 1;
@@ -124,32 +132,23 @@ fn active_manifest() -> &'static [AgentEntry] {
     })
 }
 
-/// Try to build a `'static` manifest from the external store at [`AGENT_STORE_PA`].
-///
-/// # Safety
-///
-/// The physical range must be identity-mapped Normal RAM for the life of the
-/// boot. Invalid magic simply fails the parse; garbage that looks valid is
-/// trusted boot input (ADR-0027).
-fn try_store_manifest() -> Option<&'static [AgentEntry]> {
-    // Kernel fine map does not cover arbitrary RAM (same as the DTB). Map the
-    // store window RO before reading (ADR-0027).
-    let region = Region {
-        base: AGENT_STORE_PA as u64,
-        len: AGENT_STORE_MAX as u64,
-        kind: MemKind::NormalWb,
-        perms: MapPerms::RO,
-        name: "agent store",
-    };
-    // SAFETY: kernel map active; range is lab-convention RAM outside the image.
-    if unsafe { mmu::map(&region) }.is_err() {
-        return None;
-    }
+/// Bytes of the image-resident store (ADR-0029). Immortal for the boot.
+fn store_bytes() -> &'static [u8] {
+    let start = core::ptr::addr_of!(__agent_store_start);
+    let end = core::ptr::addr_of!(__agent_store_end);
+    // SAFETY: symbols bound by `link.ld` to a page-aligned RO window inside
+    // the loaded image; inject finishes before entry.
+    let len = unsafe { end.offset_from(start) as usize };
+    debug_assert!(len == AGENT_STORE_CAPACITY);
+    unsafe { core::slice::from_raw_parts(start, len) }
+}
 
-    // SAFETY: range just mapped RO Normal.
-    let raw = unsafe {
-        core::slice::from_raw_parts(AGENT_STORE_PA as *const u8, AGENT_STORE_MAX)
-    };
+/// Try to build a `'static` manifest from the image `.agent_store` section.
+///
+/// Invalid magic / empty zeros → `None` (builtin fallback). A valid store is
+/// trusted boot input, same class as the rest of `kernel8.img` (ADR-0027/0029).
+fn try_store_manifest() -> Option<&'static [AgentEntry]> {
+    let raw = store_bytes();
 
     let mut parsed = [StoreAgent {
         name: b"",
@@ -168,7 +167,7 @@ fn try_store_manifest() -> Option<&'static [AgentEntry]> {
         let nlen = a.name.len().min(agentstore::NAME_LEN);
         names[i] = [0u8; agentstore::NAME_LEN];
         names[i][..nlen].copy_from_slice(&a.name[..nlen]);
-        // SAFETY: image bytes live in the immortal store range.
+        // SAFETY: image bytes live in the immortal store section.
         let image: &'static [u8] =
             unsafe { core::slice::from_raw_parts(a.image.as_ptr(), a.image.len()) };
         // SAFETY: names[i] is static pool storage; UTF-8 validated by parse;
@@ -194,7 +193,7 @@ const _: () = assert!(sched::MAX_CAPS_PER_TASK == kernel_core::manifest::MAX_SLO
 pub fn load_all(held: &[CapId]) {
     let table = match try_store_manifest() {
         Some(t) => {
-            crate::kprintln!("loader: store n={} pa={AGENT_STORE_PA:#x}", t.len());
+            crate::kprintln!("loader: store n={} image", t.len());
             cpu::without_irqs(|| {
                 // SAFETY: boot-only.
                 unsafe {

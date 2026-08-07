@@ -61,22 +61,16 @@ loader's held list, as today.
 
 ### 2. Placement
 
-| Symbol | Value (v1) |
-| --- | --- |
-| `AGENT_STORE_PA` | `0x1000_0000` (256 MiB) |
-| Max size scanned | 256 KiB |
-
-The address must sit in identity-mapped Normal RAM, outside the kernel image
-and typical heap growth for lab boots. QEMU: `-device loader,file=agents.bin,addr=0x10000000`.
-Pi 4B: same address when a host/firmware path places the file; **not** required
-for this ADR's QEMU done-when.
+**Superseded for load address by [ADR-0029](0029-agent-store-in-image.md).**
+The store is an image section (`.agent_store`) filled by host inject — same path
+on QEMU and Pi. The original fixed-PA + QEMU `loader` device is withdrawn.
 
 ### 3. Loader policy
 
-1. If `parse` succeeds at `AGENT_STORE_PA`, build the runtime manifest from the
-   store and load those agents only (plus the usual held-cap list).
+1. If `parse` succeeds on the image store section, build the runtime manifest
+   from the store and load those agents only (plus the usual held-cap list).
 2. Else use the compiled-in table (product beacon / oracle beacon+mute).
-3. Log which path ran: `loader: store n=…` vs `loader: builtin`.
+3. Log which path ran: `loader: store n=… image` vs `loader: builtin`.
 
 ### 4. Non-goals of this ADR
 
@@ -94,20 +88,19 @@ for this ADR's QEMU done-when.
 - Parser risk is confined to `kernel-core` and host tests.
 - Oracle path unchanged when no store is present.
 
-### Negative / debt
+### Negative
 
-- Fixed PA is a lab convention, not a portable boot protocol.
-- Pi silicon needs an explicit pack-and-place step (or a later SD reader).
 - Name strings and image slices borrow the store for the life of the boot —
-  the store must not be overwritten.
+  the store must not be overwritten (inject is boot input).
+- Placement details: see ADR-0029.
 
 ### Gates
 
 | Reversal | Gate |
 | --- | --- |
 | Format drift | Host tests on `agentstore::parse` |
-| Product ignores store when present | `make product-boot-check` (loads `agents.bin` at `0x10000000`) |
-| Fallback broken without store | `make boot-check` (oracle image, no store → builtin) |
+| Product ignores store when present | `make product-boot-check` (injected image store) |
+| Fallback broken without store | `make boot-check` (oracle image, empty section → builtin) |
 
 ## Alternatives rejected
 

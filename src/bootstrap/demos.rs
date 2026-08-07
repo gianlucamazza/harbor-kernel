@@ -582,7 +582,11 @@ pub(super) fn irq_wait_task() {
     crate::kprintln!("irq-wait: arm cookie=1");
     // Timer runs at TIMER_HZ (10 Hz). One period is enough evidence.
     crate::sched::wait_for_irq(1);
-    crate::kprintln!("irq-wait: woke");
+    crate::kprintln!(
+        "irq-wait: woke drops={} idle_signals={}",
+        crate::sched::wake_drops(),
+        crate::irq::wait::signal_idle()
+    );
 }
 
 /// M4: holds recv cap only; blocks until sender posts.

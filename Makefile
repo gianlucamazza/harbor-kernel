@@ -56,11 +56,9 @@ OBJDUMP     ?= llvm-objdump
 # `-serial mon:stdio` lands on the same console the board prints to.
 QEMU        ?= qemu-system-aarch64
 QEMU_MACHINE ?= raspi4b
-# ADR-0027: external agent store at 256 MiB (QEMU loader device).
+# ADR-0029: packed store for inject into `.agent_store` (product image).
 AGENTS_BIN  ?= target/agents.bin
 QEMU_FLAGS  ?= -M $(QEMU_MACHINE) -kernel $(IMG) -serial mon:stdio -display none
-# Product / H1 compositions: append with `$(QEMU_STORE_FLAGS)`.
-QEMU_STORE_FLAGS ?= -device loader,file=$(AGENTS_BIN),addr=0x10000000
 
 # Long enough for the boot assertions (two tick reports at 10 Hz) with margin.
 BOOT_CHECK_SECONDS ?= 15
@@ -180,7 +178,7 @@ doc-claims:
 # Boot the image under QEMU and assert it reaches a healthy steady state.
 # The assertions live in the script, not here and not in the CI workflow, so
 # the two cannot drift apart.
-# ADR-0027 external agent store (beacon composition).
+# ADR-0029: pack composition blob (input to inject-agent-store.py).
 agents:
 	python3 scripts/pack-agent-store.py -o $(AGENTS_BIN)
 

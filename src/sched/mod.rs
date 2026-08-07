@@ -2,8 +2,8 @@
 //!
 //! Voluntary yield only, fixed FIFO runqueue from `kernel-core`, idle is the
 //! console loop on the bootstrap stack. IRQ handlers must not call
-//! [`yield_now`], [`exit`], or [`block_current`]. They may only
-//! [`wake_from_irq`]; the voluntary path drains that queue via [`poll_wakes`].
+//! [`yield_now`], [`exit`], or [`block_current`]. They call
+//! [`irq::wait::signal`]; the voluntary path drains that queue via [`poll_wakes`].
 //!
 //! Context switch is never nested inside [`cpu::without_irqs`]: restoring
 //! another stack would leave IRQs masked with no matching restore. Bookkeeping
@@ -27,7 +27,6 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use kernel_core::cap::{CapId, SlotError};
 pub use kernel_core::runqueue::TaskId;
 use kernel_core::tasks::{Decision, Switch, Tasks};
-use kernel_core::wake::WakeQueue;
 
 use crate::arch::cpu;
 use crate::arch::el0::El0Session;
@@ -48,14 +47,16 @@ use crate::sync::SyncCell;
 /// page-table reserve derived from this constant.
 pub const MAX_TASKS: usize = 19;
 
+const _: () = assert!(
+    MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
+    "irqwait pending bitmap must cover MAX_TASKS"
+);
+
 /// Caps a task may hold (M4 local table — not shared globals).
 pub const MAX_CAPS_PER_TASK: usize = 4;
 
 /// Usable stack bytes per spawned task (plus one guard page).
 const TASK_STACK_USABLE: usize = 16 * 1024;
-
-/// IRQ → voluntary wake queue capacity (usable = N−1).
-const WAKE_Q: usize = 16;
 
 /// Per-slot resources. The *state* of a slot lives in [`Tasks`]; this is what
 /// the kernel has to own because it cannot be modelled on a host.
@@ -132,9 +133,6 @@ static STARTED: AtomicUsize = AtomicUsize::new(0);
 /// Exits that found a stack still parked from an earlier exit. See
 /// [`pending_overwrites`].
 static PENDING_OVERWRITES: AtomicU32 = AtomicU32::new(0);
-
-/// ADR-0008: IRQ posts here; [`poll_wakes`] drains on the voluntary path.
-static WAKES: WakeQueue<WAKE_Q> = WakeQueue::new();
 
 /// Why spawn failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -326,7 +324,7 @@ pub fn yield_now() {
     switch_with(Switch::Yield);
 }
 
-/// Park the current non-idle task until [`wake_task`] / [`wake_from_irq`].
+/// Park the current non-idle task until [`wake_task`] or an IRQ wait delivery.
 ///
 /// Never call from an IRQ handler or from idle.
 pub fn block_current() {
@@ -349,38 +347,30 @@ pub fn wake_task(id: TaskId) {
     });
 }
 
-/// Post a wake from IRQ context (ADR-0008 / ADR-0028). Never switches.
-///
-/// Prefer [`irq::wait::signal`] from handlers (cookie-matched). This entry
-/// posts a raw task token when the caller already knows the waiter id.
-#[allow(dead_code)] // raw-token path; handlers use cookie `signal`
-pub fn wake_from_irq(id: TaskId) {
-    irq::wait::post_task(id.0);
-}
-
 /// Drain the IRQ wake queue into Ready (voluntary path only).
 pub fn poll_wakes() {
     irq::wait::drain(|token| wake_task(TaskId(token)));
-    while let Some(token) = WAKES.pop() {
-        wake_task(TaskId(token));
-    }
 }
 
 /// Park the current non-idle task until the IRQ line registered with `cookie`
 /// signals (ADR-0028 / K1).
 ///
-/// Never call from an IRQ handler or from idle.
+/// Never call from an IRQ handler or from idle. Refuses to overwrite another
+/// waiter's cookie (see [`kernel_core::irqwait`]).
 pub fn wait_for_irq(cookie: u32) {
     let me = current_task_id().0;
-    // Arm, then check delivered before parking (lost-wakeup window).
-    irq::wait::arm(cookie, me);
-    if irq::wait::take_delivered() {
-        irq::wait::disarm();
+    if irq::wait::arm(cookie, me).is_err() {
+        crate::kprintln!("irq-wait: arm FAILED cookie={cookie}");
+        return;
+    }
+    // Lost-wakeup: IRQ may have run after arm and before park.
+    if irq::wait::take_pending(me) {
+        irq::wait::disarm_task(me);
         return;
     }
     block_current();
-    let _ = irq::wait::take_delivered();
-    irq::wait::disarm();
+    let _ = irq::wait::take_pending(me);
+    irq::wait::disarm_task(me);
 }
 
 /// Exits that found a stack still parked from an earlier exit.
@@ -473,9 +463,8 @@ pub fn cancel_events() -> u32 {
 
 /// Wake queue drop count (full queue under IRQ pressure).
 #[inline]
-#[expect(dead_code, reason = "drop count for a queue that has no producer yet")]
 pub fn wake_drops() -> u32 {
-    irq::wait::drops() + WAKES.drops()
+    irq::wait::drops()
 }
 
 /// One task's stack geometry, as reported to a bring-up probe.

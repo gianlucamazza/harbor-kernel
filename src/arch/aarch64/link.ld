@@ -77,6 +77,14 @@ SECTIONS
     .rodata : ALIGN(0x1000) {
         __rodata_start = .;
         *(.rodata .rodata.*)
+        /* Agent composition store (ADR-0029). Inside the rodata VMA span so
+           the fine RO map covers it. No Rust static: pure linker window so
+           LTO cannot fold inject away. BYTE forces PROGBITS (not NOBITS). */
+        . = ALIGN(0x1000);
+        __agent_store_start = .;
+        BYTE(0);
+        . = __agent_store_start + 0x4000;
+        __agent_store_end = .;
         . = ALIGN(0x1000);
         __rodata_end = .;
     }

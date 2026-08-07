@@ -54,6 +54,13 @@ product_elf="${OUT}/harbor-kernel"
 # The image, not the ELF: the ELF carries debug info that `objcopy -O binary`
 # drops, so comparing ELFs would report a difference nobody flashes.
 llvm-objcopy -O binary "${product_elf}" "${OUT}/kernel8-product.img"
+# ADR-0029: inject the multi-agent composition into `.agent_store` so product
+# boots the store on QEMU and Pi without a fixed-PA loader device.
+python3 scripts/pack-agent-store.py -o target/agents.bin
+python3 scripts/inject-agent-store.py \
+	--elf "${product_elf}" \
+	--image "${OUT}/kernel8-product.img" \
+	--store target/agents.bin
 product_size="$(stat -c %s "${OUT}/kernel8-product.img")"
 
 # Every console string the demos can print, taken **from the source** rather

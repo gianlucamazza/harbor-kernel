@@ -436,7 +436,7 @@ move ([ADR-0001](adr/0001-multi-role-analysis.md)). Status vocabulary:
 | K3 | Cap transfer / revoke / endpoint release | **open** | Authority can move and die without reboot; stale generation exercised by real release | ADR-0017 successor |
 | K4 | Preemption or CPU budget | **open** | Hostile busy-loop is not permanent DoS residual | Successor to ADR-0006; name agent-pair impact (0023) |
 | K5 | Agent density (shrink/collapse driver half) | **open** | Many small agents without 16 KiB kernel stack each by default | Successor to ADR-0023 |
-| K6 | External agent load + byte manifest | **done (QEMU)** first slice ([ADR-0027](adr/0027-h1-external-agent-store.md)); Pi place still open | Fixed-PA store at `0x10000000`; product prefers store, oracle builtin fallback | ADR-0021 → 0027; P2 for on-target pack/place |
+| K6 | External agent load + byte manifest | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement) | Image `.agent_store` inject; product prefers store, oracle empty → builtin | ADR-0021 → 0027 → 0029 |
 | K7 | ASID (+ TTBR1 if required) | **open** | Production isolation without cloned-kernel-only story as the end state | Design ADR |
 | K8 | SMP | **open** | Multi-core runqueue/IRQ model on silicon | Design ADR |
 | K9 | Driver-as-agent beyond PL011 (+ IRQ caps) | **open** | Second peripheral on the M6 pattern; IRQ-cap path | K1 useful; ADR-0013 pattern |
@@ -543,6 +543,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness of kernel (K) and product OS (P) is the project goal (**accepted**) |
 | [ADR-0027](adr/0027-h1-external-agent-store.md) | H1 entry: external agent store at fixed PA (**accepted**) |
 | [ADR-0028](adr/0028-wait-on-irq.md) | K1 entry: EL1 wait on IRQ cookie (**accepted**) |
+| [ADR-0029](adr/0029-agent-store-in-image.md) | Agent store placement: image section inject (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

@@ -112,12 +112,14 @@ storage/display as needed.
 | Sealed composition firmware | Kernel + grant table; update one agent without every device |
 | Third-party sandbox on-device | They supply text; you supply grants |
 
-**Paid (first slices):** external load (**K6**, [ADR-0027](adr/0027-h1-external-agent-store.md));
-IRQ wait EL1 (**K1**, [ADR-0028](adr/0028-wait-on-irq.md)); multi-agent product
-store (**P1**, beacon+chirp). Pi fixed-PA place and EL0 IRQ caps still open.
+**Paid (first slices):** external load (**K6**, [ADR-0027](adr/0027-h1-external-agent-store.md) +
+[ADR-0029](adr/0029-agent-store-in-image.md) image inject); IRQ wait EL1
+(**K1**, [ADR-0028](adr/0028-wait-on-irq.md)); multi-agent product store
+(**P1**, beacon+chirp). EL0 IRQ caps still open.
 
 **Must still pay:** more device agents (**K9**), reclaim beyond cancel (**K2**),
-agent density (**K5**), EL0 IRQ capability, storage (**P2**), network (**P3**).
+agent density (**K5**), EL0 IRQ capability, on-target FS/storage (**P2**),
+network (**P3**).
 
 ### H2 — Boundary operating system
 

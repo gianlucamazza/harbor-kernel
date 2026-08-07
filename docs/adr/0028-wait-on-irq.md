@@ -30,27 +30,27 @@ handlers could not call `wake_from_irq` without a port both sides may use.
 
 ## Decision
 
-### 1. IRQ wait port (`irq::wait`)
+### 1. IRQ wait port (`irq::wait` + `kernel_core::irqwait`)
 
-- One **armed waiter** at a time for v1: `(cookie, task_token)`.
+- **One waiter per cookie**; second arm on a busy cookie or busy task is
+  **refused** (host-tested pure table — no overwrite).
 - `arm(cookie, task)` — voluntary path, before park.
-- `signal(cookie)` — IRQ path only: if the armed cookie matches, set a
-  delivered flag, push `task` onto an SPSC queue owned by `irq`, disarm.
-- `drain` — voluntary path (`sched::poll_wakes`) pops tokens and
-  `wake_task`s them.
-- `take_delivered` — closes the lost-wakeup window between arm and block.
+- `signal(cookie)` — IRQ path only: clear arm, set pending, push `task` onto
+  the single SPSC wake queue owned by `irq`.
+- `drain` — voluntary path (`sched::poll_wakes`) → `wake_task`.
+- `take_pending` — closes the lost-wakeup window between arm and block.
 
-Handlers call **`irq::signal(cookie)` only** (no `sched` import). Timer and
-UART already receive their cookies at registration (1 = timer, 2 = UART).
+Handlers call **`irq::wait::signal(cookie)` only** (no `sched` import). Timer
+and UART cookies are 1 and 2 at registration.
 
 ### 2. `sched::wait_for_irq(cookie)`
 
-EL1 API (bootstrap / driver tasks, not yet an EL0 syscall):
+EL1 API (bootstrap / driver tasks; EL0 IRQ cap is a successor ADR):
 
-1. `arm(cookie, current)`
-2. If `take_delivered()` → return (IRQ already posted)
+1. `arm(cookie, current)` — fail loud if busy
+2. If `take_pending()` → return (IRQ already posted)
 3. `block_current()`
-4. Clear delivered on resume
+4. Clear pending / arm on resume
 
 Never call from IRQ or idle.
 
@@ -79,10 +79,10 @@ Never call from IRQ or idle.
 - Timer wait is host-visible via oracle line `irq-wait: woke`.
 - Device-agent sleep can build on the same port later.
 
-### Negative / debt
+### Negative
 
-- Single waiter; a second concurrent wait is refused or overwrites (v1: last arm wins; document and count).
-- EL0 still cannot name an IRQ wait without a later ABI ADR.
+- EL0 still cannot name an IRQ wait without a later ABI ADR (explicit successor,
+  not a silent half-feature).
 
 ### Gates
 

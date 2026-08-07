@@ -58,7 +58,7 @@ not every symbol.
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
   a64, agentstore, bump, cap, delay, display, font8x8, frame, gic, heap, ipc,
-  irqtable, layout, manifest, paging, poll, prog, reset, ring, rng,
+  irqtable, irqwait, layout, manifest, paging, poll, prog, reset, ring, rng,
   runqueue, rxline, spi, syscall, tasks, textgrid, timer, uart, wake
   tests/ public_api, model_sched, model_ipc
 src/

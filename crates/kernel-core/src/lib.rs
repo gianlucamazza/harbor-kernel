@@ -44,6 +44,7 @@ pub mod gic;
 pub mod heap;
 pub mod ipc;
 pub mod irqtable;
+pub mod irqwait;
 pub mod layout;
 pub mod manifest;
 pub mod paging;

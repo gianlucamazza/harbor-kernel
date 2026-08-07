@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Boot the product image (no oracle) and assert the M8 product path runs.
+# Boot the product image (no oracle) and assert the M8/P1 product path runs.
 #
 # Complements `check-product-image.sh` (static) with a QEMU smoke: server up,
-# beacon loaded and ran, denied-by-default is N/A here (mute is oracle-only).
+# multi-agent store injected into the image (ADR-0029), agents ran.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -15,14 +15,7 @@ readonly SECONDS_LIMIT="${PRODUCT_BOOT_SECONDS:-8}"
 
 if [[ ! -f "${IMG}" ]]; then
 	echo "product-boot-check: building product image" >&2
-	cargo build --target "${TARGET}" --release --no-default-features --features board-rpi4 >/dev/null
-	llvm-objcopy -O binary "${OUT}/harbor-kernel" "${IMG}"
-fi
-
-readonly AGENTS="${AGENTS_BIN:-target/agents.bin}"
-if [[ ! -f "${AGENTS}" ]]; then
-	echo "product-boot-check: packing agent store" >&2
-	python3 scripts/pack-agent-store.py -o "${AGENTS}"
+	./scripts/check-product-image.sh
 fi
 
 if ! command -v "${QEMU}" >/dev/null; then
@@ -37,14 +30,13 @@ fi
 log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 
-# ADR-0027: product composition from external store at 0x10000000.
+# Store is already in the image (ADR-0029 inject). No -device loader.
 timeout "${SECONDS_LIMIT}" "${QEMU}" \
 	-machine raspi4b \
 	-nographic \
 	-serial mon:stdio \
 	-d guest_errors \
 	-kernel "${IMG}" \
-	-device loader,file="${AGENTS}",addr=0x10000000 \
 	>"${log}" 2>&1 || true
 
 fail() {
@@ -56,13 +48,12 @@ fail() {
 
 grep -qa 'Harbor: hello' "${log}" || fail "product image did not boot"
 grep -qa 'console-server: up' "${log}" || fail "console server did not spawn"
-grep -qa 'loader: store n=2' "${log}" || fail "product did not load the external multi-agent store (P1)"
+grep -qa 'loader: store n=2 image' "${log}" || fail "product did not load the injected multi-agent store"
 grep -qa 'loader: beacon loaded' "${log}" || fail "beacon was not loaded"
 grep -qa 'loader: chirp loaded' "${log}" || fail "chirp was not loaded"
 grep -qa 'loader: beacon ran sends=2 refusals=0' "${log}" || fail "beacon did not run successfully"
 grep -qa 'loader: chirp ran sends=1 refusals=0' "${log}" || fail "chirp did not run successfully"
-# Concurrent product agents share the console endpoint: bytes may interleave
-# (e.g. H!? then reports). Assert payload presence, not single-agent contiguity.
+# Concurrent product agents share the console endpoint: bytes may interleave.
 grep -qa 'H!' "${log}" || fail "beacon bytes did not reach the wire"
 grep -qaF '?' "${log}" || fail "chirp byte did not reach the wire"
 # Product must not carry oracle demos.
