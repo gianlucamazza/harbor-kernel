@@ -159,12 +159,31 @@ from `agent` — board PA/VA for demos live in bootstrap.
 | Concept    | Role                                                                                    | Status                           |
 | ---------- | --------------------------------------------------------------------------------------- | -------------------------------- |
 | Task (M3)  | Schedulable EL1 entity + private stack                                                  | **done (HW)**                    |
-| Agent      | Task + AS at EL0; multi-SVC, IRQ resume, `SYS_PUTC`, PL011 RX own, and a recv it can wait on | **done (HW)** |
+| Agent      | A **pair**: an EL1 driver task and the EL0 program it drives ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)). Multi-SVC, IRQ resume, `SYS_PUTC`, PL011 RX own, and a recv it can wait on | **done (HW)** |
 | Message    | Sole interaction channel (M4)                                                           | **done (HW)**                    |
 | Capability | Unforgeable handle (send/recv; future: IRQ notification)                                | **done (HW)** (IRQ caps later)   |
 | Manifest   | The table that says which agents exist and what each is granted ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | **done (HW)** |
 
 `irq::register` is the hook for later capability mediation.
+
+### An agent is a pair, and the driver is the schedulable half
+
+`Agent::run_user_prog_resuming` is a **synchronous loop owned by an EL1 task**:
+it enters EL0, handles each SVC, resumes, and returns when the session ends. So
+what `sched` admits and switches to is the *driver*, not the EL0 context —
+and an agent costs one of `MAX_TASKS` slots plus a 16 KiB kernel stack on top of
+its address space, however small its program.
+
+[ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) records the
+shape rather than changing it, because three things that look unrelated are the
+same fact: preemption would have to preempt the driver mid-session with a live
+EL0 context; ADR-0018's *"the creator decides what happens to the task"* means
+the driver task, so an agent cannot be killed without killing its watcher; and
+`MAX_TASKS` is scarce because every agent spends a slot on the loop that drives
+it.
+
+Where the distinction matters, this document says **driver task** or **EL0
+program** rather than "agent".
 
 ### An agent is data
 
@@ -407,6 +426,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0020](adr/0020-spidevice-contract-without-a-caller.md)     | `SpiDevice`: contract kept, ADR-0010's descriptive sentence retracted (**accepted**)                |
 | [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)         | Agents as data described by a manifest; the grant becomes a binding, not code (**accepted**)        |
 | [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md) | Blocking `SYS_RECV`: the agent parks; `without_irqs` stops spanning a switch (**accepted**)         |
+| [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is a **pair**: an EL1 driver task and the EL0 program it drives; the driver is what the scheduler runs (**proposed**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

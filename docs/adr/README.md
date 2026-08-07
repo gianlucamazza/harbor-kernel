@@ -35,6 +35,7 @@ the code that follows.
 | [0020](0020-spidevice-contract-without-a-caller.md)     | `SpiDevice`: an adopted contract with no caller; ADR-0010's description retracted | accepted   |
 | [0021](0021-agents-as-data-and-the-manifest.md)         | Agents as data + manifest: authority enumerable in one artefact                   | accepted   |
 | [0022](0022-blocking-recv-and-the-mask-that-travels.md) | Blocking `SYS_RECV`: an agent parks, and `without_irqs` stops spanning a switch   | accepted   |
+| [0023](0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is an EL1 driver task **and** an EL0 program; the driver is what the scheduler runs | proposed |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).
