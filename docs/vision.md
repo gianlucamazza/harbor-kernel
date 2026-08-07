@@ -1,38 +1,41 @@
-# Vision — toward a Harbor operating system
+# Vision — Harbor as a complete capability composition OS
 
-This document is **aspirational**. It owns the long-term OS shape and the use
-cases that shape would open. It does **not** own current status, evidence, or
-the operational threat model.
+This document owns **product shape and use cases**. It does **not** own silicon
+status, evidence, or the operational threat model. The project **goal** of
+completeness (kernel + product OS) is normative in
+[ADR-0026](adr/0026-kernel-and-product-completeness.md) and the
+[completeness roadmap](architecture.md#completeness-roadmap).
 
 | This document | Look elsewhere |
 | --- | --- |
-| Direction and product shape | — |
-| Horizons H0 / H1 / H2 and future use cases | — |
+| Product shape and use cases | — |
+| Horizons H0 / H1 / H2 mapped to K/P tracks | — |
+| Completeness policy and track table | [ADR-0026](adr/0026-kernel-and-product-completeness.md), [`architecture.md`](architecture.md) |
 | What “done today” means | [`architecture.md`](architecture.md), [`verification.md`](verification.md) |
 | Authority claims that must hold now | [`../SECURITY.md`](../SECURITY.md) |
-| Binding decisions | [`adr/`](adr/README.md) |
 
-When a piece of this vision becomes a structural boundary, it leaves here and
-becomes an ADR (or supersedes one). Until then, prose here may change without
-an ADR.
+When a piece of this vision becomes a structural boundary, it becomes a design
+ADR. Horizon narrative may change without an ADR; dropping completeness as the
+goal requires a successor to ADR-0026.
 
 ---
 
 ## Thesis
 
-Harbor is not aiming to be a small Linux. It is building the foundations of a
-**capability composition OS**: the system *is* a set of isolated agents,
-authorized only by explicit grants, talking only over controlled channels — and
-every boundary is meant to be demonstrated, not merely asserted.
+Harbor is not aiming to be a small Linux. It is completing a **capability
+composition OS**: the system *is* a set of isolated agents, authorized only by
+explicit grants, talking only over controlled channels — and every boundary is
+meant to be demonstrated, not merely asserted.
 
 The project name already carries that idea ([ADR-0007](adr/0007-project-identity-harbor-kernel.md)):
 a protected place where independently bounded components operate and
 communicate.
 
-**Vision slogan (not a status claim):**
+**Slogan (goal, not a claim that the OS is finished today):**
 
 > Harbor is an OS where software arrives as agents, authority arrives as
-> grants, and every boundary can be shown to hold.
+> grants, and every boundary can be shown to hold — and the project finishes
+> that OS, mechanism by mechanism and service by service.
 
 **“Agent” here is not an LLM runtime.** It is the isolation unit (today: an EL1
 driver task paired with an EL0 program — [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)).
@@ -55,15 +58,14 @@ still be true. Extensions get successor ADRs; reversals need explicit ones.
 | Authority is enumerable | Audit and threat models read a grant table, not the whole kernel |
 | Evidence ≠ compile | Boundaries remain claims with gates (the gate set may grow) |
 
-Things that *may* change later (today non-goals or recorded shape):
+Things on the **completeness roadmap** (open tracks; design ADR before code):
 
-- agent pair cost → EL0 as the schedulable entity ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md));
-- cooperative only → preemption or budgets ([ADR-0006](adr/0006-cooperative-execution-model.md));
-- single core → SMP;
-- manifest in the image → images and manifests from storage or network
-  ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md) already separates
-  *binding* from *source*);
-- IRQ not a first-class wait → IRQ capabilities / wakes.
+- agent pair cost → density work (**K5**; [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md));
+- cooperative only → preemption or budgets (**K4**; successor to [ADR-0006](adr/0006-cooperative-execution-model.md));
+- single core → SMP (**K8**);
+- manifest in the image → external load (**K6**; [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md));
+- IRQ not a first-class wait → IRQ wait/caps (**K1**);
+- product storage / network / multi-app → **P2–P5**.
 
 ---
 
@@ -115,11 +117,13 @@ endpoint. Foundation through M8 is **done (HW)** — see
 | Fault supervision demos | Creator lives after a peer faults ([ADR-0018](adr/0018-agent-fault-policy.md)) |
 | Verification methodology transfer | Layering gates, product/oracle split, multi-role review ([ADR-0001](adr/0001-multi-role-analysis.md)) |
 
-H0 is intentionally **not** a general-purpose OS.
+H0 is the **foundation complete, kernel/product not yet complete** state. It is
+not the end of the project.
 
 ### H1 — Near OS: composition runtime / appliance OS
 
-The first *recognizable* operating system the model opens without betraying it.
+Maps roughly to closing early **K** tracks plus **P1** (and pieces of P2/P4).
+The first *recognizable* product OS without betraying the model.
 
 **Software model**
 
@@ -151,7 +155,8 @@ The first *recognizable* operating system the model opens without betraying it.
 
 ### H2 — System OS: a boundary operating system
 
-A full OS in the usual sense — still not a Linux clone.
+Maps to remaining **K** and **P** tracks (preemption/density, network, naming,
+tooling). A full OS in the usual sense — still not a Linux clone.
 
 **Idea:** the kernel is small; the *system* is a grant graph of agents. Install
 means binding text to authority, not inheriting a user session full of ambient
@@ -205,18 +210,18 @@ Even at H2, Harbor is not trying to be:
 
 ---
 
-## How this relates to the lab mission
+## How this relates to completeness
 
-The mission question remains:
+The evidence question remains:
 
 > Can a small Rust kernel make isolation, authority, message passing and
 > verification visible enough that each boundary can be inspected, tested and
 > demonstrated on silicon?
 
-H1 and H2 do not replace that question. They answer *what kind of operating
-system you get if you keep answering it honestly* while growing composition,
-devices, and density.
+[ADR-0026](adr/0026-kernel-and-product-completeness.md) adds the product
+question: keep answering that until the **kernel and product OS are complete**
+under this model. H1 and H2 are horizons on that path; K/P tracks are the
+backlog.
 
-Current mechanics and contrast with traditional kernels:
-[`architecture.md`](architecture.md).
-What is verified today: [`verification.md`](verification.md).
+Current mechanics: [`architecture.md`](architecture.md).
+Verified today: [`verification.md`](verification.md).

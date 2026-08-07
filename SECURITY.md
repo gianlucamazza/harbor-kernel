@@ -37,9 +37,9 @@ where appropriate ([`docs/blobs.md`](docs/blobs.md)).
 
 | Role | Description |
 | ---- | ----------- |
-| **Product** | Single-core AArch64 lab kernel on Raspberry Pi 4 Model B |
-| **Goal** | Agent-based microkernel: isolated units interact via messages and capabilities |
-| **Today** | Cooperative EL1 tasks + EL0 agents with per-task AS, slot-indexed caps, IPC an agent can **wait** on, and a loader that creates agents from a manifest |
+| **Product** | Single-core AArch64 agent-based kernel on Raspberry Pi 4 Model B (foundation done; K/P completeness in progress) |
+| **Goal** | Complete agent-based microkernel **and** product OS ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)) |
+| **Today** | Cooperative EL1 tasks + EL0 agents with per-task AS, slot-indexed caps, IPC an agent can **wait** on, loader from a manifest, supervisor cancel of parked waits |
 
 Assets worth defending, in order of load:
 
@@ -96,8 +96,8 @@ the machine with other agents under the same kernel, tries to:
 | Crash the kernel by faulting at EL0 | Yes — session ends; creator handles; kernel lives |
 | Steal another agent’s saved GPRs / session | Yes — `CURRENT_EL0` publish + assert on entry |
 | Exhaust frames / tables to DoS later agents | Partially — pool is finite; destroy should return frames |
-| Busy-loop at EL0 and starve the system | **Out of scope** — cooperative model (ADR-0006); no preemption |
-| Park forever on a mailbox nobody sends to | **Mitigated** — supervisor may `cancel_blocked` ([ADR-0025](docs/adr/0025-cancel-blocked-wait.md)); no timeout and no auto-reap on last send drop. Residual below. |
+| Busy-loop at EL0 and starve the system | **Open residual (K4)** — cooperative today (ADR-0006); preemption/budget is a completeness track, not a permanent non-goal ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)) |
+| Park forever on a mailbox nobody sends to | **Mitigated** — supervisor may `cancel_blocked` ([ADR-0025](docs/adr/0025-cancel-blocked-wait.md)); timeout/auto-reap still **open (K2)**. Residual below. |
 | Take a second waiter's place on an endpoint | Yes — `Table::park` refuses (`Status::Busy`) and counts a state refusal. One endpoint, one waiter |
 | Feed an RX-owning agent hostile input from the wire | Yes, and it is *supposed* to arrive — the agent is untrusted either way. What must hold is that the handover cannot leave the line armed with nothing to drain (`kernel_core::rxline`, host-tested) |
 | Attack via firmware / JTAG / SD swap | Out of physical-lab model (operator is trusted) |
@@ -185,9 +185,9 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 
 | Topic | Status |
 | ----- | ------ |
-| **Preemption** | None. Hostile infinite loop at EL0 or EL1 is DoS. |
-| **Wait-on-IRQ** | Not implemented; an agent that wants an interrupt polls or yields cooperatively. Blocking recv *is* implemented (ADR-0022). |
-| **A parked task may wait until cancelled** | **No timeout** still (ADR-0022). **Reaping (ADR-0025):** a supervisor may `ipc::cancel_blocked(id)` — clears the mailbox waiter, wakes the **driver task**, and `recv` returns `Cancelled`. Does not free frames until the task exits and destroys its AS. **Visibility (ADR-0024):** `blocked_count` / `block_events` / `cancel_events`. Intentional waiters (console server) are not auto-reaped. Residual: nothing auto-cancels when the last send holder exits — a buggy creator that never cancels still leaks a slot until reset. `MAX_TASKS` is 18. |
+| **Preemption** | None today (**open K4**). Hostile infinite loop at EL0 or EL1 is DoS until a successor to ADR-0006 lands. |
+| **Wait-on-IRQ** | Not implemented (**open K1**); an agent that wants an interrupt polls or yields. Blocking recv *is* implemented (ADR-0022). |
+| **A parked task may wait until cancelled** | **No timeout / auto-reap yet (open K2).** **Reaping (ADR-0025, done HW):** a supervisor may `ipc::cancel_blocked(id)` — clears the mailbox waiter, wakes the **driver task**, and `recv` returns `Cancelled`. Does not free frames until the task exits and destroys its AS. **Visibility (ADR-0024):** `blocked_count` / `block_events` / `cancel_events`. Intentional waiters (console server) are not auto-reaped. Residual: nothing auto-cancels when the last send holder exits — a buggy creator that never cancels still leaks a slot until reset. `MAX_TASKS` is 18. |
 | **Console TX depends on the server task** | After M8, agent console output is drained by an EL1 server. If that task exits or never runs, agents get `Full` / silent loss; kernel `kprintln` and panic steal still work. |
 | **Capability transfer / revocation** | Not implemented. |
 | **Endpoint release / generation recycle** | No kernel path releases an endpoint, so no kernel path mints a stale handle. The *check* is no longer unexercised: `tests/model_ipc.rs` offers a stale `CapId` — same index, previous generation — at every step of every sequence, and removing the generation comparison from `lookup` is caught in two operations. What stays untested is release itself, which does not exist. |

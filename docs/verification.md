@@ -611,8 +611,9 @@ grew with `MAX_TASKS`. The PL011 handover still completes:
 The park is exercised between two tasks that never hold live EL0 sessions
 simultaneously — each parks with its session saved and nothing enters EL0 in
 between. Per-task session state makes such an overlap harmless and nothing
-performs one. A preemptive scheduler is what would, and it remains an explicit
-non-goal.
+performs one. A preemptive scheduler is what would, and preemption remains
+**open completeness track K4** ([ADR-0026](adr/0026-kernel-and-product-completeness.md))
+— cooperative until a successor to ADR-0006.
 
 ## The manifest: same bytes, different authority (2026-08-07, QEMU)
 
@@ -1565,4 +1566,5 @@ ipc: reaped cancelled
 ticks=10
 ```
 
-Timeout and auto-reap on last send-capability drop remain **non-goals** (ADR-0025).
+Timeout and auto-reap on last send-capability drop remain **open (K2)** —
+not delivered by ADR-0025; see the completeness roadmap.

@@ -1,28 +1,26 @@
 # Harbor
 
-**A verified Rust microkernel laboratory for Raspberry Pi 4** — package
-`harbor-kernel`.
+**A verified Rust agent-based microkernel and product OS for Raspberry Pi 4** —
+package `harbor-kernel`.
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![CI](https://github.com/gianlucamazza/harbor-kernel/actions/workflows/ci.yml/badge.svg)](https://github.com/gianlucamazza/harbor-kernel/actions)
 
-Harbor is an experiment in building an **agent-based microkernel**: isolated
-units with private memory and explicit authority, communicating through
-messages and capabilities. The name describes the intended system — a
-protected place where bounded components can operate and talk over controlled
-channels ([ADR-0007](docs/adr/0007-project-identity-harbor-kernel.md)).
+Harbor is building a **complete** agent-based system: isolated units with
+private memory and explicit authority, communicating through messages and
+capabilities, with product services on the same model. The name describes the
+intended system — a protected place where bounded components operate and talk
+over controlled channels ([ADR-0007](docs/adr/0007-project-identity-harbor-kernel.md)).
 
-This is a **lab kernel, not a production operating system**. Its purpose is to
-make kernel boundaries concrete and testable on real hardware. A claim is not
-considered complete merely because the code compiles: it needs a host test,
-QEMU gate, or Raspberry Pi evidence, with blind spots recorded in
+**Goal:** completeness of the microkernel **and** the product OS
+([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)) — not Linux/POSIX
+parity, and not a permanent “intentionally incomplete” lab. **Method:** every
+boundary stays inspectable and testable; a claim needs a host test, QEMU gate,
+or Raspberry Pi evidence, with blind spots in
 [`docs/verification.md`](docs/verification.md).
 
-The long-term direction is a **capability composition OS**: software arrives as
-isolated agents, authority as explicit grants, interaction as messages. That
-vision — horizons from today’s lab through appliance composition to a full
-boundary OS — is written in [`docs/vision.md`](docs/vision.md). It is
-aspirational; it does not change what is claimed done on silicon.
+Shape and use cases: [`docs/vision.md`](docs/vision.md). Ordered completeness
+tracks (K/P): [`docs/architecture.md#completeness-roadmap`](docs/architecture.md#completeness-roadmap).
 
 ## What Harbor is today
 
@@ -39,24 +37,27 @@ currently provides:
 - an EL1 console server and a product beacon agent communicating through the
   same endpoint model.
 
-The kernel is intentionally incomplete. Agents are not preempted, and an IRQ
-is not yet a first-class wait source for an agent. A parked agent has no timeout
-or reclamation policy. These are known availability limitations, not hidden
-features. The current architecture and ordered roadmap live in
-[`docs/architecture.md`](docs/architecture.md).
+The system is **not yet complete**. Agents are not preempted; an IRQ is not yet
+a first-class wait source; parked waits have supervisor cancel but not timeout
+or auto-reap. Those are **open completeness tracks** (K4, K1, K2), not hidden
+features and not permanent non-goals. Architecture, foundation history, and the
+K/P roadmap live in [`docs/architecture.md`](docs/architecture.md).
 
 ## Mission and boundaries
 
-Harbor exists to answer a focused question:
+Harbor answers two linked questions:
 
 > Can a small Rust kernel make isolation, authority, message passing and
 > verification visible enough that each boundary can be inspected, tested and
 > demonstrated on silicon?
 
-The project therefore values explicit mechanisms and evidence over feature
-count. It does not currently target Linux/POSIX compatibility, preemption,
-SMP, a high-half kernel, production ASIDs, USB host support or a full
-framebuffer. Those would require their own architectural decisions.
+> Can that same discipline carry through until the **kernel and product OS are
+> complete** under the agent/capability model?
+
+Evidence still beats feature count for any single claim. Completeness is the
+goal of the roadmap ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)).
+**Out of model** (not completeness tracks): Linux/POSIX compatibility, hiding
+platform firmware blobs, multi-tenant cloud hypervisor.
 
 ### Why it looks different
 
@@ -77,25 +78,27 @@ in [`SECURITY.md`](SECURITY.md). Platform and hardware assumptions are in the
 **Foundation complete (2026-08-07).** M0–M8, loader, blocking recv, console
 endpoint, product beacon, and parked-task cancel are stamped **done on Raspberry
 Pi 4B** ([verification](docs/verification.md)). Kernel EL1 Device blankets are
-**risk-accepted** (agents stay page-mapped). The only tracked open item is the
-standing [SpiDevice watch](https://github.com/gianlucamazza/harbor-kernel/issues/14)
-([ADR-0020](docs/adr/0020-spidevice-contract-without-a-caller.md)) — not a sprint.
+**risk-accepted** (agents stay page-mapped).
 
-Timeout and auto-reap on last send drop remain named non-goals.
+**Not yet complete** — open K/P tracks (IRQ wait, timeout/auto-reap, preemption,
+SMP, storage, network, …) are the active roadmap under
+[ADR-0026](docs/adr/0026-kernel-and-product-completeness.md). Standing watch only:
+[SpiDevice / ADR-0020](https://github.com/gianlucamazza/harbor-kernel/issues/14).
 
 | Area | Current state |
 | --- | --- |
 | Boot and memory | EL2→EL1 boot, early MMU, W^X kernel map, heap, guarded stacks and runtime page-table operations |
-| Execution | Cooperative EL1 tasks; no preemption or SMP |
-| IPC and authority | Mailboxes, capability checks, slot-indexed EL0 authority, cancel of blocked waits |
-| Agents | Private address spaces, multi-SVC sessions, fault termination, manifest loader and blocking receive |
-| Drivers | PL011 driver-agent path with narrow mapping, RX ownership and restoration on kill |
-| Console | EL1 endpoint server plus product beacon; transitional `SYS_PUTC` removed in M8 |
-| Verification | 290 host tests, bounded model checks, Miri, build gates, QEMU boot checks and fault probes on hardware |
+| Execution | Cooperative EL1 tasks; preemption/SMP are **open (K4/K8)** |
+| IPC and authority | Mailboxes, slot caps, cancel of blocked waits; transfer/timeout **open (K3/K2)** |
+| Agents | Private AS, multi-SVC, fault policy, manifest loader, blocking recv |
+| Drivers | PL011 driver-agent path; broader device surface **open (K9)** |
+| Console | EL1 endpoint server plus product beacon |
+| Product OS | Beacon composition only; multi-agent/storage/net **open (P\*)** |
+| Verification | 290 host tests, bounded model checks, Miri, build gates, QEMU and HW stamps |
 
-The ordered roadmap, done-when criteria and evidence links are maintained in
-[`docs/architecture.md#roadmap`](docs/architecture.md#roadmap), rather than
-duplicated here.
+Foundation history:
+[`architecture.md#roadmap`](docs/architecture.md#roadmap). Completeness tracks:
+[`architecture.md#completeness-roadmap`](docs/architecture.md#completeness-roadmap).
 
 ## Quick start
 
@@ -130,7 +133,8 @@ paths are:
 | If you want to… | Read… |
 | --- | --- |
 | Understand the architecture and roadmap | [`docs/architecture.md`](docs/architecture.md) |
-| See the long-term OS vision and use cases | [`docs/vision.md`](docs/vision.md) |
+| See the OS vision and use cases | [`docs/vision.md`](docs/vision.md) |
+| See the completeness roadmap (K/P tracks) | [architecture § completeness](docs/architecture.md#completeness-roadmap) |
 | See why Harbor is not a traditional process OS | [architecture § how it differs](docs/architecture.md#how-harbor-differs-from-a-traditional-kernel) |
 | Understand authority, isolation and threats | [`SECURITY.md`](SECURITY.md) |
 | See what is actually verified | [`docs/verification.md`](docs/verification.md) |

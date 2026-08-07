@@ -3,28 +3,31 @@
 This is the normative description of Harbor’s current architecture and
 roadmap. For the documentation map, ownership rules and status vocabulary see
 [`docs/README.md`](README.md); for evidence rather than design intent see
-[`verification.md`](verification.md). The long-term OS shape and future use
-cases live in [`vision.md`](vision.md) and are not status claims here.
+[`verification.md`](verification.md). Product shape and use cases:
+[`vision.md`](vision.md). Completeness policy:
+[ADR-0026](adr/0026-kernel-and-product-completeness.md).
 
 ## Purpose
 
-**Harbor** (package `harbor-kernel`) **aims to be** an agent-based microkernel for the
-Raspberry Pi 4 Model B, where agents are isolated units interacting only
-through message passing and capabilities. The intended product direction is a
-**capability composition OS** — see [`vision.md`](vision.md) — built by making
-each boundary demonstrable rather than by chasing POSIX coverage.
+**Harbor** (package `harbor-kernel`) aims at a **complete** agent-based
+microkernel and product operating system for the Raspberry Pi 4 Model B:
+isolated agents, message passing, capability-mediated authority, and system
+services built on that model — not Linux/POSIX parity
+([ADR-0026](adr/0026-kernel-and-product-completeness.md),
+[`vision.md`](vision.md)).
 
-It is not a finished agent OS yet. What runs today is a single-core kernel at
-EL1 with a protected identity map, interrupts, a heap, **cooperative tasks
-(M3)**, **IPC/caps (M4)**, **EL0 address spaces (M5)**, a **PL011 driver agent
-(M6)**, **EL0 agents that name their authority by capability slot (M7)**, an
-agent that **waits on a message** (ADR-0022), and a **loader** that creates
-agents from a manifest instead of from code (ADR-0021) — all **done on Pi 4B**,
-the last of them 2026-08-07.
+**Today** the foundation is in place but the kernel and product OS are **not
+yet complete**. What runs is a single-core kernel at EL1 with a protected
+identity map, interrupts, a heap, **cooperative tasks (M3)**, **IPC/caps
+(M4)**, **EL0 address spaces (M5)**, a **PL011 driver agent (M6)**, **EL0
+agents that name their authority by capability slot (M7)**, an agent that
+**waits on a message** (ADR-0022), a **loader** from a manifest (ADR-0021),
+console endpoint + beacon (M8), and supervisor cancel of parked waits
+(ADR-0024/0025) — all **done on Pi 4B**.
 
-What that does _not_ mean: an agent cannot wait on an interrupt and cannot be
-preempted. Console output is drained by an EL1 server (M8); the product
-manifest carries a **beacon** agent. See [Roadmap](#roadmap).
+Gaps that remain (preemption, IRQ wait, timeout/auto-reap, SMP, storage,
+network, …) are **completeness tracks**, not permanent non-goals. See
+[Completeness roadmap](#completeness-roadmap) and historical [Roadmap](#roadmap).
 
 ## How Harbor differs from a traditional kernel
 
@@ -401,12 +404,12 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 | --- | --- | --- |
 | Visibility (`blocked_count` / `block_events`) | **done (HW)** | [ADR-0024](adr/0024-parked-task-visibility.md); [verification §](verification.md#parked-task-visibility-and-cancel-closed-on-silicon-adr-0024--0025-2026-08-07) |
 | Supervisor `cancel_blocked` → `Cancelled` | **done (HW)** | [ADR-0025](adr/0025-cancel-blocked-wait.md); `ipc: reaped cancelled` on silicon |
-| Timeout / auto-reap on last send drop | **non-goal** (named residual) | SECURITY; needs successor ADR |
+| Timeout / auto-reap on last send drop | **open (K2)** | Completeness track; not done by ADR-0025 |
 
-Issue [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) is **closed**.
-[ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) (agent = driver
-+ EL0 program) is accepted so preemption/reaping discussions name **which half**
-they mean.
+Issue [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) is **closed**
+for visibility + cancel. [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)
+(agent = driver + EL0 program) is accepted so preemption/reaping discussions
+name **which half** they mean.
 
 ### Closed — F26 EL1 Device residual (risk-accept, 2026-08-07)
 
@@ -423,17 +426,55 @@ P-pass. That P-pass ([#2](https://github.com/gianlucamazza/harbor-kernel/issues/
 Re-open #2 only if a new agent needs a peripheral still covered only by a
 blanket, or if an audit shows EL1 stray stores into Device as a live bug class.
 
-### Current frontier (standing only)
+<a id="completeness-roadmap"></a>
 
-No foundation or protection milestone is open. The only tracked open item is a
-conditional watch; IRQ-wake RX remains unissued lab work.
+## Completeness roadmap
 
-| #   | Work | Done when | Issue |
-| --- | ---- | --------- | ----- |
-| 1   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
-| —   | **Optional: IRQ-wake RX** (untracked) | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
+Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md). Foundation
+M0–M8 is closed; the project goal is **kernel completeness (K)** and **product
+OS completeness (P)**. Order is a working plan — design ADR before any boundary
+move ([ADR-0001](adr/0001-multi-role-analysis.md)). Status vocabulary:
+`open` | `in design` | `done (QEMU)` | `done (HW)`.
 
-**Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
+### K — microkernel mechanisms
+
+| ID | Track | Status | Done when (sketch) | Needs first |
+| --- | --- | --- | --- | --- |
+| K1 | Wait-on-IRQ (first-class) | **open** | Agent parks on IRQ cap / notification without polling `DR` as the only path | Design ADR; IRQ cookie → wake |
+| K2 | Park reclaim (timeout and/or auto-reap on last send drop) | **open** | Orphan parks do not hold `MAX_TASKS` forever without policy | Successor to ADR-0025 |
+| K3 | Cap transfer / revoke / endpoint release | **open** | Authority can move and die without reboot; stale generation exercised by real release | ADR-0017 successor |
+| K4 | Preemption or CPU budget | **open** | Hostile busy-loop is not permanent DoS residual | Successor to ADR-0006; name agent-pair impact (0023) |
+| K5 | Agent density (shrink/collapse driver half) | **open** | Many small agents without 16 KiB kernel stack each by default | Successor to ADR-0023 |
+| K6 | External agent load + byte manifest | **open** | Images/manifest not only kernel `.rodata` | ADR-0021 next step |
+| K7 | ASID (+ TTBR1 if required) | **open** | Production isolation without cloned-kernel-only story as the end state | Design ADR |
+| K8 | SMP | **open** | Multi-core runqueue/IRQ model on silicon | Design ADR |
+| K9 | Driver-as-agent beyond PL011 (+ IRQ caps) | **open** | Second peripheral on the M6 pattern; IRQ-cap path | K1 useful; ADR-0013 pattern |
+| K10 | Supervisor lifecycle (restart, creator exit) | **open** | Product supervisor can restart/reap without ad-hoc demos | Builds on 0018/0025 |
+
+### P — product operating system
+
+| ID | Track | Status | Done when (sketch) | Typical deps |
+| --- | --- | --- | --- | --- |
+| P1 | Multi-agent product image beyond beacon | **open** | Product composition with several useful agents, not only proof beacon | Loader/manifest |
+| P2 | Storage path (block + load/persist) | **open** | Persist or load agent/data without rebuild-only workflow | Often after K6 |
+| P3 | Network agent + caps | **open** | Network I/O only via granted caps; no ambient net | K1/K9 helpful |
+| P4 | Display/input product path | **open** | Product-grade path (may graduate `debug-display` discipline) | Device agents |
+| P5 | Naming / discovery / system services | **open** | Endpoints findable without hard-coded oracle wiring | K3 useful |
+| P6 | Compose/audit tooling | **open** | Host and/or on-target tools for grant graph and manifests | P1 |
+
+### Standing watches (not completeness tracks)
+
+| Work | Done when | Issue |
+| --- | --- | --- |
+| **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets a caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
+
+### Out of model (permanent non-goals)
+
+These are **not** completeness tracks ([ADR-0026](adr/0026-kernel-and-product-completeness.md)):
+
+- Linux / POSIX / glibc compatibility
+- Hiding platform firmware blobs ([`blobs.md`](blobs.md))
+- Multi-tenant cloud hypervisor (unless a future ADR owns it)
 
 ### Open findings, against the milestone they block
 
@@ -508,9 +549,14 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is a **pair**: an EL1 driver task and the EL0 program it drives; the driver is what the scheduler runs (**accepted**) |
 | [ADR-0024](adr/0024-parked-task-visibility.md) | Parked tasks are counted (`blocked_count` / `block_events`); reclaim/timeout deferred (**accepted**) |
 | [ADR-0025](adr/0025-cancel-blocked-wait.md) | Supervisor `cancel_blocked` aborts a parked wait (`Cancelled`); no timeout queue (**accepted**) |
+| [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness of kernel (K) and product OS (P) is the project goal (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals
 
+Permanent **out of model** only (see [Completeness roadmap](#completeness-roadmap)
+for K/P tracks):
+
 - Linux / POSIX compatibility
 - Hiding platform firmware blobs ([`blobs.md`](blobs.md))
+- Multi-tenant cloud hypervisor (unless a dedicated ADR owns it)
