@@ -10,6 +10,8 @@ owns a fact or which technical path to follow.
   quick start and reading paths.
 - [`architecture.md`](architecture.md) — normative architecture, layer rules,
   agent model, milestones and ordered roadmap.
+- [`vision.md`](vision.md) — long-term OS direction and use cases (aspirational;
+  not a status claim).
 - [`../SECURITY.md`](../SECURITY.md) — threat model, TCB, syscall authority
   surface and residual risks.
 
@@ -30,6 +32,7 @@ The architecture document owns the detailed model and the contrast table.
 | Understand interrupts and idle | [`interrupts.md`](interrupts.md) | [`architecture.md`](architecture.md) |
 | Understand agents and authority | [`architecture.md`](architecture.md) | [`../SECURITY.md`](../SECURITY.md), relevant ADRs |
 | See why Harbor is not a traditional process OS | [`architecture.md` § differs](architecture.md#how-harbor-differs-from-a-traditional-kernel) | [`../SECURITY.md`](../SECURITY.md), [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) |
+| See the long-term OS vision and future use cases | [`vision.md`](vision.md) | [`architecture.md`](architecture.md), [`../SECURITY.md`](../SECURITY.md) |
 | Verify a claim | [`verification.md`](verification.md) | the linked transcript or gate |
 | Add an ISA or board | [`porting.md`](porting.md) | [`arch-contract.md`](arch-contract.md) |
 | Understand firmware dependencies | [`boot-chain.md`](boot-chain.md), [`blobs.md`](blobs.md) | [`hardware.md`](hardware.md) |
@@ -42,7 +45,8 @@ Each kind of document has one job:
 | Document | Owns | Does not own |
 | --- | --- | --- |
 | `README.md` | Public orientation and quick start | Complete implementation inventory or evidence transcripts |
-| `docs/architecture.md` | Current architecture, invariants and roadmap | Historical review narrative |
+| `docs/architecture.md` | Current architecture, invariants and roadmap | Historical review narrative; product vision |
+| `docs/vision.md` | Long-term OS direction, horizons, future use cases | Milestone status, evidence, operational threat model |
 | `SECURITY.md` | Threat model and authority claims | General project roadmap |
 | `docs/verification.md` | Test methodology, gates, transcripts and blind spots | Normative architectural decisions |
 | `docs/adr/*.md` | Accepted/proposed/superseded structural decisions | Current milestone dashboard outside the decision context |

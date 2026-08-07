@@ -18,6 +18,12 @@ considered complete merely because the code compiles: it needs a host test,
 QEMU gate, or Raspberry Pi evidence, with blind spots recorded in
 [`docs/verification.md`](docs/verification.md).
 
+The long-term direction is a **capability composition OS**: software arrives as
+isolated agents, authority as explicit grants, interaction as messages. That
+vision — horizons from today’s lab through appliance composition to a full
+boundary OS — is written in [`docs/vision.md`](docs/vision.md). It is
+aspirational; it does not change what is claimed done on silicon.
+
 ## What Harbor is today
 
 Harbor is a single-core, bare-metal AArch64 kernel written in Rust (`no_std`)
@@ -123,6 +129,7 @@ paths are:
 | If you want to… | Read… |
 | --- | --- |
 | Understand the architecture and roadmap | [`docs/architecture.md`](docs/architecture.md) |
+| See the long-term OS vision and use cases | [`docs/vision.md`](docs/vision.md) |
 | See why Harbor is not a traditional process OS | [architecture § how it differs](docs/architecture.md#how-harbor-differs-from-a-traditional-kernel) |
 | Understand authority, isolation and threats | [`SECURITY.md`](SECURITY.md) |
 | See what is actually verified | [`docs/verification.md`](docs/verification.md) |

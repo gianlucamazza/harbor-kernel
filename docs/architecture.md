@@ -3,13 +3,16 @@
 This is the normative description of Harbor’s current architecture and
 roadmap. For the documentation map, ownership rules and status vocabulary see
 [`docs/README.md`](README.md); for evidence rather than design intent see
-[`verification.md`](verification.md).
+[`verification.md`](verification.md). The long-term OS shape and future use
+cases live in [`vision.md`](vision.md) and are not status claims here.
 
 ## Purpose
 
 **Harbor** (package `harbor-kernel`) **aims to be** an agent-based microkernel for the
 Raspberry Pi 4 Model B, where agents are isolated units interacting only
-through message passing and capabilities.
+through message passing and capabilities. The intended product direction is a
+**capability composition OS** — see [`vision.md`](vision.md) — built by making
+each boundary demonstrable rather than by chasing POSIX coverage.
 
 It is not a finished agent OS yet. What runs today is a single-core kernel at
 EL1 with a protected identity map, interrupts, a heap, **cooperative tasks
@@ -405,16 +408,31 @@ Issue [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) is **close
 + EL0 program) is accepted so preemption/reaping discussions name **which half**
 they mean.
 
+### Closed — F26 EL1 Device residual (risk-accept, 2026-08-07)
+
+[ADR-0013](adr/0013-narrow-device-windows.md) already closed F26 for **agent**
+maps (page-sized only). Kernel EL1 may keep coarse Device windows until a
+P-pass. That P-pass ([#2](https://github.com/gianlucamazza/harbor-kernel/issues/2))
+is **not scheduled**:
+
+| Layer | Window | Status |
+| --- | --- | --- |
+| Agent AS | Named page(s) only (`map_device_page`) | **done (HW)** M6 |
+| Kernel EL1 | `DEVICE_REGIONS`: 16 MiB peripherals + 16 KiB GIC (`memmap`) | **risk-accepted** — EL1-only TCB; no agent sees the blanket |
+
+Re-open only if a new agent needs a peripheral still covered only by a blanket,
+or if an audit shows EL1 stray stores into Device as a live bug class. Not a
+foundation blocker after M8.
+
 ### Current frontier (optional only)
 
-No foundation milestone is open. Remaining items are optional protection, lab
-features, or standing watches — not work that blocks “M8 complete”.
+No foundation milestone is open. Remaining items are lab features or standing
+watches — not work that blocks “M8 complete”.
 
 | #   | Work | Done when | Issue |
 | --- | ---- | --------- | ----- |
 | 1   | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
-| 2   | **Optional P-pass** | Tighten the kernel's EL1 Device blankets (not required for M6 v1) | [#2](https://github.com/gianlucamazza/harbor-kernel/issues/2) |
-| 3   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
+| 2   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 

@@ -148,7 +148,7 @@ declare **16** (`mm::MAX_TEXT_PAGES`, 64 KiB).
 | --------- | ----------- | ----- |
 | W^X kernel map + guard pages | Yes (fault-probed HW) | Protects kernel **from itself** more than from a mapped peer |
 | Per-agent `TTBR0` + user VA window | Yes (M5 HW) | Kernel maps **cloned** into user root with EL0-denied AP ([ADR-0014](docs/adr/0014-ttbr-split-m5.md) option C) — not TTBR1 high-half |
-| Page-sized device maps for agents | Yes (M6, PL011) | Kernel still has coarse Device windows until a P-pass |
+| Page-sized device maps for agents | Yes (M6, PL011) | Kernel EL1 keeps coarse `DEVICE_REGIONS` (16 MiB peripherals + GIC) — **risk-accepted** 2026-08-07; agents never receive those blankets ([ADR-0013](docs/adr/0013-narrow-device-windows.md)) |
 | Slot-indexed caps | Yes (M7 HW) | No transfer; grants only at creation |
 | Fault → end session, creator decides | Yes (ADR-0018, M7 HW) | Creator exit leaves agents unsupervised; no restart policy |
 | Published `CURRENT_EL0` (`AtomicPtr`, ADR-0019) | Yes (HW 2026-08-07) | Stale publish panics on entry; residual: assembly assumes symbol is a pointer |
