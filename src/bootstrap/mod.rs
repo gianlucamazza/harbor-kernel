@@ -7,10 +7,12 @@
 //! has to be read in order: every line here depends on the ones above it.
 
 mod console_loop;
+#[cfg(feature = "oracle")]
 mod demos;
 #[cfg(feature = "bringup")]
 mod selftest;
 
+#[cfg(feature = "oracle")]
 use crate::agent::{self};
 use crate::arch::{bootinfo, cpu, exception, mmu, timer};
 use kernel_core::layout::Region;
@@ -262,6 +264,7 @@ pub fn run() -> ! {
         crate::sched::init();
 
         // M5 S2/S3: AS create → prepare (kernel clone + user stack) → EL0 probes.
+        #[cfg(feature = "oracle")]
         demos::m5_aspace_and_el0_smoke(&mut uart);
     } else {
         println!(uart, "frames: UNAVAILABLE");
@@ -388,6 +391,10 @@ pub fn run() -> ! {
     // `None` here is not fatal for the kernel — EL1 printing does not go
     // through capabilities — but every EL0 agent that prints will be refused,
     // and the boot oracle will say so rather than going quiet.
+    // Bound only by the oracle: nothing in the product creates an agent, so
+    // nothing holds a console capability. That is the loader gap, not an
+    // oversight — see `make product-builds`.
+    #[cfg_attr(not(feature = "oracle"), allow(unused_variables))]
     let console_cap = match crate::ipc::create_channel() {
         Ok(ch) => {
             console::grant_console_cap(ch.send);
@@ -400,82 +407,89 @@ pub fn run() -> ! {
         }
     };
 
-    match crate::sched::spawn(demos::demo_task_a) {
-        Ok(_) => crate::kprintln!("sched: spawned task-a"),
-        Err(e) => crate::kprintln!("sched: spawn task-a FAILED {e:?}"),
-    }
-    match crate::sched::spawn(demos::demo_task_b) {
-        Ok(_) => crate::kprintln!("sched: spawned task-b"),
-        Err(e) => crate::kprintln!("sched: spawn task-b FAILED {e:?}"),
-    }
-
-    // Slot 0 is left empty for these two on purpose: their programs name
-    // `CONSOLE_SLOT` (1), so the table has a hole under it, and an agent that
-    // miscounts its own slots is refused rather than served something adjacent.
-    let console_caps: [Option<kernel_core::cap::CapId>; 2] = [None, console_cap];
-    // M5-P1/P2: EL0 from a scheduled task + SVC decode.
-    match crate::sched::spawn_with_slots(demos::el0_scheduled_task, &console_caps) {
-        Ok(_) => crate::kprintln!("sched: spawned el0-task"),
-        Err(e) => crate::kprintln!("sched: spawn el0-task FAILED {e:?}"),
-    }
-
-    // M6 v1: PL011 page-only agent (ADR-0013); destroy = kill.
-    match crate::sched::spawn_with_slots(demos::pl011_agent_task, &console_caps) {
-        Ok(_) => crate::kprintln!("sched: spawned pl011-agent"),
-        Err(e) => crate::kprintln!("sched: spawn pl011-agent FAILED {e:?}"),
-    }
-
-    // Multi-agent shell: two TCBs, two AS live together, each EL0 once.
-    match crate::sched::spawn(agent::concurrent_agent_alpha) {
-        Ok(_) => crate::kprintln!("sched: spawned agent-a"),
-        Err(e) => crate::kprintln!("sched: spawn agent-a FAILED {e:?}"),
-    }
-    match crate::sched::spawn(agent::concurrent_agent_beta) {
-        Ok(_) => crate::kprintln!("sched: spawned agent-b"),
-        Err(e) => crate::kprintln!("sched: spawn agent-b FAILED {e:?}"),
-    }
-
-    // M4: mailbox + caps. Message path only — no shared payload static.
-    match crate::ipc::create_channel() {
-        Ok(ch) => {
-            // Forger learns the bit pattern but does not hold the cap in its table.
-            demos::IPC_FORGE_RAW.store(ch.send.raw(), core::sync::atomic::Ordering::Relaxed);
-            match crate::sched::spawn_with_caps(demos::ipc_receiver, &[ch.recv]) {
-                Ok(_) => crate::kprintln!("ipc: spawned receiver"),
-                Err(e) => crate::kprintln!("ipc: spawn receiver FAILED {e:?}"),
-            }
-            match crate::sched::spawn_with_caps(demos::ipc_sender, &[ch.send]) {
-                Ok(_) => crate::kprintln!("ipc: spawned sender"),
-                Err(e) => crate::kprintln!("ipc: spawn sender FAILED {e:?}"),
-            }
-            match crate::sched::spawn(demos::ipc_forger) {
-                Ok(_) => crate::kprintln!("ipc: spawned forger"),
-                Err(e) => crate::kprintln!("ipc: spawn forger FAILED {e:?}"),
-            }
+    // Everything the boot oracle needs, and nothing the product does. Rule 9
+    // of `architecture.md` keeps diagnostic scaffolding out of the production
+    // surface; `make product-builds` compiles the image without it and refuses
+    // an ELF that still carries a demo symbol.
+    #[cfg(feature = "oracle")]
+    {
+        match crate::sched::spawn(demos::demo_task_a) {
+            Ok(_) => crate::kprintln!("sched: spawned task-a"),
+            Err(e) => crate::kprintln!("sched: spawn task-a FAILED {e:?}"),
         }
-        Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
-    }
-
-    // M7 slice 2: the same exchange, but between two *EL0 agents*, each holding
-    // one capability at slot 0 of its own table. A second channel rather than a
-    // shared one: two tasks holding two ends of the same mailbox is M4's demo,
-    // and reusing it would have the EL1 receiver race the EL0 one for the
-    // message.
-    match crate::ipc::create_channel() {
-        Ok(ch) => {
-            match crate::sched::spawn_with_caps(demos::el0_ipc_sender, &[ch.send]) {
-                Ok(_) => crate::kprintln!("el0-ipc: spawned sender"),
-                Err(e) => crate::kprintln!("el0-ipc: spawn sender FAILED {e:?}"),
-            }
-            match crate::sched::spawn_with_slots(
-                demos::el0_ipc_receiver,
-                &[Some(ch.recv), console_cap],
-            ) {
-                Ok(_) => crate::kprintln!("el0-ipc: spawned receiver"),
-                Err(e) => crate::kprintln!("el0-ipc: spawn receiver FAILED {e:?}"),
-            }
+        match crate::sched::spawn(demos::demo_task_b) {
+            Ok(_) => crate::kprintln!("sched: spawned task-b"),
+            Err(e) => crate::kprintln!("sched: spawn task-b FAILED {e:?}"),
         }
-        Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
+
+        // Slot 0 is left empty for these two on purpose: their programs name
+        // `CONSOLE_SLOT` (1), so the table has a hole under it, and an agent that
+        // miscounts its own slots is refused rather than served something adjacent.
+        let console_caps: [Option<kernel_core::cap::CapId>; 2] = [None, console_cap];
+        // M5-P1/P2: EL0 from a scheduled task + SVC decode.
+        match crate::sched::spawn_with_slots(demos::el0_scheduled_task, &console_caps) {
+            Ok(_) => crate::kprintln!("sched: spawned el0-task"),
+            Err(e) => crate::kprintln!("sched: spawn el0-task FAILED {e:?}"),
+        }
+
+        // M6 v1: PL011 page-only agent (ADR-0013); destroy = kill.
+        match crate::sched::spawn_with_slots(demos::pl011_agent_task, &console_caps) {
+            Ok(_) => crate::kprintln!("sched: spawned pl011-agent"),
+            Err(e) => crate::kprintln!("sched: spawn pl011-agent FAILED {e:?}"),
+        }
+
+        // Multi-agent shell: two TCBs, two AS live together, each EL0 once.
+        match crate::sched::spawn(agent::concurrent_agent_alpha) {
+            Ok(_) => crate::kprintln!("sched: spawned agent-a"),
+            Err(e) => crate::kprintln!("sched: spawn agent-a FAILED {e:?}"),
+        }
+        match crate::sched::spawn(agent::concurrent_agent_beta) {
+            Ok(_) => crate::kprintln!("sched: spawned agent-b"),
+            Err(e) => crate::kprintln!("sched: spawn agent-b FAILED {e:?}"),
+        }
+
+        // M4: mailbox + caps. Message path only — no shared payload static.
+        match crate::ipc::create_channel() {
+            Ok(ch) => {
+                // Forger learns the bit pattern but does not hold the cap in its table.
+                demos::IPC_FORGE_RAW.store(ch.send.raw(), core::sync::atomic::Ordering::Relaxed);
+                match crate::sched::spawn_with_caps(demos::ipc_receiver, &[ch.recv]) {
+                    Ok(_) => crate::kprintln!("ipc: spawned receiver"),
+                    Err(e) => crate::kprintln!("ipc: spawn receiver FAILED {e:?}"),
+                }
+                match crate::sched::spawn_with_caps(demos::ipc_sender, &[ch.send]) {
+                    Ok(_) => crate::kprintln!("ipc: spawned sender"),
+                    Err(e) => crate::kprintln!("ipc: spawn sender FAILED {e:?}"),
+                }
+                match crate::sched::spawn(demos::ipc_forger) {
+                    Ok(_) => crate::kprintln!("ipc: spawned forger"),
+                    Err(e) => crate::kprintln!("ipc: spawn forger FAILED {e:?}"),
+                }
+            }
+            Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
+        }
+
+        // M7 slice 2: the same exchange, but between two *EL0 agents*, each holding
+        // one capability at slot 0 of its own table. A second channel rather than a
+        // shared one: two tasks holding two ends of the same mailbox is M4's demo,
+        // and reusing it would have the EL1 receiver race the EL0 one for the
+        // message.
+        match crate::ipc::create_channel() {
+            Ok(ch) => {
+                match crate::sched::spawn_with_caps(demos::el0_ipc_sender, &[ch.send]) {
+                    Ok(_) => crate::kprintln!("el0-ipc: spawned sender"),
+                    Err(e) => crate::kprintln!("el0-ipc: spawn sender FAILED {e:?}"),
+                }
+                match crate::sched::spawn_with_slots(
+                    demos::el0_ipc_receiver,
+                    &[Some(ch.recv), console_cap],
+                ) {
+                    Ok(_) => crate::kprintln!("el0-ipc: spawned receiver"),
+                    Err(e) => crate::kprintln!("el0-ipc: spawn receiver FAILED {e:?}"),
+                }
+            }
+            Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
+        }
     }
 
     // Deliberate fault, last so the demo tasks are alive when it runs: the

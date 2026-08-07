@@ -13,10 +13,24 @@ categories = ["embedded", "no-std", "os"]
 keywords = ["raspberry-pi", "aarch64", "kernel", "bare-metal"]
 
 [features]
-default = ["board-rpi4"]
+default = ["board-rpi4", "oracle"]
 # Active board package (exactly one board-* for a product image).
 # Selection is compile-time; see docs/porting.md and ADR-0015.
 board-rpi4 = []
+# The boot oracle: the demo tasks and agents whose console lines every gate in
+# `qemu-boot-check.sh` asserts on. Rule 9 of `docs/architecture.md` puts
+# diagnostic scaffolding behind a feature rather than in the production surface,
+# and 544 lines of demo agents were sitting in every image — the same shape as
+# the rule-7 exception ADR-0019 closed, unnoticed because no gate looked at what
+# lands in the image.
+#
+# **On by default**, unlike `bringup` and `debug-display`. `make boot-check` *is*
+# the oracle: a default that turns it off makes the project's central gate need a
+# flag, and a gate that needs a flag is a gate someone forgets. What changes is
+# not the default — it is that an image without it exists, is compiled, and is
+# checked by `make product-builds`.
+oracle = []
+
 # Bring-up scaffolding: the masked CNTP/HPPIR/IAR gates used to debug the M1
 # GIC path, and the raw GIC register accessors they need. Off by default so
 # none of it is compiled into a production image — and so the diagnostic

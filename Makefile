@@ -82,7 +82,8 @@ ifneq ($(strip $(FEATURES)),)
 endif
 
 .PHONY: all debug img elf check test miri bringup-builds debug-display-builds \
-	debug-builds board-guard shellcheck xrefs doc-symbols no-simd no-early-exclusives no-static-mut \
+	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
+	no-early-exclusives no-static-mut \
 	boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy \
 	restore-rpios serial clean
 
@@ -123,7 +124,7 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives no-static-mut boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs
+check: fmt-check test no-simd no-early-exclusives no-static-mut boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -227,6 +228,13 @@ no-early-exclusives: elf
 # as a comment nobody re-checks. Does not need the ELF — it greps source.
 no-static-mut:
 	./scripts/check-no-static-mut.sh
+
+# Rule 9: diagnostic scaffolding stays out of the production surface. Builds the
+# image without the `oracle` feature and refuses one that still carries the demo
+# strings — derived from `demos.rs`, not listed here, because a hand-written
+# marker list passed a real leak twice while this was being written.
+product-builds:
+	./scripts/check-product-image.sh
 
 # Miri interprets the host tests and checks the aliasing and provenance rules
 # that running the code cannot sample. It covers the only `unsafe` in

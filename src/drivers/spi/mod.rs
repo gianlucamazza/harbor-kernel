@@ -46,10 +46,13 @@ pub trait SpiBus {
 /// the trait is the contract a second slave (XPT2046 touch) would be written
 /// against, and until one exists it has an implementation and no caller.
 ///
-/// That is a divergence from ADR-0010, which says short register ops keep using
+/// ADR-0010 carries a sentence saying short register ops keep using
 /// `SpiDevice::write`. They do not — they go through `with_bus` like everything
-/// else. The ADR is accepted and therefore immutable; reconciling the two needs
-/// a successor, not an edit here. Recording it is the honest half.
+/// else. Its *requirement* is untouched by that: "must not bit-bang CS" is an
+/// either/or and `with_bus` takes the second branch. Only the description
+/// lagged, and [ADR-0020](../../../docs/adr/0020-spidevice-contract-without-a-caller.md)
+/// retracts it — an accepted ADR is immutable, so the correction lives in a
+/// successor.
 ///
 /// [ADR-0009]: ../../../docs/adr/0009-optional-spi-tft-debug-console.md
 /// [ADR-0010]: ../../../docs/adr/0010-spi-transaction-and-dbi-panel.md

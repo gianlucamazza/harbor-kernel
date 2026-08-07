@@ -32,6 +32,7 @@ the code that follows.
 | [0017](0017-el0-capability-abi.md) | EL0 capability ABI (slot-indexed authority, session in TCB) | accepted |
 | [0018](0018-agent-fault-policy.md) | Agent fault policy (kernel ends session, creator decides task) | accepted |
 | [0019](0019-no-static-mut.md) | No `static mut` — the last one becomes an atomic (rule 7) | accepted |
+| [0020](0020-spidevice-contract-without-a-caller.md) | `SpiDevice`: an adopted contract with no caller; ADR-0010's description retracted | proposed |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

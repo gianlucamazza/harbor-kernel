@@ -76,7 +76,21 @@ is still what drains it. See [Roadmap](#roadmap).
    due, and no task is ready; it **yields** when the runqueue is non-empty. The
    emptiness check runs with IRQs masked so a wakeup cannot be lost.
 9. Nothing is both writable and executable, and diagnostic scaffolding lives
-   behind the `bringup` feature rather than in the production surface.
+   behind a feature rather than in the production surface: `bringup` for the
+   masked-IRQ gates, **`oracle`** for the demo tasks and agents every boot-check
+   assertion reads.
+
+   `oracle` is **on by default**, unlike the other two, because `make
+   boot-check` *is* the oracle and a gate that needs a flag is a gate someone
+   forgets. What the feature buys is that an image without it exists, is
+   compiled, and is checked: `make product-builds` refuses one that still
+   carries the demo strings.
+
+   That build also reports a number worth reading. **88 items are unreachable
+   without the oracle** — not only the demos, but `sched::spawn`, `ipc::send`,
+   `AddressSpace`, `task_trampoline`. Nothing in the product creates a task or
+   sends a message, because an agent's text has to be compiled in and there is
+   no loader. The rule-9 fix did not create that gap; it measured it.
 10. **Facade isolation (ADR-0015).** Outside `src/arch/`, import only
     `crate::arch::{…}` — never `crate::arch::<isa>`. Outside a board package,
     import only `crate::bsp::board` — never `crate::bsp::<board>`. ISA
@@ -339,6 +353,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0017](adr/0017-el0-capability-abi.md)                     | EL0 capability ABI: slot-indexed authority, session state in the TCB (**accepted**)                 |
 | [ADR-0018](adr/0018-agent-fault-policy.md)                     | Agent fault policy: the kernel ends the session, the creator decides the task (**accepted**)        |
 | [ADR-0019](adr/0019-no-static-mut.md) | No `static mut`: the last one becomes an atomic, rule 7 without an exception (**accepted**) |
+| [ADR-0020](adr/0020-spidevice-contract-without-a-caller.md) | `SpiDevice`: contract kept, ADR-0010's descriptive sentence retracted (**proposed**) |
 | [`docs/reviews/`](reviews/)                                    | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals
