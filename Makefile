@@ -83,7 +83,7 @@ endif
 
 .PHONY: all debug img elf check test miri bringup-builds debug-display-builds \
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
-	no-early-exclusives no-static-mut \
+	no-early-exclusives no-static-mut irq-scope \
 	boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy \
 	restore-rpios serial clean
 
@@ -124,7 +124,7 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives no-static-mut boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs
+check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -228,6 +228,12 @@ no-early-exclusives: elf
 # as a comment nobody re-checks. Does not need the ELF — it greps source.
 no-static-mut:
 	./scripts/check-no-static-mut.sh
+
+# ADR-0022: a DAIF save/restore pair must not span a call that can switch tasks.
+# Brace-aware rather than line-based — a scope is not a line, and the offending
+# call is usually far below the `without_irqs(` that opens the region.
+irq-scope:
+	./scripts/check-irq-scope.sh
 
 # Rule 9: diagnostic scaffolding stays out of the production surface. Builds the
 # image without the `oracle` feature and refuses one that still carries the demo

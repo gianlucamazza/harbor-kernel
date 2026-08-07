@@ -193,6 +193,19 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
         self.refusals.authority += 1;
     }
 
+    /// Count a refusal that means kernel bookkeeping asked for something
+    /// impossible, detected outside this module.
+    ///
+    /// The one caller is the idle task attempting to park on an empty mailbox
+    /// (ADR-0022 §5). Idle blocking is the single way to reach a core with
+    /// nothing runnable, so it is refused rather than performed — and counted
+    /// here, in the same counter and for the same reason as the table's own
+    /// state refusals: this number staying zero is a claim the boot check makes.
+    #[inline]
+    pub fn note_state_refusal(&mut self) {
+        self.refusals.state += 1;
+    }
+
     /// Allocate a mailbox and mint one send and one recv capability for it.
     ///
     /// Both carry the same generation: they name the same channel at the same
@@ -401,6 +414,23 @@ mod tests {
         // they are the same kind of event seen from two sides.
         assert!(t.send(CapId::new(9, 9), msg(1)).is_err());
         assert_eq!(t.refusals().authority, 2);
+    }
+
+    #[test]
+    fn a_noted_state_refusal_lands_in_its_own_counter() {
+        // The idle-park guard (ADR-0022 §5) counts here, and the point is which
+        // number it moves: `state` is the counter the boot check asserts stays
+        // zero, so a caller-side refusal that landed in `authority` would both
+        // hide a kernel bug and inflate the number M4's gate reads exactly.
+        let mut t = T::new();
+        t.note_state_refusal();
+        assert_eq!(t.refusals().state, 1);
+        assert_eq!(
+            t.refusals().authority,
+            0,
+            "a state refusal is not an authority one"
+        );
+        assert_eq!(t.refusals().full, 0);
     }
 
     #[test]

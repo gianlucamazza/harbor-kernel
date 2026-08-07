@@ -89,7 +89,7 @@ interactive serial console.
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                   |
 | TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
-| Verification | 272 host tests (unit, integration, doc), **bounded model checking** of the scheduler and authority core, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware |
+| Verification | 274 host tests (unit, integration, doc), **bounded model checking** of the scheduler and authority core, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware |
 
 ## What is not there yet
 
@@ -187,7 +187,7 @@ is fine.
 
 ```bash
 make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
-make check        # fmt-check test no-simd no-early-exclusives no-static-mut boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs, then clippy
+make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs, then clippy
 make test         # host unit tests only
 make fmt
 ```

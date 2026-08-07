@@ -96,6 +96,7 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
             Syscall::Putc => println!(uart, "el0: SVC unexpected putc"),
             Syscall::Send => println!(uart, "el0: SVC unexpected send"),
             Syscall::Recv => println!(uart, "el0: SVC unexpected recv"),
+            Syscall::TryRecv => println!(uart, "el0: SVC unexpected try-recv"),
             Syscall::Unknown { imm } => println!(uart, "el0: SVC unexpected imm={imm}"),
         },
         other => println!(uart, "el0: SVC unexpected {other:?}"),
@@ -376,10 +377,12 @@ pub(super) fn demo_task_b() {
 /// M7 slice 2: an EL0 agent that sends through the one slot it holds, and then
 /// one that reaches for a slot it does not.
 ///
-/// Runs first of the pair. The message is posted before the receiving task
-/// wakes, which is what makes the ordering deterministic without a blocking
-/// recv — `SYS_RECV` does not park (ADR-0017), so the receiver arriving early
-/// would read `Empty` and the oracle would be a race.
+/// Runs **second** of the pair, and that is the assertion. The receiver is
+/// spawned first and reaches its `SYS_RECV` on an empty mailbox, so the payload
+/// crossing at all means the kernel parked it and this send woke it
+/// (ADR-0022 §1). Before the park existed the order was the other way round and
+/// the receiver opened with two `yield_now()` — ordering by construction, which
+/// is the arrangement that keeps a property from being tested.
 pub(super) fn el0_ipc_sender() {
     let mut agent = match Agent::create_prepared() {
         Ok(a) => a,
@@ -466,11 +469,10 @@ pub(super) fn el0_ipc_sender() {
 /// here and slot 0 there name different objects, and neither agent can name the
 /// other's. A slot index is meaningless outside the task that owns the table.
 pub(super) fn el0_ipc_receiver() {
-    // Let the sender post first. `SYS_RECV` never parks, so this is ordering by
-    // construction rather than by the wake path M4 uses.
-    crate::sched::yield_now();
-    crate::sched::yield_now();
-
+    // No `yield_now` here, deliberately. This task is spawned before the sender
+    // and runs first, so its `SYS_RECV` finds an empty mailbox and parks. If the
+    // recv stopped parking, the agent would read `Empty` and print the failure
+    // branch below — the removal of those yields is the test, not its setting.
     let mut agent = match Agent::create_prepared() {
         Ok(a) => a,
         Err(e) => {
@@ -479,7 +481,28 @@ pub(super) fn el0_ipc_receiver() {
         }
     };
 
-    // One `putc`, and the byte it prints is the payload the other agent sent.
+    // First, the non-blocking half on the very same slot (ADR-0022 §4). The
+    // mailbox is empty — the sender has not run — so this is the one program in
+    // the tree that still reaches `Status::Empty`, and it reaches it on the good
+    // path where a branch nobody sees taken would otherwise rot. It also says
+    // something the blocking recv below cannot: that the mailbox really was
+    // empty when this agent got here, so the park that follows is a park.
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_try_recv_exit(0)) {
+        Ok(s) if s.recv_empties == 1 && s.recvs == 0 && s.authority_refusals == 0 => {
+            crate::kprintln!("el0-ipc: try-recv empty without waiting empties=1")
+        }
+        Ok(s) => crate::kprintln!(
+            "el0-ipc: try-recv unexpected empties={} recvs={} refusals={}",
+            s.recv_empties,
+            s.recvs,
+            s.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-ipc: try-recv FAILED {e:?}"),
+    }
+
+    // Then the waiting half, on the same empty mailbox. One `putc`, and the byte
+    // it prints is the payload the other agent sent — after this task parked and
+    // that send woke it.
     match agent.run_user_prog_resuming(&kernel_core::prog::encode_recv_putc_exit(0, CONSOLE_SLOT)) {
         Ok(s) if s.recvs == 1 && s.putcs == 1 => {
             crate::kprintln!("el0-ipc: got payload via EL0 recvs=1")

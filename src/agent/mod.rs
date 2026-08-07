@@ -23,8 +23,22 @@
 //! it — a yield would have let the next agent overwrite this one's saved
 //! context. That rule is gone: a second agent has a second session.
 //!
-//! The loop still runs inside `cpu::without_irqs`, which is now about EL1
-//! interrupt timing rather than about protecting a shared slot.
+//! ## The mask is one step, not the session
+//!
+//! The loop used to run inside a single `cpu::without_irqs` spanning the whole
+//! session. It cannot, once `SYS_RECV` parks (ADR-0022 §2): `without_irqs` saves
+//! `DAIF` on entry and restores it on exit, so a region containing a task switch
+//! hands the next task this task's mask and later restores a value captured in
+//! an epoch that has ended.
+//!
+//! So the mask wraps `enter_step` / `resume_step` / `end_step` — everything
+//! `arch::el0` requires it for — and nothing else. The body between two steps
+//! runs unmasked, which is where the park happens. Saved-register access needs
+//! no mask: it is plain memory in the running task's own TCB, and every
+//! `arch::el0` call checks the session is the published one.
+//!
+//! `scripts/check-irq-scope.sh` is what keeps the rule from being remembered
+//! rather than true.
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -110,6 +124,13 @@ pub struct SessionStats {
     pub sends: u32,
     /// Messages the agent took through a slot it holds.
     pub recvs: u32,
+    /// `SYS_TRY_RECV` calls answered `Empty`.
+    ///
+    /// Counted so a creator can assert the non-blocking path *was* taken. Since
+    /// `SYS_RECV` waits (ADR-0022 §1), `Empty` has exactly one producer left,
+    /// and a status no program can reach is a status that stops being
+    /// maintained.
+    pub recv_empties: u32,
     /// Calls refused because the agent named authority it does not have.
     ///
     /// The number the boot oracle asserts. A protection nobody has seen fire is
@@ -117,6 +138,86 @@ pub struct SessionStats {
     pub authority_refusals: u32,
     /// Why the session stopped. See [`SessionEnd`].
     pub end: SessionEnd,
+}
+
+/// Enter EL0 with EL1 IRQs masked, and nothing else inside the mask.
+///
+/// `before_enter` shares this step deliberately: a setup that arms a soon
+/// deadline must do it with IRQs already masked, or the tick is claimed by
+/// `exception_irq_el1` and never observed as [`el0::El0Outcome::Irq`].
+///
+/// # Safety
+///
+/// `root`/`entry`/`sp` must describe a prepared address space, and `session`
+/// must be the running task's — which [`el0::enter`] checks rather than assumes.
+fn enter_step(
+    session: *mut el0::El0Session,
+    root: usize,
+    entry: u64,
+    sp: u64,
+    before_enter: impl FnOnce(),
+) -> el0::El0Outcome {
+    cpu::without_irqs(|| {
+        before_enter();
+        // SAFETY: the caller's contract, plus the mask this closure holds.
+        unsafe { el0::enter(session, root, entry, sp) }
+    })
+}
+
+/// Resume a live session with EL1 IRQs masked, and nothing else inside the mask.
+///
+/// The masked region is **one step**, not the session (ADR-0022 §2).
+/// `cpu::without_irqs` saves `DAIF` on entry and restores it on exit, so a
+/// region that spanned a task switch would hand the next task this task's mask
+/// and later restore a value captured in an epoch that has ended. The session
+/// loop parks on `SYS_RECV`; that park is a switch; so the mask cannot span it.
+fn resume_step(session: *mut el0::El0Session) -> el0::El0Outcome {
+    // SAFETY: the caller only reaches here after a resumable outcome, and the
+    // mask this closure holds is what `el0::resume` requires.
+    cpu::without_irqs(|| unsafe { el0::resume(session) })
+}
+
+/// End a session with EL1 IRQs masked. Same one-step rule as [`resume_step`].
+fn end_step(session: *mut el0::El0Session) {
+    // SAFETY: called on the paths that will not resume — the session is either
+    // finished by `SYS_EXIT`/an unimplemented SVC, or already ended by the
+    // vector path after a fault. Ending under the mask is what clears
+    // `el0_kernel_ttbr0` while nothing can fault.
+    cpu::without_irqs(|| unsafe { el0::end_session(session) });
+}
+
+/// Turn a recv result into the agent's `x0`, writing the payload on success.
+///
+/// Shared by the two recv calls because only the *waiting* differs. On anything
+/// but `Ok` the kernel writes no payload, so `x1..x3` keep whatever the agent
+/// itself left there: the reply registers are meaningful only when `x0` says
+/// `Ok`, and the kernel does not clear an agent's own registers to make a point.
+fn recv_reply(
+    session: *mut el0::El0Session,
+    result: Result<ipc::Message, ipc::RecvError>,
+    stats: &mut SessionStats,
+) -> Status {
+    match result {
+        Ok(msg) => {
+            stats.recvs = stats.recvs.saturating_add(1);
+            el0::set_saved_gpr(session, 1, u64::from(msg.tag));
+            el0::set_saved_gpr(session, 2, msg.a);
+            el0::set_saved_gpr(session, 3, msg.b);
+            Status::Ok
+        }
+        Err(ipc::RecvError::Empty) => {
+            stats.recv_empties = stats.recv_empties.saturating_add(1);
+            Status::Empty
+        }
+        // Someone else is already waiting on this endpoint. Not an authority
+        // violation — the agent holds what it named — so it does not touch the
+        // counter the boot check asserts exactly (ADR-0022 §4).
+        Err(ipc::RecvError::Busy) => Status::Busy,
+        Err(ipc::RecvError::BadCap) => {
+            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+            Status::Authority
+        }
+    }
 }
 
 /// EL1-owned user address space ready for one-shot EL0 entry.
@@ -171,7 +272,8 @@ impl Agent {
     ///
     /// Required for setups that arm a soon timer deadline: if that ran with
     /// IRQs open at EL1, the tick would be claimed by `exception_irq_el1` and
-    /// never observed as [`el0::El0Outcome::Irq`].
+    /// never observed as [`el0::El0Outcome::Irq`]. That is why `before_enter`
+    /// shares the entry's masked step rather than running before it.
     pub fn run_user_prog_resuming_prep(
         &mut self,
         prog: &[u8],
@@ -183,18 +285,19 @@ impl Agent {
         let root = self.aspace.root_phys();
         let entry = self.aspace.user_entry_va();
         let sp = self.aspace.user_sp();
-        cpu::without_irqs(|| {
-            before_enter();
-            // The session this task owns. Every call below passes it, and
-            // `arch::el0` refuses to act on a session the assembly would not
-            // see — a switch that stopped publishing panics here instead of
-            // handing this loop another task's saved registers (ADR-0017 §1).
-            let session = sched::current_el0_session();
-            // SAFETY: prepared AS; IRQs masked at EL1 around enter/resume; the
-            // session belongs to the running task, which is what the call
-            // checks rather than assumes.
-            let mut event = unsafe { el0::enter(session, root, entry, sp) };
-            let mut stats = SessionStats::default();
+        // The session this task owns. Every call below passes it, and
+        // `arch::el0` refuses to act on a session the assembly would not
+        // see — a switch that stopped publishing panics there instead of
+        // handing this loop another task's saved registers (ADR-0017 §1).
+        // It survives a park because the session lives in the TCB and the
+        // scheduler republishes on every switch-in.
+        let session = sched::current_el0_session();
+        // SAFETY: prepared AS; `enter_step` masks EL1 IRQs as `el0::enter`
+        // requires; the session belongs to the running task, which the call
+        // checks rather than assumes.
+        let mut event = enter_step(session, root, entry, sp, before_enter);
+        let mut stats = SessionStats::default();
+        {
             loop {
                 match event {
                     el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
@@ -203,7 +306,7 @@ impl Agent {
                             // SAFETY: the outcome being matched is `Svc`, which
                             // is resumable by definition; IRQs are still masked
                             // by the enclosing `without_irqs`.
-                            event = unsafe { el0::resume(session) };
+                            event = resume_step(session);
                         }
                         Syscall::Putc => {
                             // The console is an ordinary capability in a slot
@@ -232,7 +335,7 @@ impl Agent {
                             el0::set_saved_gpr(session, 0, status.as_u64());
                             // SAFETY: as `Ping` — a resumable `Svc` outcome
                             // with IRQs masked.
-                            event = unsafe { el0::resume(session) };
+                            event = resume_step(session);
                         }
                         Syscall::Send => {
                             let msg = ipc::Message {
@@ -258,42 +361,39 @@ impl Agent {
                             // SAFETY: as `Ping` — a resumable `Svc` outcome with
                             // IRQs masked. The reply is already in the saved
                             // register file, so the resume delivers it.
-                            event = unsafe { el0::resume(session) };
+                            event = resume_step(session);
                         }
                         Syscall::Recv => {
-                            let status = match ipc::try_recv_from_slot(
-                                el0::saved_gpr(session, 0) as usize
-                            ) {
-                                Ok(msg) => {
-                                    stats.recvs = stats.recvs.saturating_add(1);
-                                    el0::set_saved_gpr(session, 1, u64::from(msg.tag));
-                                    el0::set_saved_gpr(session, 2, msg.a);
-                                    el0::set_saved_gpr(session, 3, msg.b);
-                                    Status::Ok
-                                }
-                                Err(ipc::RecvError::Empty) => Status::Empty,
-                                Err(_) => {
-                                    stats.authority_refusals =
-                                        stats.authority_refusals.saturating_add(1);
-                                    Status::Authority
-                                }
-                            };
-                            // On anything but `Ok` the kernel writes no
-                            // payload, so `x1..x3` keep whatever the agent
-                            // itself left there. That is the ABI: the reply
-                            // registers are meaningful only when `x0` says
-                            // `Ok`, and the kernel does not clear an agent's
-                            // own registers to make a point.
+                            // The call this whole restructuring exists for
+                            // (ADR-0022 §1). `recv_from_slot` parks the task on
+                            // an empty mailbox — a switch, which is why it must
+                            // not run under a mask this loop is holding, and
+                            // does not: every masked region here is one step.
+                            //
+                            // The agent's text never sees the wait. It resumes
+                            // with `Ok` and the payload, whenever it next runs.
+                            let slot = el0::saved_gpr(session, 0) as usize;
+                            let status = recv_reply(session, ipc::recv_from_slot(slot), &mut stats);
                             el0::set_saved_gpr(session, 0, status.as_u64());
                             // SAFETY: as `Send`.
-                            event = unsafe { el0::resume(session) };
+                            event = resume_step(session);
+                        }
+                        Syscall::TryRecv => {
+                            // The non-blocking half (ADR-0022 §4), and the only
+                            // producer of `Status::Empty` left in the kernel.
+                            let slot = el0::saved_gpr(session, 0) as usize;
+                            let status =
+                                recv_reply(session, ipc::try_recv_from_slot(slot), &mut stats);
+                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            // SAFETY: as `Send`.
+                            event = resume_step(session);
                         }
                         Syscall::Exit => {
                             // SAFETY: the session is resumable but will not be
                             // resumed — this returns, and EL0 is unreachable
                             // without another `enter`. Ending it here is what
                             // clears `el0_kernel_ttbr0` while nothing can fault.
-                            unsafe { el0::end_session(session) };
+                            end_step(session);
                             stats.end = SessionEnd::Exit;
                             return Ok(stats);
                         }
@@ -301,7 +401,7 @@ impl Agent {
                             // SAFETY: as `Exit`. An SVC this kernel does not
                             // implement ends the session rather than inventing
                             // a behaviour for it.
-                            unsafe { el0::end_session(session) };
+                            end_step(session);
                             stats.end = SessionEnd::UnknownSvc { imm };
                             return Ok(stats);
                         }
@@ -313,7 +413,7 @@ impl Agent {
                         // run to completion. `ELR` still points at the
                         // interrupted instruction, which the architecture
                         // re-executes — resuming here does not skip it.
-                        event = unsafe { el0::resume(session) };
+                        event = resume_step(session);
                     }
                     el0::El0Outcome::DataAbort { esr, far }
                     | el0::El0Outcome::OtherSync { esr, far } => {
@@ -327,13 +427,13 @@ impl Agent {
                         // session — `EL0_CAN_RESUME` is clear and the vector
                         // path has released the kernel root. This makes it
                         // explicit rather than relying on it.
-                        unsafe { el0::end_session(session) };
+                        end_step(session);
                         stats.end = SessionEnd::Fault { esr, far };
                         return Ok(stats);
                     }
                 }
             }
-        })
+        }
     }
 
     /// Tear down the AS (revokes user + any device leaves; returns pool frames).
@@ -351,6 +451,7 @@ pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
             Syscall::Putc => crate::kprintln!("{prefix}: svc putc"),
             Syscall::Send => crate::kprintln!("{prefix}: svc send"),
             Syscall::Recv => crate::kprintln!("{prefix}: svc recv"),
+            Syscall::TryRecv => crate::kprintln!("{prefix}: svc try-recv"),
             Syscall::Unknown { imm } => crate::kprintln!("{prefix}: svc refuse imm={imm:#x}"),
         },
         other => crate::kprintln!("{prefix}: unexpected {other:?}"),

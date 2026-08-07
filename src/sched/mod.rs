@@ -235,6 +235,17 @@ pub fn current_task_id() -> TaskId {
     })
 }
 
+/// Is the running task the idle task?
+///
+/// Asked by anything that is about to park. Idle leaving the run queue is the
+/// one way to reach a core with nothing runnable, and the scheduler's own model
+/// carries that as an invariant — see `model_sched.rs`. A caller that can park
+/// must refuse rather than trust that idle never calls it.
+#[inline]
+pub fn current_is_idle() -> bool {
+    current_task_id() == Tasks::<MAX_TASKS>::IDLE
+}
+
 /// Cap at local slot `i` for the current task, if any.
 #[inline]
 pub fn my_cap(i: usize) -> Option<CapId> {

@@ -314,6 +314,34 @@ grep -qa 'el0-ipc: got payload via EL0 recvs=1' "${log}" ||
 grep -qa '\*el0-ipc: got payload' "${log}" ||
 	fail "the received payload was not printed by the receiving agent"
 
+# ADR-0022: the receiver waited, and the send is what woke it.
+#
+# Presence is not enough here, and it was all this script checked until the park
+# existed. The receiving agent is spawned **first** and opens with no yields, so
+# the order of these three lines is the property:
+#
+#   1. `try-recv empty`  — the mailbox really was empty when the agent arrived,
+#      taken by `SYS_TRY_RECV` on the same slot, so the wait that follows is a
+#      wait and not a coincidence of scheduling.
+#   2. `sent`            — the peer posts.
+#   3. `got payload`     — the parked agent resumes with it.
+#
+# A recv that stopped parking would print the `try-recv unexpected` branch, or
+# reach `got payload` before `sent`. Both are red here and neither is red on a
+# presence check.
+grep -qa 'el0-ipc: try-recv empty without waiting empties=1' "${log}" ||
+	fail "SYS_TRY_RECV did not report an empty mailbox without waiting"
+line_of() { grep -na "$1" "${log}" | head -1 | cut -d: -f1; }
+empty_at="$(line_of 'el0-ipc: try-recv empty')"
+sent_at="$(line_of 'el0-ipc: sent slot=0')"
+got_at="$(line_of '\*el0-ipc: got payload')"
+if [[ -z "${empty_at}" || -z "${sent_at}" || -z "${got_at}" ]]; then
+	fail "the EL0 exchange is missing a line the ordering check needs"
+fi
+if ((empty_at >= sent_at || sent_at >= got_at)); then
+	fail "the EL0 receiver did not park: expected empty(${empty_at}) < sent(${sent_at}) < got(${got_at})"
+fi
+
 # Two tick reports mean the timer IRQ fired repeatedly *and* the WFI idle loop
 # kept waking: a stalled idle loop prints the first and then goes quiet.
 grep -qa 'ticks=20' "${log}" ||

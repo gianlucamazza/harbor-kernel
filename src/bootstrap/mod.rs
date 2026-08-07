@@ -476,16 +476,21 @@ pub fn run() -> ! {
         // message.
         match crate::ipc::create_channel() {
             Ok(ch) => {
-                match crate::sched::spawn_with_caps(demos::el0_ipc_sender, &[ch.send]) {
-                    Ok(_) => crate::kprintln!("el0-ipc: spawned sender"),
-                    Err(e) => crate::kprintln!("el0-ipc: spawn sender FAILED {e:?}"),
-                }
+                // Receiver **first** (ADR-0022 §"gates that catch reversal"). It
+                // reaches `SYS_RECV` on an empty mailbox and parks; the sender
+                // that follows is what wakes it. Spawned the other way round —
+                // as it was until the park existed — the exchange would work
+                // whether or not a blocking recv did.
                 match crate::sched::spawn_with_slots(
                     demos::el0_ipc_receiver,
                     &[Some(ch.recv), console_cap],
                 ) {
                     Ok(_) => crate::kprintln!("el0-ipc: spawned receiver"),
                     Err(e) => crate::kprintln!("el0-ipc: spawn receiver FAILED {e:?}"),
+                }
+                match crate::sched::spawn_with_caps(demos::el0_ipc_sender, &[ch.send]) {
+                    Ok(_) => crate::kprintln!("el0-ipc: spawned sender"),
+                    Err(e) => crate::kprintln!("el0-ipc: spawn sender FAILED {e:?}"),
                 }
             }
             Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),

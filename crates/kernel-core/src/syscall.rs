@@ -12,6 +12,7 @@
 //! | `SYS_PUTC`  | slot    | byte    | —       | —       | [`Status`] | unchanged     |
 //! | `SYS_SEND`  | slot    | tag     | a       | b       | [`Status`] | unchanged     |
 //! | `SYS_RECV`  | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
+//! | `SYS_TRY_RECV` | slot | —       | —       | —       | [`Status`] | tag, a, b     |
 //!
 //! The kernel writes `x0..x3` and nothing else: those four are the reply, and
 //! any other register is the agent's own context, which answering a syscall has
@@ -43,11 +44,23 @@ pub const SYS_PUTC: u16 = 2;
 /// `svc #3` — send a message through the capability in slot `x0`.
 pub const SYS_SEND: u16 = 3;
 
-/// `svc #4` — take a message from the capability in slot `x0` if one is queued.
+/// `svc #4` — take a message from the capability in slot `x0`, **waiting** if
+/// none is queued.
 ///
-/// Does **not** block. A blocking recv has to yield out of a live session, and
-/// nothing performs a switch inside one yet — see ADR-0017's consequences.
+/// The agent's text is unaware of the wait: it executes the `svc` and, whenever
+/// it next runs, finds [`Status::Ok`] with the message in `x1..x3`. Waiting is
+/// the kernel's, not the program's (ADR-0022 §1). Never returns
+/// [`Status::Empty`] — an agent that must not wait calls [`SYS_TRY_RECV`].
 pub const SYS_RECV: u16 = 4;
+
+/// `svc #5` — take a message from the capability in slot `x0` if one is queued,
+/// and answer [`Status::Empty`] if none is.
+///
+/// The non-blocking half of the pair, kept as its own immediate rather than as a
+/// flag: an agent that must not park — a poll loop, an interrupt service body —
+/// needs to say so at the call, and a blocking-only recv would take that away
+/// (ADR-0022 §4).
+pub const SYS_TRY_RECV: u16 = 5;
 
 /// What an agent reads in `x0` after a call that names a capability.
 ///
@@ -63,8 +76,16 @@ pub enum Status {
     Authority = 1,
     /// The mailbox is full. Flow control, not a violation.
     Full = 2,
-    /// Nothing queued. Only `SYS_RECV` produces this.
+    /// Nothing queued. Only `SYS_TRY_RECV` produces this — `SYS_RECV` waits.
     Empty = 3,
+    /// Someone else is already waiting on this endpoint.
+    ///
+    /// One endpoint, one waiter (ADR-0017's topology, which ADR-0022 does not
+    /// widen). Kept apart from [`Self::Authority`] because it is not one: the
+    /// agent holds the capability it named, and the kernel counts this as a
+    /// *state* refusal. Folding it into `Authority` would inflate the number the
+    /// boot check asserts exactly.
+    Busy = 4,
 }
 
 impl Status {
@@ -86,8 +107,11 @@ pub enum Syscall {
     Putc,
     /// Send through the capability named by the slot in `x0`.
     Send,
-    /// Take a queued message from the capability named by the slot in `x0`.
+    /// Take a message from the capability named by the slot in `x0`, waiting
+    /// for one if the mailbox is empty.
     Recv,
+    /// Take a queued message from the slot in `x0`, or answer `Empty`.
+    TryRecv,
     /// Not in the table — refuse, do not invent behaviour.
     Unknown { imm: u16 },
 }
@@ -101,6 +125,7 @@ pub const fn decode(imm: u16) -> Syscall {
         SYS_PUTC => Syscall::Putc,
         SYS_SEND => Syscall::Send,
         SYS_RECV => Syscall::Recv,
+        SYS_TRY_RECV => Syscall::TryRecv,
         other => Syscall::Unknown { imm: other },
     }
 }
@@ -116,14 +141,25 @@ mod tests {
         assert_eq!(decode(2), Syscall::Putc);
         assert_eq!(decode(3), Syscall::Send);
         assert_eq!(decode(4), Syscall::Recv);
+        assert_eq!(decode(5), Syscall::TryRecv);
+    }
+
+    #[test]
+    fn the_two_recvs_are_different_calls() {
+        // Not a tautology: the pair exists so an agent can *say* whether it may
+        // wait, and that only works while the two immediates decode apart. A
+        // blocking-only ABI would be one that answered `Recv` to both.
+        assert_ne!(decode(SYS_RECV), decode(SYS_TRY_RECV));
     }
 
     #[test]
     fn unknown_is_refused_not_aliased() {
-        // The first immediate past the table. It used to be 3; adding two calls
-        // moved it, and an ABI that grows must not grow by accident — an
-        // unimplemented call ends the session rather than aliasing a real one.
-        assert_eq!(decode(5), Syscall::Unknown { imm: 5 });
+        // The first immediate past the table. It used to be 3, then 5; every
+        // call added moves it, and an ABI that grows must not grow by accident
+        // — an unimplemented call ends the session rather than aliasing a real
+        // one. This assertion is the reason `SYS_TRY_RECV = 5` was seen to
+        // break a test before it was believed.
+        assert_eq!(decode(6), Syscall::Unknown { imm: 6 });
         assert_eq!(decode(0xffff), Syscall::Unknown { imm: 0xffff });
     }
 
@@ -135,5 +171,6 @@ mod tests {
         assert_eq!(Status::Authority.as_u64(), 1);
         assert_eq!(Status::Full.as_u64(), 2);
         assert_eq!(Status::Empty.as_u64(), 3);
+        assert_eq!(Status::Busy.as_u64(), 4);
     }
 }

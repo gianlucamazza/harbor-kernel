@@ -172,10 +172,33 @@ pub fn send_from_slot(slot: usize, msg: Message) -> Result<(), SendError> {
     }
 }
 
-/// Take a message through the capability in `slot`. Never parks.
+/// Count a refusal that means kernel bookkeeping asked for the impossible.
 ///
-/// Non-blocking by construction: a blocking recv would have to yield out of a
-/// live EL0 session, and nothing performs a switch inside one yet.
+/// Same argument as [`note_authority_refusal`]: the caller detects it, the table
+/// owns the number.
+pub fn note_state_refusal() {
+    with_table(|t| t.note_state_refusal());
+}
+
+/// Take a message through the capability in `slot`, **waiting** if none is
+/// queued (`SYS_RECV`, ADR-0022 §1).
+///
+/// The whole body is [`recv`] with a slot resolved in front of it. That is the
+/// point: the park sequence has a re-check inside it whose necessity is not
+/// obvious, and duplicating the sequence for EL0 would be duplicating the
+/// subtlety.
+pub fn recv_from_slot(slot: usize) -> Result<Message, RecvError> {
+    match sched::my_cap_slot(slot) {
+        Ok(cap) => recv(cap),
+        Err(_) => {
+            with_table(|t| t.note_authority_refusal());
+            Err(RecvError::BadCap)
+        }
+    }
+}
+
+/// Take a message through the capability in `slot` if one is queued
+/// (`SYS_TRY_RECV`). Never parks.
 pub fn try_recv_from_slot(slot: usize) -> Result<Message, RecvError> {
     match sched::my_cap_slot(slot) {
         Ok(cap) => try_recv(cap),
@@ -197,12 +220,25 @@ pub fn try_recv(cap: CapId) -> Result<Message, RecvError> {
 
 /// Blocking recv: parks the current task until a message is available.
 ///
-/// Must not be called from idle or an IRQ handler.
+/// Must not be called from an IRQ handler. Idle **is** checked rather than
+/// documented (ADR-0022 §5): an idle task that parked would leave the core with
+/// nothing runnable, so it is answered [`RecvError::Empty`] and the attempt is
+/// counted as a state refusal — the counter whose staying zero the boot check
+/// asserts.
+///
+/// The mask must not be held across the park. `with_table` takes it and gives
+/// it back; [`sched::block_current`] is called outside, because a `DAIF`
+/// save/restore pair that spans a switch restores a value captured in an epoch
+/// that has ended.
 pub fn recv(cap: CapId) -> Result<Message, RecvError> {
     loop {
         match try_recv(cap) {
             Ok(msg) => return Ok(msg),
             Err(e @ (RecvError::BadCap | RecvError::Busy)) => return Err(e),
+            Err(RecvError::Empty) if sched::current_is_idle() => {
+                note_state_refusal();
+                return Err(RecvError::Empty);
+            }
             Err(RecvError::Empty) => {
                 // `park` re-checks under the mask: between the `try_recv` above
                 // and here the mask was dropped, so a message can have landed.

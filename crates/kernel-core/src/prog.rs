@@ -120,6 +120,23 @@ pub fn encode_send_bare_exit(slot: u16) -> [u8; 16] {
     out
 }
 
+/// A64: `movz x0,#slot; svc #5; svc #1; b .` — try to receive, then exit.
+///
+/// The non-blocking half of the recv pair (ADR-0022 §4). Pointed at an empty
+/// mailbox it is the only program in the tree that produces
+/// [`syscall::Status::Empty`] — which is why it exists as a demo rather than as
+/// a host test: once `SYS_RECV` waits, nothing else reaches that status, and a
+/// status no program can produce is a status that stops being maintained.
+pub fn encode_try_recv_exit(slot: u16) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_TRY_RECV));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// A64: `movz x0,#8,lsl#16; str xzr,[x0]; svc #1; b .`
 ///
 /// Writes to a kernel address the agent does not have, which takes a data abort
@@ -347,6 +364,14 @@ mod tests {
             "encode_recv_putc_exit(0, 1)",
             &encode_recv_putc_exit(0, 1),
             "movz x0, #0\nsvc #4\nmov x1, x2\nmovz x0, #1\nsvc #2\nsvc #1\nb .\n",
+        );
+
+        // `svc #5`, not `#4`: the two recvs are different calls, and an agent
+        // that must not wait says so at the call site.
+        assert_program(
+            "encode_try_recv_exit(0)",
+            &encode_try_recv_exit(0),
+            "movz x0, #0\nsvc #5\nsvc #1\nb .\n",
         );
 
         // Writes to a kernel address the agent does not have: a data abort.

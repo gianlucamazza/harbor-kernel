@@ -72,6 +72,15 @@ is still what drains it. See [Roadmap](#roadmap).
    the window is now that small, `console::acquire` and the panic handler use
    ordinary atomics like everything else.
 
+   **Second sub-rule, and it is about scope rather than about type: a `DAIF`
+   save/restore pair must not span a call that can switch tasks.**
+   `cpu::without_irqs` reads `DAIF` before its closure and writes it back after,
+   so a switch in between hands the next task this task's mask and later
+   restores a value captured in an epoch that has ended. The EL0 session loop
+   used to hold one mask for the whole session; it holds one per enter/resume
+   step now, because `SYS_RECV` parks (ADR-0022). `scripts/check-irq-scope.sh`
+   walks each region by brace depth and fails on a switching call inside it.
+
 8. Idle (console loop) uses `WFI` when the RX ring is empty, no tick report is
    due, and no task is ready; it **yields** when the runqueue is non-empty. The
    emptiness check runs with IRQs masked so a wakeup cannot be lost.
@@ -86,11 +95,17 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
    compiled, and is checked: `make product-builds` refuses one that still
    carries the demo strings.
 
-   That build also reports a number worth reading. **88 items are unreachable
+   That build also reports a number worth reading. **95 items are unreachable
    without the oracle** — not only the demos, but `sched::spawn`, `ipc::send`,
    `AddressSpace`, `task_trampoline`. Nothing in the product creates a task or
    sends a message, because an agent's text has to be compiled in and there is
    no loader. The rule-9 fix did not create that gap; it measured it.
+
+   The number moves with the kernel: it was 88 before `SYS_RECV` learned to
+   wait, because the park added product code the product cannot reach either.
+   `make product-builds` prints the current one, and this sentence is the only
+   place that repeats it — no gate compares the two, so a stale figure here is
+   drift a reader has to catch.
 
 10. **Facade isolation (ADR-0015).** Outside `src/arch/`, import only
     `crate::arch::{…}` — never `crate::arch::<isa>`. Outside a board package,
@@ -235,7 +250,7 @@ One boot carrying all four slices. Transcript and what the ordering proves:
 | **3 — `SYS_PUTC` behind a capability**     | **done (HW)** | `console: capability minted`, then `el0-ipc: console denied, printed nothing` — and the byte that agent tried to print is asserted **absent** from the log                                                                                         |
 | **4 — fault policy** (ADR-0018)            | **done (HW)** | `agent faulted esr=0x9200004f far=0x80000 faults=1` then `creator alive after fault`, with the peer completing 22 ms later; `SessionEnd` is `#[must_use]` and has been seen to fail a build                                                        |
 | **The done-when, end to end**              | **done (HW)** | two EL0 agents with different capability tables exchange a message neither can forge, one faults, its creator handles it, the other completes, the kernel keeps ticking                                                                            |
-| Blocking `SYS_RECV`                        | **not done**  | needs a yield out of a live session. Per-task state makes such a switch harmless and nothing performs one; deliberately out of M7 (ADR-0017 consequences). Specified by [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md) (accepted) |
+| Blocking `SYS_RECV`                        | **done (QEMU)** | The agent parks and a peer send wakes it; the oracle spawns the receiver **first** and it still gets the payload, so ordering by construction is gone. `SYS_TRY_RECV` keeps the non-blocking path and is the only producer of `Status::Empty` left ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)) |
 
 Cost: `pool=496` at the concurrent peak and `pool=512` after the kill, identical
 to the pre-M7 sessions. Four slices, no frames.
@@ -281,7 +296,7 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 | #   | Work                                                                                                                                                               | Done when                                                                                                                                                                                                        |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | **Agent loading**: agents become data described by [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)'s manifest                               | Every grant in the machine is one table; the loader is one loop over it; an agent's text is no longer bounded by one page. `make product-builds` stops reporting that nothing in the product creates a task      |
-| 2   | **Blocking `SYS_RECV`**: the agent parks and `without_irqs` stops spanning a switch ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)) | An agent parks on empty recv; a peer send wakes it; both still pass authority checks. The oracle spawns the receiver **before** the sender, so ordering by construction is no longer available — QEMU + HW stamp |
+| 2   | ~~**Blocking `SYS_RECV`**~~ — **done (QEMU)**, awaiting a silicon stamp ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)) | Landed: the receiver is spawned first, parks on an empty mailbox, and the peer's send wakes it. `make irq-scope` keeps the `DAIF` scoping rule true rather than remembered |
 | 3   | **M8: console endpoint** (retire transitional `SYS_PUTC`)                                                                                                          | Same slot ABI; kernel or EL1 server drains; boot-check still asserts denied-by-default                                                                                                                           |
 | 4   | **Optional: IRQ-wake RX**                                                                                                                                          | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                                |
 | 5   | **Optional P-pass**                                                                                                                                                | Tighten kernel EL1 Device blankets (not required for M6 v1)                                                                                                                                                      |
