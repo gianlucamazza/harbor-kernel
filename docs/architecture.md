@@ -24,14 +24,14 @@ so far it is the oracle that gives it something to load. See
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  Agents (M5–M6 + shell done HW; IRQ/PUTC/RX-own QEMU)    │
+│  Agents (M5–M7 + loader + waiting recv — all done HW)    │
 │  message passing · capability-mediated resources         │
 └────────────────────────────▲─────────────────────────────┘
                              │ SVC / IPC / EL0 IRQ (session)
 ┌────────────────────────────┴─────────────────────────────┐
 │  Kernel policy                                           │
-│  bootstrap · console_loop · sched · ipc · time · console │
-│  agent · mm (frames, aspace) · status (debug-display)  │
+│  bootstrap · loader · console_loop · sched · ipc · time  │
+│  console · agent · mm (frames, aspace) · status          │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
@@ -159,7 +159,7 @@ from `agent` — board PA/VA for demos live in bootstrap.
 | Concept    | Role                                                                                    | Status                           |
 | ---------- | --------------------------------------------------------------------------------------- | -------------------------------- |
 | Task (M3)  | Schedulable EL1 entity + private stack                                                  | **done (HW)**                    |
-| Agent      | Task + AS at EL0; multi-SVC (**HW**); IRQ resume + `SYS_PUTC` + PL011 RX own (**QEMU**) | **hybrid** — [Roadmap](#roadmap) |
+| Agent      | Task + AS at EL0; multi-SVC, IRQ resume, `SYS_PUTC`, PL011 RX own, and a recv it can wait on | **done (HW)** |
 | Message    | Sole interaction channel (M4)                                                           | **done (HW)**                    |
 | Capability | Unforgeable handle (send/recv; future: IRQ notification)                                | **done (HW)** (IRQ caps later)   |
 | Manifest   | The table that says which agents exist and what each is granted ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | **done (HW)** |

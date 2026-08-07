@@ -91,6 +91,30 @@ tasks get their own `TTBR0` root that still includes **kernel identity maps**
 (EL0 denied) plus a private user VA window. A future high-half kernel on
 `TTBR1` is a successor ADR, not required for M5 done-when.
 
+### The user window is per agent, not per board
+
+`kernel_core::layout::UserWindow` describes it — base, total pages, and how many
+of those are **text** — and `AddressSpace::create_with(text_pages, stack_pages)`
+builds one. The lowest `text_pages` are mapped `USER_RX` and the rest `USER_RW`,
+so W^X holds inside a user window exactly as it does in the kernel map, with
+`UserWindow::is_text_page` the single place that decides which is which.
+
+Until [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md) the geometry was
+one BSP constant: one page of text, three of stack, the same for every agent.
+That was the ABI, because with no loader there was nothing to negotiate with. It
+is now whatever a manifest entry declares, up to `mm::MAX_TEXT_PAGES` (16, so
+64 KiB) — and `USER_STACK_PAGES` in the BSP survives only as the *default* an
+`AddressSpace::create` gets when nobody asks.
+
+**The pages of a window are not contiguous in physical memory.** Each comes from
+its own `frames::alloc`, and they are adjacent only by accident of the pool's
+LIFO free order — an accident that holds on a fresh boot and stops holding after
+the first create/destroy cycle. `AddressSpace` therefore records the physical
+address of every text page and `poke_user` walks them one at a time, publishing
+each range for instruction fetch. An earlier version wrote from page 0's
+physical address alone, which is why the write bound was a single frame for as
+long as the text was.
+
 Levels are picked per chunk: the largest of 1 GiB / 2 MiB / 4 KiB whose size
 divides _both_ the virtual and the physical address and still fits in what is
 left. A region whose VA and PA alignments disagree degrades to pages rather
@@ -197,7 +221,9 @@ by hand after any change to `link.ld` or to the region list, following
 | `mm/early.rs`                      | `EARLY_L1`, `early_mmu_enable` — the one place board and CPU meet before anything exists (F23) |
 | `arch/aarch64/mmu.rs`              | `enable_identity`, `program_regime`, `activate` — CPU only       |
 | `arch/aarch64/cache.rs`            | I-cache / D-cache set-way / TLB invalidation                     |
-| `mm/layout.rs`                     | Regions and their permissions, from the linker                   |
+| `mm/layout.rs`                     | Kernel regions and their permissions, from the linker            |
+| `crates/kernel-core/src/layout.rs` | `UserWindow` (per-agent geometry, W^X inside it, write bounds) and guarded-stack validation — host-tested. Same file name as `mm/layout.rs`, different subject: the kernel's regions there, the agent's window here |
+| `mm/aspace.rs`                     | `AddressSpace`: root, kernel clone, the user window, `poke_user` |
 | `mm/mod.rs`                        | Kernel heap + `GlobalAlloc`                                      |
 | `bsp/rpi4/memmap.rs`               | Device windows                                                   |
 | `src/arch/aarch64/link.ld`         | Page-aligned region boundaries, table arena, guard page          |

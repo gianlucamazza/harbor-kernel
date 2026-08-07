@@ -1,10 +1,15 @@
 # Security — Harbor Kernel
 
-Threat model and reporting for **harbor-kernel** as of **M7** (EL0 authority by
-capability slot, stamped on Pi 4B silicon 2026-08-07). This document exists
+Threat model and reporting for **harbor-kernel** as of **M7 + the loader**
+(EL0 authority by capability slot, agents described by a manifest, and an agent
+that can wait — all stamped on Pi 4B silicon 2026-08-07). This document exists
 because [ADR-0017](docs/adr/0017-el0-capability-abi.md) finally makes authority
 *enumerable*; before that, a threat model would have been fiction about code
 that had not drawn the boundary.
+[ADR-0021](docs/adr/0021-agents-as-data-and-the-manifest.md) took the step that
+sentence was reaching for: the grants an agent is given are now **one table**
+rather than a boot function, so this document can name the artefact instead of
+describing a shape.
 
 It is **not** a claim that Harbor is production-hardened or multi-tenant ready.
 It states what is in scope to defend, what is trusted by construction, what is
@@ -34,7 +39,7 @@ where appropriate ([`docs/blobs.md`](docs/blobs.md)).
 | ---- | ----------- |
 | **Product** | Single-core AArch64 lab kernel on Raspberry Pi 4 Model B |
 | **Goal** | Agent-based microkernel: isolated units interact via messages and capabilities |
-| **Today** | Cooperative EL1 tasks + EL0 agents with per-task AS, slot-indexed caps, non-blocking IPC |
+| **Today** | Cooperative EL1 tasks + EL0 agents with per-task AS, slot-indexed caps, IPC an agent can **wait** on, and a loader that creates agents from a manifest |
 
 Assets worth defending, in order of load:
 
@@ -55,7 +60,7 @@ stack, disk encryption, remote attestation, SMP, preemption fairness.
 /* TCB — trusted computing base (single core, lab board)     */
 │  EL1 kernel: arch, mm, sched, ipc, irq, drivers, bootstrap │
 │  Platform firmware (start4.elf) — Group 0 GIC pin, boot    │
-│  Creator of agents (today: bootstrap demos, not an agent)  │
+│  Creator of agents: bootstrap::loader + the manifest it reads│
 └──────────────────────────▲──────────────────────────────────┘
                            │ SVC / exceptions / map grants
 ┌──────────────────────────┴──────────────────────────────────┐
@@ -68,7 +73,7 @@ stack, disk encryption, remote attestation, SMP, preemption fairness.
 | Party | Trust |
 | ----- | ----- |
 | **EL1 kernel** | Fully trusted. Bugs here are total compromise. |
-| **Creator (bootstrap)** | Fully trusted. Chooses AS, caps, and entry. Not itself isolated. |
+| **Creator (bootstrap + loader)** | Fully trusted. Chooses AS geometry, caps and entry — now by reading a manifest compiled into the image, which is exactly as trusted as the code it replaced ([ADR-0021](docs/adr/0021-agents-as-data-and-the-manifest.md) §6). Not itself isolated. |
 | **EL0 agent** | **Untrusted.** May be wrong, malicious, or hostile. Must not gain authority it was not granted, nor corrupt kernel or peer memory. |
 | **Serial adversary** | Can type bytes on PL011. While the **kernel** owns RX the bytes land in a bounded ring the idle loop drains, and an overflow is counted (`RX_DROPPED`), not a memory path. While an **agent** owns RX (M6/M7 handover) the bytes are delivered to untrusted EL0 code by design — that is the feature — so the adversary's reach is exactly the agent's, and the agent is already untrusted. What neither case gives is a way to reach kernel memory or another agent. |
 | **SPI TFT path** | Lab-only (`debug-display`). Not a security boundary; GPIO/SPI mistakes can hang the boot, not elevate EL0. |
@@ -92,6 +97,8 @@ the machine with other agents under the same kernel, tries to:
 | Steal another agent’s saved GPRs / session | Yes — `CURRENT_EL0` publish + assert on entry |
 | Exhaust frames / tables to DoS later agents | Partially — pool is finite; destroy should return frames |
 | Busy-loop at EL0 and starve the system | **Out of scope** — cooperative model (ADR-0006); no preemption |
+| Park forever on a mailbox nobody sends to | **Partially** — the park is voluntary and cannot be forced on a peer, but nothing reclaims the slot. See the residual risk below; new with [ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md) |
+| Take a second waiter's place on an endpoint | Yes — `Table::park` refuses (`Status::Busy`) and counts a state refusal. One endpoint, one waiter |
 | Feed an RX-owning agent hostile input from the wire | Yes, and it is *supposed* to arrive — the agent is untrusted either way. What must hold is that the handover cannot leave the line armed with nothing to drain (`kernel_core::rxline`, host-tested) |
 | Attack via firmware / JTAG / SD swap | Out of physical-lab model (operator is trusted) |
 | Remote network exploit | No network stack |
@@ -109,7 +116,8 @@ Defined by [ADR-0017](docs/adr/0017-el0-capability-abi.md) and
 | 1 | `SYS_EXIT` | none |
 | 2 | `SYS_PUTC` | console capability in slot (**denied by default**, transitional → M8) |
 | 3 | `SYS_SEND` | `CapRights::SEND` on endpoint in slot |
-| 4 | `SYS_RECV` | `CapRights::RECV` on endpoint in slot (**non-blocking**) |
+| 4 | `SYS_RECV` | `CapRights::RECV` on endpoint in slot — **waits** if the mailbox is empty ([ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md)) |
+| 5 | `SYS_TRY_RECV` | `CapRights::RECV` on endpoint in slot, **never waits** — answers `Empty` |
 
 **Structural property:** EL0 passes a **slot index** into its own
 `Tcb.caps[MAX_CAPS_PER_TASK]` (`MAX_CAPS_PER_TASK = 4`). It cannot form a
@@ -122,8 +130,11 @@ Defined by [ADR-0017](docs/adr/0017-el0-capability-abi.md) and
 - `full` — flow control
 - `state` — dead endpoint (unreachable until release exists)
 
-Constants load-bearing for the model (ADR-0017): mailboxes **8**, endpoints
-**16**, mailbox depth **4**.
+Constants load-bearing for the model: mailboxes **8**, endpoints **16**, mailbox
+depth **4** (ADR-0017); capability slots per task **4**; concurrent tasks
+including idle **14** (`sched::MAX_TASKS` — it bounds how many agents can be
+parked at once, see the residual risk below); executable pages an agent may
+declare **16** (`mm::MAX_TEXT_PAGES`, 64 KiB).
 
 ---
 
@@ -136,7 +147,10 @@ Constants load-bearing for the model (ADR-0017): mailboxes **8**, endpoints
 | Page-sized device maps for agents | Yes (M6, PL011) | Kernel still has coarse Device windows until a P-pass |
 | Slot-indexed caps | Yes (M7 HW) | No transfer; grants only at creation |
 | Fault → end session, creator decides | Yes (ADR-0018, M7 HW) | Creator exit leaves agents unsupervised; no restart policy |
-| Published `CURRENT_EL0` (`AtomicPtr`, ADR-0019) | Yes | Stale publish panics on entry; residual: assembly assumes symbol is a pointer |
+| Published `CURRENT_EL0` (`AtomicPtr`, ADR-0019) | Yes (HW 2026-08-07) | Stale publish panics on entry; residual: assembly assumes symbol is a pointer |
+| Grants bounded by the loader's own table ([ADR-0021](docs/adr/0021-agents-as-data-and-the-manifest.md)) | Yes (HW 2026-08-07) | The manifest is **in the image** — as trusted as the code it replaced. It makes authority legible, not dynamic: no revocation, no delegation |
+| Per-agent window geometry, W^X inside it | Yes (HW 2026-08-07) | `text_pages` executable, the rest writable, never both. A larger window costs frames from a 512-frame pool and is refused as an error, not a panic |
+| One mask per session step, never across a switch ([ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md)) | Yes | `make irq-scope` is **lexical**: a call that switches three frames down passes it. The indirect form is review's |
 
 ---
 
@@ -157,6 +171,9 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | The scheduler's invariants hold in every reachable state | `tests/model_sched.rs` — 2 396 745 sequences over `Tasks<3>`, five invariants after every step |
 | Softfloat / no FP in image | `make no-simd` |
 | Layering (no driver→board, arch≠drivers) | `make layering` / `arch-board-free` |
+| A manifest entry cannot name authority the loader lacks | Host tests in `kernel_core::manifest`; on silicon, `loader: mute ran putcs=0 refusals=2` beside `loader: echo ran putcs=2 refusals=0` — **the same image**, differing only in the table |
+| A `DAIF` save/restore pair never spans a task switch | `make irq-scope`, seen red on a planted `yield_now` |
+| The syscall ABI here matches the kernel's | `make doc-claims` compares this table's immediates with `kernel_core::syscall` — the set only; whether a row's *description* is true is still review's job |
 
 ---
 
@@ -165,7 +182,8 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | Topic | Status |
 | ----- | ------ |
 | **Preemption** | None. Hostile infinite loop at EL0 or EL1 is DoS. |
-| **Blocking recv / wait-on-IRQ** | Not implemented; agents poll or yield cooperatively. |
+| **Wait-on-IRQ** | Not implemented; an agent that wants an interrupt polls or yields cooperatively. Blocking recv *is* implemented (ADR-0022). |
+| **A parked agent is parked forever** | `SYS_RECV` has **no timeout**, and nothing reclaims a task that waits on an endpoint whose send capability nobody holds. It keeps its task slot, its address space and its frames until reset, and no counter reports it — `sched::MAX_TASKS` is 14, so fourteen such agents and the machine creates no more tasks. This is availability surface **introduced by ADR-0022**, named here rather than discovered: the ADR rejected a timeout as a decision needing its own deadline queue and its own second reason to leave `Blocked`. Not reachable by a hostile agent *alone* — parking requires a `RECV` capability the creator granted — but reachable by a buggy one. |
 | **Capability transfer / revocation** | Not implemented. |
 | **Endpoint release / generation recycle** | No kernel path releases an endpoint, so no kernel path mints a stale handle. The *check* is no longer unexercised: `tests/model_ipc.rs` offers a stale `CapId` — same index, previous generation — at every step of every sequence, and removing the generation comparison from `lookup` is caught in two operations. What stays untested is release itself, which does not exist. |
 | **IRQ notification capabilities** | Cookie shape exists; cookie unread; no cap_irq. |

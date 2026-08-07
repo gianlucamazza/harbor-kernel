@@ -8,13 +8,13 @@ polled gates run under — from no attributes to Normal WB with caches on:
 `selftest: OK`. Build them with `--features bringup`; see
 [`verification.md`](verification.md).
 
-| Check                              | Result              |
-| ---------------------------------- | ------------------- |
-| PL011 console                      | OK                  |
-| CNTP `ISTATUS` (IRQs masked)       | OK                  |
-| GIC `HPPIR` = PPI 30 when pending  | OK                  |
-| `GICC_IAR` claim + `EOIR`          | OK                  |
-| Vector IRQ → `ticks=`              | **OK**              |
+| Check                              | Result                  |
+| ---------------------------------- | ----------------------- |
+| PL011 console                      | OK                      |
+| CNTP `ISTATUS` (IRQs masked)       | OK                      |
+| GIC `HPPIR` = PPI 30 when pending  | OK                      |
+| `GICC_IAR` claim + `EOIR`          | OK                      |
+| Vector IRQ → `ticks=`              | **OK**                  |
 | UART0 SPI 153 + RX ring + WFI idle | **OK** (HW, 2026-08-04) |
 
 ### Gotchas fixed during bring-up
@@ -53,11 +53,11 @@ error is what a refusal to boot prints.
 A claimed interrupt gets one of three answers, and the last two are counted
 apart on purpose:
 
-| Answer | Meaning | Counter |
-| ------ | ------- | ------- |
-| `Handle { handler, cookie }` | call it | — |
-| `Unhandled` | in range, nobody registered | `irq: unhandled` |
-| `OutOfRange` | beyond the table | out-of-range |
+| Answer                       | Meaning                     | Counter          |
+| ---------------------------- | --------------------------- | ---------------- |
+| `Handle { handler, cookie }` | call it                     | —                |
+| `Unhandled`                  | in range, nobody registered | `irq: unhandled` |
+| `OutOfRange`                 | beyond the table            | out-of-range     |
 
 An in-range miss is a line someone enabled and forgot to claim; an id past the
 table is a chip reporting something this kernel does not believe in. Collapsing
@@ -85,6 +85,53 @@ drivers/gicv2            ← IrqChip (+ SPI target/level)
 bsp/rpi4                 ← static GIC + bind
 ```
 
+## Masking discipline: the scope, not just the state
+
+Two different things mask interrupts here, and confusing them is how the one
+real bug in this area was written.
+
+**In EL0**, the mask is in the session's `SPSR`. `el0::set_entry_irqs_masked` /
+`set_entry_irqs_unmasked` decide whether a lower-EL IRQ can take the vector at
+all — that is the switch between "the agent runs uninterrupted" and
+`El0Outcome::Irq` above.
+
+**In EL1**, `cpu::without_irqs(f)` masks around a closure. It saves `DAIF`
+before `f` and restores it after, and that pairing is the whole subtlety:
+
+> **A `DAIF` save/restore pair must not span a call that can switch tasks.**
+
+If a switch happens inside the closure, the saved value crosses into another
+task's execution — the next task runs with this task's mask, and this task, when
+it eventually resumes, restores a value captured in an epoch that has ended. It
+is not a race to be closed by ordering; it is a scoping error.
+
+The scheduler has always got this right by construction: `switch_with` does not
+use `without_irqs` at all, it splits `irq_save` / `irq_restore` deliberately
+around `context_switch`, because that call does not return on the caller's stack.
+
+The EL0 session loop did **not**, and did not have to until
+[ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md): it held one
+mask for the whole session, which was sound only because nothing inside it ever
+switched. `SYS_RECV` now parks the calling agent — a switch — so the masked
+region shrank from the session to the step: `enter_step`, `resume_step`,
+`end_step` in `src/agent/mod.rs` each take the mask, do the one thing
+`arch::el0` requires it for, and give it back. The loop body between two steps
+runs unmasked, and that is where the park happens.
+
+`make irq-scope` (`scripts/check-irq-scope.sh`) keeps the rule true instead of
+remembered. It walks each `cpu::without_irqs(` region by brace depth — a scope
+is not a line, and the offending call is usually far below the one that opened
+it — and fails on `block_current`, `yield_now`, `switch_with`, `context_switch`
+or `sched::exit` inside one. `wake_task` is deliberately **not** on that list:
+it makes a task ready and returns, and it takes `without_irqs` itself.
+
+**What the gate does not see, stated rather than implied:** it is lexical.
+`ipc::recv_from_slot` switches — it parks — but three frames down, so a call to
+it inside a masked region passes. Catching that needs a call graph this tree
+does not have. The direct form, which is how the mistake is actually written,
+cannot land unnoticed; the indirect form is review's, and
+[`verification.md`](verification.md) lists it among the gate blind spots.
+
 ## GIC-400 (BCM2711)
 
 | Block | Base          |
@@ -101,12 +148,12 @@ ARM Generic Timer physical: `CNTP_*`, IRQ **PPI 30**, frequency from
 
 ## UART0 (P0 + agent RX own)
 
-| Item          | Value                                   |
-| ------------- | --------------------------------------- |
-| GIC id        | **SPI 153** (VC IRQ 57 + SPI base 96)   |
-| PL011 sources | `RXIM` + `RTIM` (single-char with FIFO) when kernel owns RX |
-| Handler       | `console::on_uart_rx_irq` → `ByteRing` (kernel drain) |
-| Consumer      | idle (`pop_rx`) when drain live; EL0 poll of `DR` when agent owns RX |
+| Item          | Value                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------- |
+| GIC id        | **SPI 153** (VC IRQ 57 + SPI base 96)                                                                               |
+| PL011 sources | `RXIM` + `RTIM` (single-char with FIFO) when kernel owns RX                                                         |
+| Handler       | `console::on_uart_rx_irq` → `ByteRing` (kernel drain)                                                               |
+| Consumer      | idle (`pop_rx`) when drain live; EL0 poll of `DR` when agent owns RX                                                |
 | Agent own     | `suspend_rx` masks IMSC then clears the base; LBE inject for self-test; `resume_rx` publishes the base then re-arms |
 
 ### Handover order
@@ -114,7 +161,7 @@ ARM Generic Timer physical: `CNTP_*`, IRQ **PPI 30**, frequency from
 UART0 is level-triggered, so an armed line the handler has no view to drain
 through cannot be cleared: the byte enters the handler, finds nothing to do,
 returns without popping `DR` or writing `ICR`, and the line re-presents
-immediately. One state — *armed, no view* — and both handover orders once passed
+immediately. One state — _armed, no view_ — and both handover orders once passed
 through it.
 
 The rules are [`kernel_core::rxline`](../crates/kernel-core/src/rxline.rs),

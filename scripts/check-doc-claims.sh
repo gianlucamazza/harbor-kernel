@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
-# Assert that the two checkable claims in README.md are still true.
+# Assert that the facts written down twice still agree.
 #
-# Both have drifted before. The gate list drifted twice — F27 in the review,
-# then again on the very commit that added `bringup-builds`, because a gate is
-# added to the Makefile and the README is somewhere else. The test count drifted
-# by 23. Neither is a documentation problem: a README that lists the wrong gates
-# is how someone concludes a check exists when it does not.
+# Every check here compares a document against the source it describes, and each
+# was added after that pair had already drifted: the `make check` gate list
+# (twice — F27, then the commit that added `bringup-builds`), the host test
+# count (by 23), the arch facade table, the ADR acceptance dates, the README's
+# module map, and the syscall set in `SECURITY.md`'s authority table
+# (`SYS_TRY_RECV` shipped absent from it). None of these is a documentation
+# problem: a README that lists the wrong gates is how someone concludes a check
+# exists when it does not, and a threat model missing a call is a call nobody
+# considered.
 #
-# Only claims a machine can settle belong here. Prose stays prose.
+# Only claims a machine can settle belong here. Prose stays prose — and the
+# limit is sharper than it sounds: this gate compares *sets and counts*, never
+# meaning. `4 | SYS_RECV | (non-blocking)` was green on the day `SYS_RECV`
+# learned to block, because the row was present and the number was right.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -145,9 +152,64 @@ if [[ -n "${missing_modules}" ]]; then
 	exit 1
 fi
 
+# The EL0 syscall ABI is written down twice: as `SYS_*` constants in
+# `kernel_core::syscall`, and as the authority table in `SECURITY.md` that says
+# what each one requires. A threat model that does not list a call cannot have
+# considered it.
+#
+# This went wrong the day it was written. `SYS_TRY_RECV = 5` landed with
+# ADR-0022 and `SECURITY.md`'s table kept ending at 4 — through a full
+# `make check`, a green CI run and a hardware stamp. Nothing looked, because
+# every documentation gate here checks *counted* things or *link* targets, and
+# an absent table row is neither.
+#
+# ## What this proves, and the larger half it does not
+#
+# The **set** is checkable and is checked: every immediate the kernel decodes
+# has a row, and every row names an immediate the kernel decodes. That is
+# mechanical.
+#
+# The **adjective is not**. The same commit left `4 | SYS_RECV | … (non-blocking)`
+# in the table while `SYS_RECV` had just learned to block, and no set comparison
+# can see that: the row was present and the number was right. Half of that
+# defect stays review's job, and this comment says so rather than letting a
+# green line imply the ABI prose has been verified.
+abi_missing=""
+abi_extra=""
+# shellcheck disable=SC2016  # the backticks are markdown table syntax, not a
+# command substitution: the pattern matches "| 2 | `SYS_PUTC` | …".
+security_imms="$(sed -n 's/^| *\([0-9]\+\) *| *`\(SYS_[A-Z_]*\)` *|.*/\1 \2/p' SECURITY.md)"
+[[ -n "${security_imms}" ]] ||
+	fail "SECURITY.md has no authority table rows to check (the '| imm | \`SYS_…\` |' shape)"
+
+while IFS= read -r line; do
+	imm="${line%% *}"
+	name="${line##* }"
+	grep -qxF -- "${imm} ${name}" <<<"${security_imms}" ||
+		abi_missing="${abi_missing} ${name}(${imm})"
+done < <(sed -n 's/^pub const \(SYS_[A-Z_]*\): u16 = \([0-9]\+\);$/\2 \1/p' crates/kernel-core/src/syscall.rs)
+
+source_imms="$(sed -n 's/^pub const \(SYS_[A-Z_]*\): u16 = \([0-9]\+\);$/\2 \1/p' crates/kernel-core/src/syscall.rs)"
+while IFS= read -r line; do
+	[[ -z "${line}" ]] && continue
+	grep -qxF -- "${line}" <<<"${source_imms}" || abi_extra="${abi_extra} ${line}"
+done <<<"${security_imms}"
+
+if [[ -n "${abi_missing}" || -n "${abi_extra}" ]]; then
+	echo "doc-claims: the syscall ABI and SECURITY.md's authority table disagree" >&2
+	[[ -n "${abi_missing}" ]] &&
+		echo "  the kernel decodes these and the table does not list them:${abi_missing}" >&2
+	[[ -n "${abi_extra}" ]] &&
+		echo "  the table lists these and the kernel does not decode them:${abi_extra}" >&2
+	echo "  A call absent from the threat model is a call nobody considered." >&2
+	exit 1
+fi
+abi_calls="$(wc -l <<<"${security_imms}")"
+
 core_modules="$(sed -n 's/^pub mod \([a-z0-9_]*\);$/\1/p' crates/kernel-core/src/lib.rs | wc -l)"
 
 echo "doc-claims: clean (${actual} tests = ${unit}+${integration}+${doc}, ${#makefile_gates} chars of gate list agree, \
 $(wc -l <<<"${facade}") facade modules in the contract, \
 ${core_modules} kernel-core modules in the README, \
+${abi_calls} syscalls in the threat model, \
 $(grep -lc '^status: accepted' docs/adr/0*.md | wc -l) ADRs dated)"
