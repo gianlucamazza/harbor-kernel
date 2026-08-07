@@ -89,7 +89,7 @@ interactive serial console.
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                   |
 | TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
-| Verification | 270 host tests (unit, integration, doc), **bounded model checking** of the scheduler and authority core, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware |
+| Verification | 272 host tests (unit, integration, doc), **bounded model checking** of the scheduler and authority core, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware |
 
 ## What is not there yet
 
@@ -128,6 +128,8 @@ crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
   authority     cap, ipc (mailboxes + endpoints), syscall, tasks (scheduler
                 state machine), runqueue, wake, irqtable (dispatch + seal),
                 rxline (who owns the UART, and in what order it changes hands)
+  agent text    prog — the machine code EL0 agents run, checked against the
+                assembly it documents by disassembling it (a64 builds the words)
   memory        paging, layout, frame, heap, bump
   hardware maths gic, uart, spi, rng, timer, reset (PM_RSTS decode), a64, poll,
                 delay

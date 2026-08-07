@@ -170,18 +170,18 @@ pub(super) fn el0_scheduled_task() {
         }
     };
 
-    match agent.run_user_prog(&agent::encode_svc_imm(0)) {
+    match agent.run_user_prog(&kernel_core::prog::encode_svc_imm(0)) {
         Ok(out) => agent::report_svc("el0-task", out),
         Err(e) => crate::kprintln!("el0-task: el0 FAILED {e:?}"),
     }
 
-    match agent.run_user_prog(&agent::encode_svc_imm(0x99)) {
+    match agent.run_user_prog(&kernel_core::prog::encode_svc_imm(0x99)) {
         Ok(out) => agent::report_svc("el0-task", out),
         Err(e) => crate::kprintln!("el0-task: refuse path FAILED {e:?}"),
     }
 
     // Multi-SVC resume: two pings then SYS_EXIT.
-    match agent.run_user_prog_resuming(&agent::encode_ping_ping_exit()) {
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_ping_ping_exit()) {
         Ok(s) if matches!(s.end, agent::SessionEnd::Fault { .. }) => {
             // Reported rather than counted as success: before `SessionEnd`
             // existed, a faulting agent returned `Ok` and the ESR/FAR went
@@ -202,7 +202,7 @@ pub(super) fn el0_scheduled_task() {
     }
 
     // SYS_PUTC: two bytes via kernel TX, then exit.
-    match agent.run_user_prog_resuming(&agent::encode_putc_hi_exit(CONSOLE_SLOT)) {
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_putc_hi_exit(CONSOLE_SLOT)) {
         Ok(s) if s.putcs == 2 => crate::kprintln!("el0-task: putc bytes=2"),
         Ok(s) => crate::kprintln!("el0-task: putc unexpected putcs={}", s.putcs),
         Err(e) => crate::kprintln!("el0-task: putc FAILED {e:?}"),
@@ -212,7 +212,7 @@ pub(super) fn el0_scheduled_task() {
     // EL1 IRQ mask so EL1 does not claim it first; finite spin with EL0 IRQs
     // open; handle + resume re-executes; GPRs survive; SYS_EXIT ends.
     el0::set_entry_irqs_unmasked(sched::current_el0_session());
-    match agent.run_user_prog_resuming_prep(&agent::encode_spin_exit(0x800), || {
+    match agent.run_user_prog_resuming_prep(&kernel_core::prog::encode_spin_exit(0x800), || {
         timer::accelerate_next_tick(1);
     }) {
         Ok(s) if s.irqs >= 1 => crate::kprintln!("el0-task: irq resume irqs={}", s.irqs),
@@ -293,7 +293,8 @@ pub(super) fn pl011_agent_task() {
     crate::sched::yield_now();
 
     // Empty path first (honest): no invented data.
-    match agent.run_user_prog_resuming(&agent::encode_pl011_rx_poll_exit(CONSOLE_SLOT)) {
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_pl011_rx_poll_exit(CONSOLE_SLOT))
+    {
         Ok(s) if s.putcs == 0 => crate::kprintln!("pl011-agent: rx poll empty"),
         Ok(s) => crate::kprintln!("pl011-agent: rx poll unexpected putcs={}", s.putcs),
         Err(e) => crate::kprintln!("pl011-agent: rx poll FAILED {e:?}"),
@@ -319,7 +320,9 @@ pub(super) fn pl011_agent_task() {
     let mut got = 0u32;
     for _ in 0..OWN_BYTES.len() {
         crate::sched::yield_now();
-        match agent.run_user_prog_resuming(&agent::encode_pl011_rx_poll_exit(CONSOLE_SLOT)) {
+        match agent
+            .run_user_prog_resuming(&kernel_core::prog::encode_pl011_rx_poll_exit(CONSOLE_SLOT))
+        {
             Ok(s) if s.putcs == 1 => got = got.saturating_add(1),
             Ok(s) if s.putcs == 0 => {
                 crate::kprintln!("pl011-agent: rx own short putcs=0 after {got}");
@@ -388,7 +391,7 @@ pub(super) fn el0_ipc_sender() {
 
     // Slot 0 is the send capability this task was spawned holding. `42` is the
     // payload and also `*`, which is what the receiving agent will print.
-    match agent.run_user_prog_resuming(&agent::encode_send_exit(0, 7, 42)) {
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_send_exit(0, 7, 42)) {
         Ok(s) if s.sends == 1 && s.authority_refusals == 0 => {
             crate::kprintln!("el0-ipc: sent slot=0 tag=7 a=42")
         }
@@ -405,7 +408,10 @@ pub(super) fn el0_ipc_sender() {
     // it tries to print never reaches the UART. ADR-0017 §3 requires exactly
     // this on the good path: a capability nobody is ever seen to lack is a
     // protection nobody has seen fire.
-    match agent.run_user_prog_resuming(&agent::encode_putc_once_exit(CONSOLE_SLOT, b'X')) {
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_putc_once_exit(
+        CONSOLE_SLOT,
+        b'X',
+    )) {
         Ok(s) if s.putcs == 0 && s.authority_refusals == 1 => {
             crate::kprintln!("el0-ipc: console denied, printed nothing")
         }
@@ -420,7 +426,7 @@ pub(super) fn el0_ipc_sender() {
     // The same agent, now naming slot 1 for a *send*. This task holds exactly
     // one capability, so slot 1 is empty and there is nothing there to name —
     // the refusal is structural, not a check that happened to be written.
-    match agent.run_user_prog_resuming(&agent::encode_send_bare_exit(1)) {
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_send_bare_exit(1)) {
         Ok(s) if s.authority_refusals == 1 && s.sends == 0 => crate::kprintln!(
             "el0-ipc: refused slot=1 authority={}",
             crate::ipc::refused_count()
@@ -438,7 +444,7 @@ pub(super) fn el0_ipc_sender() {
     // decides what happens next. It decides to carry on: the fault is reported,
     // the agent is not restarted, and the peer that is still waiting for the
     // message this task already sent is unaffected.
-    match agent.run_user_prog_resuming(&agent::encode_fault_exit()) {
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_fault_exit()) {
         Ok(s) => match s.end {
             agent::SessionEnd::Fault { esr, far } => crate::kprintln!(
                 "el0-ipc: agent faulted esr={esr:#x} far={far:#x} faults={}",
@@ -474,7 +480,7 @@ pub(super) fn el0_ipc_receiver() {
     };
 
     // One `putc`, and the byte it prints is the payload the other agent sent.
-    match agent.run_user_prog_resuming(&agent::encode_recv_putc_exit(0, CONSOLE_SLOT)) {
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_recv_putc_exit(0, CONSOLE_SLOT)) {
         Ok(s) if s.recvs == 1 && s.putcs == 1 => {
             crate::kprintln!("el0-ipc: got payload via EL0 recvs=1")
         }

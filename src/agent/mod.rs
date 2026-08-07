@@ -28,7 +28,6 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use kernel_core::a64;
 use kernel_core::syscall::{self, Status, Syscall};
 
 use crate::arch::{cpu, el0};
@@ -343,112 +342,6 @@ impl Agent {
     }
 }
 
-#[inline]
-fn push_word(out: &mut [u8], at: &mut usize, word: u32) {
-    let b = a64::le_bytes(word);
-    out[*at..*at + 4].copy_from_slice(&b);
-    *at += 4;
-}
-
-/// A64: `movz x0,#slot; movz x1,#tag; movz x2,#a; svc #3; svc #1; b .`
-///
-/// Send one message through a slot, then exit. `b` is left zero — three
-/// immediates are enough to see a payload cross, and `movz` carries 16 bits.
-pub fn encode_send_exit(slot: u16, tag: u16, a: u16) -> [u8; 24] {
-    let mut out = [0u8; 24];
-    let mut i = 0;
-    push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::movz_x(1, tag));
-    push_word(&mut out, &mut i, a64::movz_x(2, a));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
-    push_word(&mut out, &mut i, a64::b_self());
-    out
-}
-
-/// A64: `movz x0,#slot; svc #4; mov x0,x2; svc #2; svc #1; b .`
-///
-/// Receive through a slot, then `SYS_PUTC` the payload the kernel delivered.
-///
-/// The `mov` is the evidence. `SYS_RECV` returns the status in `x0` and the
-/// message in `x1..x3`, so an agent that printed `x0` would print a zero and
-/// prove only that it resumed. Moving `x2` — the message's `a` field — into the
-/// `putc` argument makes the byte on the console *the payload*, carried from
-/// another agent's registers through the kernel into this one's.
-pub fn encode_recv_putc_exit(recv_slot: u16, console_slot: u16) -> [u8; 28] {
-    let mut out = [0u8; 28];
-    let mut i = 0;
-    push_word(&mut out, &mut i, a64::movz_x(0, recv_slot));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
-    // The payload arrives in x2 and `SYS_PUTC` wants it in x1, under the
-    // console slot in x0. Two moves rather than one, because the two calls
-    // disagree about where a byte lives — which is what an ABI table is for.
-    push_word(&mut out, &mut i, a64::mov_x_reg(1, 2));
-    push_word(&mut out, &mut i, a64::movz_x(0, console_slot));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
-    push_word(&mut out, &mut i, a64::b_self());
-    out
-}
-
-/// A64: `movz x0,#slot; movz x1,#byte; svc #2; svc #1; b .`
-///
-/// One `SYS_PUTC` through a named slot, then exit. Pointed at a slot that holds
-/// no console capability, this is the agent that must be refused on the good
-/// path (ADR-0017 §3).
-pub fn encode_putc_once_exit(slot: u16, byte: u8) -> [u8; 20] {
-    let mut out = [0u8; 20];
-    let mut i = 0;
-    push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::movz_x(1, u16::from(byte)));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
-    push_word(&mut out, &mut i, a64::b_self());
-    out
-}
-
-/// A64: `movz x0,#slot; svc #3; svc #1; b .` — send through a slot, then exit.
-///
-/// The hostile half of F22: pointed at a slot the task does not hold, this is
-/// an agent reaching for authority it was not granted. It is a demo program
-/// rather than a test because the refusal has to be *seen on the good path* —
-/// a protection nobody watches fire is an assumption.
-pub fn encode_send_bare_exit(slot: u16) -> [u8; 16] {
-    let mut out = [0u8; 16];
-    let mut i = 0;
-    push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
-    push_word(&mut out, &mut i, a64::b_self());
-    out
-}
-
-/// A64: `movz x0,#8,lsl#16; str xzr,[x0]; svc #1; b .`
-///
-/// Writes to a kernel address the agent does not have, which takes a data abort
-/// at EL0. The `svc #1` after it is never reached — it is there so the program
-/// says what it *meant* to do, rather than trailing off into a branch-to-self
-/// that would look like the fault was the intent of the encoder rather than of
-/// the test.
-pub fn encode_fault_exit() -> [u8; 16] {
-    let mut out = [0u8; 16];
-    let mut i = 0;
-    push_word(&mut out, &mut i, a64::movz_x_lsl16(0, 0x8));
-    push_word(&mut out, &mut i, a64::str_xzr(0));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
-    push_word(&mut out, &mut i, a64::b_self());
-    out
-}
-
-/// A64: `svc #imm` ; `b .`
-pub fn encode_svc_imm(imm: u16) -> [u8; 8] {
-    let mut out = [0u8; 8];
-    let mut i = 0;
-    push_word(&mut out, &mut i, a64::svc(imm));
-    push_word(&mut out, &mut i, a64::b_self());
-    out
-}
-
 /// Dispatch a returned `SVC` outcome for demo agents.
 pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
     match outcome {
@@ -462,77 +355,6 @@ pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
         },
         other => crate::kprintln!("{prefix}: unexpected {other:?}"),
     }
-}
-
-/// A64: `svc #0; svc #0; svc #1; b .` — two pings then exit (resume path).
-pub fn encode_ping_ping_exit() -> [u8; 16] {
-    let mut out = [0u8; 16];
-    let mut i = 0;
-    push_word(&mut out, &mut i, a64::svc(0));
-    push_word(&mut out, &mut i, a64::svc(0));
-    push_word(&mut out, &mut i, a64::svc(1));
-    push_word(&mut out, &mut i, a64::b_self());
-    out
-}
-
-/// A64: `movz x0, #'H'; svc #2; movz x0, #'!'; svc #2; svc #1; b .`
-pub fn encode_putc_hi_exit(slot: u16) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    let mut i = 0;
-    push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::movz_x(1, u16::from(b'H')));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
-    push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::movz_x(1, u16::from(b'!')));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
-    push_word(&mut out, &mut i, a64::b_self());
-    out
-}
-
-/// Finite spin then `SYS_EXIT` — GPRs survive IRQ save/restore, so this makes
-/// forward progress under plain (architectural) IRQ resume.
-///
-/// ```text
-/// movz x0, #iters          // low 16 bits; high half zero
-/// 1: sub  x0, x0, #1
-///    cbnz x0, 1b            // offset −1 word from the cbnz (gas-checked)
-/// svc #1
-/// b .
-/// ```
-///
-/// Pair with [`el0::set_entry_irqs_unmasked`] and
-/// [`crate::arch::timer::accelerate_next_tick`] so a timer IRQ arrives while
-/// the counter is still non-zero.
-pub fn encode_spin_exit(iters: u16) -> [u8; 20] {
-    let mut out = [0u8; 20];
-    let mut i = 0;
-    push_word(&mut out, &mut i, a64::movz_x(0, iters));
-    push_word(&mut out, &mut i, a64::sub_x_imm(0, 0, 1));
-    push_word(&mut out, &mut i, a64::cbnz_x(0, -1));
-    push_word(&mut out, &mut i, a64::svc(1));
-    push_word(&mut out, &mut i, a64::b_self());
-    out
-}
-
-/// PL011 RX poll once at `USER_PL011_VA` (`0x5000_0000`):
-/// if RX not empty, `SYS_PUTC` the byte; always `SYS_EXIT`.
-///
-/// Empty FIFO → zero putcs (honest “no data” path). A pending character → one
-/// putc. Does not invent receive data.
-pub fn encode_pl011_rx_poll_exit(console_slot: u16) -> [u8; 32] {
-    let mut out = [0u8; 32];
-    let mut i = 0;
-    push_word(&mut out, &mut i, a64::movz_x_lsl16(0, 0x5000));
-    push_word(&mut out, &mut i, a64::ldr_w_imm(1, 0, 0x18));
-    // RXFE (bit 4) set → empty → skip the load, the slot and the putc
-    push_word(&mut out, &mut i, a64::tbnz_w(1, 4, 4));
-    push_word(&mut out, &mut i, a64::ldrb_w(1, 0));
-    push_word(&mut out, &mut i, a64::movz_x(0, console_slot));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
-    push_word(&mut out, &mut i, a64::b_self());
-    out
 }
 
 // --- Concurrent two-agent barrier (cooperative) ---
@@ -573,7 +395,7 @@ pub fn concurrent_agent_alpha() {
     let free_live = mm::frames::free_count();
     FREE_AT_DUAL_LIVE.store(free_live, Ordering::Release);
 
-    match agent.run_user_prog(&encode_svc_imm(0)) {
+    match agent.run_user_prog(&kernel_core::prog::encode_svc_imm(0)) {
         Ok(out) => report_svc("agent-a", out),
         Err(e) => crate::kprintln!("agent-a: el0 FAILED {e:?}"),
     }
@@ -605,7 +427,7 @@ pub fn concurrent_agent_beta() {
     CONC.fetch_or(B_PREP, Ordering::Release);
     wait_bits(A_PREP | B_PREP);
 
-    match agent.run_user_prog(&encode_svc_imm(0)) {
+    match agent.run_user_prog(&kernel_core::prog::encode_svc_imm(0)) {
         Ok(out) => report_svc("agent-b", out),
         Err(e) => crate::kprintln!("agent-b: el0 FAILED {e:?}"),
     }

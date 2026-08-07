@@ -46,6 +46,7 @@ pub mod irqtable;
 pub mod layout;
 pub mod paging;
 pub mod poll;
+pub mod prog;
 pub mod reset;
 pub mod ring;
 pub mod rng;
