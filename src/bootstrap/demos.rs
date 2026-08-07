@@ -584,4 +584,13 @@ pub(super) fn ipc_forger() {
             crate::ipc::refused_state_count()
         ),
     }
+    // ADR-0024: parks are countable. Yield so the console server can re-park
+    // on its empty mailbox before we sample; block_events still counts every
+    // successful park even if nobody is blocked at the sample.
+    crate::sched::yield_now();
+    crate::kprintln!(
+        "sched: blocked={} block_events={}",
+        crate::sched::blocked_count(),
+        crate::sched::block_events()
+    );
 }

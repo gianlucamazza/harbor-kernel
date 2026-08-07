@@ -254,6 +254,10 @@ grep -qa 'ipc: got tag=1 a=42' "${log}" ||
 # manifest demonstrating that authority is in the table.
 grep -qaE 'ipc: refuse count=5 ' "${log}" ||
 	fail "authority refusals are not exactly the five the boot performs"
+# ADR-0024: parks leave a non-zero event count (console server parks repeatedly).
+# Instantaneous blocked= can be zero if sampled while the server is draining.
+grep -qaE 'sched: blocked=[0-9]+ block_events=[1-9][0-9]*' "${log}" ||
+	fail "parked-task counters missing or block_events still zero after the boot oracle"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

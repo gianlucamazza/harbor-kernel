@@ -67,6 +67,8 @@ pub struct Tasks<const N: usize> {
     current: TaskId,
     parked: Option<TaskId>,
     overwrites: u32,
+    /// Successful entries into [`State::Blocked`] (ADR-0024).
+    block_events: u32,
 }
 
 impl<const N: usize> Default for Tasks<N> {
@@ -86,6 +88,7 @@ impl<const N: usize> Tasks<N> {
             current: Self::IDLE,
             parked: None,
             overwrites: 0,
+            block_events: 0,
         }
     }
 
@@ -118,6 +121,21 @@ impl<const N: usize> Tasks<N> {
     #[inline]
     pub const fn overwrites(&self) -> u32 {
         self.overwrites
+    }
+
+    /// How many task slots are currently [`State::Blocked`] (ADR-0024).
+    ///
+    /// Includes intentional waiters (e.g. the console server on an empty
+    /// mailbox). Does not free them.
+    #[inline]
+    pub fn blocked_count(&self) -> u32 {
+        self.states.iter().filter(|s| **s == State::Blocked).count() as u32
+    }
+
+    /// How many times a task has successfully entered [`State::Blocked`].
+    #[inline]
+    pub const fn block_events(&self) -> u32 {
+        self.block_events
     }
 
     /// Take the free slot for a new task, marking it `Ready` and queueing it.
@@ -200,6 +218,7 @@ impl<const N: usize> Tasks<N> {
             }
             Switch::Block => {
                 self.states[cur] = State::Blocked;
+                self.block_events = self.block_events.saturating_add(1);
                 false
             }
             Switch::Exit => {
@@ -366,6 +385,26 @@ mod tests {
             "a worker exiting really switches away"
         );
         assert_eq!(t.state(b), Some(State::Empty));
+    }
+
+    #[test]
+    fn blocked_count_and_block_events_track_parks() {
+        // ADR-0024: parks are visible. Idle block must not count (Stay).
+        let mut t = started();
+        assert_eq!(t.blocked_count(), 0);
+        assert_eq!(t.block_events(), 0);
+        assert!(matches!(t.switch(Switch::Block), Decision::Stay));
+        assert_eq!(t.block_events(), 0, "idle must not accrue block events");
+
+        let a = t.admit().unwrap();
+        t.switch(Switch::Yield); // → a
+        assert!(matches!(t.switch(Switch::Block), Decision::Switch { .. }));
+        assert_eq!(t.blocked_count(), 1);
+        assert_eq!(t.block_events(), 1);
+
+        t.wake(a);
+        assert_eq!(t.blocked_count(), 0);
+        assert_eq!(t.block_events(), 1, "wake does not erase history");
     }
 
     #[test]

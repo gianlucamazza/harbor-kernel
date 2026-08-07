@@ -382,6 +382,27 @@ pub fn pending_overwrites() -> u32 {
     PENDING_OVERWRITES.load(Ordering::Relaxed)
 }
 
+/// Tasks currently in [`kernel_core::tasks::State::Blocked`] (ADR-0024).
+///
+/// Includes intentional waiters such as the console server. Observability only
+/// — nothing reclaims them.
+pub fn blocked_count() -> u32 {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; single core.
+        let sched = unsafe { &*SCHED.get() };
+        sched.tasks.blocked_count()
+    })
+}
+
+/// Cumulative successful entries into `Blocked` since boot (ADR-0024).
+pub fn block_events() -> u32 {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; single core.
+        let sched = unsafe { &*SCHED.get() };
+        sched.tasks.block_events()
+    })
+}
+
 /// Wake queue drop count (full queue under IRQ pressure).
 #[inline]
 #[expect(dead_code, reason = "drop count for a queue that has no producer yet")]
