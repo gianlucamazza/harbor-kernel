@@ -1,73 +1,54 @@
 # Harbor documentation
 
-This is the map for the repository’s documentation. Start with the README for
-the public project story; use this page when you need to decide which document
-owns a fact or which technical path to follow.
+Map of the docs. The [root README](../README.md) is the public story; this page
+says **which document owns which fact**.
 
-## Mission and current model
+## Start here
 
-- [`../README.md`](../README.md) — public introduction, mission, current status,
-  quick start and reading paths.
-- [`architecture.md`](architecture.md) — normative architecture, layer rules,
-  agent model, milestones and ordered roadmap.
-- [`vision.md`](vision.md) — product OS shape and use cases (not silicon status).
-- Completeness goal and K/P tracks —
-  [ADR-0026](adr/0026-kernel-and-product-completeness.md),
-  [`architecture.md` § completeness](architecture.md#completeness-roadmap).
-- [`../SECURITY.md`](../SECURITY.md) — threat model, TCB, syscall authority
-  surface and residual risks.
+1. [**README**](../README.md) — what Harbor is, status, quick start  
+2. [**Architecture**](architecture.md) — model, layering, foundation history, [completeness roadmap](architecture.md#completeness-roadmap)  
+3. [**Vision**](vision.md) — product OS shape and use cases  
 
-The current mental model is: an **agent** is an EL1 driver task paired with an
-EL0 program; the program runs in a private address space and uses explicitly
-granted capability slots; the driver is the schedulable half; messages are the
-interaction boundary. That pairing is why Harbor does not read like a
-traditional process OS — see
-[architecture § How Harbor differs](architecture.md#how-harbor-differs-from-a-traditional-kernel).
-The architecture document owns the detailed model and the contrast table.
+Then, as needed: [`SECURITY.md`](../SECURITY.md) (authority / threats) ·
+[`verification.md`](verification.md) (evidence).
 
-## Choose a path
+## By goal
 
-| Goal | Start here | Then read |
+| Goal | Start | Then |
 | --- | --- | --- |
-| Build and boot the kernel | [`../README.md`](../README.md) | [`boot-chain.md`](boot-chain.md), [`hardware.md`](hardware.md) |
-| Understand memory protection | [`mmu.md`](mmu.md) | [`arch-contract.md`](arch-contract.md), [`verification.md`](verification.md) |
-| Understand interrupts and idle | [`interrupts.md`](interrupts.md) | [`architecture.md`](architecture.md) |
-| Understand agents and authority | [`architecture.md`](architecture.md) | [`../SECURITY.md`](../SECURITY.md), relevant ADRs |
-| See why Harbor is not a traditional process OS | [`architecture.md` § differs](architecture.md#how-harbor-differs-from-a-traditional-kernel) | [`../SECURITY.md`](../SECURITY.md), [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) |
-| See the OS vision and use cases | [`vision.md`](vision.md) | [`architecture.md`](architecture.md), [`../SECURITY.md`](../SECURITY.md) |
-| See the completeness roadmap (kernel + product OS) | [`architecture.md` § completeness](architecture.md#completeness-roadmap) | [ADR-0026](adr/0026-kernel-and-product-completeness.md) |
-| Verify a claim | [`verification.md`](verification.md) | the linked transcript or gate |
-| Add an ISA or board | [`porting.md`](porting.md) | [`arch-contract.md`](arch-contract.md) |
-| Understand firmware dependencies | [`boot-chain.md`](boot-chain.md), [`blobs.md`](blobs.md) | [`hardware.md`](hardware.md) |
-| Understand a structural decision | [`adr/README.md`](adr/README.md) | the linked ADR |
+| Build and boot | [README](../README.md) | [boot-chain](boot-chain.md), [hardware](hardware.md) |
+| Understand the agent model | [architecture](architecture.md) | [differs §](architecture.md#how-harbor-differs-from-a-traditional-kernel), [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) |
+| Completeness roadmap (K/P) | [architecture § completeness](architecture.md#completeness-roadmap) | [ADR-0026](adr/0026-kernel-and-product-completeness.md) |
+| Product vision / use cases | [vision](vision.md) | architecture, SECURITY |
+| Authority and threats | [SECURITY](../SECURITY.md) | architecture agent model |
+| Verify a claim | [verification](verification.md) | linked transcript or gate |
+| Port ISA/board | [porting](porting.md) | [arch-contract](arch-contract.md) |
+| Structural decision | [adr/](adr/README.md) | the linked ADR |
 
 ## Ownership and status vocabulary
 
-Each kind of document has one job:
-
 | Document | Owns | Does not own |
 | --- | --- | --- |
-| `README.md` | Public orientation and quick start | Complete implementation inventory or evidence transcripts |
-| `docs/architecture.md` | Current architecture, invariants, foundation + completeness roadmap | Historical review narrative |
-| `docs/vision.md` | Product OS shape, horizons, use cases | Milestone status, evidence, operational threat model |
-| [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness as project goal (K + P) | Per-track design |
-| `SECURITY.md` | Threat model and authority claims | General project roadmap |
-| `docs/verification.md` | Test methodology, gates, transcripts and blind spots | Normative architectural decisions |
-| `docs/adr/*.md` | Accepted/proposed/superseded structural decisions | Current milestone dashboard outside the decision context |
-| `docs/reviews/*.md` | Dated findings and review outcomes | Current truth after later changes |
-| `docs/design/*.md` | Design proposals and implementation contracts | Completion claims unless explicitly verified |
+| `README.md` | Public story, status snapshot, quick start | Full evidence transcripts |
+| `docs/architecture.md` | Normative model, layering, foundation + K/P roadmap | Product narrative |
+| `docs/vision.md` | Product shape, horizons, use cases | Silicon status claims |
+| [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness as goal | Per-track design |
+| `SECURITY.md` | Threat model, authority surface, residuals | Roadmap ordering |
+| `docs/verification.md` | Gates, transcripts, blind spots | Normative design |
+| `docs/adr/*.md` | Immutable structural decisions | Live dashboard |
+| `docs/reviews/*.md` | Dated findings | Current truth after later fixes |
+| `docs/design/*.md` | Design contracts | Completion claims without evidence |
 
-Use these status labels precisely:
+Status labels:
 
-- **implemented** — present in the current checkout;
-- **done (QEMU)** — exercised by the QEMU gate;
-- **done (HW)** — observed on Raspberry Pi 4B silicon;
-- **proposed** — design exists but is not accepted or complete;
-- **open** — intentionally unfinished or awaiting a decision;
-- **historical** — retained because it records what was true at a past date.
+- **implemented** — in the tree now  
+- **done (QEMU)** / **done (HW)** — exercised under that evidence  
+- **open** — on the completeness roadmap or awaiting a decision  
+- **proposed** — design exists, not accepted/complete  
+- **historical** — true at a past date  
 
-When a fact changes, update its owning document and link to evidence. Do not
-copy a full status table into another document merely for convenience.
+Update the **owning** document when a fact changes; do not duplicate full status
+tables for convenience.
 
 ## Code layout
 
@@ -76,7 +57,7 @@ not every symbol.
 
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
-  a64, bump, cap, delay, display, font8x8, frame, gic, heap, ipc,
+  a64, agentstore, bump, cap, delay, display, font8x8, frame, gic, heap, ipc,
   irqtable, layout, manifest, paging, poll, prog, reset, ring, rng,
   runqueue, rxline, spi, syscall, tasks, textgrid, timer, uart, wake
   tests/ public_api, model_sched, model_ipc
@@ -102,15 +83,12 @@ scripts/          build, layering, documentation and QEMU gates
 
 ## Decision records and reviews
 
-[`adr/README.md`](adr/README.md) is the ADR index and lifecycle contract.
-Accepted ADRs are immutable; a changed decision gets a successor and the old
-one becomes superseded. [`reviews/`](reviews/) contains dated analysis and
-findings, not an alternative source of current status. The active roadmap
-remains in [`architecture.md#roadmap`](architecture.md#roadmap).
+[`adr/README.md`](adr/README.md) — ADR lifecycle. Accepted ADRs are immutable;
+change requires a successor. [`reviews/`](reviews/) — dated findings, not live
+status. Active work: [completeness roadmap](architecture.md#completeness-roadmap);
+foundation history: [architecture § roadmap](architecture.md#roadmap).
 
 ## Documentation checks
-
-The documentation is part of the verification surface:
 
 ```bash
 make doc-claims
@@ -118,7 +96,5 @@ make doc-symbols
 make xrefs
 ```
 
-`make check` runs these alongside code, build, QEMU and layering gates. The
-checks can compare sets, links and paths; they cannot judge whether prose is
-conceptually honest, so claims about meaning and evidence still require review.
-
+These run inside `make check`. They compare sets, links, and paths — not whether
+prose is conceptually honest.

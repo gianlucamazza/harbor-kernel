@@ -9,25 +9,17 @@ roadmap. For the documentation map, ownership rules and status vocabulary see
 
 ## Purpose
 
-**Harbor** (package `harbor-kernel`) aims at a **complete** agent-based
-microkernel and product operating system for the Raspberry Pi 4 Model B:
-isolated agents, message passing, capability-mediated authority, and system
-services built on that model — not Linux/POSIX parity
+Harbor aims at a **complete** agent-based microkernel and product OS on the
+Raspberry Pi 4 Model B: agents, messages, capability grants, and services on
+that model — not Linux/POSIX parity
 ([ADR-0026](adr/0026-kernel-and-product-completeness.md),
-[`vision.md`](vision.md)).
+[`vision.md`](vision.md)). Public orientation: [`../README.md`](../README.md).
 
-**Today** the foundation is in place but the kernel and product OS are **not
-yet complete**. What runs is a single-core kernel at EL1 with a protected
-identity map, interrupts, a heap, **cooperative tasks (M3)**, **IPC/caps
-(M4)**, **EL0 address spaces (M5)**, a **PL011 driver agent (M6)**, **EL0
-agents that name their authority by capability slot (M7)**, an agent that
-**waits on a message** (ADR-0022), a **loader** from a manifest (ADR-0021),
-console endpoint + beacon (M8), and supervisor cancel of parked waits
-(ADR-0024/0025) — all **done on Pi 4B**.
-
-Gaps that remain (preemption, IRQ wait, timeout/auto-reap, SMP, storage,
-network, …) are **completeness tracks**, not permanent non-goals. See
-[Completeness roadmap](#completeness-roadmap) and historical [Roadmap](#roadmap).
+**Today:** foundation **done on Pi 4B** (cooperative tasks through console
+endpoint, manifest loader, blocking recv, parked-wait cancel). The kernel and
+product OS are **not yet complete**; open work is the
+[completeness roadmap](#completeness-roadmap). Historical milestone narrative:
+[Roadmap](#roadmap).
 
 ## How Harbor differs from a traditional kernel
 
@@ -67,12 +59,11 @@ Three consequences that look unrelated are the same shape fact:
    driver mid-session with a live EL0 context — a different problem from
    preempting a plain kernel task.
 
-None of this is a claim of superiority over production kernels. Harbor does
-not target POSIX compatibility, SMP, or fairness under a hostile busy-loop
-(that last residual is explicit in [`SECURITY.md`](../SECURITY.md)). The
-payoff is that each boundary above is named, gated, and demonstrable rather
-than implied by a large ABI. Detail of the agent pair, authority surface and
-roadmap follows in the sections below.
+None of this claims superiority over production kernels. **POSIX remains out of
+model.** Preemption, SMP, and fairness under a hostile busy-loop are **open
+completeness tracks** (not permanent refusals) — residuals today are honest in
+[`SECURITY.md`](../SECURITY.md). The payoff of the shape is that each boundary
+is named, gated, and demonstrable rather than implied by a large ABI.
 
 ## Layering
 
@@ -445,7 +436,7 @@ move ([ADR-0001](adr/0001-multi-role-analysis.md)). Status vocabulary:
 | K3 | Cap transfer / revoke / endpoint release | **open** | Authority can move and die without reboot; stale generation exercised by real release | ADR-0017 successor |
 | K4 | Preemption or CPU budget | **open** | Hostile busy-loop is not permanent DoS residual | Successor to ADR-0006; name agent-pair impact (0023) |
 | K5 | Agent density (shrink/collapse driver half) | **open** | Many small agents without 16 KiB kernel stack each by default | Successor to ADR-0023 |
-| K6 | External agent load + byte manifest | **open** | Images/manifest not only kernel `.rodata` | ADR-0021 next step |
+| K6 | External agent load + byte manifest | **done (QEMU)** first slice ([ADR-0027](adr/0027-h1-external-agent-store.md)); Pi place still open | Fixed-PA store at `0x10000000`; product prefers store, oracle builtin fallback | ADR-0021 → 0027; P2 for on-target pack/place |
 | K7 | ASID (+ TTBR1 if required) | **open** | Production isolation without cloned-kernel-only story as the end state | Design ADR |
 | K8 | SMP | **open** | Multi-core runqueue/IRQ model on silicon | Design ADR |
 | K9 | Driver-as-agent beyond PL011 (+ IRQ caps) | **open** | Second peripheral on the M6 pattern; IRQ-cap path | K1 useful; ADR-0013 pattern |
@@ -550,6 +541,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0024](adr/0024-parked-task-visibility.md) | Parked tasks are counted (`blocked_count` / `block_events`); reclaim/timeout deferred (**accepted**) |
 | [ADR-0025](adr/0025-cancel-blocked-wait.md) | Supervisor `cancel_blocked` aborts a parked wait (`Cancelled`); no timeout queue (**accepted**) |
 | [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness of kernel (K) and product OS (P) is the project goal (**accepted**) |
+| [ADR-0027](adr/0027-h1-external-agent-store.md) | H1 entry: external agent store at fixed PA (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

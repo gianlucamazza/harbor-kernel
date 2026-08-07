@@ -1,5 +1,5 @@
 //! The loader: one loop over a table, instead of a grant written as code
-//! (ADR-0021).
+//! (ADR-0021), optionally filled from an external agent store (ADR-0027).
 //!
 //! # What is product here and what is not
 //!
@@ -7,23 +7,34 @@
 //! is product (M8): always-on, grants the console send end, prints `H!` via
 //! `SYS_SEND`. Oracle-only **mute** runs the same image without the grant so
 //! the denial path is seen on the good path.
+//!
+//! When a valid store is present at [`AGENT_STORE_PA`] (ADR-0027), that table
+//! **replaces** the built-in one for the boot.
 
+use core::mem::MaybeUninit;
+
+use kernel_core::agentstore::{self, MAX_AGENTS, StoreAgent};
 use kernel_core::cap::CapId;
 use kernel_core::manifest::{AgentEntry, BindError, MAX_SLOTS, bind};
 use kernel_core::paging::Perms;
 use kernel_core::prog;
 
 use crate::agent::{Agent, SessionEnd};
-use crate::arch::cpu;
+use crate::arch::{cpu, mmu};
 use crate::ipc;
 use crate::mm::AddressSpace;
 use crate::sched::{self, MAX_TASKS, TaskId};
 use crate::sync::SyncCell;
+use kernel_core::layout::Region;
+use kernel_core::paging::{MemKind, Perms as MapPerms};
+
+/// Physical address where a boot loader may place an agent store (ADR-0027).
+pub const AGENT_STORE_PA: usize = 0x1000_0000;
+
+/// Bytes scanned from [`AGENT_STORE_PA`].
+pub const AGENT_STORE_MAX: usize = 256 * 1024;
 
 /// Slot the loader puts the console capability in, when it grants one.
-///
-/// Slot 0 is left empty deliberately, as everywhere else here: an agent that
-/// miscounts finds nothing rather than something adjacent.
 const CONSOLE_SLOT: usize = 1;
 
 /// Index of the console capability in the **loader's** list, not the agent's.
@@ -38,11 +49,8 @@ const fn slots_with(console: Option<u8>) -> [Option<u8>; MAX_SLOTS] {
     slots
 }
 
-/// Product + oracle-overlay table.
-///
-/// Product always has **beacon** (granted console). With `oracle`, **mute** is
-/// appended (same image, no grant) — ADR-0021 same-image / table-diff.
-fn manifest() -> &'static [AgentEntry] {
+/// Built-in table when no external store is present.
+fn builtin_manifest() -> &'static [AgentEntry] {
     #[cfg(feature = "oracle")]
     {
         static M: [AgentEntry; 2] = [
@@ -79,18 +87,22 @@ fn manifest() -> &'static [AgentEntry] {
     }
 }
 
-/// Which manifest entry each task slot is running, if any.
-///
-/// **A side table here rather than a field in the TCB**, and the distinction is
-/// architectural, not stylistic. The scheduler sits below `agent` and
-/// `bootstrap` in the layering; a manifest is a concept it has no business
-/// knowing.
+/// Active manifest for this boot (store or builtin).
+static ACTIVE: SyncCell<Option<&'static [AgentEntry]>> = SyncCell::new(None);
+
+/// Name bytes for store-backed entries (immortal for the boot).
+static NAME_POOL: SyncCell<[[u8; agentstore::NAME_LEN]; MAX_AGENTS]> =
+    SyncCell::new([[0u8; agentstore::NAME_LEN]; MAX_AGENTS]);
+
+/// Store-backed entries materialised once at load.
+static STORE_ENTRIES: SyncCell<[MaybeUninit<AgentEntry>; MAX_AGENTS]> =
+    SyncCell::new([const { MaybeUninit::uninit() }; MAX_AGENTS]);
+
 static ENTRY_OF_TASK: SyncCell<[Option<u8>; MAX_TASKS]> = SyncCell::new([None; MAX_TASKS]);
 
 fn remember(task: TaskId, index: u8) {
     cpu::without_irqs(|| {
-        // SAFETY: IRQs masked and one core, so this `&mut` cannot overlap
-        // another. Nothing in an IRQ handler reads this table.
+        // SAFETY: IRQs masked and one core.
         let table = unsafe { &mut *ENTRY_OF_TASK.get() };
         table[task.0 as usize] = Some(index);
     });
@@ -104,12 +116,106 @@ fn recall(task: TaskId) -> Option<u8> {
     })
 }
 
-/// `MAX_CAPS_PER_TASK` and the manifest's slot count are the same number.
+fn active_manifest() -> &'static [AgentEntry] {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; ACTIVE set once before any agent runs.
+        let a = unsafe { &*ACTIVE.get() };
+        a.unwrap_or_else(builtin_manifest)
+    })
+}
+
+/// Try to build a `'static` manifest from the external store at [`AGENT_STORE_PA`].
+///
+/// # Safety
+///
+/// The physical range must be identity-mapped Normal RAM for the life of the
+/// boot. Invalid magic simply fails the parse; garbage that looks valid is
+/// trusted boot input (ADR-0027).
+fn try_store_manifest() -> Option<&'static [AgentEntry]> {
+    // Kernel fine map does not cover arbitrary RAM (same as the DTB). Map the
+    // store window RO before reading (ADR-0027).
+    let region = Region {
+        base: AGENT_STORE_PA as u64,
+        len: AGENT_STORE_MAX as u64,
+        kind: MemKind::NormalWb,
+        perms: MapPerms::RO,
+        name: "agent store",
+    };
+    // SAFETY: kernel map active; range is lab-convention RAM outside the image.
+    if unsafe { mmu::map(&region) }.is_err() {
+        return None;
+    }
+
+    // SAFETY: range just mapped RO Normal.
+    let raw = unsafe {
+        core::slice::from_raw_parts(AGENT_STORE_PA as *const u8, AGENT_STORE_MAX)
+    };
+
+    let mut parsed = [StoreAgent {
+        name: b"",
+        text_pages: 0,
+        stack_pages: 0,
+        slots: [agentstore::SLOT_NONE; MAX_SLOTS],
+        image: b"",
+    }; MAX_AGENTS];
+    let agents = agentstore::parse(raw, &mut parsed).ok()?;
+
+    // SAFETY: single-threaded boot; no agent has run yet.
+    let names = unsafe { &mut *NAME_POOL.get() };
+    let entries = unsafe { &mut *STORE_ENTRIES.get() };
+
+    for (i, a) in agents.iter().enumerate() {
+        let nlen = a.name.len().min(agentstore::NAME_LEN);
+        names[i] = [0u8; agentstore::NAME_LEN];
+        names[i][..nlen].copy_from_slice(&a.name[..nlen]);
+        // SAFETY: image bytes live in the immortal store range.
+        let image: &'static [u8] =
+            unsafe { core::slice::from_raw_parts(a.image.as_ptr(), a.image.len()) };
+        // SAFETY: names[i] is static pool storage; UTF-8 validated by parse;
+        // pointer remains valid for the boot.
+        let name: &'static str = unsafe {
+            let p = names.as_ptr().add(i) as *const u8;
+            let s = core::slice::from_raw_parts(p, nlen);
+            core::str::from_utf8_unchecked(s)
+        };
+        entries[i].write(agentstore::to_entry(a, name, image));
+    }
+
+    // SAFETY: first `agents.len()` entries were written above.
+    let slice: &'static [AgentEntry] = unsafe {
+        core::slice::from_raw_parts(entries.as_ptr() as *const AgentEntry, agents.len())
+    };
+    Some(slice)
+}
+
 const _: () = assert!(sched::MAX_CAPS_PER_TASK == kernel_core::manifest::MAX_SLOTS);
 
-/// Create one task per manifest entry, binding its slots against `held`.
+/// Create one task per active manifest entry, binding slots against `held`.
 pub fn load_all(held: &[CapId]) {
-    let table = manifest();
+    let table = match try_store_manifest() {
+        Some(t) => {
+            crate::kprintln!("loader: store n={} pa={AGENT_STORE_PA:#x}", t.len());
+            cpu::without_irqs(|| {
+                // SAFETY: boot-only.
+                unsafe {
+                    *ACTIVE.get() = Some(t);
+                }
+            });
+            t
+        }
+        None => {
+            crate::kprintln!("loader: builtin");
+            let t = builtin_manifest();
+            cpu::without_irqs(|| {
+                // SAFETY: boot-only.
+                unsafe {
+                    *ACTIVE.get() = Some(t);
+                }
+            });
+            t
+        }
+    };
+
     if table.is_empty() {
         crate::kprintln!("loader: manifest empty, nothing to create");
         return;
@@ -137,13 +243,12 @@ pub fn load_all(held: &[CapId]) {
     }
 }
 
-/// The body every manifest agent runs. One trampoline, N descriptions.
 fn agent_body() {
     let Some(index) = recall(sched::current_task_id()) else {
         crate::kprintln!("loader: a task reached the agent body with no manifest entry");
         return;
     };
-    let Some(entry) = manifest().get(index as usize) else {
+    let Some(entry) = active_manifest().get(index as usize) else {
         crate::kprintln!("loader: task names manifest entry {index}, which is not there");
         return;
     };
@@ -181,9 +286,6 @@ fn run(entry: &AgentEntry) {
     let mut agent = Agent::from_aspace(aspace);
     match agent.run_user_prog_resuming(entry.image) {
         Ok(stats) if stats.end == SessionEnd::Exit => {
-            // Creator drain barrier: wait until the console server has written
-            // any enqueued bytes before the report kprintln (M8 ordering).
-            // Mute never holds the console send cap — skip.
             if let Some(cap) = sched::my_cap(CONSOLE_SLOT) {
                 match ipc::yield_until_empty_default(cap) {
                     Ok(()) => {}

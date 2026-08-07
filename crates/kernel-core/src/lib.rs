@@ -33,6 +33,7 @@
 #![cfg_attr(not(test), no_std)]
 
 pub mod a64;
+pub mod agentstore;
 pub mod bump;
 pub mod cap;
 pub mod delay;

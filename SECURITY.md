@@ -197,7 +197,7 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | **Heap wild free** | Double-free refused; adversarial pointer that looks like a header can still corrupt. |
 | **DTB** | Mapped RO; board truth is compiled-in (ADR-0011). |
 | **Firmware / GIC Group 0** | Inherited from pinned `start4.elf` (ADR-0004). |
-| **SMP / ASID / TTBR1** | Non-goals until their ADRs. |
+| **SMP / ASID / TTBR1** | Open completeness tracks (**K7/K8**); cooperative single-core until design ADRs land. |
 | **Threat coverage of `debug-display`** | Lab path; not part of the agent TCB story. |
 
 ---

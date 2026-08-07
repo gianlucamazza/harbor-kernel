@@ -1,119 +1,90 @@
 # Harbor
 
-**A verified Rust agent-based microkernel and product OS for Raspberry Pi 4** —
-package `harbor-kernel`.
+**A verified Rust agent-based microkernel and product OS for Raspberry Pi 4**
+(`harbor-kernel`).
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![CI](https://github.com/gianlucamazza/harbor-kernel/actions/workflows/ci.yml/badge.svg)](https://github.com/gianlucamazza/harbor-kernel/actions)
 
-Harbor is building a **complete** agent-based system: isolated units with
-private memory and explicit authority, communicating through messages and
-capabilities, with product services on the same model. The name describes the
-intended system — a protected place where bounded components operate and talk
-over controlled channels ([ADR-0007](docs/adr/0007-project-identity-harbor-kernel.md)).
+## What it is
 
-**Goal:** completeness of the microkernel **and** the product OS
-([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)) — not Linux/POSIX
-parity, and not a permanent “intentionally incomplete” lab. **Method:** every
-boundary stays inspectable and testable; a claim needs a host test, QEMU gate,
-or Raspberry Pi evidence, with blind spots in
-[`docs/verification.md`](docs/verification.md).
+Harbor is building an operating system where software runs as **agents**:
+isolated programs that talk only through **messages** and hold only the
+**capabilities** they were granted. The goal is to **finish** that microkernel
+and the product services on top of it — not to stay a permanent demo, and not
+to clone Linux.
 
-Shape and use cases: [`docs/vision.md`](docs/vision.md). Ordered completeness
-tracks (K/P): [`docs/architecture.md#completeness-roadmap`](docs/architecture.md#completeness-roadmap).
+Important boundaries are demonstrated with host tests, QEMU gates, or Raspberry
+Pi 4B evidence ([`docs/verification.md`](docs/verification.md)). “Done” means
+more than “it compiles.”
 
-## What Harbor is today
+**Agent** here is the isolation unit, not an LLM product. Tool-limited software
+can live *inside* an agent later; Harbor is not a chat/runtime framework.
 
-Harbor is a single-core, bare-metal AArch64 kernel written in Rust (`no_std`)
-for the Raspberry Pi 4 Model B. It boots through the platform firmware and
-currently provides:
+Policy on completeness: [ADR-0026](docs/adr/0026-kernel-and-product-completeness.md).  
+Product shape and use cases: [`docs/vision.md`](docs/vision.md).
 
-- cooperative EL1 tasks with guarded stacks;
-- IPC through mailboxes and unforgeable capability handles;
-- EL0 agents in private address spaces;
-- authority named by capability-slot index rather than by a forgeable handle;
-- agents represented as manifest data and created by a loader;
-- blocking message receive, where an agent can park and a peer can wake it;
-- an EL1 console server and a product beacon agent communicating through the
-  same endpoint model.
+## How it works
 
-The system is **not yet complete**. Agents are not preempted; an IRQ is not yet
-a first-class wait source; parked waits have supervisor cancel but not timeout
-or auto-reap. Those are **open completeness tracks** (K4, K1, K2), not hidden
-features and not permanent non-goals. Architecture, foundation history, and the
-K/P roadmap live in [`docs/architecture.md`](docs/architecture.md).
+In a conventional OS a process is usually both isolated and scheduled. In Harbor
+an agent is a **pair**:
 
-## Mission and boundaries
+- an EL0 **program** — private address space, capability slots only;
+- an EL1 **driver task** — what the scheduler actually runs, including the
+  session loop that enters and resumes the program.
 
-Harbor answers two linked questions:
+Authority is structural: user code names a **slot index**, never a raw kernel
+handle. Agents can be described as **manifest data** (image + grants). Drivers
+can be agents with page-sized device maps. Faults end the session; the creator
+decides the task’s fate.
 
-> Can a small Rust kernel make isolation, authority, message passing and
-> verification visible enough that each boundary can be inspected, tested and
-> demonstrated on silicon?
+Full contrast:
+[architecture § How Harbor differs](docs/architecture.md#how-harbor-differs-from-a-traditional-kernel).
 
-> Can that same discipline carry through until the **kernel and product OS are
-> complete** under the agent/capability model?
+## Where we are
 
-Evidence still beats feature count for any single claim. Completeness is the
-goal of the roadmap ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)).
-**Out of model** (not completeness tracks): Linux/POSIX compatibility, hiding
-platform firmware blobs, multi-tenant cloud hypervisor.
-
-### Why it looks different
-
-In a traditional kernel a process is usually both isolated and schedulable.
-In Harbor an **agent is a pair**: a cooperative EL1 **driver task** (what the
-scheduler runs) and an EL0 **program** (private address space, slot-indexed
-capabilities). Authority is structural, agents can be described as manifest
-data, and “done” for a boundary means evidence on hardware — not only that a
-feature compiles. The contrast is spelled out in
-[architecture: How Harbor differs from a traditional kernel](docs/architecture.md#how-harbor-differs-from-a-traditional-kernel).
-
-Security and authority claims, including their residual risks, are documented
-in [`SECURITY.md`](SECURITY.md). Platform and hardware assumptions are in the
-[documentation index](docs/README.md).
-
-## Current status
-
-**Foundation complete (2026-08-07).** M0–M8, loader, blocking recv, console
-endpoint, product beacon, and parked-task cancel are stamped **done on Raspberry
-Pi 4B** ([verification](docs/verification.md)). Kernel EL1 Device blankets are
-**risk-accepted** (agents stay page-mapped).
-
-**Not yet complete** — open K/P tracks (IRQ wait, timeout/auto-reap, preemption,
-SMP, storage, network, …) are the active roadmap under
-[ADR-0026](docs/adr/0026-kernel-and-product-completeness.md). Standing watch only:
-[SpiDevice / ADR-0020](https://github.com/gianlucamazza/harbor-kernel/issues/14).
-
-| Area | Current state |
+| | |
 | --- | --- |
-| Boot and memory | EL2→EL1 boot, early MMU, W^X kernel map, heap, guarded stacks and runtime page-table operations |
-| Execution | Cooperative EL1 tasks; preemption/SMP are **open (K4/K8)** |
-| IPC and authority | Mailboxes, slot caps, cancel of blocked waits; transfer/timeout **open (K3/K2)** |
-| Agents | Private AS, multi-SVC, fault policy, manifest loader, blocking recv |
-| Drivers | PL011 driver-agent path; broader device surface **open (K9)** |
-| Console | EL1 endpoint server plus product beacon |
-| Product OS | Beacon composition only; multi-agent/storage/net **open (P\*)** |
-| Verification | 290 host tests, bounded model checks, Miri, build gates, QEMU and HW stamps |
+| **Foundation** | **Complete on Pi 4B** (2026-08-07): tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits |
+| **Goal** | Complete microkernel (**K**) and product OS (**P**) — [roadmap](docs/architecture.md#completeness-roadmap) |
+| **Not yet** | Preemption/budget, IRQ as first-class wait, timeout/auto-reap, cap transfer, SMP, external load, multi-agent product, storage, network, … |
 
-Foundation history:
-[`architecture.md#roadmap`](docs/architecture.md#roadmap). Completeness tracks:
-[`architecture.md#completeness-roadmap`](docs/architecture.md#completeness-roadmap).
+**What works today (short list):** cooperative tasks; message IPC; EL0 agents
+with private memory; least-privilege console (denied by default); PL011 as a
+contained driver agent; product beacon via the console endpoint.
+
+| Area | State |
+| --- | --- |
+| Platform | Single-core AArch64, Pi 4B, early MMU, W^X, heap, guarded stacks |
+| Execution | Cooperative only — preemption/SMP **open** |
+| Authority | Slot caps, refuse accounting, cancel blocked wait — transfer/timeout **open** |
+| Product OS | Beacon composition; broader services **open** |
+| Verification | 293 host tests, model checks, Miri, QEMU and hardware stamps |
+
+Evidence index: [`docs/verification.md`](docs/verification.md).
+
+## What we are not
+
+| Out of model | Why |
+| --- | --- |
+| Linux / POSIX / glibc | Different ABI and ambient-authority world |
+| “Intentionally incomplete forever” | Gaps are **open work**, not identity |
+| Multi-tenant cloud hypervisor | Separate problem; needs its own design if ever |
+| Hiding platform firmware | Blobs stay explicit ([`docs/blobs.md`](docs/blobs.md)) |
 
 ## Quick start
 
-The repository uses the toolchain in [`rust-toolchain.toml`](rust-toolchain.toml)
-and targets `aarch64-unknown-none-softfloat`.
+Toolchain: [`rust-toolchain.toml`](rust-toolchain.toml) · target
+`aarch64-unknown-none-softfloat`.
 
 ```bash
-make              # build target/aarch64-unknown-none-softfloat/release/kernel8.img
+make              # release kernel8.img
 make test         # host tests
-make qemu         # boot the image in QEMU
+make qemu         # boot in QEMU
 make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs, then clippy
 ```
 
-For a Raspberry Pi run, fetch the verified firmware blobs, deploy to a FAT boot
-partition and use a 3.3 V USB-serial adapter:
+On a Pi 4B (FAT boot partition + 3.3 V USB-serial):
 
 ```bash
 make blobs
@@ -121,65 +92,31 @@ make deploy SD_MOUNT=/run/media/$USER/boot
 make serial SERIAL_DEV=/dev/ttyUSB0
 ```
 
-The optional SPI TFT is a debug status surface, not the primary console. Build
-and deploy it consistently with `FEATURES=debug-display`. Hardware wiring and
-the safety constraints are in [`docs/hardware.md`](docs/hardware.md).
+Optional SPI TFT status panel: `FEATURES=debug-display` — see
+[`docs/hardware.md`](docs/hardware.md). UART remains the primary console.
 
-## Where to read next
+## Documentation
 
-[`docs/README.md`](docs/README.md) is the documentation map. The shortest useful
-paths are:
-
-| If you want to… | Read… |
+| I want to… | Read |
 | --- | --- |
-| Understand the architecture and roadmap | [`docs/architecture.md`](docs/architecture.md) |
-| See the OS vision and use cases | [`docs/vision.md`](docs/vision.md) |
-| See the completeness roadmap (K/P tracks) | [architecture § completeness](docs/architecture.md#completeness-roadmap) |
-| See why Harbor is not a traditional process OS | [architecture § how it differs](docs/architecture.md#how-harbor-differs-from-a-traditional-kernel) |
-| Understand authority, isolation and threats | [`SECURITY.md`](SECURITY.md) |
-| See what is actually verified | [`docs/verification.md`](docs/verification.md) |
-| Follow boot and hardware setup | [`docs/boot-chain.md`](docs/boot-chain.md), [`docs/hardware.md`](docs/hardware.md) |
-| Understand MMU or interrupt invariants | [`docs/mmu.md`](docs/mmu.md), [`docs/interrupts.md`](docs/interrupts.md) |
-| Port the scaffold | [`docs/porting.md`](docs/porting.md), [`docs/arch-contract.md`](docs/arch-contract.md) |
-| Understand an architectural choice | [`docs/adr/README.md`](docs/adr/README.md) |
+| Navigate all docs | [`docs/README.md`](docs/README.md) |
+| Architecture, layering, roadmaps | [`docs/architecture.md`](docs/architecture.md) |
+| Product vision and use cases | [`docs/vision.md`](docs/vision.md) |
+| Threat model and authority | [`SECURITY.md`](SECURITY.md) |
+| What is actually proven | [`docs/verification.md`](docs/verification.md) |
 
-## Repository map
-
-The map is intentionally compact: it explains ownership, while the
-documentation index explains how to navigate the material.
-
-```
-crates/kernel-core/  host-tested pure logic: authority, ipc, syscall, tasks,
-                     manifest, memory, hardware maths, data structures, models
-src/                 AArch64 facade, BSP, IRQ/drivers, bootstrap, scheduler,
-                     agents, memory, console and panic/runtime policy
-boot/                Raspberry Pi firmware configuration
-docs/                architecture, security links, hardware, verification,
-                     porting, ADRs and historical reviews
-scripts/              build, layering, documentation and QEMU gates
-```
-
-The detailed module inventory remains in the architecture documentation and is
-validated by the documentation gates.
+Hardware and boot: [`docs/boot-chain.md`](docs/boot-chain.md),
+[`docs/hardware.md`](docs/hardware.md). Decisions: [`docs/adr/`](docs/adr/README.md).
 
 ## Contributing
 
-There is no external contributor process yet. Changes that move a kernel
-boundary need the relevant ADR and, for milestone work, the multi-role review
-discipline described by [ADR-0001](docs/adr/0001-multi-role-analysis.md).
-
-Before describing a change as complete, run:
-
-```bash
-make check
-```
-
-Keep current behavior in the owning document, evidence in the verification
-record, and historical decisions in their original ADR or review. See
-[`docs/README.md`](docs/README.md) for the documentation conventions.
+Boundary changes need an ADR first ([ADR-0001](docs/adr/0001-multi-role-analysis.md)).
+Before calling work complete: `make check`. Keep status in the owning doc,
+evidence in verification, history in ADRs/reviews — see
+[`docs/README.md`](docs/README.md).
 
 ## License
 
 MIT ([`LICENSE-MIT`](LICENSE-MIT)) or Apache-2.0
-([`LICENSE-APACHE`](LICENSE-APACHE)), at your option. Platform blobs remain
-under their upstream licenses; see [`docs/blobs.md`](docs/blobs.md).
+([`LICENSE-APACHE`](LICENSE-APACHE)), at your option. Platform blobs: upstream
+licenses in [`docs/blobs.md`](docs/blobs.md).

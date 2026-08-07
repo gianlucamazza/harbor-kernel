@@ -43,6 +43,7 @@ the code that follows.
 | [0024](0024-parked-task-visibility.md)                      | Parked tasks are counted; reclaim/timeout deferred (issue #13 phase 1)                        | accepted   |
 | [0025](0025-cancel-blocked-wait.md)                         | Cancel a blocked wait — supervisor reaping without a timeout queue (issue #13 phase 2)        | accepted   |
 | [0026](0026-kernel-and-product-completeness.md)             | Completeness of the Harbor kernel and product OS is the project goal                          | accepted   |
+| [0027](0027-h1-external-agent-store.md)                     | H1 first slice — external agent store at a fixed physical address                               | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

@@ -69,6 +69,7 @@ cpu_before="${CHILD_CPU_HZ}"
 
 # `timeout` kills a healthy run, so its exit status says nothing; the log is
 # the oracle. `|| true` keeps `set -e` from ending the script before we look.
+# Oracle path: no external store — builtin beacon+mute (ADR-0027 fallback).
 timeout "${SECONDS_TO_RUN}" "${QEMU}" \
 	-M "${QEMU_MACHINE}" -kernel "${IMG}" \
 	-serial mon:stdio -display none </dev/null >"${log}" 2>&1 || true
@@ -108,6 +109,8 @@ indeterminate() {
 }
 
 # Each assertion covers a distinct subsystem, so a failure localises itself.
+grep -qa 'loader: builtin' "${log}" ||
+	fail "oracle boot did not use the builtin manifest path"
 grep -qa 'Harbor: hello' "${log}" ||
 	fail "no console output: the kernel did not reach bootstrap::run"
 grep -qa 'MMU on' "${log}" ||

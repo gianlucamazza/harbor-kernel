@@ -19,6 +19,12 @@ if [[ ! -f "${IMG}" ]]; then
 	llvm-objcopy -O binary "${OUT}/harbor-kernel" "${IMG}"
 fi
 
+readonly AGENTS="${AGENTS_BIN:-target/agents.bin}"
+if [[ ! -f "${AGENTS}" ]]; then
+	echo "product-boot-check: packing agent store" >&2
+	python3 scripts/pack-agent-store.py -o "${AGENTS}"
+fi
+
 if ! command -v "${QEMU}" >/dev/null; then
 	if [[ "${ALLOW_BOOT_SKIP:-}" == "1" ]]; then
 		echo "product-boot-check: SKIPPED — ${QEMU} missing, ALLOW_BOOT_SKIP set" >&2
@@ -31,14 +37,14 @@ fi
 log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 
-# shellcheck source=lib/sd-target.sh
-# Not needed — direct QEMU machine.
+# ADR-0027: product composition from external store at 0x10000000.
 timeout "${SECONDS_LIMIT}" "${QEMU}" \
 	-machine raspi4b \
 	-nographic \
 	-serial mon:stdio \
 	-d guest_errors \
 	-kernel "${IMG}" \
+	-device loader,file="${AGENTS}",addr=0x10000000 \
 	>"${log}" 2>&1 || true
 
 fail() {
@@ -50,6 +56,7 @@ fail() {
 
 grep -qa 'Harbor: hello' "${log}" || fail "product image did not boot"
 grep -qa 'console-server: up' "${log}" || fail "console server did not spawn"
+grep -qa 'loader: store n=1' "${log}" || fail "product did not load the external agent store"
 grep -qa 'loader: beacon loaded' "${log}" || fail "beacon was not loaded"
 grep -qa 'loader: beacon ran sends=2 refusals=0' "${log}" || fail "beacon did not run successfully"
 grep -qa 'H!loader: beacon ran' "${log}" || fail "beacon bytes did not reach the wire before the report"
