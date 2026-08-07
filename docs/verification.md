@@ -659,8 +659,9 @@ remember to write.
 count is asserted exactly rather than as a range — a range would let any one
 producer satisfy the assertion for the others, which it once did.
 
-`make product-builds` fell from **95 unreachable items to 37**: the loader is
-product code and calls `spawn_agent`, `AddressSpace`, `Agent` and the EL0
+`make product-builds` fell from **95 unreachable items to 37** (36 once the
+manifest index left the TCB): the loader is
+product code and calls `spawn_with_slots`, `AddressSpace`, `Agent` and the EL0
 session. The **image size did not move** — 54496 B before and after — because
 the manifest is `cfg(oracle)` and an empty table loads nothing. Reachable in the
 source, absent from the image. That is the honest state of ADR-0021's positive
@@ -1300,7 +1301,8 @@ use overlapping rights, which the existing tests never did.
 The new `cap::from_slot` and the extended `syscall` produced **no survivors**.
 
 **`make mutants`** runs it, over `ipc`, `tasks`, `layout`, `irqtable`, `rxline`,
-`reset`, `cap` and `syscall`. Not wired into `make check`: a full run is around seven minutes,
+`reset`, `cap`, `syscall`, `prog` and `manifest`. Not wired into `make check`:
+a full run is 316 mutants and well over twenty minutes on a loaded machine,
 and the value is in reading the survivors rather than in a threshold. It belongs
 where ADR-0001 puts the multi-role review — before a milestone that moves a
 boundary.
@@ -1319,6 +1321,47 @@ separately.
 The modules added since the first run — `irqtable` and `rxline` — produced **no
 survivors at all**, which is the useful measure of tests written with the
 mutants in mind rather than found by them afterwards.
+
+### Third run, after the loader and the park: 274 caught, 10 missed, 1 timeout
+
+`manifest` joined the file list — it is the code that decides whether an agent
+may receive authority, and it had never been mutated — and `layout` was
+re-examined because `UserWindow` grew `text_pages` the same day. The run went
+from 256 mutants to 316.
+
+**The survivor set did not move.** Still the same ten: one equivalent
+(`CapRights::SEND = 1 << 0` mutated to `1 >> 0`, both are 1), six `!mbox.live`
+arms guarding an endpoint that release-and-reuse will one day make reachable,
+and three `Tasks::switch` guards. Sixty more mutants caught and not one new gap
+— which is the useful reading, because `manifest` and the reworked `layout`
+were written with these tests in mind rather than tested afterwards.
+
+#### The one thing it did find, and why it is not in the survivor list
+
+`manifest::bind` contributed a **second timeout**: its `slot += 1` mutated to
+`slot *= 1`, which pins the index at zero and hangs the suite. A timeout is a
+*detected* mutant — a hanging test is not a passing one — so the honest options
+were to raise the timeout baseline from 1 to 2, or to remove the counter.
+
+The counter went. `bind` now walks `entry.slots.iter().enumerate()`, which has
+no `+=` to mutate, and a scoped re-run of `manifest.rs` alone reports **15
+caught, 1 unviable, zero missed, zero timeouts**. So the baseline stays 10 and 1
+rather than growing to accommodate a shape that did not need to exist.
+
+That is the difference worth naming: raising a baseline records a weakness,
+rewriting the loop removes one. The first is sometimes right — the six
+`!mbox.live` arms are unreachable and stay — and this was not one of those
+times.
+
+#### What mutation testing cannot reach here
+
+`cargo-mutants` runs `-p kernel-core`. Everything in `src/` is outside it,
+because it is not host-testable — which means the *kernel-side* half of some
+claims has no mutation coverage at all. Concretely, after ADR-0022: the table's
+`Busy` refusal is covered (host tests and the bounded model), but the mapping
+`RecvError::Busy → Status::Busy` in `src/agent/mod.rs` is two lines nothing
+mutates and nothing on the boot path reaches, because nothing creates a second
+waiter. Named here rather than left to be inferred from a green run.
 
 ## The refusal counter that erased itself (2026-08-06)
 

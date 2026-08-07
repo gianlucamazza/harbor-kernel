@@ -24,8 +24,10 @@ use kernel_core::manifest::{AgentEntry, BindError, bind};
 use kernel_core::paging::Perms;
 
 use crate::agent::{Agent, SessionEnd};
+use crate::arch::cpu;
 use crate::mm::AddressSpace;
-use crate::sched;
+use crate::sched::{self, MAX_TASKS, TaskId};
+use crate::sync::SyncCell;
 
 #[cfg(feature = "oracle")]
 mod oracle_entries {
@@ -92,6 +94,46 @@ use oracle_entries::MANIFEST;
 #[cfg(not(feature = "oracle"))]
 static MANIFEST: &[AgentEntry] = &[];
 
+/// Which manifest entry each task slot is running, if any.
+///
+/// **A side table here rather than a field in the TCB**, and the distinction is
+/// architectural, not stylistic. The scheduler sits below `agent` and
+/// `bootstrap` in the layering; a manifest is a concept it has no business
+/// knowing. `Tcb.agent: Option<u8>` compiled and passed `make layering` — the
+/// gate reads `crate::` import edges, and an `Option<u8>` imports nothing — but
+/// it put application state in the scheduler's own struct, which is exactly the
+/// non-import coupling F24 left as review-only.
+///
+/// Indexed by task slot, so it is the same shape as the thing it replaced and
+/// costs the same lookup. `sched::spawn` still takes a bare `fn()`; the loader
+/// remembers which entry it just handed out instead of asking the scheduler to
+/// carry it.
+static ENTRY_OF_TASK: SyncCell<[Option<u8>; MAX_TASKS]> = SyncCell::new([None; MAX_TASKS]);
+
+fn remember(task: TaskId, index: u8) {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked and one core, so this `&mut` cannot overlap
+        // another. Nothing in an IRQ handler reads this table.
+        let table = unsafe { &mut *ENTRY_OF_TASK.get() };
+        table[task.0 as usize] = Some(index);
+    });
+}
+
+fn recall(task: TaskId) -> Option<u8> {
+    cpu::without_irqs(|| {
+        // SAFETY: as `remember`.
+        let table = unsafe { &*ENTRY_OF_TASK.get() };
+        table[task.0 as usize]
+    })
+}
+
+/// `MAX_CAPS_PER_TASK` and the manifest's slot count are the same number.
+///
+/// Written twice — here and in `kernel_core::manifest` — because the two crates
+/// cannot see each other's constants. Asserted in the layer that binds them, so
+/// the scheduler does not have to name a manifest to state its own bound.
+const _: () = assert!(sched::MAX_CAPS_PER_TASK == kernel_core::manifest::MAX_SLOTS);
+
 /// Create one task per manifest entry, binding its slots against `held`.
 ///
 /// `held` is what the loader itself holds. An entry names indices into it, so
@@ -104,13 +146,16 @@ pub fn load_all(held: &[CapId]) {
     }
     for (index, entry) in MANIFEST.iter().enumerate() {
         match bind(entry, held) {
-            Ok(slots) => match sched::spawn_agent(agent_body, index as u8, &slots) {
-                Ok(_) => crate::kprintln!(
-                    "loader: {} loaded text={} stack={}",
-                    entry.name,
-                    entry.text_pages,
-                    entry.stack_pages
-                ),
+            Ok(slots) => match sched::spawn_with_slots(agent_body, &slots) {
+                Ok(task) => {
+                    remember(task, index as u8);
+                    crate::kprintln!(
+                        "loader: {} loaded text={} stack={}",
+                        entry.name,
+                        entry.text_pages,
+                        entry.stack_pages
+                    );
+                }
                 Err(e) => crate::kprintln!("loader: {} spawn FAILED {e:?}", entry.name),
             },
             // The refusal the manifest exists to make structural: an entry that
@@ -127,12 +172,12 @@ pub fn load_all(held: &[CapId]) {
 
 /// The body every manifest agent runs. One trampoline, N descriptions.
 ///
-/// It asks the scheduler which entry it is rather than being told, because
-/// `sched::spawn` takes a bare `fn()` — and because an index in the TCB is the
-/// same shape as a capability slot: the task cannot name an entry outside the
-/// table.
+/// It looks up which entry it is rather than being told, because `sched::spawn`
+/// takes a bare `fn()`. The lookup is an **index into the manifest**, resolved
+/// against the array's own bound — the same shape a capability slot has one
+/// floor down: a task cannot reach an entry that is not in the table.
 fn agent_body() {
-    let Some(index) = sched::current_agent_index() else {
+    let Some(index) = recall(sched::current_task_id()) else {
         crate::kprintln!("loader: a task reached the agent body with no manifest entry");
         return;
     };

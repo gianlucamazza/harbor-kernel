@@ -27,8 +27,10 @@ use crate::cap::CapId;
 
 /// Capability slots an agent may be given.
 ///
-/// Must equal `sched::MAX_CAPS_PER_TASK`; `src/sched/mod.rs` carries the
-/// compile-time assertion, because that is the side that owns the array.
+/// Must equal `sched::MAX_CAPS_PER_TASK`. The compile-time assertion lives in
+/// `src/bootstrap/loader.rs`, the layer that binds the two: the scheduler owns
+/// the array, but it has no business naming a manifest to state its own bound
+/// (ADR-0023).
 pub const MAX_SLOTS: usize = 4;
 
 /// One page of MMIO an agent is allowed to reach.
@@ -145,20 +147,23 @@ impl AgentEntry {
 /// ```
 pub fn bind(entry: &AgentEntry, held: &[CapId]) -> Result<[Option<CapId>; MAX_SLOTS], BindError> {
     let mut out = [None; MAX_SLOTS];
-    let mut slot = 0;
-    while slot < MAX_SLOTS {
-        if let Some(index) = entry.slots[slot] {
-            let i = index as usize;
-            if i >= held.len() {
-                return Err(BindError::NoSuchCapability {
-                    slot,
-                    index,
-                    held: held.len(),
-                });
-            }
-            out[slot] = Some(held[i]);
+    // `enumerate` rather than a hand-rolled counter, and that is a mutation
+    // result rather than a style preference: the `slot += 1` this replaced
+    // mutated to `slot *= 1`, which pins the index at zero and hangs the suite.
+    // Cargo-mutants reports that as a *timeout* — detected, since a hanging test
+    // is not a passing one, but detected by taking a minute instead of by an
+    // assertion. An iterator has no counter to mutate.
+    for (slot, granted) in entry.slots.iter().enumerate() {
+        let Some(index) = *granted else { continue };
+        let i = index as usize;
+        if i >= held.len() {
+            return Err(BindError::NoSuchCapability {
+                slot,
+                index,
+                held: held.len(),
+            });
         }
-        slot += 1;
+        out[slot] = Some(held[i]);
     }
     Ok(out)
 }

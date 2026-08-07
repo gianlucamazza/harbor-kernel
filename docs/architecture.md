@@ -99,9 +99,9 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
    compiled, and is checked: `make product-builds` refuses one that still
    carries the demo strings.
 
-   That build also reports a number worth reading: **37 items are unreachable
+   That build also reports a number worth reading: **36 items are unreachable
    without the oracle**, down from 95. `bootstrap::loader` is product code and
-   calls `sched::spawn_agent`, `AddressSpace`, `Agent` and the EL0 session, so
+   calls `sched::spawn_with_slots`, `AddressSpace`, `Agent` and the EL0 session, so
    they finally have a product-path caller (ADR-0021).
 
    What did **not** change is the product image size — 54496 B before the loader
@@ -112,7 +112,8 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
    code" be read as "the product loads something".
 
    The number moves with the kernel — 88, then 95 when `SYS_RECV` learned to
-   wait, then 37 when the loader landed. `make product-builds` prints the
+   wait, then 37 when the loader landed, then 36 when the manifest index left
+   the scheduler. `make product-builds` prints the
    current one, and this paragraph is the only place that repeats it: no gate
    compares the two, so a stale figure here is drift a reader has to catch.
 
@@ -189,8 +190,11 @@ program** rather than "agent".
 
 Since ADR-0021 an agent can be a **manifest entry** rather than a compiled-in
 Rust `fn`: an image, a window geometry, and a slot table. `bootstrap::loader` is
-one loop over `kernel_core::manifest`, and `sched::spawn_agent` gives every entry
-the same trampoline — one body, N descriptions.
+one loop over `kernel_core::manifest`, and every entry gets the same
+trampoline — one body, N descriptions. Which entry a task is running is the
+loader's own side table, not a field in the TCB: the scheduler sits below
+`agent` and `bootstrap`, and a manifest is a concept it has no business
+knowing ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)).
 
 The security argument is arithmetic, not a check. An entry's slot carries an
 **index into the loader's own capability list**, never a `CapId`, so there is
