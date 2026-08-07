@@ -54,8 +54,9 @@ design ADRs.
 | Evidence ≠ compile | Boundaries stay claims with gates |
 
 Open work that realises these at scale (design ADR before code): denser agents
-(**K5**), preemption/budget (**K4**), SMP (**K8**), external load (**K6**),
-IRQ wait (**K1**), product storage/network/multi-app (**P\***).
+(**K5**), preemption/budget (**K4**), SMP (**K8**), product storage/network
+(**P2+**). First slices paid: external load (**K6**), IRQ wait (**K1**),
+multi-agent product store (**P1**).
 
 ---
 
@@ -111,11 +112,12 @@ storage/display as needed.
 | Sealed composition firmware | Kernel + grant table; update one agent without every device |
 | Third-party sandbox on-device | They supply text; you supply grants |
 
-**Paid (first slice):** external load (**K6**) — fixed-PA store, QEMU
-([ADR-0027](adr/0027-h1-external-agent-store.md)); Pi pack/place still open.
+**Paid (first slices):** external load (**K6**, [ADR-0027](adr/0027-h1-external-agent-store.md));
+IRQ wait EL1 (**K1**, [ADR-0028](adr/0028-wait-on-irq.md)); multi-agent product
+store (**P1**, beacon+chirp). Pi fixed-PA place and EL0 IRQ caps still open.
 
-**Must still pay:** more device agents (**K9**), IRQ wait (**K1**), reclaim
-beyond cancel (**K2**), agent density (**K5**), multi-agent product (**P1**).
+**Must still pay:** more device agents (**K9**), reclaim beyond cancel (**K2**),
+agent density (**K5**), EL0 IRQ capability, storage (**P2**), network (**P3**).
 
 ### H2 — Boundary operating system
 

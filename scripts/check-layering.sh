@@ -28,13 +28,15 @@ allowed_for() {
 	arch*) echo "arch" ;;                    # rule 3: CPU/ISA only
 	drivers*) echo "arch irq" ;;             # rule 1: never the board
 	irq*) echo "arch irq" ;;
-	time*) echo "arch" ;;
-	console*) echo "arch bsp drivers" ;;
+	# ADR-0028: timer/UART signal waiters via irq::wait (no sched import).
+	time*) echo "arch irq" ;;
+	console*) echo "arch bsp drivers irq" ;;
 	# panic may paint the TFT status banner when debug-display is on.
 	panic*) echo "arch console status" ;;
 	mm*) echo "arch bsp" ;;
-	# Cooperative scheduler: TCBs, stacks, switch, wake queue — not drivers/board.
-	sched*) echo "arch mm" ;;
+	# Cooperative scheduler: TCBs, stacks, switch, wake queue - not drivers/board.
+	# ADR-0028: drains irq::wait and exposes wait_for_irq.
+	sched*) echo "arch mm irq" ;;
 	# M4 IPC: mailboxes + caps; parks/wakes via sched only.
 	ipc*) echo "arch sched" ;;
 	# The board binds protocols together; that is its job (rule 2).

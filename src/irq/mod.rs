@@ -33,6 +33,7 @@
 //! registration and is what a future capability names — not a raw GIC id.
 
 mod chip;
+pub mod wait;
 
 use core::sync::atomic::{AtomicU32, Ordering};
 

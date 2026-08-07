@@ -47,6 +47,23 @@ install -m 0644 "${CONFIG}" "${MOUNT}/config.txt"
 install -m 0644 "${BLOBS}/start4.elf" "${MOUNT}/start4.elf"
 install -m 0644 "${BLOBS}/fixup4.dat" "${MOUNT}/fixup4.dat"
 
+# ADR-0027: ship the composition blob for host tooling / future place path.
+# The Pi firmware does not load this to AGENT_STORE_PA (0x10000000); QEMU uses
+# `-device loader`. On silicon the kernel still falls back to builtin until a
+# pack-and-place or in-kernel storage path (P2) exists.
+AGENTS="${AGENTS_BIN:-${ROOT}/target/agents.bin}"
+if [[ ! -f "${AGENTS}" ]]; then
+	echo "deploy: packing agent store → ${AGENTS}" >&2
+	python3 "${ROOT}/scripts/pack-agent-store.py" -o "${AGENTS}"
+fi
+if [[ -f "${AGENTS}" ]]; then
+	install -m 0644 "${AGENTS}" "${MOUNT}/agents.bin"
+fi
+
 sync
 echo "Deployed to ${MOUNT}:"
 ls -la "${MOUNT}/kernel8.img" "${MOUNT}/config.txt" "${MOUNT}/start4.elf" "${MOUNT}/fixup4.dat"
+if [[ -f "${MOUNT}/agents.bin" ]]; then
+	ls -la "${MOUNT}/agents.bin"
+	echo "note: agents.bin is on the FAT for tooling; fixed-PA load is QEMU-only until P2"
+fi

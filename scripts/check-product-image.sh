@@ -143,4 +143,4 @@ fi
 printf 'product-builds: clean (no demo symbols; image %s B without the oracle, %s B with, +%s B)\n' \
 	"${product_size}" "${oracle_size}" "$((oracle_size - product_size))"
 printf '  %s items unreachable without the oracle.\n' "${unreachable}"
-printf '  Product carries console-server + beacon (M8); mute stays oracle-only.\n'
+printf '  Product carries console-server + loader; multi-agent store is external (P1).\n'

@@ -431,7 +431,7 @@ move ([ADR-0001](adr/0001-multi-role-analysis.md)). Status vocabulary:
 
 | ID | Track | Status | Done when (sketch) | Needs first |
 | --- | --- | --- | --- | --- |
-| K1 | Wait-on-IRQ (first-class) | **open** | Agent parks on IRQ cap / notification without polling `DR` as the only path | Design ADR; IRQ cookie → wake |
+| K1 | Wait-on-IRQ (first-class) | **done (QEMU)** first slice ([ADR-0028](adr/0028-wait-on-irq.md)); EL0 IRQ cap open | EL1 `wait_for_irq(cookie)`; timer/UART `signal`; oracle `irq-wait: woke` | ADR-0008 → 0028; EL0 syscall successor |
 | K2 | Park reclaim (timeout and/or auto-reap on last send drop) | **open** | Orphan parks do not hold `MAX_TASKS` forever without policy | Successor to ADR-0025 |
 | K3 | Cap transfer / revoke / endpoint release | **open** | Authority can move and die without reboot; stale generation exercised by real release | ADR-0017 successor |
 | K4 | Preemption or CPU budget | **open** | Hostile busy-loop is not permanent DoS residual | Successor to ADR-0006; name agent-pair impact (0023) |
@@ -446,7 +446,7 @@ move ([ADR-0001](adr/0001-multi-role-analysis.md)). Status vocabulary:
 
 | ID | Track | Status | Done when (sketch) | Typical deps |
 | --- | --- | --- | --- | --- |
-| P1 | Multi-agent product image beyond beacon | **open** | Product composition with several useful agents, not only proof beacon | Loader/manifest |
+| P1 | Multi-agent product image beyond beacon | **done (QEMU)** first slice (beacon + chirp in store) | Product `agents.bin` n≥2; both run via console endpoint | ADR-0027 store; richer agents later |
 | P2 | Storage path (block + load/persist) | **open** | Persist or load agent/data without rebuild-only workflow | Often after K6 |
 | P3 | Network agent + caps | **open** | Network I/O only via granted caps; no ambient net | K1/K9 helpful |
 | P4 | Display/input product path | **open** | Product-grade path (may graduate `debug-display` discipline) | Device agents |
@@ -542,6 +542,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0025](adr/0025-cancel-blocked-wait.md) | Supervisor `cancel_blocked` aborts a parked wait (`Cancelled`); no timeout queue (**accepted**) |
 | [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness of kernel (K) and product OS (P) is the project goal (**accepted**) |
 | [ADR-0027](adr/0027-h1-external-agent-store.md) | H1 entry: external agent store at fixed PA (**accepted**) |
+| [ADR-0028](adr/0028-wait-on-irq.md) | K1 entry: EL1 wait on IRQ cookie (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

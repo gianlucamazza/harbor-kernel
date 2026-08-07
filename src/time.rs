@@ -10,6 +10,7 @@
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use crate::arch::timer;
+use crate::irq;
 
 /// Monotonic tick counter. Producer: timer IRQ. Consumer: main loop.
 static TICKS: AtomicU64 = AtomicU64::new(0);
@@ -26,8 +27,9 @@ static MISSED: AtomicU64 = AtomicU64::new(0);
 /// IRQ handler registered for the platform timer line (BSP supplies the id).
 ///
 /// Re-arms the arch timer and advances the monotonic tick counter.
-/// Must not perform console I/O. Cookie is unused (ADR-0008 shape).
-pub fn on_timer_irq(_cookie: u32) {
+/// Must not perform console I/O. Cookie is the ADR-0008 id (timer = 1) and is
+/// signalled for K1 waiters ([ADR-0028](../../docs/adr/0028-wait-on-irq.md)).
+pub fn on_timer_irq(cookie: u32) {
     let missed = timer::on_interrupt();
     if missed != 0 {
         MISSED.fetch_add(missed, Ordering::Relaxed);
@@ -36,6 +38,8 @@ pub fn on_timer_irq(_cookie: u32) {
     // passed for all of them. Release: state the handler updated before this
     // is visible to a reader that observes the new count.
     TICKS.fetch_add(missed + 1, Ordering::Release);
+    // ADR-0028: wake a task parked on this cookie (if any).
+    irq::wait::signal(cookie);
 }
 
 /// Timer deadlines that expired unserviced since boot.

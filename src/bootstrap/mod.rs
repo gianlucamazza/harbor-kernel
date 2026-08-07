@@ -509,6 +509,12 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
         }
 
+        // K1 / ADR-0028: EL1 task parks on timer cookie; next tick wakes it.
+        match crate::sched::spawn(demos::irq_wait_task) {
+            Ok(_) => crate::kprintln!("sched: spawned irq-wait"),
+            Err(e) => crate::kprintln!("sched: spawn irq-wait FAILED {e:?}"),
+        }
+
         // ADR-0025: park with no sender, then cancel from a supervisor task.
         // The send capability is dropped — the orphan cannot be woken by IPC.
         match crate::ipc::create_channel() {

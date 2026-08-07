@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Pack a Harbor external agent store (ADR-0027).
 
-Default: single product beacon (console H! via SYS_SEND, slot 1 → held[0]).
+Default product composition (P1): beacon (H!) + chirp (?) — two agents, one
+console grant each at slot 1 → held[0].
 """
 from __future__ import annotations
 
@@ -15,10 +16,8 @@ MAGIC = b"HARB"
 VERSION = 1
 SLOT_NONE = 0xFF
 NAME_LEN = 16
-PAGE = 4096
 
-# encode_console_hi_exit(1) — keep in sync with kernel_core::prog tests.
-# Built by assembling the documented program so we do not hand-transcribe hex.
+# encode_console_hi_exit(1) — keep in sync with kernel_core::prog.
 BEACON_ASM = """\
 movz x0, #1
 movz x1, #0
@@ -32,8 +31,18 @@ svc #1
 b .
 """
 
+# One console byte '?' then exit (encode_console_once_exit(1, b'?')).
+CHIRP_ASM = """\
+movz x0, #1
+movz x1, #0
+movz x2, #63
+svc #3
+svc #1
+b .
+"""
 
-def assemble_beacon() -> bytes:
+
+def assemble(asm: str) -> bytes:
     import tempfile
 
     with tempfile.TemporaryDirectory() as td:
@@ -41,7 +50,7 @@ def assemble_beacon() -> bytes:
         obj = td_path / "a.o"
         bin_path = td_path / "a.bin"
         src = td_path / "a.s"
-        src.write_text(BEACON_ASM)
+        src.write_text(asm)
         subprocess.check_call(
             [
                 "llvm-mc",
@@ -105,20 +114,37 @@ def main() -> int:
         default=Path("target/agents.bin"),
         help="output store path",
     )
+    ap.add_argument(
+        "--single-beacon",
+        action="store_true",
+        help="pack only the M8 beacon (legacy single-agent store)",
+    )
     args = ap.parse_args()
 
     try:
-        image = assemble_beacon()
+        beacon = assemble(BEACON_ASM)
+        chirp = assemble(CHIRP_ASM)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"pack-agent-store: FAIL — need llvm-mc and llvm-objcopy: {e}", file=sys.stderr)
         return 1
 
     # slot 1 → held index 0 (console send); others empty
     slots = [SLOT_NONE, 0, SLOT_NONE, SLOT_NONE]
-    blob = pack([("beacon", 1, 3, slots, image)])
+    if args.single_beacon:
+        agents = [("beacon", 1, 3, slots, beacon)]
+    else:
+        # P1: two product agents share the same held console grant.
+        agents = [
+            ("beacon", 1, 3, slots, beacon),
+            ("chirp", 1, 3, slots, chirp),
+        ]
+    blob = pack(agents)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(blob)
-    print(f"pack-agent-store: wrote {args.output} ({len(blob)} bytes, beacon {len(image)} B)")
+    names = ",".join(a[0] for a in agents)
+    print(
+        f"pack-agent-store: wrote {args.output} ({len(blob)} bytes, n={len(agents)} [{names}])"
+    )
     return 0
 
 

@@ -56,10 +56,15 @@ fail() {
 
 grep -qa 'Harbor: hello' "${log}" || fail "product image did not boot"
 grep -qa 'console-server: up' "${log}" || fail "console server did not spawn"
-grep -qa 'loader: store n=1' "${log}" || fail "product did not load the external agent store"
+grep -qa 'loader: store n=2' "${log}" || fail "product did not load the external multi-agent store (P1)"
 grep -qa 'loader: beacon loaded' "${log}" || fail "beacon was not loaded"
+grep -qa 'loader: chirp loaded' "${log}" || fail "chirp was not loaded"
 grep -qa 'loader: beacon ran sends=2 refusals=0' "${log}" || fail "beacon did not run successfully"
-grep -qa 'H!loader: beacon ran' "${log}" || fail "beacon bytes did not reach the wire before the report"
+grep -qa 'loader: chirp ran sends=1 refusals=0' "${log}" || fail "chirp did not run successfully"
+# Concurrent product agents share the console endpoint: bytes may interleave
+# (e.g. H!? then reports). Assert payload presence, not single-agent contiguity.
+grep -qa 'H!' "${log}" || fail "beacon bytes did not reach the wire"
+grep -qaF '?' "${log}" || fail "chirp byte did not reach the wire"
 # Product must not carry oracle demos.
 if grep -qa 'sched: spawned task-a' "${log}"; then
 	fail "product image ran oracle demos"

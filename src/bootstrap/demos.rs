@@ -574,6 +574,17 @@ pub(super) fn orphan_reaper() {
     crate::sched::yield_now();
 }
 
+/// K1 / ADR-0028: park on the timer cookie until the next tick wakes us.
+///
+/// Cookie `1` is what `bsp::rpi4::irq` registers for the arch timer. Proves the
+/// IRQ → `irq::wait::signal` → `poll_wakes` → Ready path has a real producer.
+pub(super) fn irq_wait_task() {
+    crate::kprintln!("irq-wait: arm cookie=1");
+    // Timer runs at TIMER_HZ (10 Hz). One period is enough evidence.
+    crate::sched::wait_for_irq(1);
+    crate::kprintln!("irq-wait: woke");
+}
+
 /// M4: holds recv cap only; blocks until sender posts.
 pub(super) fn ipc_receiver() {
     let Some(cap) = crate::sched::my_cap(0) else {

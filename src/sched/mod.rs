@@ -32,6 +32,7 @@ use kernel_core::wake::WakeQueue;
 use crate::arch::cpu;
 use crate::arch::el0::El0Session;
 use crate::arch::switch::{Context, context_switch};
+use crate::irq;
 use crate::mm::{StackError, TaskStack};
 use crate::sync::SyncCell;
 
@@ -42,10 +43,10 @@ use crate::sync::SyncCell;
 /// reused before exit, so this is a boot-time total and not a high-water mark.
 ///
 /// It went 12 → 14 when the loader landed, 14 → 16 for M8 console server +
-/// product beacon, then 16 → 18 for the ADR-0025 reaping oracle (orphan
-/// receiver + margin). Raising it costs task stacks and page-table reserve
-/// derived from this constant.
-pub const MAX_TASKS: usize = 18;
+/// product beacon, 16 → 18 for the ADR-0025 reaping oracle, then 18 → 19 for
+/// the K1 irq-wait oracle (ADR-0028). Raising it costs task stacks and
+/// page-table reserve derived from this constant.
+pub const MAX_TASKS: usize = 19;
 
 /// Caps a task may hold (M4 local table — not shared globals).
 pub const MAX_CAPS_PER_TASK: usize = 4;
@@ -348,31 +349,38 @@ pub fn wake_task(id: TaskId) {
     });
 }
 
-/// Post a wake from IRQ context (ADR-0008). Never switches.
+/// Post a wake from IRQ context (ADR-0008 / ADR-0028). Never switches.
 ///
-/// **No handler calls this.** The mechanism is complete and host-tested
-/// ([`kernel_core::wake`]), and it has no producer: the timer handler counts
-/// ticks and the UART handler drains bytes into a ring, and neither needs to
-/// make a task Ready. So [`poll_wakes`] runs on every `yield_now` and every
-/// idle iteration to drain a queue nothing fills — two atomic loads, which is
-/// not the cost worth removing; the reason to say it is that ADR-0008 reads as
-/// though this path were live.
-///
-/// It becomes live with the first blocking device wait — a UART agent that
-/// sleeps until a byte arrives rather than polling (ADR-0013).
-#[expect(
-    dead_code,
-    reason = "ADR-0008 mechanism, live with the first blocking device wait"
-)]
+/// Prefer [`irq::wait::signal`] from handlers (cookie-matched). This entry
+/// posts a raw task token when the caller already knows the waiter id.
+#[allow(dead_code)] // raw-token path; handlers use cookie `signal`
 pub fn wake_from_irq(id: TaskId) {
-    let _ = WAKES.push(id.0);
+    irq::wait::post_task(id.0);
 }
 
 /// Drain the IRQ wake queue into Ready (voluntary path only).
 pub fn poll_wakes() {
+    irq::wait::drain(|token| wake_task(TaskId(token)));
     while let Some(token) = WAKES.pop() {
         wake_task(TaskId(token));
     }
+}
+
+/// Park the current non-idle task until the IRQ line registered with `cookie`
+/// signals (ADR-0028 / K1).
+///
+/// Never call from an IRQ handler or from idle.
+pub fn wait_for_irq(cookie: u32) {
+    let me = current_task_id().0;
+    // Arm, then check delivered before parking (lost-wakeup window).
+    irq::wait::arm(cookie, me);
+    if irq::wait::take_delivered() {
+        irq::wait::disarm();
+        return;
+    }
+    block_current();
+    let _ = irq::wait::take_delivered();
+    irq::wait::disarm();
 }
 
 /// Exits that found a stack still parked from an earlier exit.
@@ -467,7 +475,7 @@ pub fn cancel_events() -> u32 {
 #[inline]
 #[expect(dead_code, reason = "drop count for a queue that has no producer yet")]
 pub fn wake_drops() -> u32 {
-    WAKES.drops()
+    irq::wait::drops() + WAKES.drops()
 }
 
 /// One task's stack geometry, as reported to a bring-up probe.

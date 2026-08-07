@@ -281,8 +281,8 @@ pub fn rx_drain_suspended() -> bool {
 /// IRQ handler for the platform UART RX line (BSP supplies the GIC id).
 ///
 /// Drains the PL011 RX FIFO into the kernel ring. Must not transmit or format.
-/// Cookie is unused (ADR-0008 shape).
-pub fn on_uart_rx_irq(_cookie: u32) {
+/// Cookie (UART = 2) is signalled for K1 waiters after the drain (ADR-0028).
+pub fn on_uart_rx_irq(cookie: u32) {
     let base = RX_MMIO_BASE.load(Ordering::Acquire);
     if base == 0 {
         return;
@@ -305,6 +305,8 @@ pub fn on_uart_rx_irq(_cookie: u32) {
     if dropped != 0 {
         RX_DROPPED.fetch_add(dropped, Ordering::Relaxed);
     }
+    // ADR-0028: after the device is quiet, wake a waiter on this cookie (if any).
+    crate::irq::wait::signal(cookie);
 }
 
 /// Bytes the RX IRQ had to discard because the ring was full.
