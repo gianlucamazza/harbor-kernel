@@ -23,6 +23,51 @@ What that does _not_ mean: an agent cannot wait on an interrupt and cannot be
 preempted. Console output is drained by an EL1 server (M8); the product
 manifest carries a **beacon** agent. See [Roadmap](#roadmap).
 
+## How Harbor differs from a traditional kernel
+
+A traditional OS treats a **process** (or thread) as both the unit of
+isolation and the unit of scheduling: user code runs, traps into the kernel,
+and resumes the same schedulable context. Harbor is shaped by a different
+question — make isolation, authority, messaging and verification *visible
+enough to test on silicon* — so several familiar assumptions do not hold.
+
+```
+Traditional:                         Harbor:
+  scheduler ──► process / thread       scheduler ──► driver task (EL1)
+                    │                                  │ session loop
+                    └─ trap / svc                      ├─ enter / resume EL0 program
+                       user code                       │    (private AS, slot caps)
+                                                       └─ park on recv = park the driver
+```
+
+| Concern | Traditional kernel | Harbor |
+| --- | --- | --- |
+| Schedulable unit | Process or thread | **Driver task** only; the EL0 program is not what `sched` switches ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)) |
+| Isolation unit | Same process (AS + credentials) | **Agent = pair**: EL1 driver + EL0 program with its own address space |
+| Preemption | Timer quantum; IRQs may switch | **Cooperative** only; IRQ handlers never context-switch ([ADR-0006](adr/0006-cooperative-execution-model.md)) |
+| Authority names | Forgeable-looking handles / FDs checked in the kernel | EL0 names only a **slot index** into its own table; raw `CapId` never leaves the kernel ([ADR-0017](adr/0017-el0-capability-abi.md)) |
+| How work is created | Dynamic spawn / load paths | Agents described as **manifest data**; the loader binds grants it already holds ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) |
+| Device drivers | In-kernel, or servers with broad maps | **Driver-as-agent** with page-sized named MMIO windows ([ADR-0013](adr/0013-narrow-device-windows.md)) |
+| User fault | Kernel reaps or signals the process | Kernel **ends the session**; the **creator** decides the driver task’s fate ([ADR-0018](adr/0018-agent-fault-policy.md)) |
+| “Done” for a boundary | Feature lands and tests pass in CI | **M** milestones add capability; **P** milestones add protection/evidence; hardware claims need Pi 4B stamps ([verification.md](verification.md)) |
+
+Three consequences that look unrelated are the same shape fact:
+
+1. **Cost.** Every agent spends one of a small number of task slots and a 16 KiB
+   kernel stack on the driver loop, even when the EL0 text is tiny.
+2. **Kill and lifetime.** You cannot kill “the agent” without ending the driver
+   that was watching it; the session lives in that task’s TCB.
+3. **Preemption is not a small scheduler change.** It would mean preempting a
+   driver mid-session with a live EL0 context — a different problem from
+   preempting a plain kernel task.
+
+None of this is a claim of superiority over production kernels. Harbor does
+not target POSIX compatibility, SMP, or fairness under a hostile busy-loop
+(that last residual is explicit in [`SECURITY.md`](../SECURITY.md)). The
+payoff is that each boundary above is named, gated, and demonstrable rather
+than implied by a large ABI. Detail of the agent pair, authority surface and
+roadmap follows in the sections below.
+
 ## Layering
 
 ```

@@ -52,6 +52,16 @@ count. It does not currently target Linux/POSIX compatibility, preemption,
 SMP, a high-half kernel, production ASIDs, USB host support or a full
 framebuffer. Those would require their own architectural decisions.
 
+### Why it looks different
+
+In a traditional kernel a process is usually both isolated and schedulable.
+In Harbor an **agent is a pair**: a cooperative EL1 **driver task** (what the
+scheduler runs) and an EL0 **program** (private address space, slot-indexed
+capabilities). Authority is structural, agents can be described as manifest
+data, and “done” for a boundary means evidence on hardware — not only that a
+feature compiles. The contrast is spelled out in
+[architecture: How Harbor differs from a traditional kernel](docs/architecture.md#how-harbor-differs-from-a-traditional-kernel).
+
 Security and authority claims, including their residual risks, are documented
 in [`SECURITY.md`](SECURITY.md). Platform and hardware assumptions are in the
 [documentation index](docs/README.md).
@@ -109,6 +119,7 @@ paths are:
 | If you want to… | Read… |
 | --- | --- |
 | Understand the architecture and roadmap | [`docs/architecture.md`](docs/architecture.md) |
+| See why Harbor is not a traditional process OS | [architecture § how it differs](docs/architecture.md#how-harbor-differs-from-a-traditional-kernel) |
 | Understand authority, isolation and threats | [`SECURITY.md`](SECURITY.md) |
 | See what is actually verified | [`docs/verification.md`](docs/verification.md) |
 | Follow boot and hardware setup | [`docs/boot-chain.md`](docs/boot-chain.md), [`docs/hardware.md`](docs/hardware.md) |

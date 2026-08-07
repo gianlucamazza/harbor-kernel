@@ -16,8 +16,10 @@ owns a fact or which technical path to follow.
 The current mental model is: an **agent** is an EL1 driver task paired with an
 EL0 program; the program runs in a private address space and uses explicitly
 granted capability slots; the driver is the schedulable half; messages are the
-interaction boundary. The architecture document owns the detailed version of
-this model.
+interaction boundary. That pairing is why Harbor does not read like a
+traditional process OS — see
+[architecture § How Harbor differs](architecture.md#how-harbor-differs-from-a-traditional-kernel).
+The architecture document owns the detailed model and the contrast table.
 
 ## Choose a path
 
@@ -27,6 +29,7 @@ this model.
 | Understand memory protection | [`mmu.md`](mmu.md) | [`arch-contract.md`](arch-contract.md), [`verification.md`](verification.md) |
 | Understand interrupts and idle | [`interrupts.md`](interrupts.md) | [`architecture.md`](architecture.md) |
 | Understand agents and authority | [`architecture.md`](architecture.md) | [`../SECURITY.md`](../SECURITY.md), relevant ADRs |
+| See why Harbor is not a traditional process OS | [`architecture.md` § differs](architecture.md#how-harbor-differs-from-a-traditional-kernel) | [`../SECURITY.md`](../SECURITY.md), [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) |
 | Verify a claim | [`verification.md`](verification.md) | the linked transcript or gate |
 | Add an ISA or board | [`porting.md`](porting.md) | [`arch-contract.md`](arch-contract.md) |
 | Understand firmware dependencies | [`boot-chain.md`](boot-chain.md), [`blobs.md`](blobs.md) | [`hardware.md`](hardware.md) |
