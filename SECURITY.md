@@ -39,7 +39,7 @@ where appropriate ([`docs/blobs.md`](docs/blobs.md)).
 | ---- | ----------- |
 | **Product** | Single-core AArch64 agent-based kernel on Raspberry Pi 4 Model B (foundation done; K/P completeness in progress) |
 | **Goal** | Complete agent-based microkernel **and** product OS ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)) |
-| **Today** | Cooperative EL1 tasks + EL0 agents with per-task AS, slot-indexed caps, IPC an agent can **wait** on, loader from a manifest, supervisor cancel of parked waits |
+| **Today** | Foundation on Pi 4B; H1 first slices on QEMU (store, wait-on-IRQ EL1+EL0, last-SEND-hold auto-reap, channel revoke, multi-agent product, compose tools). See [roadmap](docs/roadmap.md) |
 
 Assets worth defending, in order of load:
 
@@ -153,7 +153,7 @@ declare **16** (`mm::MAX_TEXT_PAGES`, 64 KiB).
 | Slot-indexed caps | Yes (M7 HW) | Creator channel revoke (ADR-0032, QEMU); **transfer** between agents still open |
 | Fault → end session, creator decides | Yes (ADR-0018, M7 HW) | Creator exit leaves agents unsupervised; no restart policy |
 | Published `CURRENT_EL0` (`AtomicPtr`, ADR-0019) | Yes (HW 2026-08-07) | Stale publish panics on entry; residual: assembly assumes symbol is a pointer |
-| Grants bounded by the loader's own table ([ADR-0021](docs/adr/0021-agents-as-data-and-the-manifest.md)) | Yes (HW 2026-08-07) | The manifest is **in the image** — as trusted as the code it replaced. It makes authority legible, not dynamic: no revocation, no delegation |
+| Grants bounded by the loader's own table ([ADR-0021](docs/adr/0021-agents-as-data-and-the-manifest.md)) | Yes (HW 2026-08-07) | Manifest is **in the image** — as trusted as the code it replaced. Channel **revoke** exists for creator/EL1 ([ADR-0032](docs/adr/0032-k3-channel-revoke.md)); **no** EL0 transfer/delegation yet |
 | Per-agent window geometry, W^X inside it | Yes (HW 2026-08-07) | `text_pages` executable, the rest writable, never both. A larger window costs frames from a 512-frame pool and is refused as an error, not a panic |
 | One mask per session step, never across a switch ([ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md)) | Yes | `make irq-scope` is **lexical**: a call that switches three frames down passes it. The indirect form is review's |
 
@@ -192,9 +192,8 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | **Console TX depends on the server task** | After M8, agent console output is drained by an EL1 server. If that task exits or never runs, agents get `Full` / silent loss; kernel `kprintln` and panic steal still work. |
 | **Capability transfer / revocation** | **Revoke (ADR-0032, done QEMU):** `creator_revoke` / `revoke_held` kill both channel ends; stale CapId refused on product path (`ipc: release stale refused`). **Transfer** between TCB slots still open (K3 residual). |
 | **Endpoint release / generation recycle** | **Done (QEMU first slice):** real `Table::revoke_channel` frees endpoints for reuse; host tests + boot oracle. Model still offers synthetic stale handles at every step. |
-| **IRQ notification capabilities** | **Done (QEMU first slice):** `kernel_core::irqcap` + bootstrap mint of timer cookie; EL0 `SYS_WAIT_IRQ` (ADR-0030). Residual: no transfer/revoke; no manifest grant of IRQ caps yet. |
-
-| **Creator lifecycle** | Bootstrap outlives agents; reaping undefined. |
+| **IRQ notification capabilities** | **Done (QEMU first slice):** `kernel_core::irqcap` + bootstrap mint of timer cookie; EL0 `SYS_WAIT_IRQ` (ADR-0030). Residual: no transfer/revoke of IRQ caps; no manifest grant of IRQ caps yet. |
+| **Creator lifecycle** | Bootstrap outlives agents; product restart/reap policy **open (K10)**. Supervisor cancel of waits is done (HW). |
 | **Heap wild free** | Double-free refused; adversarial pointer that looks like a header can still corrupt. |
 | **DTB** | Mapped RO; board truth is compiled-in (ADR-0011). |
 | **Firmware / GIC Group 0** | Inherited from pinned `start4.elf` (ADR-0004). |

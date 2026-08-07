@@ -53,7 +53,8 @@ Full contrast:
 
 **What works today (short list):** cooperative tasks; message IPC; EL0 agents
 with private memory; least-privilege console; PL011 driver-agent; product
-composition via injected store (beacon + chirp); EL1+EL0 IRQ wait on timer cookie.
+composition via injected store (beacon + chirp); EL1+EL0 IRQ wait; last-SEND-hold
+auto-reap (ephemeral channels); channel revoke (stale CapId refused).
 
 | Area | State |
 | --- | --- |

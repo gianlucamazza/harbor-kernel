@@ -202,7 +202,7 @@ from `agent` — board PA/VA for demos live in bootstrap.
 | Task (M3)  | Schedulable EL1 entity + private stack                                                  | **done (HW)**                    |
 | Agent      | A **pair**: an EL1 driver task and the EL0 program it drives ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)). Multi-SVC, IRQ resume, console via `SYS_SEND`, PL011 RX own, and a recv it can wait on | **done (HW)** |
 | Message    | Sole interaction channel (M4)                                                           | **done (HW)**                    |
-| Capability | Unforgeable handle (send/recv; future: IRQ notification)                                | **done (HW)** (IRQ caps later)   |
+| Capability | Unforgeable handle (send/recv; IRQ notification QEMU — [ADR-0030](adr/0030-el0-irq-capability.md); channel revoke QEMU — [ADR-0032](adr/0032-k3-channel-revoke.md)) | **done (HW)** send/recv; **done (QEMU)** IRQ + revoke |
 | Manifest   | The table that says which agents exist and what each is granted ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | **done (HW)** |
 
 `irq::register` is the hook for later capability mediation.

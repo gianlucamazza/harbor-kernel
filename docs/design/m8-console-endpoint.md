@@ -673,7 +673,7 @@ Unchanged shape: `ipc::send` → optional `sched::wake_task` **outside** the IPC
 | `MAX_TASKS` | 14 → **16** |
 | `MIN_SPARE_TABLES` | derived; verify arena |
 | `ENTRY_OF_TASK` | already `[Option<u8>; MAX_TASKS]` — follows constant |
-| Endpoints | still never released |
+| Endpoints | never released **in M8** (channel revoke is later — [ADR-0032](../adr/0032-k3-channel-revoke.md), QEMU) |
 
 ---
 

@@ -85,6 +85,19 @@ boot/             Raspberry Pi firmware configuration
 scripts/          check/ boot/ agent/ host/ lib/ — see scripts/README.md
 ```
 
+## Current truth (consolidation pointer)
+
+Do **not** treat this block as a second status table — it only steers readers.
+**Status lives in [roadmap.md](roadmap.md).**
+
+| Layer | State (2026-08-07) |
+| --- | --- |
+| **H0 foundation** | **done (HW)** on Pi 4B (M0–M8 + parked cancel) |
+| **H1 first slices** | **done (QEMU):** K1, K2 auto-reap, K3 revoke, K6, P1, P6 |
+| **H1 next** | K10 → K9 → P5 → P2 → (P3\|P4) · K5 |
+| **Residuals** | K2 timeout · K3 transfer · H2 (K4/K7/K8) · HW stamps of H1 slices |
+| **Standing watch** | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020 |
+
 ## Decision records and reviews
 
 [`adr/README.md`](adr/README.md) — ADR lifecycle. Accepted ADRs are immutable;

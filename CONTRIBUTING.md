@@ -10,8 +10,10 @@
    [`docs/README.md`](docs/README.md).
 3. **One owner per fact.** Completeness track status →
    [`docs/roadmap.md`](docs/roadmap.md) only. Do not copy full K/P tables into
-   README or vision.
+   README or vision. After a status flip, refresh residual prose in
+   `SECURITY.md` / `verification.md` / issue #17 only if they restate status.
 4. **`make check` predicts CI.** Local green must mean remote green.
+   Doc drift is a failed gate (`doc-claims`, `xrefs`, `doc-symbols`).
 
 ## Layout (scalable map)
 
