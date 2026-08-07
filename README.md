@@ -74,13 +74,14 @@ in [`SECURITY.md`](SECURITY.md). Platform and hardware assumptions are in the
 
 ## Current status
 
-The foundation through **M8** is stamped **done on Raspberry Pi 4B**: console
-endpoint, product beacon, and `SYS_PUTC` retirement included
-([evidence](docs/verification.md#hardware-evidence-m8-console-endpoint-closed-on-silicon-2026-08-07)).
-Parked-task **visibility and supervisor cancel** are stamped **done on Pi 4B**
-(ADR-0024/0025,
-[evidence](docs/verification.md#parked-task-visibility-and-cancel-closed-on-silicon-adr-0024--0025-2026-08-07));
-timeout and auto-reap on last send drop remain named non-goals.
+**Foundation complete (2026-08-07).** M0–M8, loader, blocking recv, console
+endpoint, product beacon, and parked-task cancel are stamped **done on Raspberry
+Pi 4B** ([verification](docs/verification.md)). Kernel EL1 Device blankets are
+**risk-accepted** (agents stay page-mapped). The only tracked open item is the
+standing [SpiDevice watch](https://github.com/gianlucamazza/harbor-kernel/issues/14)
+([ADR-0020](docs/adr/0020-spidevice-contract-without-a-caller.md)) — not a sprint.
+
+Timeout and auto-reap on last send drop remain named non-goals.
 
 | Area | Current state |
 | --- | --- |

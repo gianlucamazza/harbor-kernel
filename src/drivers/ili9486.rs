@@ -1,8 +1,9 @@
 //! ILI9486 TFT panel over SPI (MIPI DBI-style command/data).
 //!
-//! Board-agnostic panel protocol on top of:
-//! - short ops via [`SpiDevice`] (init registers);
-//! - long streams via [`ExclusiveDevice::with_bus`] (ADR-0010 RAMWR session).
+//! Board-agnostic panel protocol on top of [`ExclusiveDevice::with_bus`] for
+//! both short register ops and long RAMWR streams (one CS session; ADR-0010).
+//! The `SpiDevice` trait remains the bus contract for a future second slave
+//! (ADR-0020); this panel does not call it.
 //!
 //! Init is declarative [`InitOp`] — datasheet opcodes; parameters match Linux
 //! `fb_ili9486` PiScreen under fbtft.
