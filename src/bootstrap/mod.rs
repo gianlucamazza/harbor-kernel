@@ -630,6 +630,39 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("ipc: timeout channel FAILED {e:?}"),
         }
 
+        // ADR-0041 / K3 residual: EL0 transfer return-to-creator.
+        match crate::sched::spawn(demos::el0_transfer_parent_task) {
+            Ok(_) => crate::kprintln!("el0-xfer: parent spawned"),
+            Err(e) => crate::kprintln!("el0-xfer: parent spawn FAILED {e:?}"),
+        }
+        match crate::sched::spawn(demos::el0_transfer_refuse_task) {
+            Ok(_) => crate::kprintln!("el0-xfer: refuse spawned"),
+            Err(e) => crate::kprintln!("el0-xfer: refuse spawn FAILED {e:?}"),
+        }
+
+        // ADR-0042 / K2 residual: EL0 SYS_RECV_TIMEOUT.
+        match crate::ipc::create_channel() {
+            Ok(ch) => {
+                match crate::sched::spawn_with_caps(demos::el0_timeout_task, &[ch.recv]) {
+                    Ok(_) => crate::kprintln!("el0-timeout: spawned"),
+                    Err(e) => crate::kprintln!("el0-timeout: spawn FAILED {e:?}"),
+                }
+                let _ = ch.send;
+            }
+            Err(e) => crate::kprintln!("el0-timeout: channel FAILED {e:?}"),
+        }
+
+        // ADR-0043 / K9 residual: IRQ-cap-only device agent (timer cookie).
+        match crate::irq::cap::mint(1) {
+            Ok(irq_cap) => {
+                match crate::sched::spawn_with_caps(demos::irq_device_agent_task, &[irq_cap]) {
+                    Ok(_) => crate::kprintln!("irq-device: spawned"),
+                    Err(e) => crate::kprintln!("irq-device: spawn FAILED {e:?}"),
+                }
+            }
+            Err(e) => crate::kprintln!("irq-device: mint FAILED {e:?}"),
+        }
+
         // ADR-0032 / K3: a task that holds SEND revokes the channel; bootstrap
         // then proves the stale CapId refuses send (product path, not forged).
         match crate::ipc::create_channel() {

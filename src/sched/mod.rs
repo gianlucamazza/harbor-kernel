@@ -47,10 +47,10 @@ use crate::time;
 ///
 /// It went 12 → 14 when the loader landed, 14 → 16 for M8 console server +
 /// product beacon, 16 → 18 for the ADR-0025 reaping oracle, then 18 → 19 for the K1 irq-wait oracle (ADR-0028),
-/// 19 → 24 for K2/K3 oracles + K10 supervisor, 25 → 28 for transfer/cascade/resolve
-/// residual oracles (ADR-0037..0039). Raising it costs task stacks and
-/// page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 28;
+/// 19 → 24 for K2/K3 oracles + K10 supervisor, 25 → 28 for transfer/cascade/resolve,
+/// 28 → 32 for EL0 transfer/timeout + IRQ device residual oracles (ADR-0041..0043).
+/// Raising it costs task stacks and page-table reserve derived from this constant.
+pub const MAX_TASKS: usize = 32;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -343,7 +343,8 @@ pub enum TransferError {
 
 /// Move the current task's cap at `from_slot` into `to`'s empty `to_slot` (ADR-0037).
 ///
-/// SEND-hold counts are unchanged (same number of installs).
+/// Same-task moves are allowed (`to == current`). SEND-hold counts are unchanged
+/// (same number of installs).
 pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(), TransferError> {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked; single core.
@@ -355,17 +356,22 @@ pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(),
         if to_slot >= MAX_CAPS_PER_TASK {
             return Err(TransferError::ToSlotOob);
         }
-        if to == from || to.0 as usize >= MAX_TASKS {
+        if to.0 as usize >= MAX_TASKS {
             return Err(TransferError::BadToTask);
         }
-        match sched.tasks.state(to) {
-            Some(kernel_core::tasks::State::Empty) | None => {
-                return Err(TransferError::BadToTask);
+        if to != from {
+            match sched.tasks.state(to) {
+                Some(kernel_core::tasks::State::Empty) | None => {
+                    return Err(TransferError::BadToTask);
+                }
+                Some(_) => {}
             }
-            Some(_) => {}
         }
         let from_i = from.0 as usize;
         let to_i = to.0 as usize;
+        if from == to && from_slot == to_slot {
+            return Ok(());
+        }
         let cap = match sched.tcbs[from_i].caps[from_slot] {
             Some(c) => c,
             None => return Err(TransferError::BadFromSlot),
@@ -377,6 +383,20 @@ pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(),
         sched.tcbs[to_i].caps[to_slot] = Some(cap);
         Ok(())
     })
+}
+
+/// Move current task's `from_slot` into its creator's empty `to_slot` (ADR-0041).
+pub fn transfer_held_to_creator(from_slot: usize, to_slot: usize) -> Result<(), TransferError> {
+    let creator = cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let sched = unsafe { &*SCHED.get() };
+        let idx = sched.tasks.current().0 as usize;
+        sched.tcbs[idx].creator
+    });
+    if creator == current_task_id() {
+        return Err(TransferError::BadToTask);
+    }
+    transfer_held(from_slot, creator, to_slot)
 }
 
 /// Why [`install_cap`] refused.

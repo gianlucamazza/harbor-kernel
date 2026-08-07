@@ -14,6 +14,8 @@
 //! | `SYS_TRY_RECV` | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
 //! | `SYS_WAIT_IRQ` | slot    | —       | —       | —       | [`Status`] | unchanged     |
 //! | `SYS_RESOLVE`  | slot    | name_len| name_le | —       | [`Status`] | unchanged     |
+//! | `SYS_TRANSFER` | from    | to_slot | dest    | —       | [`Status`] | unchanged     |
+//! | `SYS_RECV_TIMEOUT` | slot | ticks  | —       | —       | [`Status`] | tag, a, b     |
 //!
 //! Imm 2 is **unused** (formerly transitional `SYS_PUTC`, removed in M8). It
 //! decodes as [`Syscall::Unknown`] so a stale agent image that still issues
@@ -76,6 +78,16 @@ pub const SYS_WAIT_IRQ: u16 = 6;
 /// Success installs a `CapId` into the slot; the agent never sees the raw id.
 pub const SYS_RESOLVE: u16 = 7;
 
+/// `svc #8` — move a held cap to an empty slot (self or creator) (ADR-0041).
+///
+/// `x0` = source slot; `x1` = dest slot; `x2` = 0 self / 1 creator.
+pub const SYS_TRANSFER: u16 = 8;
+
+/// `svc #9` — blocking recv with tick timeout (ADR-0042).
+///
+/// `x0` = RECV slot; `x1` = timeout ticks. Timeout → [`Status::Cancelled`].
+pub const SYS_RECV_TIMEOUT: u16 = 9;
+
 /// What an agent reads in `x0` after a call that names a capability.
 ///
 /// A number rather than a `Result`, because a number is what an `eret` can
@@ -131,6 +143,10 @@ pub enum Syscall {
     WaitIrq,
     /// Resolve a short name into empty slot `x0` (ADR-0039).
     Resolve,
+    /// Move a held cap to an empty slot (self or creator) (ADR-0041).
+    Transfer,
+    /// Blocking recv with timeout ticks in `x1` (ADR-0042).
+    RecvTimeout,
     /// Not in the table — refuse, do not invent behaviour.
     Unknown { imm: u16 },
 }
@@ -146,6 +162,8 @@ pub const fn decode(imm: u16) -> Syscall {
         SYS_TRY_RECV => Syscall::TryRecv,
         SYS_WAIT_IRQ => Syscall::WaitIrq,
         SYS_RESOLVE => Syscall::Resolve,
+        SYS_TRANSFER => Syscall::Transfer,
+        SYS_RECV_TIMEOUT => Syscall::RecvTimeout,
         other => Syscall::Unknown { imm: other },
     }
 }
@@ -163,6 +181,8 @@ mod tests {
         assert_eq!(decode(5), Syscall::TryRecv);
         assert_eq!(decode(6), Syscall::WaitIrq);
         assert_eq!(decode(7), Syscall::Resolve);
+        assert_eq!(decode(8), Syscall::Transfer);
+        assert_eq!(decode(9), Syscall::RecvTimeout);
     }
 
     #[test]
@@ -177,12 +197,13 @@ mod tests {
         // wait, and that only works while the two immediates decode apart. A
         // blocking-only ABI would be one that answered `Recv` to both.
         assert_ne!(decode(SYS_RECV), decode(SYS_TRY_RECV));
+        assert_ne!(decode(SYS_RECV), decode(SYS_RECV_TIMEOUT));
     }
 
     #[test]
     fn unknown_is_refused_not_aliased() {
-        // First unused imm after the last known syscall (RESOLVE = 7).
-        assert_eq!(decode(8), Syscall::Unknown { imm: 8 });
+        // First unused imm after the last known syscall (RECV_TIMEOUT = 9).
+        assert_eq!(decode(10), Syscall::Unknown { imm: 10 });
         assert_eq!(decode(0xffff), Syscall::Unknown { imm: 0xffff });
     }
 

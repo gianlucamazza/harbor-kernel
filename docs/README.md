@@ -109,9 +109,9 @@ Do **not** treat this block as a second status table — it only steers readers.
 | Layer | State (2026-08-07) |
 | --- | --- |
 | **H0 foundation** | **done (HW)** on Pi 4B (M0–M8 + parked cancel) |
-| **H1 first slices** | **done (QEMU):** K1–K3, K9, K10, K6, P1–P2, P5–P6 (+ transfer/cascade/resolve residuals) |
-| **H1 next** | (P3\|P4) · K5 |
-| **Residuals** | K9 IRQ-agent · P2 media · EL0 transfer · H2 · HW stamps |
+| **H1 entry** | **paid (QEMU)** — bar 1–7 + lifecycle residuals |
+| **H1 next** | K5 · (P3\|P4 as needed) · HW stamps |
+| **Residuals** | P2 media · peer transfer · resolve grant · H2 |
 | **Standing watch** | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020 |
 
 ## Decision records and reviews

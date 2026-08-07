@@ -275,11 +275,11 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 
 | Snapshot | Tracks |
 | --- | --- |
-| **done (QEMU)** first slices | K1–K3 (+transfer), K9, K10 (+cascade), K6, P1, P2, P5 (+EL0 resolve), P6 |
-| **H1 next (product-critical)** | (P3\|P4) · K5 |
-| **H2 depth** | K4 preemption, K7 ASID, K8 SMP, HW stamps, remaining P depth |
-| **open (kernel)** | K4, K5, K7, K8, K9 IRQ residual, EL0 transfer / EL0 recv timeout |
-| **open (product)** | P2 media/EL0 residual, P3 network, P4 display product |
+| **done (QEMU)** H1 entry + residuals | K1–K3, K2 timeout, K9 map+IRQ agent, K10, K6, P1–P2, P5–P6 (+ EL0 transfer/timeout) |
+| **H1 next** | K5 density · (P3\|P4 as needed) · HW stamps |
+| **H2 depth** | K4 preemption, K7 ASID, K8 SMP, remaining P depth |
+| **open (kernel)** | K4, K5, K7, K8, peer EL0 transfer, resolve grant |
+| **open (product)** | P2 media residual, P3 network, P4 display product |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
 K/P tables here. Horizon mapping and working order also live in `roadmap.md`.
@@ -333,6 +333,9 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0038](adr/0038-k10-creator-exit-cascade.md) | K10 residual: creator-exit cascade cancel (**accepted**) |
 | [ADR-0039](adr/0039-p5-el0-resolve.md) | P5 residual: EL0 SYS_RESOLVE (**accepted**) |
 | [ADR-0040](adr/0040-k2-park-timeout.md) | K2 residual: park timeout on ticks (**accepted**) |
+| [ADR-0041](adr/0041-el0-cap-transfer.md) | K3 residual: EL0 SYS_TRANSFER (**accepted**) |
+| [ADR-0042](adr/0042-el0-recv-timeout.md) | K2 residual: EL0 SYS_RECV_TIMEOUT (**accepted**) |
+| [ADR-0043](adr/0043-k9-irq-device-agent.md) | K9 residual: IRQ-cap device agent (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

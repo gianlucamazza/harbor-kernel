@@ -99,6 +99,8 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
             Syscall::TryRecv => println!(uart, "el0: SVC unexpected try-recv"),
             Syscall::WaitIrq => println!(uart, "el0: SVC unexpected wait-irq"),
             Syscall::Resolve => println!(uart, "el0: SVC unexpected resolve"),
+            Syscall::Transfer => println!(uart, "el0: SVC unexpected transfer"),
+            Syscall::RecvTimeout => println!(uart, "el0: SVC unexpected recv-timeout"),
             Syscall::Unknown { imm } => println!(uart, "el0: SVC unexpected imm={imm}"),
         },
         other => println!(uart, "el0: SVC unexpected {other:?}"),
@@ -952,6 +954,141 @@ pub(super) fn cascade_parent_task() {
         }
         Err(e) => crate::kprintln!("cascade: channel FAILED {e:?}"),
     }
+}
+
+/// ADR-0041: child holds SEND in slot 0; EL0 returns it to creator slot 0.
+pub(super) fn el0_transfer_child_task() {
+    let mut agent = match crate::agent::Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-xfer: create FAILED {e:?}");
+            return;
+        }
+    };
+    // from 0 → creator slot 0 (dest=1).
+    let prog = kernel_core::prog::encode_transfer_exit(0, 0, 1);
+    match agent.run_user_prog_resuming(&prog) {
+        Ok(stats) if matches!(stats.end, crate::agent::SessionEnd::Exit) => {
+            if crate::sched::my_cap(0).is_none() {
+                crate::kprintln!("el0-xfer: ok");
+            } else {
+                crate::kprintln!("el0-xfer: still holds");
+            }
+            let _ = stats;
+        }
+        Ok(stats) => crate::kprintln!(
+            "el0-xfer: unexpected end={:?} refusals={}",
+            stats.end,
+            stats.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-xfer: run FAILED {e:?}"),
+    }
+    agent.destroy();
+}
+
+/// ADR-0041 refuse: transfer from empty slot.
+pub(super) fn el0_transfer_refuse_task() {
+    let mut agent = match crate::agent::Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-xfer-refuse: create FAILED {e:?}");
+            return;
+        }
+    };
+    // No caps: from slot 0 empty → Authority.
+    let prog = kernel_core::prog::encode_transfer_exit(0, 1, 0);
+    match agent.run_user_prog_resuming(&prog) {
+        Ok(stats) if stats.authority_refusals >= 1 => {
+            crate::kprintln!("el0-xfer: refused refusals={}", stats.authority_refusals);
+        }
+        Ok(stats) => crate::kprintln!(
+            "el0-xfer-refuse: unexpected end={:?} refusals={}",
+            stats.end,
+            stats.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-xfer-refuse: run FAILED {e:?}"),
+    }
+    agent.destroy();
+}
+
+/// Parent for EL0 transfer: spawn child with SEND, wait until cap returns to slot 0.
+pub(super) fn el0_transfer_parent_task() {
+    match crate::ipc::create_channel() {
+        Ok(ch) => match crate::sched::spawn_with_caps(el0_transfer_child_task, &[ch.send]) {
+            Ok(_) => {
+                for _ in 0..64 {
+                    if crate::sched::my_cap(0).is_some() {
+                        crate::kprintln!("el0-xfer: parent got cap");
+                        break;
+                    }
+                    crate::sched::yield_now();
+                }
+                let _ = ch.recv;
+            }
+            Err(e) => crate::kprintln!("el0-xfer: child spawn FAILED {e:?}"),
+        },
+        Err(e) => crate::kprintln!("el0-xfer: channel FAILED {e:?}"),
+    }
+}
+
+/// ADR-0042: EL0 SYS_RECV_TIMEOUT without sender.
+pub(super) fn el0_timeout_task() {
+    let mut agent = match crate::agent::Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-timeout: create FAILED {e:?}");
+            return;
+        }
+    };
+    // Slot 0 has RECV; timeout 3 ticks.
+    let prog = kernel_core::prog::encode_recv_timeout_exit(0, 3);
+    match agent.run_user_prog_resuming(&prog) {
+        Ok(stats) if matches!(stats.end, crate::agent::SessionEnd::Exit) => {
+            // Cancelled is not always counted as authority; check end + no recv.
+            if stats.recvs == 0 {
+                crate::kprintln!("el0-timeout: cancelled");
+            } else {
+                crate::kprintln!("el0-timeout: unexpected recv");
+            }
+            let _ = stats;
+        }
+        Ok(stats) => crate::kprintln!("el0-timeout: unexpected end={:?}", stats.end),
+        Err(e) => crate::kprintln!("el0-timeout: run FAILED {e:?}"),
+    }
+    agent.destroy();
+}
+
+/// ADR-0043: device-shaped agent — only IRQ notification, SYS_WAIT_IRQ.
+///
+/// Retries while the lab `irq_wait_task` holds the one-waiter cookie (Busy).
+pub(super) fn irq_device_agent_task() {
+    for _ in 0..64 {
+        let mut agent = match crate::agent::Agent::create_prepared() {
+            Ok(a) => a,
+            Err(e) => {
+                crate::kprintln!("irq-device: create FAILED {e:?}");
+                return;
+            }
+        };
+        match agent.run_user_prog_resuming(&kernel_core::prog::encode_wait_irq_exit(0)) {
+            Ok(stats) if stats.wait_irqs >= 1 => {
+                crate::kprintln!("irq-device: woke wait_irqs={}", stats.wait_irqs);
+                agent.destroy();
+                return;
+            }
+            Ok(_) => {
+                // Cookie busy or other non-success — yield and retry.
+                agent.destroy();
+                crate::sched::yield_now();
+            }
+            Err(e) => {
+                crate::kprintln!("irq-device: run FAILED {e:?}");
+                agent.destroy();
+                return;
+            }
+        }
+    }
+    crate::kprintln!("irq-device: gave up waiting for cookie");
 }
 
 /// ADR-0040: park on RECV with a short tick timeout; no sender → Cancelled.

@@ -186,6 +186,31 @@ pub const fn encode_resolve_exit(slot: u16, name_len: u16, name_le: u16) -> [u8;
     out
 }
 
+/// A64: transfer from_slot → to_slot (dest: 0 self / 1 creator), then exit (ADR-0041).
+pub const fn encode_transfer_exit(from: u16, to_slot: u16, dest: u16) -> [u8; 24] {
+    let mut out = [0u8; 24];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, from));
+    push_word(&mut out, &mut i, a64::movz_x(1, to_slot));
+    push_word(&mut out, &mut i, a64::movz_x(2, dest));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_TRANSFER));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
+/// A64: recv with timeout ticks, then exit (ADR-0042).
+pub const fn encode_recv_timeout_exit(slot: u16, timeout_ticks: u16) -> [u8; 20] {
+    let mut out = [0u8; 20];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, timeout_ticks));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV_TIMEOUT));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// A64: `movz x0,#8,lsl#16; str xzr,[x0]; svc #1; b .`
 ///
 /// Writes to a kernel address the agent does not have, which takes a data abort

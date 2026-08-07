@@ -57,6 +57,9 @@ the code that follows.
 | [0038](0038-k10-creator-exit-cascade.md)                     | K10 residual — cascade cancel of blocked children on creator exit                                   | accepted   |
 | [0039](0039-p5-el0-resolve.md)                               | P5 residual — EL0 SYS_RESOLVE into an empty slot                                                    | accepted   |
 | [0040](0040-k2-park-timeout.md)                              | K2 residual — park timeout on tick deadlines                                                        | accepted   |
+| [0041](0041-el0-cap-transfer.md)                             | K3 residual — EL0 SYS_TRANSFER (self or creator)                                                    | accepted   |
+| [0042](0042-el0-recv-timeout.md)                             | K2 residual — EL0 SYS_RECV_TIMEOUT                                                                  | accepted   |
+| [0043](0043-k9-irq-device-agent.md)                           | K9 residual — IRQ-cap device agent (wait path)                                                      | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

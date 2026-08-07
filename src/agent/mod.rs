@@ -217,6 +217,45 @@ fn wait_irq_reply(slot: usize, stats: &mut SessionStats) -> Status {
     }
 }
 
+/// ADR-0041: transfer held cap (self or creator).
+fn transfer_reply(from: usize, to_slot: usize, dest: u64, stats: &mut SessionStats) -> Status {
+    let result = match dest {
+        0 => {
+            let me = sched::current_task_id();
+            sched::transfer_held(from, me, to_slot)
+        }
+        1 => sched::transfer_held_to_creator(from, to_slot),
+        _ => {
+            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+            return Status::Authority;
+        }
+    };
+    match result {
+        Ok(()) => Status::Ok,
+        Err(_) => {
+            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+            Status::Authority
+        }
+    }
+}
+
+/// ADR-0042: recv_with_timeout after slot resolve.
+fn recv_timeout_reply(
+    session: *mut el0::El0Session,
+    slot: usize,
+    ticks: u64,
+    stats: &mut SessionStats,
+) -> Status {
+    let cap = match sched::my_cap_slot(slot) {
+        Ok(c) => c,
+        Err(_) => {
+            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+            return Status::Authority;
+        }
+    };
+    recv_reply(session, ipc::recv_with_timeout(cap, ticks), stats)
+}
+
 /// ADR-0039: pack name from `x1`/`x2`, resolve, install into empty slot.
 fn resolve_reply(slot: usize, name_len: usize, packed: u64, stats: &mut SessionStats) -> Status {
     if !(1..=8).contains(&name_len) {
@@ -447,6 +486,23 @@ impl Agent {
                             // SAFETY: as `Send`.
                             event = resume_step(session);
                         }
+                        Syscall::Transfer => {
+                            // ADR-0041: move held cap self or to creator.
+                            let from = el0::saved_gpr(session, 0) as usize;
+                            let to_slot = el0::saved_gpr(session, 1) as usize;
+                            let dest = el0::saved_gpr(session, 2);
+                            let status = transfer_reply(from, to_slot, dest, &mut stats);
+                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            event = resume_step(session);
+                        }
+                        Syscall::RecvTimeout => {
+                            // ADR-0042: park with tick deadline.
+                            let slot = el0::saved_gpr(session, 0) as usize;
+                            let ticks = el0::saved_gpr(session, 1);
+                            let status = recv_timeout_reply(session, slot, ticks, &mut stats);
+                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            event = resume_step(session);
+                        }
                         Syscall::Exit => {
                             // SAFETY: the session is resumable but will not be
                             // resumed — this returns, and EL0 is unreachable
@@ -512,6 +568,8 @@ pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
             Syscall::TryRecv => crate::kprintln!("{prefix}: svc try-recv"),
             Syscall::WaitIrq => crate::kprintln!("{prefix}: svc wait-irq"),
             Syscall::Resolve => crate::kprintln!("{prefix}: svc resolve"),
+            Syscall::Transfer => crate::kprintln!("{prefix}: svc transfer"),
+            Syscall::RecvTimeout => crate::kprintln!("{prefix}: svc recv-timeout"),
             Syscall::Unknown { imm } => crate::kprintln!("{prefix}: svc refuse imm={imm:#x}"),
         },
         other => crate::kprintln!("{prefix}: unexpected {other:?}"),

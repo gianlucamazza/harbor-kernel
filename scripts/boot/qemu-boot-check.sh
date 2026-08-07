@@ -321,6 +321,17 @@ grep -qa 'el0-resolve: refused' "${log}" ||
 # ADR-0040 / K2 residual: park timeout cancels without a sender.
 grep -qa 'ipc: timed-out cancelled' "${log}" ||
 	fail "park timeout did not cancel the waiter (ADR-0040)"
+# ADR-0041 / K3 residual: EL0 transfer to creator.
+grep -qa 'el0-xfer: ok' "${log}" ||
+	fail "EL0 transfer did not return cap to creator (ADR-0041)"
+grep -qa 'el0-xfer: refused' "${log}" ||
+	fail "EL0 transfer did not refuse a bad move (ADR-0041)"
+# ADR-0042 / K2 residual: EL0 recv timeout.
+grep -qa 'el0-timeout: cancelled' "${log}" ||
+	fail "EL0 recv timeout did not cancel (ADR-0042)"
+# ADR-0043 / K9 residual: IRQ-cap device agent.
+grep -qa 'irq-device: woke' "${log}" ||
+	fail "IRQ device agent did not wait successfully (ADR-0043)"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

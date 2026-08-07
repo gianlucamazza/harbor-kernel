@@ -161,9 +161,9 @@ product store (**P1**); on-target keyed blobs (**P2**,
 [ADR-0036](adr/0036-p2-keyed-blob-store.md)); name registry (**P5**,
 [ADR-0035](adr/0035-p5-name-registry.md)); host compose tools (**P6**).
 
-**Must still pay (H1 critical path):** network (**P3**) and product display
-(**P4**) when needed; density (**K5**). Residuals: K9 IRQ-agent,
-P2 media/EL0, EL0 transfer. Working order:
+**H1 entry is paid at QEMU** (composition bar + lifecycle residuals). Still open
+for *depth*: density (**K5**); network (**P3**) and product display (**P4**)
+**when a composition needs them**; P2 media; HW stamps; then H2. Working order:
 [roadmap § H1 working order](roadmap.md#h1-working-order-product-critical-path).
 
 ### H2 — Boundary operating system
