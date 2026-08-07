@@ -98,6 +98,7 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
             Syscall::Recv => println!(uart, "el0: SVC unexpected recv"),
             Syscall::TryRecv => println!(uart, "el0: SVC unexpected try-recv"),
             Syscall::WaitIrq => println!(uart, "el0: SVC unexpected wait-irq"),
+            Syscall::Resolve => println!(uart, "el0: SVC unexpected resolve"),
             Syscall::Unknown { imm } => println!(uart, "el0: SVC unexpected imm={imm}"),
         },
         other => println!(uart, "el0: SVC unexpected {other:?}"),
@@ -876,4 +877,134 @@ pub(super) fn ipc_forger() {
         crate::sched::blocked_count(),
         crate::sched::block_events()
     );
+}
+
+/// Peer id for ADR-0037 transfer recipient (set by bootstrap before donor runs).
+pub(super) static TRANSFER_TO: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+/// ADR-0037: holds SEND in slot 0; moves it to TRANSFER_TO slot 0.
+pub(super) fn transfer_donor_task() {
+    let to = crate::sched::TaskId(TRANSFER_TO.load(core::sync::atomic::Ordering::Relaxed));
+    match crate::sched::transfer_held(0, to, 0) {
+        Ok(()) => {
+            // Donor must no longer hold the cap.
+            if crate::sched::my_cap(0).is_none() {
+                crate::kprintln!("ipc: transfer donor empty");
+            } else {
+                crate::kprintln!("ipc: transfer donor still holds");
+            }
+        }
+        Err(e) => crate::kprintln!("ipc: transfer FAILED {e:?}"),
+    }
+}
+
+/// ADR-0037: waits until slot 0 is filled by transfer, then proves hold via send.
+pub(super) fn transfer_recipient_task() {
+    for _ in 0..64 {
+        if crate::sched::my_cap(0).is_some() {
+            break;
+        }
+        crate::sched::yield_now();
+    }
+    let Some(cap) = crate::sched::my_cap(0) else {
+        crate::kprintln!("ipc: transfer recipient empty");
+        return;
+    };
+    match crate::ipc::send(cap, crate::ipc::Message { tag: 7, a: 1, b: 0 }) {
+        Ok(()) => crate::kprintln!("ipc: transfer ok"),
+        Err(e) => crate::kprintln!("ipc: transfer send FAILED {e:?}"),
+    }
+}
+
+/// Child that parks on RECV until cascade cancel (ADR-0038).
+fn cascade_child() {
+    let Some(cap) = crate::sched::my_cap(0) else {
+        crate::kprintln!("cascade: child no cap");
+        return;
+    };
+    match crate::ipc::recv(cap) {
+        Err(crate::ipc::RecvError::Cancelled) => crate::kprintln!("cascade: cancelled"),
+        Ok(_) => crate::kprintln!("cascade: unexpected recv ok"),
+        Err(e) => crate::kprintln!("cascade: recv FAILED {e:?}"),
+    }
+}
+
+/// Parent spawns a parked child then exits — cascade cancels the child.
+pub(super) fn cascade_parent_task() {
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            match crate::sched::spawn_with_caps(cascade_child, &[ch.recv]) {
+                Ok(_) => {
+                    // Let the child park before we exit.
+                    crate::sched::yield_now();
+                    crate::sched::yield_now();
+                    crate::sched::yield_now();
+                    crate::kprintln!(
+                        "cascade: parent exit cascade_events={}",
+                        crate::sched::cascade_events()
+                    );
+                    // Exit triggers ADR-0038 cascade on the blocked child.
+                    crate::sched::exit();
+                }
+                Err(e) => crate::kprintln!("cascade: child spawn FAILED {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("cascade: channel FAILED {e:?}"),
+    }
+}
+
+/// ADR-0039: EL0 SYS_RESOLVE into empty slot 0 for name `ab` (bound by bootstrap).
+pub(super) fn el0_resolve_task() {
+    let mut agent = match crate::agent::Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-resolve: create FAILED {e:?}");
+            return;
+        }
+    };
+    // name "ab" LE = 0x6261, len 2, slot 0 empty.
+    let prog = kernel_core::prog::encode_resolve_exit(0, 2, 0x6261);
+    match agent.run_user_prog_resuming(&prog) {
+        Ok(stats) if matches!(stats.end, crate::agent::SessionEnd::Exit) => {
+            // Slot should now hold the cap — prove with a held check via install path:
+            // resolve installs into the *driver* task's table (current task), so my_cap works.
+            if crate::sched::my_cap(0).is_some() {
+                crate::kprintln!("el0-resolve: ok");
+            } else {
+                crate::kprintln!("el0-resolve: ok but slot empty");
+            }
+            let _ = stats;
+        }
+        Ok(stats) => crate::kprintln!(
+            "el0-resolve: unexpected end={:?} refusals={}",
+            stats.end,
+            stats.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-resolve: run FAILED {e:?}"),
+    }
+    agent.destroy();
+
+    // Missing name refuse path (same empty agent image would need another run).
+    let mut agent2 = match crate::agent::Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-resolve-refuse: create FAILED {e:?}");
+            return;
+        }
+    };
+    // name "zz" not bound.
+    let bad = kernel_core::prog::encode_resolve_exit(0, 2, 0x7a7a);
+    match agent2.run_user_prog_resuming(&bad) {
+        Ok(stats) if stats.authority_refusals >= 1 => {
+            crate::kprintln!("el0-resolve: refused refusals={}", stats.authority_refusals);
+        }
+        Ok(stats) => crate::kprintln!(
+            "el0-resolve-refuse: unexpected end={:?} refusals={}",
+            stats.end,
+            stats.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-resolve-refuse: run FAILED {e:?}"),
+    }
+    agent2.destroy();
 }

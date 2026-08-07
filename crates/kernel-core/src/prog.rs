@@ -170,6 +170,22 @@ pub const fn encode_wait_irq_exit(slot: u16) -> [u8; 16] {
     out
 }
 
+/// A64: resolve short name into empty slot, then exit (ADR-0039).
+///
+/// `name_le` is up to two ASCII bytes little-endian in a 16-bit imm (e.g.
+/// `b"ab"` → `0x6261`). Longer EL0 names need a later packing path.
+pub const fn encode_resolve_exit(slot: u16, name_len: u16, name_le: u16) -> [u8; 24] {
+    let mut out = [0u8; 24];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, name_len));
+    push_word(&mut out, &mut i, a64::movz_x(2, name_le));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RESOLVE));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// A64: `movz x0,#8,lsl#16; str xzr,[x0]; svc #1; b .`
 ///
 /// Writes to a kernel address the agent does not have, which takes a data abort

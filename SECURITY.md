@@ -118,6 +118,7 @@ Defined by [ADR-0017](docs/adr/0017-el0-capability-abi.md) and
 | 4 | `SYS_RECV` | `CapRights::RECV` on endpoint in slot — **waits** if the mailbox is empty ([ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md)) |
 | 5 | `SYS_TRY_RECV` | `CapRights::RECV` on endpoint in slot, **never waits** — answers `Empty` |
 | 6 | `SYS_WAIT_IRQ` | IRQ notification in slot (`CapRights::IRQ` object, high-half `CapId` — [ADR-0030](docs/adr/0030-el0-irq-capability.md)); **waits** for cookie signal |
+| 7 | `SYS_RESOLVE` | Empty slot + short name in `x1`/`x2` → install resolved `CapId` ([ADR-0039](docs/adr/0039-p5-el0-resolve.md)); missing/bad → `Authority` |
 
 Reply statuses include `Cancelled` (5) when a parked `SYS_RECV` is aborted by
 supervisor reaping ([ADR-0025](docs/adr/0025-cancel-blocked-wait.md)).

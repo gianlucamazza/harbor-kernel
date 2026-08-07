@@ -579,6 +579,44 @@ pub fn run() -> ! {
         }
         let _ = crate::storage::delete(b"cfg");
 
+        // ADR-0037 / K3 residual: transfer SEND from donor to recipient.
+        match crate::ipc::create_channel() {
+            Ok(ch) => {
+                match crate::sched::spawn(demos::transfer_recipient_task) {
+                    Ok(to) => {
+                        demos::TRANSFER_TO.store(to.0, core::sync::atomic::Ordering::Relaxed);
+                        match crate::sched::spawn_with_caps(demos::transfer_donor_task, &[ch.send])
+                        {
+                            Ok(_) => crate::kprintln!("ipc: transfer spawned"),
+                            Err(e) => crate::kprintln!("ipc: transfer donor FAILED {e:?}"),
+                        }
+                    }
+                    Err(e) => crate::kprintln!("ipc: transfer recipient FAILED {e:?}"),
+                }
+                let _ = ch.recv;
+            }
+            Err(e) => crate::kprintln!("ipc: transfer channel FAILED {e:?}"),
+        }
+
+        // ADR-0038 / K10 residual: parent exits → blocked child cancelled.
+        match crate::sched::spawn(demos::cascade_parent_task) {
+            Ok(_) => crate::kprintln!("cascade: parent spawned"),
+            Err(e) => crate::kprintln!("cascade: parent spawn FAILED {e:?}"),
+        }
+
+        // ADR-0039 / P5 residual: bind short name, EL0 resolves into empty slot.
+        match crate::ipc::create_channel() {
+            Ok(ch) => {
+                let _ = crate::naming::bind(b"ab", ch.send);
+                match crate::sched::spawn(demos::el0_resolve_task) {
+                    Ok(_) => crate::kprintln!("el0-resolve: spawned"),
+                    Err(e) => crate::kprintln!("el0-resolve: spawn FAILED {e:?}"),
+                }
+                let _ = ch.recv;
+            }
+            Err(e) => crate::kprintln!("el0-resolve: channel FAILED {e:?}"),
+        }
+
         // ADR-0032 / K3: a task that holds SEND revokes the channel; bootstrap
         // then proves the stale CapId refuses send (product path, not forged).
         match crate::ipc::create_channel() {

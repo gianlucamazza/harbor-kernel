@@ -44,9 +44,10 @@ use crate::sync::SyncCell;
 ///
 /// It went 12 → 14 when the loader landed, 14 → 16 for M8 console server +
 /// product beacon, 16 → 18 for the ADR-0025 reaping oracle, then 18 → 19 for the K1 irq-wait oracle (ADR-0028),
-/// 19 → 24 for K2/K3 oracles + K10 supervisor. Raising it costs task stacks and
+/// 19 → 24 for K2/K3 oracles + K10 supervisor, 25 → 28 for transfer/cascade/resolve
+/// residual oracles (ADR-0037..0039). Raising it costs task stacks and
 /// page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 25;
+pub const MAX_TASKS: usize = 28;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -81,6 +82,8 @@ struct Tcb {
     el0: Option<El0Session>,
     /// Set by [`cancel_blocked`]; consumed by the IPC wait path (ADR-0025).
     cancel_wait: bool,
+    /// Who spawned this task (ADR-0038 / K10 cascade). Idle for early boot.
+    creator: TaskId,
 }
 
 impl Tcb {
@@ -92,6 +95,7 @@ impl Tcb {
             caps: [None; MAX_CAPS_PER_TASK],
             el0: None,
             cancel_wait: false,
+            creator: Tasks::<MAX_TASKS>::IDLE,
         }
     }
 }
@@ -224,6 +228,7 @@ fn spawn_inner(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, SpawnErro
 
         let mut held = [None; MAX_CAPS_PER_TASK];
         held[..slots.len()].copy_from_slice(slots);
+        let creator = sched.tasks.current();
 
         sched.tcbs[slot] = Tcb {
             context,
@@ -235,6 +240,7 @@ fn spawn_inner(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, SpawnErro
             // a pointer the last switch could not have published.
             el0: Some(El0Session::new()),
             cancel_wait: false,
+            creator,
         };
         // ADR-0031: SEND holds are TCB slots, not stack CapId copies.
         ipc::register_holds(&held);
@@ -317,6 +323,96 @@ pub fn current_holds(cap: CapId) -> bool {
             .map(|t| t.caps.contains(&Some(cap)))
             .unwrap_or(false)
     })
+}
+
+/// Why [`transfer_held`] refused (ADR-0037 / K3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransferError {
+    /// Source slot empty or out of range.
+    BadFromSlot,
+    /// Target not a live non-self task.
+    BadToTask,
+    /// Target slot already holds a cap.
+    ToSlotFull,
+    /// Target slot index out of range.
+    ToSlotOob,
+}
+
+/// Move the current task's cap at `from_slot` into `to`'s empty `to_slot` (ADR-0037).
+///
+/// SEND-hold counts are unchanged (same number of installs).
+pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(), TransferError> {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; single core.
+        let sched = unsafe { &mut *SCHED.get() };
+        let from = sched.tasks.current();
+        if from_slot >= MAX_CAPS_PER_TASK {
+            return Err(TransferError::BadFromSlot);
+        }
+        if to_slot >= MAX_CAPS_PER_TASK {
+            return Err(TransferError::ToSlotOob);
+        }
+        if to == from || to.0 as usize >= MAX_TASKS {
+            return Err(TransferError::BadToTask);
+        }
+        match sched.tasks.state(to) {
+            Some(kernel_core::tasks::State::Empty) | None => {
+                return Err(TransferError::BadToTask);
+            }
+            Some(_) => {}
+        }
+        let from_i = from.0 as usize;
+        let to_i = to.0 as usize;
+        let cap = match sched.tcbs[from_i].caps[from_slot] {
+            Some(c) => c,
+            None => return Err(TransferError::BadFromSlot),
+        };
+        if sched.tcbs[to_i].caps[to_slot].is_some() {
+            return Err(TransferError::ToSlotFull);
+        }
+        sched.tcbs[from_i].caps[from_slot] = None;
+        sched.tcbs[to_i].caps[to_slot] = Some(cap);
+        Ok(())
+    })
+}
+
+/// Why [`install_cap`] refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstallError {
+    /// Slot out of range or already occupied.
+    BadSlot,
+}
+
+/// Install `cap` into the current task's empty `slot` and register SEND holds.
+pub fn install_cap(slot: usize, cap: CapId) -> Result<(), InstallError> {
+    let placed = cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let sched = unsafe { &mut *SCHED.get() };
+        if slot >= MAX_CAPS_PER_TASK {
+            return false;
+        }
+        let idx = sched.tasks.current().0 as usize;
+        if sched.tcbs[idx].caps[slot].is_some() {
+            return false;
+        }
+        sched.tcbs[idx].caps[slot] = Some(cap);
+        true
+    });
+    if !placed {
+        return Err(InstallError::BadSlot);
+    }
+    let mut one = [None; MAX_CAPS_PER_TASK];
+    one[slot] = Some(cap);
+    ipc::register_holds(&one);
+    Ok(())
+}
+
+static CASCADE_EVENTS: AtomicU32 = AtomicU32::new(0);
+
+/// How many blocked children were cancelled on creator exit (ADR-0038).
+#[inline]
+pub fn cascade_events() -> u32 {
+    CASCADE_EVENTS.load(Ordering::Relaxed)
 }
 
 /// Cooperative yield: requeue current, run the next ready task (or stay).
@@ -660,6 +756,34 @@ fn switch_with(kind: Switch) {
 
     if let Some(caps) = exit_caps {
         ipc::release_holds_and_reap(&caps);
+        // ADR-0038: cancel Blocked direct children of the exiting task.
+        let mut kids = [TaskId(0); MAX_TASKS];
+        let mut n = 0usize;
+        {
+            // SAFETY: IRQs still masked.
+            let sched = unsafe { &*SCHED.get() };
+            for i in 0..MAX_TASKS {
+                let id = TaskId(i as u32);
+                if id == from || id == Tasks::<MAX_TASKS>::IDLE {
+                    continue;
+                }
+                if sched.tcbs[i].creator != from {
+                    continue;
+                }
+                if matches!(
+                    sched.tasks.state(id),
+                    Some(kernel_core::tasks::State::Blocked)
+                ) {
+                    kids[n] = id;
+                    n += 1;
+                }
+            }
+        }
+        for k in kids.iter().take(n) {
+            if ipc::cancel_blocked(*k) {
+                CASCADE_EVENTS.fetch_add(1, Ordering::Relaxed);
+            }
+        }
     }
 
     // SAFETY: IRQs still masked; exclusive again for context pointers.

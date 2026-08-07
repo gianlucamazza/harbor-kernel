@@ -217,6 +217,32 @@ fn wait_irq_reply(slot: usize, stats: &mut SessionStats) -> Status {
     }
 }
 
+/// ADR-0039: pack name from `x1`/`x2`, resolve, install into empty slot.
+fn resolve_reply(slot: usize, name_len: usize, packed: u64, stats: &mut SessionStats) -> Status {
+    if !(1..=8).contains(&name_len) {
+        stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+        return Status::Authority;
+    }
+    let mut name = [0u8; 8];
+    for (i, b) in name.iter_mut().enumerate().take(name_len) {
+        *b = ((packed >> (8 * i)) & 0xff) as u8;
+    }
+    let cap = match crate::naming::resolve(&name[..name_len]) {
+        Ok(c) => c,
+        Err(_) => {
+            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+            return Status::Authority;
+        }
+    };
+    match sched::install_cap(slot, cap) {
+        Ok(()) => Status::Ok,
+        Err(_) => {
+            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+            Status::Authority
+        }
+    }
+}
+
 /// Turn a recv result into the agent's `x0`, writing the payload on success.
 ///
 /// Shared by the two recv calls because only the *waiting* differs. On anything
@@ -411,6 +437,16 @@ impl Agent {
                             // SAFETY: as `Send`.
                             event = resume_step(session);
                         }
+                        Syscall::Resolve => {
+                            // ADR-0039 / P5: name → empty slot (no CapId to EL0).
+                            let slot = el0::saved_gpr(session, 0) as usize;
+                            let name_len = el0::saved_gpr(session, 1) as usize;
+                            let packed = el0::saved_gpr(session, 2);
+                            let status = resolve_reply(slot, name_len, packed, &mut stats);
+                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            // SAFETY: as `Send`.
+                            event = resume_step(session);
+                        }
                         Syscall::Exit => {
                             // SAFETY: the session is resumable but will not be
                             // resumed — this returns, and EL0 is unreachable
@@ -475,6 +511,7 @@ pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
             Syscall::Recv => crate::kprintln!("{prefix}: svc recv"),
             Syscall::TryRecv => crate::kprintln!("{prefix}: svc try-recv"),
             Syscall::WaitIrq => crate::kprintln!("{prefix}: svc wait-irq"),
+            Syscall::Resolve => crate::kprintln!("{prefix}: svc resolve"),
             Syscall::Unknown { imm } => crate::kprintln!("{prefix}: svc refuse imm={imm:#x}"),
         },
         other => crate::kprintln!("{prefix}: unexpected {other:?}"),

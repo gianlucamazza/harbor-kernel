@@ -162,8 +162,8 @@ product store (**P1**); on-target keyed blobs (**P2**,
 [ADR-0035](adr/0035-p5-name-registry.md)); host compose tools (**P6**).
 
 **Must still pay (H1 critical path):** network (**P3**) and product display
-(**P4**) when needed; density (**K5**). Residuals: K2 **timeout**, K3 **transfer**,
-K10 creator-exit cascade, P2 media/EL0, P5 EL0 resolve. Working order:
+(**P4**) when needed; density (**K5**). Residuals: K2 **timeout**, K9 IRQ-agent,
+P2 media/EL0, EL0 transfer. Working order:
 [roadmap § H1 working order](roadmap.md#h1-working-order-product-critical-path).
 
 ### H2 — Boundary operating system

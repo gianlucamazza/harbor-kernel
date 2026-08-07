@@ -56,7 +56,8 @@ allowed_for() {
 	# translation deliberately lives in `ipc` rather than here, because the
 	# authority counter is `ipc`'s to maintain. The edge is the cost of keeping
 	# the definition of "authority violation" in one module.
-	agent*) echo "arch console ipc irq mm sched" ;;
+	# ADR-0039: SYS_RESOLVE reaches the name registry (no CapId to EL0).
+	agent*) echo "arch console ipc irq mm naming sched" ;;
 	# TFT status surface: policy only; paints via BSP display handle.
 	status*) echo "arch bsp drivers mm time" ;;
 	*) echo "" ;;

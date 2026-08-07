@@ -53,6 +53,9 @@ the code that follows.
 | [0034](0034-k9-rng-driver-agent.md)                          | K9 first slice — RNG200 second driver-as-agent (page map)                                           | accepted   |
 | [0035](0035-p5-name-registry.md)                             | P5 first slice — EL1 name registry (name to CapId)                                                  | accepted   |
 | [0036](0036-p2-keyed-blob-store.md)                          | P2 first slice — EL1 keyed blob store (on-target put/get)                                           | accepted   |
+| [0037](0037-k3-cap-transfer.md)                              | K3 residual — EL1 capability transfer between tasks                                                 | accepted   |
+| [0038](0038-k10-creator-exit-cascade.md)                     | K10 residual — cascade cancel of blocked children on creator exit                                   | accepted   |
+| [0039](0039-p5-el0-resolve.md)                               | P5 residual — EL0 SYS_RESOLVE into an empty slot                                                    | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

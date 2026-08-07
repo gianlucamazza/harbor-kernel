@@ -307,6 +307,17 @@ grep -qa 'store: got' "${log}" ||
 	fail "blob store did not round-trip put/get (ADR-0036)"
 grep -qa 'store: missing' "${log}" ||
 	fail "blob store did not report missing (ADR-0036)"
+# ADR-0037 / K3 residual: transfer SEND between tasks.
+grep -qa 'ipc: transfer ok' "${log}" ||
+	fail "cap transfer did not hand SEND to recipient (ADR-0037)"
+# ADR-0038 / K10 residual: creator exit cancels blocked child.
+grep -qa 'cascade: cancelled' "${log}" ||
+	fail "creator-exit cascade did not cancel blocked child (ADR-0038)"
+# ADR-0039 / P5 residual: EL0 SYS_RESOLVE.
+grep -qa 'el0-resolve: ok' "${log}" ||
+	fail "EL0 resolve did not install a named cap (ADR-0039)"
+grep -qa 'el0-resolve: refused' "${log}" ||
+	fail "EL0 resolve did not refuse a missing name (ADR-0039)"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

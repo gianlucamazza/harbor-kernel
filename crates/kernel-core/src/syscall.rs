@@ -13,6 +13,7 @@
 //! | `SYS_RECV`     | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
 //! | `SYS_TRY_RECV` | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
 //! | `SYS_WAIT_IRQ` | slot    | —       | —       | —       | [`Status`] | unchanged     |
+//! | `SYS_RESOLVE`  | slot    | name_len| name_le | —       | [`Status`] | unchanged     |
 //!
 //! Imm 2 is **unused** (formerly transitional `SYS_PUTC`, removed in M8). It
 //! decodes as [`Syscall::Unknown`] so a stale agent image that still issues
@@ -69,6 +70,12 @@ pub const SYS_TRY_RECV: u16 = 5;
 /// carries [`Status`] only.
 pub const SYS_WAIT_IRQ: u16 = 6;
 
+/// `svc #7` — resolve a short name into an empty local slot (ADR-0039 / P5).
+///
+/// `x0` = empty slot; `x1` = name length (1..=8); `x2` = name bytes LE-packed.
+/// Success installs a `CapId` into the slot; the agent never sees the raw id.
+pub const SYS_RESOLVE: u16 = 7;
+
 /// What an agent reads in `x0` after a call that names a capability.
 ///
 /// A number rather than a `Result`, because a number is what an `eret` can
@@ -122,6 +129,8 @@ pub enum Syscall {
     TryRecv,
     /// Wait on the IRQ notification in slot `x0` (ADR-0030).
     WaitIrq,
+    /// Resolve a short name into empty slot `x0` (ADR-0039).
+    Resolve,
     /// Not in the table — refuse, do not invent behaviour.
     Unknown { imm: u16 },
 }
@@ -136,6 +145,7 @@ pub const fn decode(imm: u16) -> Syscall {
         SYS_RECV => Syscall::Recv,
         SYS_TRY_RECV => Syscall::TryRecv,
         SYS_WAIT_IRQ => Syscall::WaitIrq,
+        SYS_RESOLVE => Syscall::Resolve,
         other => Syscall::Unknown { imm: other },
     }
 }
@@ -152,6 +162,7 @@ mod tests {
         assert_eq!(decode(4), Syscall::Recv);
         assert_eq!(decode(5), Syscall::TryRecv);
         assert_eq!(decode(6), Syscall::WaitIrq);
+        assert_eq!(decode(7), Syscall::Resolve);
     }
 
     #[test]
@@ -170,8 +181,8 @@ mod tests {
 
     #[test]
     fn unknown_is_refused_not_aliased() {
-        // First unused imm after the last known syscall (WAIT_IRQ = 6).
-        assert_eq!(decode(7), Syscall::Unknown { imm: 7 });
+        // First unused imm after the last known syscall (RESOLVE = 7).
+        assert_eq!(decode(8), Syscall::Unknown { imm: 8 });
         assert_eq!(decode(0xffff), Syscall::Unknown { imm: 0xffff });
     }
 

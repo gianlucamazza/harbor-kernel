@@ -45,7 +45,7 @@ GUARD_PAGE_SIZE = 0x1000;
    growing with `.text`; `bootstrap::run` refuses to boot if it ever does not,
    and names this symbol when it does. */
 /* Sized for MAX_TASKS (sched) + kernel map + reserve (bootstrap MIN_SPARE_TABLES). */
-PAGE_TABLE_ARENA_SIZE = 48 * 0x1000;
+PAGE_TABLE_ARENA_SIZE = 56 * 0x1000;
 
 STACK_SIZE = 0x10000;
 
