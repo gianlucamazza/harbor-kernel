@@ -9,12 +9,16 @@ through message passing and capabilities.
 It is not a finished agent OS yet. What runs today is a single-core kernel at
 EL1 with a protected identity map, interrupts, a heap, **cooperative tasks
 (M3)**, **IPC/caps (M4)**, **EL0 address spaces (M5)**, a **PL011 driver agent
-(M6)**, and **EL0 agents that name their authority by capability slot (M7)** —
-all **done on Pi 4B**, the last of them 2026-08-07.
+(M6)**, **EL0 agents that name their authority by capability slot (M7)**, an
+agent that **waits on a message** (ADR-0022), and a **loader** that creates
+agents from a manifest instead of from code (ADR-0021) — all **done on Pi 4B**,
+the last of them 2026-08-07.
 
-What that does _not_ mean: an agent still cannot block, cannot wait on an
-interrupt, and cannot be preempted; the console is a capability but the kernel
-is still what drains it. See [Roadmap](#roadmap).
+What that does _not_ mean: an agent cannot wait on an interrupt and cannot be
+preempted; the console is a capability but the kernel is still what drains it;
+and the manifest a product image carries is **empty** — the loader is real, and
+so far it is the oracle that gives it something to load. See
+[Roadmap](#roadmap).
 
 ## Layering
 
@@ -158,7 +162,7 @@ from `agent` — board PA/VA for demos live in bootstrap.
 | Agent      | Task + AS at EL0; multi-SVC (**HW**); IRQ resume + `SYS_PUTC` + PL011 RX own (**QEMU**) | **hybrid** — [Roadmap](#roadmap) |
 | Message    | Sole interaction channel (M4)                                                           | **done (HW)**                    |
 | Capability | Unforgeable handle (send/recv; future: IRQ notification)                                | **done (HW)** (IRQ caps later)   |
-| Manifest   | The table that says which agents exist and what each is granted ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | **done (QEMU)** |
+| Manifest   | The table that says which agents exist and what each is granted ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | **done (HW)** |
 
 `irq::register` is the hook for later capability mediation.
 
@@ -273,7 +277,7 @@ One boot carrying all four slices. Transcript and what the ordering proves:
 | **3 — `SYS_PUTC` behind a capability**     | **done (HW)** | `console: capability minted`, then `el0-ipc: console denied, printed nothing` — and the byte that agent tried to print is asserted **absent** from the log                                                                                         |
 | **4 — fault policy** (ADR-0018)            | **done (HW)** | `agent faulted esr=0x9200004f far=0x80000 faults=1` then `creator alive after fault`, with the peer completing 22 ms later; `SessionEnd` is `#[must_use]` and has been seen to fail a build                                                        |
 | **The done-when, end to end**              | **done (HW)** | two EL0 agents with different capability tables exchange a message neither can forge, one faults, its creator handles it, the other completes, the kernel keeps ticking                                                                            |
-| Blocking `SYS_RECV`                        | **done (QEMU)** | The agent parks and a peer send wakes it; the oracle spawns the receiver **first** and it still gets the payload, so ordering by construction is gone. `SYS_TRY_RECV` keeps the non-blocking path and is the only producer of `Status::Empty` left ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)) |
+| Blocking `SYS_RECV`                        | **done (HW)**   | The agent parks and a peer send wakes it; the oracle spawns the receiver **first** and it still gets the payload, so ordering by construction is gone. `SYS_TRY_RECV` keeps the non-blocking path and is the only producer of `Status::Empty` left ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)) |
 
 Cost: `pool=496` at the concurrent peak and `pool=512` after the kill, identical
 to the pre-M7 sessions. Four slices, no frames.
@@ -318,8 +322,8 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 
 | #   | Work                                                                                                                                                               | Done when                                                                                                                                                                                                        |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ~~**Agent loading**~~ — **done (QEMU)**, awaiting a silicon stamp ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | Landed: `bootstrap::loader` is one loop over `kernel_core::manifest`, an agent's window is per entry rather than fixed at 4 KiB, and two entries running the same bytes differ only in whether the table granted a console. The product manifest is still empty — M8 is its first inhabitant |
-| 2   | ~~**Blocking `SYS_RECV`**~~ — **done (QEMU)**, awaiting a silicon stamp ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)) | Landed: the receiver is spawned first, parks on an empty mailbox, and the peer's send wakes it. `make irq-scope` keeps the `DAIF` scoping rule true rather than remembered |
+| 1   | ~~**Agent loading**~~ — **done (HW)** 2026-08-07 ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | `bootstrap::loader` is one loop over `kernel_core::manifest`; an agent's window is per entry rather than fixed at 4 KiB; two entries running the same bytes differ only in whether the table granted a console. The product manifest is still empty — M8 is its first inhabitant |
+| 2   | ~~**Blocking `SYS_RECV`**~~ — **done (HW)** 2026-08-07 ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)) | The receiver is spawned first, parks on an empty mailbox, and the peer's send wakes it 41 ms later. `make irq-scope` keeps the `DAIF` scoping rule true rather than remembered |
 | 3   | **M8: console endpoint** (retire transitional `SYS_PUTC`)                                                                                                          | Same slot ABI; kernel or EL1 server drains; boot-check still asserts denied-by-default                                                                                                                           |
 | 4   | **Optional: IRQ-wake RX**                                                                                                                                          | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                                |
 | 5   | **Optional P-pass**                                                                                                                                                | Tighten kernel EL1 Device blankets (not required for M6 v1)                                                                                                                                                      |

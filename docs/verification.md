@@ -529,6 +529,91 @@ instead.
 The W^X probe needs no re-run: `.text` and `.rodata` were not touched by the
 split, and its recorded ESR does not depend on an address that moved.
 
+## Hardware evidence: the loader and the park, on silicon (2026-08-07)
+
+Pi 4B, 2026-08-07 12:10, `.serial-log/20260807-120838.log`, image
+`b5c78784…1067` (91360 B), commit `741137e`. One boot carrying both ADR-0021 and
+ADR-0022.
+
+`CNTFRQ=54000000 Hz` says silicon rather than TCG — QEMU reports 62500000 for
+the same board — and `rng200: ok word=0x5bb0c241` says the same thing a second
+way: the emulator has no backend and reports `unavailable (NotPresent)`.
+`reset: PowerOn partition=0` says a cold start rather than a watchdog covering
+for something.
+
+### ADR-0021: authority is one entry in a table, on real hardware
+
+```
+12:10:11.070397 loader: echo loaded text=1 stack=3
+12:10:11.070607 loader: mute loaded text=2 stack=3
+12:10:11.092824 H!loader: echo ran putcs=2 refusals=0
+12:10:11.092921 loader: mute ran putcs=0 refusals=2
+```
+
+Two tasks, **one image** — the same `const [u8; 32]` in `.rodata` — and the only
+difference between them is whether the manifest put the loader's console
+capability in slot 1. `echo` printed `H!` through the capability it was bound;
+`mute` was refused twice.
+
+`mute` ran with **two** text pages. That is the part silicon had to answer:
+`AddressSpace::poke_user` writes a multi-page image page by page and publishes
+each range for instruction fetch (D clean to PoU + I invalidate), and an
+emulator would have run the program whether or not those maintenance operations
+were there — QEMU's caches are coherent by construction and a Cortex-A72's are
+not. `mute` reached its `SYS_PUTC` calls and was refused by the capability check
+rather than faulting on a stale instruction fetch, so the second text page was
+really mapped `USER_RX` and really published.
+
+### ADR-0022: the agent waited, and the send woke it
+
+```
+54  12:10:11.115220 el0-ipc: try-recv empty without waiting empties=1
+55  12:10:11.115347 el0-ipc: sent slot=0 tag=7 a=42
+65  12:10:11.156757 *el0-ipc: got payload via EL0 recvs=1
+```
+
+Line numbers 54 < 55 < 65, which is the assertion `boot-check` makes and the
+reason it stopped checking presence alone. The receiving agent is spawned
+**first** and opens with no `yield_now`: line 54 is `SYS_TRY_RECV` on its own
+slot reporting the mailbox empty, so the wait that follows is a wait. The
+payload arrives 41 ms later, after the peer posted.
+
+The `DAIF` scoping change is what silicon tests here that QEMU cannot argue
+about. The session loop now takes and releases the interrupt mask once per
+enter/resume step, on a core with a real exception entry and a real
+`msr daifset`/`msr daifclr` pair — and the timer kept ticking to 130 with no
+storm and no stall.
+
+### Absences, counted
+
+| Absence                          | Count | What its presence would have meant                                                             |
+| -------------------------------- | ----- | ------------------------------------------------------------------------------------------------ |
+| `panic`                          | 0     | Any assertion fired, including `el0: published session is not the current task's`               |
+| `no published session`           | 0     | The vector path read a stale pointer across the park's switch — the one ADR-0019 guards         |
+| `Xel0`                           | 0     | The console-less agent's byte reached the UART                                                   |
+| `loader: … FAILED` / `refused`   | 0     | An entry the manifest declared could not be bound or created                                     |
+
+`ipc: refuse count=5 full=0 state=0`. Five is exact, not a floor: the M4 forger,
+the EL0 agent's unheld slot, its denied console, and `mute` twice. `state=0` is
+the idle-park guard reporting it was never needed, which is the only honest
+thing it can report.
+
+### Costs nothing
+
+`pool=496` at the concurrent peak and `pool=512` after the kill — identical to
+every session since 2026-08-06, across two more tasks, a two-page text window
+and a parked agent. `arena: 1 splits, 23 tables free` against a reserve that
+grew with `MAX_TASKS`. The PL011 handover still completes:
+`rx own bytes=2`, `killed ok pool=512`.
+
+### Honest limit
+
+The park is exercised between two tasks that never hold live EL0 sessions
+simultaneously — each parks with its session saved and nothing enters EL0 in
+between. Per-task session state makes such an overlap harmless and nothing
+performs one. A preemptive scheduler is what would, and it remains an explicit
+non-goal.
+
 ## The manifest: same bytes, different authority (2026-08-07, QEMU)
 
 ADR-0021 landed. The claim is that authority lives in a table rather than in a
