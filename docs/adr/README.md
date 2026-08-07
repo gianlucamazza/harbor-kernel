@@ -1,5 +1,9 @@
 # Architecture Decision Records
 
+For the broader documentation map, ownership rules and status vocabulary see
+[`../README.md`](../README.md). This index is only the lifecycle and catalogue
+for structural decisions.
+
 Structural decisions. Lifecycle:
 
 1. An ADR starts `proposed`, with Context / Decision / Consequences /

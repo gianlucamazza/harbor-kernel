@@ -1,5 +1,10 @@
 # Architecture
 
+This is the normative description of Harbor’s current architecture and
+roadmap. For the documentation map, ownership rules and status vocabulary see
+[`docs/README.md`](README.md); for evidence rather than design intent see
+[`verification.md`](verification.md).
+
 ## Purpose
 
 **Harbor** (package `harbor-kernel`) **aims to be** an agent-based microkernel for the
@@ -334,9 +339,21 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 | **Threat model + reporting** | **done** | Root [`SECURITY.md`](../SECURITY.md): TCB, attacker, authority surface, claims with gates, residual non-guarantees |
 | Bound to M7 authority        | **yes**  | Slot ABI, console denied-by-default, fault policy, refusal counters — as of silicon 2026-08-07                     |
 
-### Next (ordered)
+### Closed — M8 console endpoint (QEMU)
 
-Rows 1 and 2 of this table landed on 2026-08-07 and are recorded in
+The console endpoint is implemented and covered by the product QEMU gate. The
+remaining hardware stamp is intentionally tracked as verification work, not as
+a missing architecture feature.
+
+| Slice | Status | Evidence |
+| --- | --- | --- |
+| EL1 console server drains the endpoint | **done (QEMU)** | [`design-m8-console-endpoint.md`](design-m8-console-endpoint.md), product boot gate |
+| Product manifest carries the beacon | **done (QEMU)** | product boot gate and loader path |
+| `SYS_PUTC` removed; denied-by-default preserved | **done (QEMU)** | syscall and authority gates |
+
+### Current frontier (ordered)
+
+The loader and blocking receive landed on 2026-08-07 and are recorded in
 [`verification.md`](verification.md#hardware-evidence-the-loader-and-the-park-on-silicon-2026-08-07)
 rather than kept here as struck-through work: the loader
 ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) and blocking
@@ -345,11 +362,10 @@ Tracking issue: [#15](https://github.com/gianlucamazza/harbor-kernel/issues/15).
 
 | #   | Work | Done when | Issue |
 | --- | ---- | --------- | ----- |
-| 1   | **M8: console endpoint** — retire the transitional `SYS_PUTC` | Same slot ABI; EL1 server drains the mailbox; beacon is first **product** manifest inhabitant; boot-check asserts denied-by-default | [#12](https://github.com/gianlucamazza/harbor-kernel/issues/12) — **done (QEMU)** |
-| 2   | **The parked agent** — no timeout, no reclaim | An ADR decides between a deadline queue, creator-side reaping, endpoint release, or simply reporting it. Availability surface [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md) opened and deliberately did not close | [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) |
-| 3   | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
-| 4   | **Optional P-pass** | Tighten the kernel's EL1 Device blankets (not required for M6 v1) | [#2](https://github.com/gianlucamazza/harbor-kernel/issues/2) |
-| 5   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
+| 1   | **The parked agent** — no timeout, no reclaim | An ADR decides between a deadline queue, creator-side reaping, endpoint release, or simply reporting it. Availability surface [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md) opened and deliberately did not close | [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) |
+| 2   | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
+| 3   | **Optional P-pass** | Tighten the kernel's EL1 Device blankets (not required for M6 v1) | [#2](https://github.com/gianlucamazza/harbor-kernel/issues/2) |
+| 4   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 

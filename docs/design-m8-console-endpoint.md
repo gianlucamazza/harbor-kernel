@@ -13,7 +13,7 @@
 
 ## Overview
 
-Today an EL0 agent that holds the console capability writes the UART through a **kernel special case**: `SYS_PUTC` (imm 2) looks up a slot, checks `console::is_console_cap`, and drains one byte via `console::with_tx` inside the agent session loop (`src/agent/mod.rs`). That path is transitional by design ([ADR-0017](docs/adr/0017-el0-capability-abi.md) §4): the same slot already names a send capability on a console channel; only who drains the mailbox differs (kernel today, server tomorrow).
+Today an EL0 agent that holds the console capability writes the UART through a **kernel special case**: `SYS_PUTC` (imm 2) looks up a slot, checks `console::is_console_cap`, and drains one byte via `console::with_tx` inside the agent session loop (`src/agent/mod.rs`). That path is transitional by design ([ADR-0017](adr/0017-el0-capability-abi.md) §4): the same slot already names a send capability on a console channel; only who drains the mailbox differs (kernel today, server tomorrow).
 
 M8 completes that isomorphism. Bootstrap already mints the console channel and grants the **send** end (`src/bootstrap/mod.rs` → `console::grant_console_cap(ch.send)`), but the **recv CapId is discarded** — the endpoint stays live and holderless, so nobody can drain. A resident **EL1 console server** will hold that recv end, park on `ipc::recv` when the mailbox is empty, and write each drained byte through the shared kernel TX handle. Creators that need “bytes before report” on the wire call a cooperative **drain barrier** before `kprintln!`. `SYS_PUTC` is removed from the ABI. Agents print with `SYS_SEND` on the same slot. The console remains **denied by default**; `boot-check` continues to assert that the deliberately denied byte never reaches the wire.
 
@@ -944,7 +944,7 @@ Each PR independently reviewable; every PR that changes spawn topology or oracle
 
 ### Optional PR0
 
-ADR-0024 only if project wants decisions outside this design doc; **not required** (ADR-0017 §4 already names the successor).
+A successor ADR is only needed if the project wants decisions outside this design doc; **not required** (ADR-0017 §4 already names the successor).
 
 ### Dependency graph
 

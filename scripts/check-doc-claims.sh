@@ -108,7 +108,7 @@ if [[ -n "${missing_accept}" ]]; then
 	exit 1
 fi
 
-# 5. The README's `## Layout` block names every module that exists.
+# 5. The documentation index's `## Code layout` block names every module that exists.
 #
 #    It is the map a reader opens first, and it drifts the way the gate list did
 #    (F27, twice): a module is added in one place and described in another. When
@@ -120,10 +120,10 @@ fi
 #    whole thing would let `spi` under `drivers/` satisfy the claim about
 #    `kernel_core::spi`. The `crates/kernel-core/` region runs to the `src/`
 #    line; the `src/` region runs to the end of the block.
-layout="$(awk '/^## Layout/ { inside = 1; next }
+layout="$(awk '/^## Code layout/ { inside = 1; next }
 	inside && /^```/ { seen++; if (seen == 2) exit; next }
-	inside && seen == 1 { print }' README.md)"
-[[ -n "${layout}" ]] || fail "README has no '## Layout' code block"
+	inside && seen == 1 { print }' docs/README.md)"
+[[ -n "${layout}" ]] || fail "docs/README.md has no '## Code layout' code block"
 
 core_region="$(awk '/^crates\/kernel-core\// { inside = 1 } /^src\// { inside = 0 } inside' <<<"${layout}")"
 src_region="$(awk '/^src\// { inside = 1 } inside' <<<"${layout}")"
@@ -147,7 +147,7 @@ done < <({
 } | sort)
 
 if [[ -n "${missing_modules}" ]]; then
-	echo "doc-claims: modules that exist and the README Layout block does not name:" >&2
+	echo "doc-claims: modules that exist and the documentation index does not name:" >&2
 	echo "  ${missing_modules# }" >&2
 	exit 1
 fi
@@ -210,6 +210,6 @@ core_modules="$(sed -n 's/^pub mod \([a-z0-9_]*\);$/\1/p' crates/kernel-core/src
 
 echo "doc-claims: clean (${actual} tests = ${unit}+${integration}+${doc}, ${#makefile_gates} chars of gate list agree, \
 $(wc -l <<<"${facade}") facade modules in the contract, \
-${core_modules} kernel-core modules in the README, \
+	${core_modules} kernel-core modules in docs/README.md, \
 ${abi_calls} syscalls in the threat model, \
 $(grep -lc '^status: accepted' docs/adr/0*.md | wc -l) ADRs dated)"
