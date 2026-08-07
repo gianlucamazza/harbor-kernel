@@ -82,7 +82,7 @@ ifneq ($(strip $(FEATURES)),)
 endif
 
 .PHONY: all debug img elf check test miri bringup-builds debug-display-builds \
-	debug-builds board-guard shellcheck xrefs no-simd no-early-exclusives no-static-mut \
+	debug-builds board-guard shellcheck xrefs doc-symbols no-simd no-early-exclusives no-static-mut \
 	boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy \
 	restore-rpios serial clean
 
@@ -123,7 +123,7 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives no-static-mut boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering arch-board-free shellcheck xrefs
+check: fmt-check test no-simd no-early-exclusives no-static-mut boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -149,6 +149,13 @@ shellcheck:
 # survive a rename.
 xrefs:
 	./scripts/check-xrefs.sh
+
+# A module path in the descriptive docs must name code that is there. `xrefs`
+# follows links and `doc-claims` counts two numbers; neither sees a sentence
+# that names `arch::mmu::EARLY_L1` after the map moved to `src/mm/early.rs`.
+# Path-aware on purpose: the symbol still exists, in another module.
+doc-symbols:
+	./scripts/check-doc-symbols.sh
 
 # The layering rules in docs/architecture.md, checked against real imports.
 # They are the architecture, and were enforced by review alone until now.

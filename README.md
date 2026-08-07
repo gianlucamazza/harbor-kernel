@@ -89,7 +89,7 @@ interactive serial console.
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                   |
 | TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
-| Verification | 270 host tests (unit, integration, doc), Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
+| Verification | 270 host tests (unit, integration, doc), **bounded model checking** of the scheduler and authority core, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware |
 
 ## What is not there yet
 
@@ -132,6 +132,9 @@ crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
   hardware maths gic, uart, spi, rng, timer, reset (PM_RSTS decode), a64, poll,
                 delay
   data          ring (SPSC), display, textgrid, font8x8
+  tests/        public_api (the surface `src/` depends on) · model_sched and
+                model_ipc (every operation sequence to a bound, against a
+                reference implementation — see docs/verification.md)
 src/
   arch/           facade (`cfg(target_arch)`); only path policy imports
   arch/aarch64/   MMIO, CPU/DAIF, cache, vectors, MMU, switch, CNTP, probe, bootinfo,
@@ -182,7 +185,7 @@ is fine.
 
 ```bash
 make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
-make check        # fmt-check test no-simd no-early-exclusives no-static-mut boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims layering arch-board-free shellcheck xrefs, then clippy
+make check        # fmt-check test no-simd no-early-exclusives no-static-mut boot-check bringup-builds debug-display-builds debug-builds board-guard miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs, then clippy
 make test         # host unit tests only
 make fmt
 ```

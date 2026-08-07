@@ -153,6 +153,8 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | Console denied by default; denied byte absent | `console denied` + boot-check asserts no `X` |
 | Creator survives agent fault; peer continues | `creator alive after fault` + ordering on serial |
 | No `static mut` in `src/` | `make no-static-mut` |
+| The authority table matches its specification | `tests/model_ipc.rs` — 5 229 043 sequences over `Table<2,4,2>`, every observable compared against a reference implementation |
+| The scheduler's invariants hold in every reachable state | `tests/model_sched.rs` — 2 396 745 sequences over `Tasks<3>`, five invariants after every step |
 | Softfloat / no FP in image | `make no-simd` |
 | Layering (no driver→board, arch≠drivers) | `make layering` / `arch-board-free` |
 
@@ -165,7 +167,7 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | **Preemption** | None. Hostile infinite loop at EL0 or EL1 is DoS. |
 | **Blocking recv / wait-on-IRQ** | Not implemented; agents poll or yield cooperatively. |
 | **Capability transfer / revocation** | Not implemented. |
-| **Endpoint release / generation recycle** | Never exercised in product path; stale-handle check is latent. |
+| **Endpoint release / generation recycle** | No kernel path releases an endpoint, so no kernel path mints a stale handle. The *check* is no longer unexercised: `tests/model_ipc.rs` offers a stale `CapId` — same index, previous generation — at every step of every sequence, and removing the generation comparison from `lookup` is caught in two operations. What stays untested is release itself, which does not exist. |
 | **IRQ notification capabilities** | Cookie shape exists; cookie unread; no cap_irq. |
 | **SYS_PUTC** | Transitional; not a pure message-passing console. |
 | **Creator lifecycle** | Bootstrap outlives agents; reaping undefined. |
@@ -184,6 +186,11 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
   ([`docs/verification.md`](docs/verification.md) “Checks that have been seen to fail”).
 - **Mutation testing** on authority modules (`make mutants`) before milestones
   that move the boundary.
+- **Bounded exhaustive model checking** of `kernel_core::{tasks, ipc}` against a
+  reference implementation, inside `make check`. Bounded is not proved: the
+  bound is stated in [`docs/verification.md`](docs/verification.md), and
+  extending the result to the kernel's own table sizes is an argument written
+  down there, not a theorem.
 - **Silicon** for memory attributes, GIC firmware state, RX handover — QEMU is
   blind there.
 

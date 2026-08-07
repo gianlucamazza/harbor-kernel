@@ -24,10 +24,19 @@ a non-AArch64 port may keep the *roles* while renaming modules if needed (see
 | `cache` | I/D cache and TLB maintenance after map changes | called from `mmu` / `mm` |
 | `switch` | Cooperative context switch | `Context`, `context_switch` (layout is ISA ABI) |
 | `exception` | Vectors + trap frame + init | `init`, `TrapFrame` |
-| `el0` | User-mode session enter/resume/end | `enter`/`resume`/`end_session`/`run`, `El0Outcome`, entry IRQ mask policy |
+| `el0` | User-mode session enter/resume/end, and the published session pointer | `enter`/`resume`/`end_session`/`run`, `El0Outcome`, entry IRQ mask policy, `El0Session` + `publish`/`published`, `saved_gpr`/`set_saved_gpr` (the syscall reply window) |
 | `mmio` | Volatile MMIO accessor | `Mmio` used by drivers and BSP |
 | `probe` | Deliberate external-abort recovery for soft presence | RNG and similar soft-fail paths |
 | `bootinfo` | Firmware handoff (e.g. DTB pointer) | early map + optional consume |
+
+A port owes one more thing than the table shows: the session state a lower-EL
+exception needs must be reachable **by linker symbol**, because the vector path
+is entered by hardware and has no caller to pass a pointer to. On AArch64 that
+is `CURRENT_EL0`, an `AtomicPtr` published by the scheduler on every switch
+([ADR-0019](adr/0019-no-static-mut.md)). The type is the port's choice; the
+obligation is that the scheduler can publish it, that the vector path can load
+it without a caller, and that entering EL0 refuses a session the assembly would
+not see ([ADR-0017](adr/0017-el0-capability-abi.md) §1).
 
 ## Required per-ISA artefacts (not re-exported as Rust modules)
 

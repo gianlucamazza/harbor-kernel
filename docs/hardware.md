@@ -269,9 +269,11 @@ Policy detail: [ADR-0009](adr/0009-optional-spi-tft-debug-console.md).
 1. General GPIO ownership + SPI0 pinmux (ALT0 on 9/10/11; outputs for CS/DC/RST).
 2. Polled `SpiBus` + CS-scoped `SpiDevice` (shape aligned with embedded-hal 1.0;
    **local traits**, no e-hal crate dependency).
-3. ILI9486: reset, **datasheet-first** declarative init (`Cmd` / `Data` /
-   `DelayMs`), `PanelConfig` for MADCTL/BGR. Vendor trees (fbtft, Waveshare,
-   TFT_eSPI) are cross-checks, not paste sources.
+3. ILI9486: reset, **datasheet-first** declarative init — a table of
+   `InitOp::{Cmd, Data, DelayMs}` (`INIT_PISCREEN`), with MADCTL for
+   landscape + BGR as one entry in it rather than a separate config type.
+   Vendor trees (fbtft, Waveshare, TFT_eSPI) are cross-checks, not paste
+   sources.
 4. Timer-based delays (`CNTPCT`) for panel multi-ms waits — not CPU cycle spins.
 5. Structured **status surface** (dirty cells); UART remains the full log stream.
 6. Init **after** UART hello; `Result` on failure → one clear serial line, continue

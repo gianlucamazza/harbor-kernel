@@ -12,11 +12,23 @@
 ## Two maps
 
 Translation is enabled **before any Rust runs**, from `arch/aarch64/boot.s`, using a coarse
-identity map resolved at compile time (`arch::mmu::EARLY_L1`): 1 GiB blocks
+identity map resolved at compile time (`mm::early::EARLY_L1`): 1 GiB blocks
 covering 3 GiB of RAM plus the device window. Its purpose is not the mapping —
 it is that no kernel code ever executes without memory attributes, because
 atomic read-modify-write does not work without them. See
 [`verification.md`](verification.md) for the bug that established this.
+
+It lives in `mm` and not in `arch` on purpose. The table encodes *which
+gigabyte is what* on a BCM2711, which is board knowledge, and it used to sit in
+`arch/aarch64/mmu.rs` — inside the tree rule 3 reserves for CPU and ISA. That
+was **F23**, and it stayed open for two days with `make layering` one directory
+away, because that gate sees imports and the other way to know a board is to
+write its addresses by hand. The seam now has a name: the board says which
+gigabyte is what ([`memmap::EARLY_BLOCKS`]), the architecture says what a block
+descriptor is and how to turn translation on, and `mm/early.rs` is the only
+thing that needs both. `make arch-board-free` refuses the regression.
+
+[`memmap::EARLY_BLOCKS`]: ../src/bsp/rpi4/memmap.rs
 
 The real per-region map below is built at runtime and installed by switching
 `TTBR0_EL1` (`arch::mmu::activate`). Because translation is already on, the
@@ -182,7 +194,8 @@ by hand after any change to `link.ld` or to the region list, following
 | ---------------------------------- | ---------------------------------------------------------------- |
 | `crates/kernel-core/src/paging.rs` | Descriptor + `TCR_EL1` encodings, region splitting (host-tested) |
 | `crates/kernel-core/src/heap.rs`   | Free-list allocator arithmetic (host-tested)                     |
-| `arch/aarch64/mmu.rs`              | `EARLY_L1`, `early_mmu_enable`, `activate`                       |
+| `mm/early.rs`                      | `EARLY_L1`, `early_mmu_enable` — the one place board and CPU meet before anything exists (F23) |
+| `arch/aarch64/mmu.rs`              | `enable_identity`, `program_regime`, `activate` — CPU only       |
 | `arch/aarch64/cache.rs`            | I-cache / D-cache set-way / TLB invalidation                     |
 | `mm/layout.rs`                     | Regions and their permissions, from the linker                   |
 | `mm/mod.rs`                        | Kernel heap + `GlobalAlloc`                                      |
