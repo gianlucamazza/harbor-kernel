@@ -1,20 +1,26 @@
 ---
 id: 0023
 title: An agent is two things — an EL1 driver task and an EL0 program — and this records the shape rather than changing it
-status: proposed
+status: accepted
 date: 2026-08-07
-related: [0006, 0016, 0017, 0018, 0021, 0022]
+accepted: 2026-08-07
+related: [0006, 0016, 0017, 0018, 0021, 0022, 0024]
 ---
 
 # ADR-0023: The schedulable entity is the driver, not the agent
 
 ## Acceptance status
 
-**Proposed** (2026-08-07). This ADR decides almost nothing. It **states** a
-structure that six accepted ADRs assume and none of them writes down, and it
-names what that structure costs and precludes — so the next decision that would
-build on it (preemption, an agent that outlives its creator, a per-agent
-identity) starts from a described shape instead of an inferred one.
+**Accepted** (2026-08-07) by the project owner, as drafted, with two number
+fixes at acceptance: `MAX_TASKS` is **16** after M8 (was 14 when proposed), and
+M8's EL1 console server is **not** an agent pair — it is a plain driver-less
+kernel task that parks on a mailbox (see [ADR-0024](0024-parked-task-visibility.md)).
+
+This ADR decides almost nothing. It **states** a structure that six accepted
+ADRs assume and none of them writes down, and it names what that structure costs
+and precludes — so the next decision that would build on it (preemption, an
+agent that outlives its creator, a per-agent identity, reaping a parked
+driver) starts from a described shape instead of an inferred one.
 
 ## Context
 
@@ -36,7 +42,7 @@ So an agent is a **pair**, and the schedulable entity is the second half.
 
 | Per agent         | Cost                                                                  |
 | ----------------- | --------------------------------------------------------------------- |
-| One `sched` slot  | `MAX_TASKS = 14`, machine-wide, shared with every EL1 demo            |
+| One `sched` slot  | `MAX_TASKS = 16`, machine-wide, shared with every EL1 demo and the console server |
 | One kernel stack  | `TASK_STACK_USABLE = 16 KiB` on the heap, plus an unmapped guard page |
 | One `El0Session`  | In the TCB (ADR-0017 §1)                                              |
 | One address space | Root, cloned kernel tables, and its window's frames                   |
@@ -63,9 +69,10 @@ without killing the loop that was watching it. `pl011-agent: killed ok` works
 because the driver kills itself.
 
 **`MAX_TASKS` is scarce for a reason nobody states.** It went 12 → 14 when the
-loader landed, because two manifest entries needed two _driver_ tasks. A design
-where the EL0 context were the schedulable entity would not have spent a task
-slot on the loop that drives it.
+loader landed, because two manifest entries needed two _driver_ tasks, then
+14 → 16 for M8's always-on console server plus product beacon. A design where
+the EL0 context were the schedulable entity would not have spent a task slot on
+the loop that drives each agent.
 
 ### Why this was never written down
 
@@ -101,7 +108,7 @@ should say so in its own Context rather than inheriting the ambiguity.
 
 **4. The measurement is part of the record.**
 
-16 KiB of kernel stack and one of fourteen task slots per agent is the price of
+16 KiB of kernel stack and one of sixteen task slots per agent is the price of
 the current shape. Any future proposal to collapse the pair is arguing against
 those numbers, and they belong here so the argument can be made against
 something.

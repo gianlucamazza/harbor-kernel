@@ -349,19 +349,21 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 
 ### Current frontier (ordered)
 
-The loader and blocking receive landed on 2026-08-07 and are recorded in
-[`verification.md`](verification.md#hardware-evidence-the-loader-and-the-park-on-silicon-2026-08-07)
-rather than kept here as struck-through work: the loader
-([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) and blocking
-`SYS_RECV` ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)).
-Tracking issue: [#15](https://github.com/gianlucamazza/harbor-kernel/issues/15).
+M0–M8 are **done (HW)**. Trackers [#15](https://github.com/gianlucamazza/harbor-kernel/issues/15)
+(M7 era) and [#12](https://github.com/gianlucamazza/harbor-kernel/issues/12) (M8)
+are closed. The ordered work below is availability and optional protection —
+not another foundation milestone.
 
 | #   | Work | Done when | Issue |
 | --- | ---- | --------- | ----- |
-| 1   | **The parked agent** — no timeout, no reclaim | An ADR decides between a deadline queue, creator-side reaping, endpoint release, or simply reporting it. Availability surface [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md) opened and deliberately did not close | [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) |
+| 1   | **Parked-task visibility / reclaim policy** | [ADR-0024](adr/0024-parked-task-visibility.md): counters land (phase 1); reclaim/timeout is a stated non-goal or a successor | [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) |
 | 2   | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
 | 3   | **Optional P-pass** | Tighten the kernel's EL1 Device blankets (not required for M6 v1) | [#2](https://github.com/gianlucamazza/harbor-kernel/issues/2) |
 | 4   | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets its caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
+
+[ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) (agent = driver
++ EL0 program) is accepted so reaping/preemption discussions name **which half**
+they mean.
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 
@@ -435,7 +437,8 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0020](adr/0020-spidevice-contract-without-a-caller.md)     | `SpiDevice`: contract kept, ADR-0010's descriptive sentence retracted (**accepted**)                |
 | [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)         | Agents as data described by a manifest; the grant becomes a binding, not code (**accepted**)        |
 | [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md) | Blocking `SYS_RECV`: the agent parks; `without_irqs` stops spanning a switch (**accepted**)         |
-| [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is a **pair**: an EL1 driver task and the EL0 program it drives; the driver is what the scheduler runs (**proposed**) |
+| [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is a **pair**: an EL1 driver task and the EL0 program it drives; the driver is what the scheduler runs (**accepted**) |
+| [ADR-0024](adr/0024-parked-task-visibility.md) | Parked tasks are counted (`blocked_count` / `block_events`); reclaim/timeout deferred (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

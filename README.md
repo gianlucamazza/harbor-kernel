@@ -70,7 +70,7 @@ endpoint, product beacon, and `SYS_PUTC` retirement included
 | Agents | Private address spaces, multi-SVC sessions, fault termination, manifest loader and blocking receive |
 | Drivers | PL011 driver-agent path with narrow mapping, RX ownership and restoration on kill |
 | Console | EL1 endpoint server plus product beacon; transitional `SYS_PUTC` removed in M8 |
-| Verification | 288 host tests, bounded model checks, Miri, build gates, QEMU boot checks and fault probes on hardware |
+| Verification | 289 host tests, bounded model checks, Miri, build gates, QEMU boot checks and fault probes on hardware |
 
 The ordered roadmap, done-when criteria and evidence links are maintained in
 [`docs/architecture.md#roadmap`](docs/architecture.md#roadmap), rather than
