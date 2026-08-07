@@ -561,6 +561,24 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("name: channel FAILED {e:?}"),
         }
 
+        // ADR-0036 / P2: on-target put/get of a keyed blob (not host inject).
+        match crate::storage::put(b"cfg", b"harbor-p2") {
+            Ok(()) => {
+                let mut out = [0u8; 16];
+                match crate::storage::get(b"cfg", &mut out) {
+                    Ok(n) if &out[..n] == b"harbor-p2" => crate::kprintln!("store: got"),
+                    Ok(_) => crate::kprintln!("store: got WRONG payload"),
+                    Err(e) => crate::kprintln!("store: get FAILED {e:?}"),
+                }
+            }
+            Err(e) => crate::kprintln!("store: put FAILED {e:?}"),
+        }
+        match crate::storage::get(b"nope", &mut [0u8; 8]) {
+            Err(crate::storage::GetError::Missing) => crate::kprintln!("store: missing"),
+            other => crate::kprintln!("store: missing unexpected {other:?}"),
+        }
+        let _ = crate::storage::delete(b"cfg");
+
         // ADR-0032 / K3: a task that holds SEND revokes the channel; bootstrap
         // then proves the stale CapId refuses send (product path, not forged).
         match crate::ipc::create_channel() {

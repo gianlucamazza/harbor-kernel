@@ -302,6 +302,11 @@ grep -qa 'name: resolved' "${log}" ||
 	fail "name registry did not resolve a bound service (ADR-0035)"
 grep -qa 'name: missing' "${log}" ||
 	fail "name registry did not report missing (ADR-0035)"
+# ADR-0036 / P2: on-target keyed blob put/get/missing.
+grep -qa 'store: got' "${log}" ||
+	fail "blob store did not round-trip put/get (ADR-0036)"
+grep -qa 'store: missing' "${log}" ||
+	fail "blob store did not report missing (ADR-0036)"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

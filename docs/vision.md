@@ -86,11 +86,12 @@ If a word here does not mean what you expect — **agent** most of all — start
 
 Open work that realises these at scale (design ADR before code): cap **transfer**
 (K3 residual), denser agents (**K5**),
-preemption/budget (**K4**), SMP (**K8**), product storage/network/naming
-(**P2–P5**), K2 timeout residual. First slices paid: external load (**K6**),
-IRQ wait EL1+EL0 (**K1**), last-SEND-hold auto-reap (**K2**), channel revoke
-(**K3**), multi-agent product store (**P1**), compose tools (**P6**). Status
-and H1 order: [roadmap](roadmap.md).
+preemption/budget (**K4**), SMP (**K8**), product network/display and storage
+media residuals (**P3**, **P4**, P2 media/EL0), K2 timeout residual. First slices
+paid: external load (**K6**), IRQ wait EL1+EL0 (**K1**), last-SEND-hold auto-reap
+(**K2**), channel revoke (**K3**), multi-agent product store (**P1**), on-target
+blob store (**P2**), name registry (**P5**), compose tools (**P6**). Status and
+H1 order: [roadmap](roadmap.md).
 
 ---
 
@@ -156,12 +157,13 @@ last-SEND-hold auto-reap (**K2**, [ADR-0031](adr/0031-k2-last-send-hold-auto-rea
 channel revoke (**K3**, [ADR-0032](adr/0032-k3-channel-revoke.md)); supervisor
 reap/restart (**K10**, [ADR-0033](adr/0033-k10-supervisor-reap.md)); RNG map agent
 (**K9**, [ADR-0034](adr/0034-k9-rng-driver-agent.md)); multi-agent
-product store (**P1**); host compose tools (**P6**).
+product store (**P1**); on-target keyed blobs (**P2**,
+[ADR-0036](adr/0036-p2-keyed-blob-store.md)); name registry (**P5**,
+[ADR-0035](adr/0035-p5-name-registry.md)); host compose tools (**P6**).
 
-**Must still pay (H1 critical path):** naming
-(**P5**), on-target storage (**P2**); network (**P3**) and product display
+**Must still pay (H1 critical path):** network (**P3**) and product display
 (**P4**) when needed; density (**K5**). Residuals: K2 **timeout**, K3 **transfer**,
-K10 creator-exit cascade. Working order:
+K10 creator-exit cascade, P2 media/EL0, P5 EL0 resolve. Working order:
 [roadmap § H1 working order](roadmap.md#h1-working-order-product-critical-path).
 
 ### H2 — Boundary operating system

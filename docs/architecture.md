@@ -275,11 +275,11 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 
 | Snapshot | Tracks |
 | --- | --- |
-| **done (QEMU)** first slices | K1–K3, K9, K10, K6, P1, P5 (names), P6 |
-| **H1 next (product-critical)** | P2 storage → (P3\|P4) · K5 |
+| **done (QEMU)** first slices | K1–K3, K9, K10, K6, P1, P2 (blobs), P5 (names), P6 |
+| **H1 next (product-critical)** | (P3\|P4) · K5 |
 | **H2 depth** | K4 preemption, K7 ASID, K8 SMP, HW stamps, remaining P depth |
 | **open (kernel)** | K2 timeout, K3 transfer, K4, K5, K7, K8, K9 IRQ residual, K10 cascade |
-| **open (product)** | P2 storage, P3 network, P4 display product, P5 naming |
+| **open (product)** | P2 media/EL0 residual, P3 network, P4 display product, P5 EL0 resolve |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
 K/P tables here. Horizon mapping and working order also live in `roadmap.md`.
@@ -328,6 +328,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0033](adr/0033-k10-supervisor-reap.md) | K10 entry: supervisor reaps blocked task; restart = re-spawn (**accepted**) |
 | [ADR-0034](adr/0034-k9-rng-driver-agent.md) | K9 entry: RNG200 second driver-as-agent page map (**accepted**) |
 | [ADR-0035](adr/0035-p5-name-registry.md) | P5 entry: EL1 name registry (**accepted**) |
+| [ADR-0036](adr/0036-p2-keyed-blob-store.md) | P2 entry: EL1 keyed blob store (on-target put/get) (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

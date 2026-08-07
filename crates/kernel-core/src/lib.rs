@@ -58,6 +58,7 @@ pub mod rng;
 pub mod runqueue;
 pub mod rxline;
 pub mod spi;
+pub mod storage;
 pub mod syscall;
 pub mod tasks;
 pub mod textgrid;

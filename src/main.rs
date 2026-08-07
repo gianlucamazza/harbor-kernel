@@ -21,6 +21,7 @@ mod panic;
 mod sched;
 #[cfg(feature = "debug-display")]
 mod status;
+mod storage;
 mod sync;
 mod time;
 

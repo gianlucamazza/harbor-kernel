@@ -52,6 +52,7 @@ the code that follows.
 | [0033](0033-k10-supervisor-reap.md)                         | K10 first slice — supervisor reaps a blocked task (restart = re-spawn)                              | accepted   |
 | [0034](0034-k9-rng-driver-agent.md)                          | K9 first slice — RNG200 second driver-as-agent (page map)                                           | accepted   |
 | [0035](0035-p5-name-registry.md)                             | P5 first slice — EL1 name registry (name to CapId)                                                  | accepted   |
+| [0036](0036-p2-keyed-blob-store.md)                          | P2 first slice — EL1 keyed blob store (on-target put/get)                                           | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

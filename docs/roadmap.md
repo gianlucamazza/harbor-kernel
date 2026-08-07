@@ -56,14 +56,14 @@ the named level — not when prose wishes it.
 | Horizon | Product outcome | Tracks that close it |
 | --- | --- | --- |
 | **H0 — Foundation** | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel | **Done (HW)** — M0–M8 + ADR-0024/0025 |
-| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** K1–K3, K9, K10, K6, P1, P5 (name registry), P6. **Still on the critical path:** P2 (and P3/P4 as needed). Residuals: K2 timeout, K3 transfer, K10 cascade, K9 IRQ-agent, P5 EL0 resolve |
+| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** K1–K3, K9, K10, K6, P1, P2 (keyed blob store), P5 (name registry), P6. **Still on the critical path:** P3/P4 as needed, K5. Residuals: K2 timeout, K3 transfer, K10 cascade, K9 IRQ-agent, P5 EL0 resolve, P2 media/EL0 |
 | **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | K4, K5 (remainder), K7, K8, remainder of P2–P5, hardening of first slices to **done (HW)** where claimed |
 
 **H1 product bar (what “composition OS” means here):**
 
 1. **Compose** — pack/inject/inspect agents + grants (P6; first slice done QEMU).
 2. **Run several agents** from a product store, not a single beacon (P1; first slice done QEMU).
-3. **Load without rebuild-only** — external store path (K6; done QEMU); on-target persist/load still P2.
+3. **Load without rebuild-only** — external store path (K6; done QEMU); on-target put/get first slice (P2; done QEMU); media that survives reboot residual.
 4. **Wait and drive devices as agents** — IRQ wait (K1 QEMU); second map agent RNG200 (K9 QEMU); IRQ-cap device agent residual.
 5. **Supervise** — cancel (HW) + K2 auto-reap + K10 reap/restart (QEMU); creator-exit cascade residual; K2 timeout residual.
 6. **Move authority** — channel revoke done (QEMU); **transfer** still open (K3 residual).
@@ -100,7 +100,7 @@ not as a growing special-case syscall surface ([vision](vision.md) shape).
 | ID | Track | Status | Done when (sketch) | Typical deps | Horizon |
 | --- | --- | --- | --- | --- | --- |
 | P1 | Multi-agent product image beyond beacon | **done (QEMU)** first slice (beacon + chirp in store) | Product store n≥2; both run via console endpoint | ADR-0027/0029 | H1 |
-| P2 | Storage path (block + load/persist) | **open** | Persist or load agent/data without rebuild-only workflow | Often after K6 | H1 (appliance) → H2 depth |
+| P2 | Storage path (block + load/persist) | **done (QEMU)** first slice ([ADR-0036](adr/0036-p2-keyed-blob-store.md) keyed blobs); SD/media + EL0 residual | On-target put/get without host inject of that payload | ADR-0036 (after K6) | H1 (appliance) → H2 depth |
 | P3 | Network agent + caps | **open** | Network I/O only via granted caps; no ambient net | K1/K9 helpful | H1 edge gateway → H2 |
 | P4 | Display/input product path | **open** | Product-grade path (may graduate `debug-display` discipline) | Device agents; optional after K9 | H1 lab UI → H2 |
 | P5 | Naming / discovery / system services | **done (QEMU)** first slice ([ADR-0035](adr/0035-p5-name-registry.md) EL1 registry); EL0 resolve later | Bind/resolve/unbind short names to CapId | ADR-0035 | H1 composition → H2 |
@@ -115,9 +115,9 @@ its design ADR before boundary code.
 
 | Step | Track(s) | Why now (mission fit) |
 | --- | --- | --- |
-| 1 | **P2** storage path | Appliance load/persist without rebuild-only workflow |
-| 2 | **P3** / **P4** as needed | Edge net / product display when a concrete composition needs them |
-| 3 | **K5** density | Scale agent count when MAX_TASKS/stacks press |
+| 1 | **P3** / **P4** as needed | Edge net / product display when a concrete composition needs them |
+| 2 | **K5** density | Scale agent count when MAX_TASKS/stacks press |
+| — | **P2 media / EL0 storage** (later) | SD/eMMC + storage caps |
 | — | **P5 EL0 resolve** (later) | Syscall or grant of resolve authority |
 | — | **K9 IRQ-cap device agent** (later) | Second agent that waits on device IRQ via cap |
 | — | **K10 creator-exit cascade** (later) | Reap children when creator exits |
@@ -127,15 +127,15 @@ its design ADR before boundary code.
 **K7** ASID/TTBR1, **K8** SMP — production fairness and isolation depth, not
 the first composition demo.
 
-First slices already paid for H1 entry: **K1**, **K2**, **K3**, **K9** (RNG map), **K10**, **K6**, **P1**, **P5** (names), **P6**.
+First slices already paid for H1 entry: **K1**, **K2**, **K3**, **K9** (RNG map), **K10**, **K6**, **P1**, **P2** (blobs), **P5** (names), **P6**.
 
 ```text
 Mission: agents · grants · evidence · finish the OS
                 │
     H0 foundation ████████ done (HW)
                 │
-    H1 composition ███████░ K1–K3 K9 K10 K6 P1 P5 P6 done (QEMU)
-                │          next: P2 → (P3|P4) · K5
+    H1 composition ████████ K1–K3 K9 K10 K6 P1 P2 P5 P6 done (QEMU)
+                │          next: (P3|P4) · K5
                 │
     H2 boundary    ░░░░░░░░ K4 K7 K8 + HW stamps + remaining P depth
 ```
