@@ -10,19 +10,31 @@ use kernel_core::paging::{
 };
 
 use crate::arch::{cache, mmu};
-use crate::bsp::board::memmap::{FRAME_SIZE, USER_STACK_PAGES, USER_STACK_TOP, USER_VA_BASE};
+use crate::bsp::board::memmap::{FRAME_SIZE, USER_STACK_PAGES, USER_VA_BASE};
 use crate::mm::frames;
 use kernel_core::layout::UserWindow;
 
-/// The private VA window every prepared AS gets (ADR-0014).
+/// The window an [`AddressSpace::create`] gets when nobody asks for another.
 ///
-/// Geometry and bounds live in [`UserWindow`], where they are host-tested; this
-/// only names the board's numbers.
-const WINDOW: UserWindow = UserWindow {
+/// One page of text and the rest stack, which is what every agent had before a
+/// manifest could ask for more (ADR-0021 §5). Geometry and bounds live in
+/// [`UserWindow`], where they are host-tested; this only names the board's
+/// numbers.
+const DEFAULT_WINDOW: UserWindow = UserWindow {
     base: USER_VA_BASE,
     pages: USER_STACK_PAGES,
+    text_pages: 1,
     frame: FRAME_SIZE,
 };
+
+/// Most executable pages one agent may declare: 64 KiB of text.
+///
+/// A ceiling rather than a target. It bounds [`AddressSpace::text_phys`], which
+/// is an array because the frames behind the text are **not contiguous** and the
+/// kernel has to know each one's physical address to write it. Against a 512
+/// frame pool, an agent at this ceiling costs an eighth of it — refused as an
+/// error, never a panic.
+pub const MAX_TEXT_PAGES: usize = 16;
 
 // ## Three things that are correct today for reasons written somewhere else
 //
@@ -51,11 +63,16 @@ const WINDOW: UserWindow = UserWindow {
 // in `TTBR0` and has nothing cached. Neither fact is visible from this file.
 //
 // **3. The user window's pages are contiguous only by accident.**
-// `map_user_stack` takes `USER_STACK_PAGES` separate frames from a pool whose
-// free list is LIFO, so a fresh boot hands out consecutive ones. `poke_user`
-// used to validate against the whole window while writing from page 0's
-// physical address, which turned that accident into the bound. It now refuses
-// past one frame.
+// `map_user_window` takes a separate frame per page from a pool whose free list
+// is LIFO, so a fresh boot hands out consecutive ones. `poke_user` used to
+// validate against the whole window while writing from page 0's physical
+// address, which turned that accident into the bound.
+//
+// Multi-page text (ADR-0021) could have re-introduced exactly that bug in a form
+// that works on a fresh boot and corrupts another address space after the first
+// create/destroy cycle. It does not, because nothing assumes adjacency: the
+// physical address of every text page is recorded at map time and `poke_user`
+// walks them one at a time.
 
 /// Max frames one AS may hold (root + cloned tables + user stack pages).
 pub const MAX_AS_FRAMES: usize = 256;
@@ -85,14 +102,44 @@ pub struct AddressSpace {
     owned: FrameLedger<MAX_AS_FRAMES>,
     /// User stack top VA (initial SP_EL0) after prepare; 0 if not prepared.
     user_sp: u64,
-    /// Phys of the lowest user stack page (code/data poke for probes).
-    user_base_phys: usize,
+    /// Physical address of each text page, in window order.
+    ///
+    /// An array and not a base+length, because these frames are separate
+    /// [`frames::alloc`] results and adjacent only by luck. Entries at and above
+    /// `window.text_pages` are zero.
+    text_phys: [usize; MAX_TEXT_PAGES],
+    /// This AS's own geometry, from the manifest entry that asked for it.
+    window: UserWindow,
     prepared: bool,
 }
 
 impl AddressSpace {
-    /// Allocate and zero a root L1 table frame.
+    /// Allocate and zero a root L1 table frame, with the default window.
     pub fn create() -> Result<Self, AsError> {
+        Self::create_with(
+            DEFAULT_WINDOW.text_pages,
+            DEFAULT_WINDOW.pages - DEFAULT_WINDOW.text_pages,
+        )
+    }
+
+    /// Allocate a root for an agent that declared its own geometry.
+    ///
+    /// The refusals happen here, before a single frame is taken: a window with
+    /// no text or no stack, and text past [`MAX_TEXT_PAGES`]. An agent asking
+    /// for more than the pool can spare is an error the loader reports, not a
+    /// panic — ADR-0021's frame budget is a consequence, not an assumption.
+    pub fn create_with(text_pages: usize, stack_pages: usize) -> Result<Self, AsError> {
+        let window = UserWindow {
+            base: USER_VA_BASE,
+            pages: text_pages + stack_pages,
+            text_pages,
+            frame: FRAME_SIZE,
+        };
+        if text_pages > MAX_TEXT_PAGES {
+            return Err(AsError::OutOfRange);
+        }
+        window.validate().map_err(|_| AsError::OutOfRange)?;
+
         let (root, root_phys) = frames::alloc().ok_or(AsError::OutOfFrames)?;
         // SAFETY: identity-mapped pool frame exclusive to us.
         unsafe {
@@ -111,7 +158,8 @@ impl AddressSpace {
             root_phys,
             owned,
             user_sp: 0,
-            user_base_phys: 0,
+            text_phys: [0; MAX_TEXT_PAGES],
+            window,
             prepared: false,
         })
     }
@@ -133,7 +181,7 @@ impl AddressSpace {
         unsafe {
             self.clone_table_into(kroot as *const u64, self.root_phys as *mut u64, Level::L1)?;
         }
-        self.map_user_stack()?;
+        self.map_user_window()?;
         self.prepared = true;
         Ok(())
     }
@@ -150,10 +198,14 @@ impl AddressSpace {
         self.user_sp
     }
 
-    /// User entry VA (bottom of stack window) after prepare.
+    /// User entry VA (bottom of the text) after prepare.
     #[inline]
     pub fn user_entry_va(&self) -> u64 {
-        if self.prepared { USER_VA_BASE } else { 0 }
+        if self.prepared {
+            self.window.entry()
+        } else {
+            0
+        }
     }
 
     /// Map one page of **device** MMIO into this AS (ADR-0013 agent windows).
@@ -180,37 +232,57 @@ impl AddressSpace {
         unsafe { self.map_l3_page(va, pa, MemKind::Device, perms) }
     }
 
-    /// Write raw bytes into the **first** page of the user window (kernel
-    /// identity access to phys).
+    /// Write raw bytes into the user **text**, page by page (kernel identity
+    /// access to phys).
     ///
-    /// After the store, publishes the range for instruction fetch (D clean to
-    /// PoU + I invalidate). Required on Cortex-A72 whenever the bytes may run
-    /// at EL0 — not optional for QEMU.
+    /// After each page, publishes that range for instruction fetch (D clean to
+    /// PoU + I invalidate). Required on Cortex-A72 whenever the bytes may run at
+    /// EL0 — not optional for QEMU.
     ///
-    /// The bound is one frame, not the whole window: `user_base_phys` is the
-    /// physical address of page 0 alone, and [`Self::map_user_stack`] takes the
-    /// remaining pages from separate [`frames::alloc`] calls that are contiguous
-    /// only by accident of the pool's free order. Validating against the window
-    /// would license a write that lands in whatever frame follows page 0 —
-    /// another live address space's tables, after any create/destroy cycle.
+    /// The bound is the text, not the whole window: the stack pages above it are
+    /// the agent's, and a write running past the text into them would be the
+    /// kernel scribbling on a running program's stack.
+    ///
+    /// **Nothing here assumes the text is one contiguous run of physical
+    /// memory.** Each page came from its own [`frames::alloc`], and they are
+    /// adjacent only by accident of the pool's LIFO free order — an accident
+    /// that holds on a fresh boot and stops holding after the first
+    /// create/destroy cycle. So the copy is split at page boundaries and each
+    /// piece goes to the physical address recorded for that page.
     pub fn poke_user(&self, offset: usize, bytes: &[u8]) -> Result<(), AsError> {
-        if !self.prepared || self.user_base_phys == 0 {
+        if !self.prepared {
             return Err(AsError::BadTable);
         }
-        WINDOW
+        self.window
             .bound_text_write(offset, bytes.len())
             .map_err(|_| AsError::OutOfRange)?;
-        let dest = self.user_base_phys + offset;
-        // SAFETY: `user_base_phys` is page 0 of the user window, a pool frame
-        // this AS owns, identity-mapped RW for EL1 — so the kernel may write it
-        // directly. The bound above keeps the copy inside that one frame, which
-        // is the only frame this address reaches. `publish_executable` is
-        // required, not optional: page 0 is mapped `USER_RX` and the bytes are
-        // about to be fetched as instructions on a core whose caches are not
-        // coherent.
-        unsafe {
-            core::ptr::copy_nonoverlapping(bytes.as_ptr(), dest as *mut u8, bytes.len());
-            cache::publish_executable(dest, bytes.len());
+
+        let frame = self.window.frame;
+        let mut written = 0usize;
+        while written < bytes.len() {
+            let at = offset + written;
+            let page = at / frame;
+            let in_page = at % frame;
+            // The bound above puts `at` inside the text, so `page` indexes a
+            // mapped entry — asserted rather than assumed, because a zero here
+            // would be a write to physical address `in_page`.
+            let base = self.text_phys[page];
+            if base == 0 {
+                return Err(AsError::BadTable);
+            }
+            let take = (frame - in_page).min(bytes.len() - written);
+            let dest = base + in_page;
+            // SAFETY: `base` is a pool frame this AS owns, identity-mapped RW
+            // for EL1, so the kernel may write it directly; `in_page + take`
+            // cannot exceed `frame`, so the copy stays inside it.
+            // `publish_executable` is required, not optional: these pages are
+            // mapped `USER_RX` and the bytes are about to be fetched as
+            // instructions on a core whose caches are not coherent.
+            unsafe {
+                core::ptr::copy_nonoverlapping(bytes.as_ptr().add(written), dest as *mut u8, take);
+                cache::publish_executable(dest, take);
+            }
+            written += take;
         }
         Ok(())
     }
@@ -244,17 +316,18 @@ impl AddressSpace {
 
     /// Map the private user window at [`USER_VA_BASE`].
     ///
-    /// Layout (M5 v1, fixed in BSP): page 0 is user text (`USER_RX`); pages
-    /// 1..n-1 are stack (`USER_RW`); `SP_EL0` starts at [`USER_STACK_TOP`].
-    /// Kernel leaves share PA and keep EL0-denied AP from the clone step.
-    fn map_user_stack(&mut self) -> Result<(), AsError> {
-        let mut va = USER_VA_BASE;
-        let mut first_phys = 0usize;
-        for i in 0..USER_STACK_PAGES {
+    /// Layout: the lowest `text_pages` are user text (`USER_RX`), the rest are
+    /// stack (`USER_RW`), and `SP_EL0` starts at the top. W^X holds inside the
+    /// window as it does in the kernel map — [`UserWindow::is_text_page`] is the
+    /// one place that decides which is which, and it is host-tested. Kernel
+    /// leaves share PA and keep EL0-denied AP from the clone step.
+    fn map_user_window(&mut self) -> Result<(), AsError> {
+        let mut va = self.window.base;
+        for i in 0..self.window.pages {
             let (id, phys) = frames::alloc().ok_or(AsError::OutOfFrames)?;
             self.track(id)?;
-            if i == 0 {
-                first_phys = phys;
+            if self.window.is_text_page(i) {
+                self.text_phys[i] = phys;
             }
             // SAFETY: `frames::alloc` just returned this frame, so nothing
             // else holds it, and pool frames are identity-mapped RW for EL1.
@@ -263,7 +336,7 @@ impl AddressSpace {
             unsafe {
                 core::ptr::write_bytes(phys as *mut u8, 0, FRAME_SIZE);
             }
-            let perms = if i == 0 {
+            let perms = if self.window.is_text_page(i) {
                 Perms::USER_RX
             } else {
                 Perms::USER_RW
@@ -275,8 +348,7 @@ impl AddressSpace {
             }
             va += PAGE_SIZE;
         }
-        self.user_base_phys = first_phys;
-        self.user_sp = USER_STACK_TOP;
+        self.user_sp = self.window.stack_top();
         Ok(())
     }
 

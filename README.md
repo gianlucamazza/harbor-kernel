@@ -25,7 +25,7 @@ cannot block on receive, cannot wait on an interrupt as a first-class wake,
 and are not preempted. Full product surface:
 [`docs/architecture.md`](docs/architecture.md).
 
-*Verified* means claims in this README are backed by host tests, Miri on the
+_Verified_ means claims in this README are backed by host tests, Miri on the
 pure-logic `unsafe`, build-enforced invariants, a QEMU boot gate, and fault
 probes on real silicon — with known blind spots in
 [`docs/verification.md`](docs/verification.md) (notably: QEMU does not model
@@ -38,14 +38,14 @@ memory attributes the way Cortex-A72 does). Authority and isolation claims
 stamped on silicon; the next work is product surface on top of that boundary,
 not another foundation milestone.
 
-| ID | Deliverable | Status |
-| -- | ----------- | ------ |
-| M0–M2, P0–P4 | Boot, exceptions, MMU, heap, W^X, idle, layout gates | **done (HW)** |
-| M3 | Cooperative EL1 tasks + guarded stacks | **done (HW)** |
-| M4 | IPC + capabilities (mailboxes, refuse, IRQ wake queue) | **done (HW)** |
-| M5 | EL0 agents (private AS, `TTBR0`, SVC + fault probes) | **done (HW)** |
-| M6 | Driver-as-agent (PL011 page map, FR, RX own, kill) | **done (HW)** |
-| M7 | EL0 authority by capability slot; console cap denied by default; creator-handled agent fault | **done (HW)** 2026-08-07 |
+| ID           | Deliverable                                                                                  | Status                   |
+| ------------ | -------------------------------------------------------------------------------------------- | ------------------------ |
+| M0–M2, P0–P4 | Boot, exceptions, MMU, heap, W^X, idle, layout gates                                         | **done (HW)**            |
+| M3           | Cooperative EL1 tasks + guarded stacks                                                       | **done (HW)**            |
+| M4           | IPC + capabilities (mailboxes, refuse, IRQ wake queue)                                       | **done (HW)**            |
+| M5           | EL0 agents (private AS, `TTBR0`, SVC + fault probes)                                         | **done (HW)**            |
+| M6           | Driver-as-agent (PL011 page map, FR, RX own, kill)                                           | **done (HW)**            |
+| M7           | EL0 authority by capability slot; console cap denied by default; creator-handled agent fault | **done (HW)** 2026-08-07 |
 
 Post-M6 product slices (EL0 IRQ resume, `SYS_PUTC`, PL011 RX-owned agent) closed
 [issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1) on silicon
@@ -56,11 +56,11 @@ Post-M6 product slices (EL0 IRQ resume, `SYS_PUTC`, PL011 RX-owned agent) closed
 
 Ordered from [`docs/architecture.md#roadmap`](docs/architecture.md#roadmap):
 
-| # | Work | Done when |
-| - | ---- | --------- |
-| 1 | **Blocking `SYS_RECV`** (yield out of a live EL0 session) | Agent parks on empty recv; peer send wakes it; authority checks still hold — QEMU + HW |
-| 2 | **M8: console endpoint** (retire transitional `SYS_PUTC`) | Same slot ABI; kernel or EL1 server drains; denied-by-default still gated |
-| 3 | Optional: IRQ-wake RX; P-pass on kernel Device blankets | Named in architecture when picked up |
+| #   | Work                                                      | Done when                                                                              |
+| --- | --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| 1   | **Blocking `SYS_RECV`** (yield out of a live EL0 session) | Agent parks on empty recv; peer send wakes it; authority checks still hold — QEMU + HW |
+| 2   | **M8: console endpoint** (retire transitional `SYS_PUTC`) | Same slot ABI; kernel or EL1 server drains; denied-by-default still gated              |
+| 3   | Optional: IRQ-wake RX; P-pass on kernel Device blankets   | Named in architecture when picked up                                                   |
 
 **Not goals** until their own ADR: preemption, SMP, high-half / `TTBR1`, ASID
 production, USB host, full framebuffer, a long-running interactive echo agent
@@ -73,23 +73,23 @@ Boot to EL1, a mapped and protected address space, interrupts, a heap,
 **cooperative tasks** (M3), IPC/caps (M4), **EL0 agents** (M5–M7), and an
 interactive serial console.
 
-| Area         | State                                                                                                                               |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Boot         | EL2→EL1, softfloat, DTB pointer captured (mapped RO; board truth is BSP constants — ADR-0011)                                       |
-| Memory       | Multi-level identity map, **W^X**, guarded kernel + exception stacks, runtime `map`/`unmap` (block split), TLB maintenance          |
-| Allocation   | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                         |
-| Frames (M5)  | Named phys pool (ADR-0012); `AddressSpace` clone + user VA window; destroy returns frames                                           |
-| EL0 (M5)     | `enter`/`resume`/`end_session`, own `TTBR0`, SVC + fault probes (**done HW**) — ADR-0014                                           |
-| Agent shell  | `src/agent::Agent` owns AS; scheduled multi-SVC; concurrent dual-TCB (**done HW**); `SYS_PUTC` + IRQ resume (**done HW**)          |
-| Authority (M7) | Slot-indexed caps; console behind a cap denied by default; agent fault ends the session, creator decides the task (**done HW**)  |
-| PL011 agent  | Page map (ADR-0013); FR; RX own (drain off, LBE inject, poll, kill restores) — M6 **done HW**                                        |
-| Tasks (M3)   | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                            |
-| IPC (M4)     | Mailboxes + CapId send/recv; refuse counter; IRQ wake queue (ADR-0008); demo sender/receiver/forger                                 |
-| Interrupts   | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters; lower-EL IRQ → agent when session unmasks              |
-| RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
-| Console      | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                   |
-| TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
-| Verification | 274 host tests (unit, integration, doc), **bounded model checking** of the scheduler and authority core, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware |
+| Area           | State                                                                                                                                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Boot           | EL2→EL1, softfloat, DTB pointer captured (mapped RO; board truth is BSP constants — ADR-0011)                                                                                                             |
+| Memory         | Multi-level identity map, **W^X**, guarded kernel + exception stacks, runtime `map`/`unmap` (block split), TLB maintenance                                                                                |
+| Allocation     | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                                                                                               |
+| Frames (M5)    | Named phys pool (ADR-0012); `AddressSpace` clone + user VA window; destroy returns frames                                                                                                                 |
+| EL0 (M5)       | `enter`/`resume`/`end_session`, own `TTBR0`, SVC + fault probes (**done HW**) — ADR-0014                                                                                                                  |
+| Agent shell    | `src/agent::Agent` owns AS; scheduled multi-SVC; concurrent dual-TCB (**done HW**); `SYS_PUTC` + IRQ resume (**done HW**)                                                                                 |
+| Authority (M7) | Slot-indexed caps; console behind a cap denied by default; agent fault ends the session, creator decides the task (**done HW**)                                                                           |
+| PL011 agent    | Page map (ADR-0013); FR; RX own (drain off, LBE inject, poll, kill restores) — M6 **done HW**                                                                                                             |
+| Tasks (M3)     | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                                                                                                  |
+| IPC (M4)       | Mailboxes + CapId send/recv; refuse counter; IRQ wake queue (ADR-0008); demo sender/receiver/forger                                                                                                       |
+| Interrupts     | GICv2, arch timer PPI (absolute CVAL), PL011 RX via SPI, dispatch counters; lower-EL IRQ → agent when session unmasks                                                                                     |
+| RNG            | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                                                                                         |
+| Console        | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                                                                                         |
+| TFT (lab)      | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                                                                                                  |
+| Verification   | 284 host tests (unit, integration, doc), **bounded model checking** of the scheduler and authority core, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware |
 
 ## What is not there yet
 
@@ -130,6 +130,8 @@ crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
                 rxline (who owns the UART, and in what order it changes hands)
   agent text    prog — the machine code EL0 agents run, checked against the
                 assembly it documents by disassembling it (a64 builds the words)
+  agent identity manifest — which agents exist and what each is granted; a slot
+                carries an *index* into the loader's capabilities, never a CapId
   memory        paging, layout, frame, heap, bump
   hardware maths gic, uart, spi, rng, timer, reset (PM_RSTS decode), a64, poll,
                 delay
@@ -172,13 +174,13 @@ Multi-arch **scaffold** (ADR-0015): AArch64 + Pi 4 only as product; see
 
 ## Requirements
 
-| Need | Role |
-| ---- | ---- |
+| Need                                                             | Role                                                                         |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | Rust toolchain from [`rust-toolchain.toml`](rust-toolchain.toml) | Channel + `aarch64-unknown-none-softfloat`; `rustup` installs on first build |
-| `llvm-objcopy` | ELF → `kernel8.img` |
-| `qemu-system-aarch64` | Emulated boot and `make boot-check` / `make check` |
-| Nightly + Miri (optional locally) | `make miri`; skipped loudly if missing, required in CI |
-| SD card + 3.3 V USB–serial | Hardware run only |
+| `llvm-objcopy`                                                   | ELF → `kernel8.img`                                                          |
+| `qemu-system-aarch64`                                            | Emulated boot and `make boot-check` / `make check`                           |
+| Nightly + Miri (optional locally)                                | `make miri`; skipped loudly if missing, required in CI                       |
+| SD card + 3.3 V USB–serial                                       | Hardware run only                                                            |
 
 Primary host for development is **Arch Linux**; any machine with the tools above
 is fine.
@@ -264,11 +266,11 @@ QEMU: the SoC block is not modelled; presence is soft-failed via `arch::probe`.
 
 **Hardware** (Pi 4B) differs in the ways that matter for “is this silicon?”:
 
-| Signal | Board |
-| ------ | ----- |
-| DTB | Present, then mapped RO (e.g. `DTB mapped: 61440 bytes at 0x2eff1000`) |
-| `CNTFRQ` | `54000000` Hz (not TCG’s 62.5 MHz) |
-| RNG200 | `rng200: ok word=…` (raw sample; not a CSPRNG claim) |
+| Signal                               | Board                                                                                         |
+| ------------------------------------ | --------------------------------------------------------------------------------------------- |
+| DTB                                  | Present, then mapped RO (e.g. `DTB mapped: 61440 bytes at 0x2eff1000`)                        |
+| `CNTFRQ`                             | `54000000` Hz (not TCG’s 62.5 MHz)                                                            |
+| RNG200                               | `rng200: ok word=…` (raw sample; not a CSPRNG claim)                                          |
 | TFT (`FEATURES=debug-display` + HAT) | `display: ILI9486 up  cdiv=…  bit_clk=… Hz  status` — navy fill + status banner (regwidth-16) |
 
 Full HW evidence: stack split in
@@ -306,7 +308,7 @@ See [`docs/verification.md`](docs/verification.md#m3-cooperative-tasks-hardware)
 | Doc                                            | Content                                          |
 | ---------------------------------------------- | ------------------------------------------------ |
 | [`docs/architecture.md`](docs/architecture.md) | Layers, agent model, milestones, **roadmap**     |
-| [`SECURITY.md`](SECURITY.md)                  | Threat model, TCB, authority surface, residuals  |
+| [`SECURITY.md`](SECURITY.md)                   | Threat model, TCB, authority surface, residuals  |
 | [`docs/verification.md`](docs/verification.md) | What is checked, and what each check is blind to |
 | [`docs/mmu.md`](docs/mmu.md)                   | Two maps, regions, W^X, guard page               |
 | [`docs/interrupts.md`](docs/interrupts.md)     | VBAR, GIC, timer, HW evidence                    |

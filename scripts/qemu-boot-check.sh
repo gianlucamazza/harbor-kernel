@@ -239,14 +239,44 @@ grep -qa 'ipc: got tag=1 a=42' "${log}" ||
 # dead endpoint too, so a boot that filled a four-deep mailbox would have
 # satisfied this assertion without any capability ever being checked.
 #
-# Exactly three, not "at least one". The count is machine-wide and has three
-# producers — the M4 forger with a capability it does not hold, the EL0 agent
-# naming a slot it was not granted, and the EL0 agent denied the console. A
-# range would let any one of them satisfy the assertion for the others; it
+# Exactly five, not "at least one". The count is machine-wide and every
+# producer is deliberate:
+#
+#   1. the M4 forger, with a capability it does not hold
+#   2. the EL0 agent naming a slot it was not granted
+#   3. the EL0 agent denied the console
+#   4-5. the manifest's `mute`, twice — it runs the same image as `echo` and was
+#        granted no console slot, so both of its `SYS_PUTC` calls are refused
+#
+# A range would let any one of them satisfy the assertion for the others; it
 # already did, while a bug had the counter reset by any successful send in
-# between.
-grep -qaE 'ipc: refuse count=3 ' "${log}" ||
-	fail "authority refusals are not exactly the three the boot performs"
+# between. It was three until the loader landed, and the two it gained are the
+# manifest demonstrating that authority is in the table.
+grep -qaE 'ipc: refuse count=5 ' "${log}" ||
+	fail "authority refusals are not exactly the five the boot performs"
+
+# ADR-0021: agents are data, and authority is one entry in a table.
+#
+# `echo` and `mute` run the **same bytes** — one `const [u8; 32]` in `.rodata`,
+# built by the same encoder the assembler oracle checks. The only difference
+# between them is whether the manifest gave slot 1 the loader's console
+# capability. So `echo` printing `H!` and `mute` being refused twice is the
+# claim in its smallest form: nothing in the program and nothing in the code
+# that spawns it decides the authority.
+#
+# `mute` also declares two text pages against `echo`'s one, so a boot exercises
+# a window the BSP no longer fixes — and a multi-page text is the reason
+# `poke_user` walks pages instead of assuming one contiguous run.
+grep -qa 'loader: echo loaded text=1 stack=3' "${log}" ||
+	fail "the loader did not create the granted manifest agent"
+grep -qa 'loader: mute loaded text=2 stack=3' "${log}" ||
+	fail "the loader did not create an agent with a multi-page text window"
+grep -qa 'loader: echo ran putcs=2 refusals=0' "${log}" ||
+	fail "the granted manifest agent did not use the console it was given"
+grep -qa 'loader: mute ran putcs=0 refusals=2' "${log}" ||
+	fail "the ungranted manifest agent was not refused the console"
+grep -qa 'H!loader: echo ran' "${log}" ||
+	fail "the manifest agent's bytes did not reach the console before its report"
 
 # Neither of the other two should move in a healthy boot: nothing here fills a
 # mailbox, and a refusal for `state` means an endpoint resolved and then named a

@@ -54,7 +54,10 @@ doc="$(grep -rhc '^\s*/// ```$' crates/kernel-core/src/*.rs |
 actual=$((unit + integration + doc))
 [[ "${unit}" -gt 0 ]] || fail "found no #[test] attributes under crates/kernel-core/src"
 
-claimed="$(sed -n 's/^| Verification | \([0-9]\+\) host tests.*/\1/p' README.md)"
+# Whitespace-tolerant on purpose: the markdown formatter re-aligns this table
+# whenever a neighbouring row changes width, and a gate that a formatter can
+# turn red is a gate people learn to work around.
+claimed="$(sed -n 's/^|[[:space:]]*Verification[[:space:]]*|[[:space:]]*\([0-9]\+\) host tests.*/\1/p' README.md)"
 [[ -n "${claimed}" ]] || fail "README has no 'N host tests' claim to check"
 
 if [[ "${claimed}" != "${actual}" ]]; then

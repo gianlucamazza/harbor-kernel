@@ -529,6 +529,58 @@ instead.
 The W^X probe needs no re-run: `.text` and `.rodata` were not touched by the
 split, and its recorded ESR does not depend on an address that moved.
 
+## The manifest: same bytes, different authority (2026-08-07, QEMU)
+
+ADR-0021 landed. The claim is that authority lives in a table rather than in a
+program or in the code that spawns it, and the smallest form of that claim is two
+entries running the **identical image**:
+
+```
+loader: echo loaded text=1 stack=3
+loader: mute loaded text=2 stack=3
+H!loader: echo ran putcs=2 refusals=0
+loader: mute ran putcs=0 refusals=2
+```
+
+`echo` and `mute` share one `const [u8; 32]` in `.rodata` — the same bytes,
+built by `prog::encode_putc_hi_exit`, which the assembler oracle already checks
+against `llvm-mc`. `echo` prints `H!`. `mute` is refused twice. The only
+difference between them is whether the manifest put the loader's console
+capability in slot 1.
+
+`mute` also declares **two** text pages against `echo`'s one, so the boot
+exercises a window geometry the BSP no longer fixes — and a multi-page text is
+exactly why `AddressSpace::poke_user` now walks pages instead of writing from
+page 0's physical address. The frames behind a window are adjacent only by
+accident of the pool's LIFO free order: that accident holds on a fresh boot and
+stops holding after the first create/destroy cycle, which is the shape of bug
+this change could have re-introduced and does not.
+
+### Seen red
+
+| Change                                             | What failed                                                                                                                                                         |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `echo`'s slot 1 set to index `9`, loader holds one | `loader: echo refused — slot 1 names capability 9 of 1`, and the boot continued. Not a panic, not a silent `None`, and not a read past the end of the loader's list |
+| The loader landed with `MAX_TASKS` still 12        | `loader: echo spawn FAILED Full` — the oracle was already at exactly twelve tasks                                                                                   |
+
+The first is the assertion the manifest exists for. It is arithmetic:
+`index >= held.len()`. An entry cannot name authority the loader does not hold,
+and that is a property of the shape rather than of a check somebody has to
+remember to write.
+
+### Numbers
+
+`ipc: refuse count=5`, up from three. The two new ones are `mute`'s, and the
+count is asserted exactly rather than as a range — a range would let any one
+producer satisfy the assertion for the others, which it once did.
+
+`make product-builds` fell from **95 unreachable items to 37**: the loader is
+product code and calls `spawn_agent`, `AddressSpace`, `Agent` and the EL0
+session. The **image size did not move** — 54496 B before and after — because
+the manifest is `cfg(oracle)` and an empty table loads nothing. Reachable in the
+source, absent from the image. That is the honest state of ADR-0021's positive
+claim until M8 gives the product an agent.
+
 ## Blocking `SYS_RECV`: what the oracle stopped arranging (2026-08-07, QEMU)
 
 ADR-0022 landed. The property is not "a message crossed" — that was already

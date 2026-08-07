@@ -27,6 +27,7 @@ type KernelTasks = Tasks<12>;
 const KERNEL_WINDOW: UserWindow = UserWindow {
     base: 0x0000_0000_4000_0000,
     pages: 4,
+    text_pages: 1,
     frame: 0x1000,
 };
 

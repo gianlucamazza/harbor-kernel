@@ -38,8 +38,14 @@ use crate::sync::SyncCell;
 /// Maximum concurrent tasks including idle.
 ///
 /// Sized for idle + M3 demos + M4 IPC trio + M5-P/M6 agents + concurrent
-/// agent peers + bringup probe margin. Slots are not reused before exit.
-pub const MAX_TASKS: usize = 12;
+/// agent peers + the manifest's two + bringup probe margin. Slots are not
+/// reused before exit, so this is a boot-time total and not a high-water mark.
+///
+/// It went 12 → 14 when the loader landed: the oracle was already at exactly
+/// 12, and the first manifest entry reported `spawn FAILED Full` rather than
+/// running. Raising it costs two task stacks and two entries of the page-table
+/// reserve, both derived from this constant.
+pub const MAX_TASKS: usize = 14;
 
 /// Caps a task may hold (M4 local table — not shared globals).
 pub const MAX_CAPS_PER_TASK: usize = 4;
@@ -60,6 +66,14 @@ struct Tcb {
     entry: Option<fn()>,
     /// Unforgeable caps this task holds (M4).
     caps: [Option<CapId>; MAX_CAPS_PER_TASK],
+    /// Index into the agent manifest, for a task the loader created (ADR-0021).
+    ///
+    /// An index rather than a reference, for the reason [`Tcb::caps`] holds
+    /// slots rather than a capability table: a task cannot name an entry that
+    /// is not in the table, and the bound is the array. `None` for every task
+    /// spawned as a plain Rust `fn` — the EL1 demos, idle, and the oracle's
+    /// test drivers.
+    agent: Option<u8>,
     /// EL0 session state (ADR-0017 §1). `None` for a slot that is not a task:
     /// an empty slot, or one whose task has exited.
     ///
@@ -79,10 +93,18 @@ impl Tcb {
             stack: None,
             entry: None,
             caps: [None; MAX_CAPS_PER_TASK],
+            agent: None,
             el0: None,
         }
     }
 }
+
+/// `MAX_CAPS_PER_TASK` and the manifest's slot count are the same number.
+///
+/// Written twice — here and in `kernel_core::manifest` — because the two crates
+/// cannot see each other's constants, and asserted here because this is the side
+/// that owns the array a slot indexes into.
+const _: () = assert!(MAX_CAPS_PER_TASK == kernel_core::manifest::MAX_SLOTS);
 
 /// Hand `arch` the EL0 session of the task that is about to run.
 ///
@@ -182,6 +204,34 @@ pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError
 /// is refused rather than handed whatever sits next to the one it meant, and
 /// the boot oracle uses exactly that to show the refusal on the good path.
 pub fn spawn_with_slots(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, SpawnError> {
+    spawn_inner(entry, slots, None)
+}
+
+/// Create a ready task that runs manifest entry `index` (ADR-0021).
+///
+/// The entry function is the same one for every agent — a trampoline that asks
+/// which entry it is. That is the shape a loader has: one body, N descriptions,
+/// instead of N compiled-in bodies.
+pub fn spawn_agent(entry: fn(), index: u8, slots: &[Option<CapId>]) -> Result<TaskId, SpawnError> {
+    spawn_inner(entry, slots, Some(index))
+}
+
+/// The manifest entry the running task was created from, if any.
+#[inline]
+pub fn current_agent_index() -> Option<u8> {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let sched = unsafe { &mut *SCHED.get() };
+        let idx = sched.tasks.current().0 as usize;
+        sched.tcbs[idx].agent
+    })
+}
+
+fn spawn_inner(
+    entry: fn(),
+    slots: &[Option<CapId>],
+    agent: Option<u8>,
+) -> Result<TaskId, SpawnError> {
     if STARTED.load(Ordering::Acquire) == 0 {
         return Err(SpawnError::NotStarted);
     }
@@ -217,6 +267,7 @@ pub fn spawn_with_slots(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, 
             stack: Some(stack),
             entry: Some(entry),
             caps: held,
+            agent,
             // Created here rather than on first use: the switch publishes
             // whatever the slot holds, so a session that appears later would be
             // a pointer the last switch could not have published.
@@ -499,6 +550,7 @@ fn switch_with(kind: Switch) {
         // The session dies with the task. Nothing scrubs what a faulting agent
         // left in it before this point — see ADR-0018's fifth reversal row.
         slot.el0 = None;
+        slot.agent = None;
     }
 
     if let Some(stranded) = release {

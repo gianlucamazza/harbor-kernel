@@ -9,6 +9,7 @@
 mod console_loop;
 #[cfg(feature = "oracle")]
 mod demos;
+mod loader;
 #[cfg(feature = "bringup")]
 mod selftest;
 
@@ -406,6 +407,26 @@ pub fn run() -> ! {
             None
         }
     };
+
+    // Agents that are data (ADR-0021). One loop over a table, and the table is
+    // the *only* place those grants are written — so `held` here is the whole
+    // of what any manifest agent can be given, and an entry naming anything
+    // else is refused by arithmetic rather than by a check.
+    //
+    // This call is product code. The table it reads is empty without the
+    // oracle, which `make product-builds` reports as a number.
+    // A loader that minted nothing holds nothing, and every entry naming a
+    // capability is refused. That is the right failure: an agent granted a
+    // console that does not exist would be worse than one refused.
+    let one;
+    let held: &[kernel_core::cap::CapId] = match console_cap {
+        Some(cap) => {
+            one = [cap];
+            &one
+        }
+        None => &[],
+    };
+    loader::load_all(held);
 
     // Everything the boot oracle needs, and nothing the product does. Rule 9
     // of `architecture.md` keeps diagnostic scaffolding out of the production

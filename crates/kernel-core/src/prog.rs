@@ -40,10 +40,19 @@
 use crate::a64;
 use crate::syscall;
 
+/// Append one instruction word, little-endian.
+///
+/// Byte-by-byte rather than `copy_from_slice`, so the whole encoder family can
+/// be `const fn`: a manifest entry's image is a `const [u8; N]` in `.rodata`
+/// (ADR-0021 §3), and that only works if the function that builds it runs at
+/// compile time. Slice methods are not const; four index assignments are.
 #[inline]
-fn push_word(out: &mut [u8], at: &mut usize, word: u32) {
+const fn push_word(out: &mut [u8], at: &mut usize, word: u32) {
     let b = a64::le_bytes(word);
-    out[*at..*at + 4].copy_from_slice(&b);
+    out[*at] = b[0];
+    out[*at + 1] = b[1];
+    out[*at + 2] = b[2];
+    out[*at + 3] = b[3];
     *at += 4;
 }
 
@@ -51,7 +60,7 @@ fn push_word(out: &mut [u8], at: &mut usize, word: u32) {
 ///
 /// Send one message through a slot, then exit. `b` is left zero — three
 /// immediates are enough to see a payload cross, and `movz` carries 16 bits.
-pub fn encode_send_exit(slot: u16, tag: u16, a: u16) -> [u8; 24] {
+pub const fn encode_send_exit(slot: u16, tag: u16, a: u16) -> [u8; 24] {
     let mut out = [0u8; 24];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
@@ -72,7 +81,7 @@ pub fn encode_send_exit(slot: u16, tag: u16, a: u16) -> [u8; 24] {
 /// prove only that it resumed. Moving `x2` — the message's `a` field — into the
 /// `putc` argument makes the byte on the console *the payload*, carried from
 /// another agent's registers through the kernel into this one's.
-pub fn encode_recv_putc_exit(recv_slot: u16, console_slot: u16) -> [u8; 28] {
+pub const fn encode_recv_putc_exit(recv_slot: u16, console_slot: u16) -> [u8; 28] {
     let mut out = [0u8; 28];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, recv_slot));
@@ -93,11 +102,11 @@ pub fn encode_recv_putc_exit(recv_slot: u16, console_slot: u16) -> [u8; 28] {
 /// One `SYS_PUTC` through a named slot, then exit. Pointed at a slot that holds
 /// no console capability, this is the agent that must be refused on the good
 /// path (ADR-0017 §3).
-pub fn encode_putc_once_exit(slot: u16, byte: u8) -> [u8; 20] {
+pub const fn encode_putc_once_exit(slot: u16, byte: u8) -> [u8; 20] {
     let mut out = [0u8; 20];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::movz_x(1, u16::from(byte)));
+    push_word(&mut out, &mut i, a64::movz_x(1, byte as u16));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
@@ -110,7 +119,7 @@ pub fn encode_putc_once_exit(slot: u16, byte: u8) -> [u8; 20] {
 /// an agent reaching for authority it was not granted. It is a demo program
 /// rather than a test because the refusal has to be *seen on the good path* —
 /// a protection nobody watches fire is an assumption.
-pub fn encode_send_bare_exit(slot: u16) -> [u8; 16] {
+pub const fn encode_send_bare_exit(slot: u16) -> [u8; 16] {
     let mut out = [0u8; 16];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
@@ -127,7 +136,7 @@ pub fn encode_send_bare_exit(slot: u16) -> [u8; 16] {
 /// [`syscall::Status::Empty`] — which is why it exists as a demo rather than as
 /// a host test: once `SYS_RECV` waits, nothing else reaches that status, and a
 /// status no program can produce is a status that stops being maintained.
-pub fn encode_try_recv_exit(slot: u16) -> [u8; 16] {
+pub const fn encode_try_recv_exit(slot: u16) -> [u8; 16] {
     let mut out = [0u8; 16];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
@@ -144,7 +153,7 @@ pub fn encode_try_recv_exit(slot: u16) -> [u8; 16] {
 /// says what it *meant* to do, rather than trailing off into a branch-to-self
 /// that would look like the fault was the intent of the encoder rather than of
 /// the test.
-pub fn encode_fault_exit() -> [u8; 16] {
+pub const fn encode_fault_exit() -> [u8; 16] {
     let mut out = [0u8; 16];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x_lsl16(0, 0x8));
@@ -155,7 +164,7 @@ pub fn encode_fault_exit() -> [u8; 16] {
 }
 
 /// A64: `svc #imm` ; `b .`
-pub fn encode_svc_imm(imm: u16) -> [u8; 8] {
+pub const fn encode_svc_imm(imm: u16) -> [u8; 8] {
     let mut out = [0u8; 8];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::svc(imm));
@@ -164,7 +173,7 @@ pub fn encode_svc_imm(imm: u16) -> [u8; 8] {
 }
 
 /// A64: `svc #0; svc #0; svc #1; b .` — two pings then exit (resume path).
-pub fn encode_ping_ping_exit() -> [u8; 16] {
+pub const fn encode_ping_ping_exit() -> [u8; 16] {
     let mut out = [0u8; 16];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::svc(0));
@@ -175,14 +184,14 @@ pub fn encode_ping_ping_exit() -> [u8; 16] {
 }
 
 /// A64: `movz x0, #'H'; svc #2; movz x0, #'!'; svc #2; svc #1; b .`
-pub fn encode_putc_hi_exit(slot: u16) -> [u8; 32] {
+pub const fn encode_putc_hi_exit(slot: u16) -> [u8; 32] {
     let mut out = [0u8; 32];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::movz_x(1, u16::from(b'H')));
+    push_word(&mut out, &mut i, a64::movz_x(1, b'H' as u16));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::movz_x(1, u16::from(b'!')));
+    push_word(&mut out, &mut i, a64::movz_x(1, b'!' as u16));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
@@ -203,7 +212,7 @@ pub fn encode_putc_hi_exit(slot: u16) -> [u8; 32] {
 /// Pair with [`el0::set_entry_irqs_unmasked`] and
 /// [`crate::arch::timer::accelerate_next_tick`] so a timer IRQ arrives while
 /// the counter is still non-zero.
-pub fn encode_spin_exit(iters: u16) -> [u8; 20] {
+pub const fn encode_spin_exit(iters: u16) -> [u8; 20] {
     let mut out = [0u8; 20];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, iters));
@@ -219,7 +228,7 @@ pub fn encode_spin_exit(iters: u16) -> [u8; 20] {
 ///
 /// Empty FIFO → zero putcs (honest “no data” path). A pending character → one
 /// putc. Does not invent receive data.
-pub fn encode_pl011_rx_poll_exit(console_slot: u16) -> [u8; 32] {
+pub const fn encode_pl011_rx_poll_exit(console_slot: u16) -> [u8; 32] {
     let mut out = [0u8; 32];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x_lsl16(0, 0x5000));

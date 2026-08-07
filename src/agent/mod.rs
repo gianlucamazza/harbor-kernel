@@ -233,6 +233,15 @@ impl Agent {
         Ok(Self { aspace })
     }
 
+    /// Take an address space the caller already built.
+    ///
+    /// The loader's entry point: a manifest entry's geometry and device grant
+    /// are applied to the address space before an agent exists to own it
+    /// (ADR-0021 §5).
+    pub fn from_aspace(aspace: AddressSpace) -> Self {
+        Self { aspace }
+    }
+
     #[inline]
     pub fn aspace_mut(&mut self) -> &mut AddressSpace {
         &mut self.aspace

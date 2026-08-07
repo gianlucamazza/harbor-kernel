@@ -270,16 +270,23 @@ fn validate(regions: &[Region], bounds: &Boundaries) -> Result<(), LayoutError> 
 
 /// The private VA window an EL0 agent runs in (ADR-0014).
 ///
-/// Page 0 is the agent's text, mapped `USER_RX`; the pages above it are its
-/// stack, mapped `USER_RW`, with `SP_EL0` starting at the top. Fixed by the BSP
-/// rather than negotiated — there is no loader and no binary format yet, so the
-/// layout *is* the ABI.
+/// The lowest `text_pages` are the agent's text, mapped `USER_RX`; the pages
+/// above them are its stack, mapped `USER_RW`, with `SP_EL0` starting at the
+/// top.
+///
+/// The geometry is **per agent** since ADR-0021: a manifest entry declares how
+/// many pages of each it wants, and a loader that could only place 4 KiB has not
+/// changed what the system can run. Before that it was one fixed BSP constant,
+/// because with no loader the layout *was* the ABI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct UserWindow {
-    /// Lowest VA: the text page.
+    /// Lowest VA: the first text page.
     pub base: u64,
-    /// Total pages, text included. Must be at least 2 — one text, one stack.
+    /// Total pages, text included. Must exceed `text_pages` — a window with no
+    /// stack is not a window.
     pub pages: usize,
+    /// Executable pages at the base. At least one.
+    pub text_pages: usize,
     /// Page size in bytes.
     pub frame: usize,
 }
@@ -287,9 +294,9 @@ pub struct UserWindow {
 /// Why an access to a [`UserWindow`] was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WindowError {
-    /// Fewer than two pages: no room for both text and a stack.
+    /// No text, or no room left for a stack above it.
     TooSmall,
-    /// The write would leave the text page.
+    /// The write would leave the text.
     OutOfTextPage,
 }
 
@@ -307,53 +314,67 @@ impl UserWindow {
         self.base
     }
 
-    /// True for the page that must be mapped executable rather than writable.
+    /// True for the pages that must be mapped executable rather than writable.
     ///
-    /// Exactly one, and it is the lowest: W^X applies to a user window as much
-    /// as to the kernel map, so no page is ever both.
+    /// The lowest `text_pages` of them, and no others: W^X applies to a user
+    /// window as much as to the kernel map, so no page is ever both.
     #[inline]
     pub const fn is_text_page(&self, index: usize) -> bool {
-        index == 0
+        index < self.text_pages
     }
 
+    /// Bytes of text this window can hold.
+    #[inline]
+    pub const fn text_bytes(&self) -> usize {
+        self.text_pages * self.frame
+    }
+
+    /// Reject a window that has no text, or no stack above it.
     #[inline]
     pub const fn validate(&self) -> Result<(), WindowError> {
-        if self.pages < 2 {
+        if self.text_pages == 0 || self.pages <= self.text_pages {
             return Err(WindowError::TooSmall);
         }
         Ok(())
     }
 
-    /// Bound a write of `len` bytes at `offset` into the **text page**.
+    /// Bound a write of `len` bytes at `offset` into the **text**.
     ///
-    /// One page, not the whole window, and the distinction is the point. The
-    /// kernel pokes user text through the identity map using the physical
-    /// address of page 0 — the pages above it come from separate frame
-    /// allocations and are contiguous only by accident of the pool's free
-    /// order. Validating against `pages * frame` licensed exactly the write it
-    /// should refuse: at any offset past the first page it lands in whatever
-    /// frame happens to follow, which after a create/destroy cycle is another
-    /// address space's page tables.
+    /// The text, not the whole window, and the distinction is the point. The
+    /// stack pages above the text must never be reachable by a poke: they are
+    /// the agent's, and a write that ran past the text into them would be the
+    /// kernel scribbling on a running program's stack.
+    ///
+    /// This bound says nothing about *contiguity*. Each page of the window comes
+    /// from its own [`crate::frame`] allocation and they are adjacent only by
+    /// accident of the pool's free order, so the caller must walk page by page
+    /// — `AddressSpace::poke_user` does, and an earlier version that assumed one
+    /// contiguous run is why this bound was a single frame for as long as the
+    /// text was.
     ///
     /// ```
     /// use kernel_core::layout::{UserWindow, WindowError};
     ///
-    /// let window = UserWindow { base: 0x4000_0000, pages: 4, frame: 0x1000 };
+    /// let window = UserWindow { base: 0x4000_0000, pages: 4, text_pages: 1, frame: 0x1000 };
     ///
-    /// // The whole text page is fair game.
+    /// // The whole text is fair game.
     /// assert_eq!(window.bound_text_write(0, 0x1000), Ok(()));
     ///
     /// // One byte past it is refused — even though the *window* is 16 KiB,
-    /// // the write goes to page 0's physical address and nowhere else.
+    /// // the pages above the text belong to the agent's stack.
     /// assert_eq!(
     ///     window.bound_text_write(0x1000, 1),
     ///     Err(WindowError::OutOfTextPage)
     /// );
+    ///
+    /// // An agent that asked for two text pages gets two.
+    /// let wide = UserWindow { text_pages: 2, ..window };
+    /// assert_eq!(wide.bound_text_write(0x1000, 1), Ok(()));
     /// ```
     #[inline]
     pub const fn bound_text_write(&self, offset: usize, len: usize) -> Result<(), WindowError> {
         match offset.checked_add(len) {
-            Some(end) if end <= self.frame => Ok(()),
+            Some(end) if end <= self.text_bytes() => Ok(()),
             _ => Err(WindowError::OutOfTextPage),
         }
     }
@@ -363,10 +384,11 @@ impl UserWindow {
 mod tests {
     use super::*;
 
-    /// The window `bsp::rpi4` fixes: 4 pages of 4 KiB at 0x4000_0000.
+    /// The default window: one text page and three of stack, 4 KiB each.
     const WIN: UserWindow = UserWindow {
         base: 0x4000_0000,
         pages: 4,
+        text_pages: 1,
         frame: 0x1000,
     };
 
@@ -536,13 +558,44 @@ mod tests {
     }
 
     #[test]
-    fn two_pages_is_the_smallest_usable_window() {
-        // The boundary itself: one text page and one stack page. `< 2` and
-        // `<= 2` differ only here, and only here does it matter.
+    fn the_smallest_usable_window_is_one_text_page_and_one_stack_page() {
+        // The boundary itself: `pages <= text_pages` and `pages < text_pages`
+        // differ only here, and only here does it matter — the second would
+        // accept a window that is all text and no stack, which `SP_EL0` would
+        // start at the top of the executable pages.
         let two = UserWindow { pages: 2, ..WIN };
         assert_eq!(two.validate(), Ok(()), "text + one stack page is usable");
         let one = UserWindow { pages: 1, ..WIN };
         assert_eq!(one.validate(), Err(WindowError::TooSmall));
+    }
+
+    #[test]
+    fn a_window_scales_its_text_and_keeps_needing_a_stack() {
+        // What ADR-0021 buys: an agent may declare more than one page of text.
+        let wide = UserWindow {
+            pages: 8,
+            text_pages: 4,
+            ..WIN
+        };
+        assert_eq!(wide.validate(), Ok(()));
+        assert_eq!(wide.text_bytes(), 0x4000);
+        assert!(wide.is_text_page(3));
+        assert!(!wide.is_text_page(4), "page 4 is the first stack page");
+
+        // All text and no stack is refused however large it is.
+        let no_stack = UserWindow {
+            pages: 4,
+            text_pages: 4,
+            ..WIN
+        };
+        assert_eq!(no_stack.validate(), Err(WindowError::TooSmall));
+
+        // No text is refused too — there would be nothing to enter.
+        let no_text = UserWindow {
+            text_pages: 0,
+            ..WIN
+        };
+        assert_eq!(no_text.validate(), Err(WindowError::TooSmall));
     }
 
     #[test]
@@ -553,7 +606,7 @@ mod tests {
     }
 
     #[test]
-    fn exactly_one_page_is_text() {
+    fn the_default_window_has_exactly_one_text_page() {
         // W^X inside the user window too: the executable page is never one of
         // the writable ones.
         assert!(WIN.is_text_page(0));

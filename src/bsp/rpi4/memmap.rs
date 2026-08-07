@@ -123,11 +123,14 @@ pub const FRAME_POOL_BYTES: usize = FRAME_POOL_FRAMES * FRAME_SIZE;
 /// gap above the low layout and below the device windows.
 pub const USER_VA_BASE: u64 = 0x0000_0000_4000_0000;
 
-/// User stack size in pages (grows down toward [`USER_VA_BASE`]).
+/// Total pages of the **default** user window: one of text, three of stack.
+///
+/// A default rather than the layout: since ADR-0021 an agent declares its own
+/// geometry in its manifest entry, and this is what an address space gets when
+/// nobody asks. `USER_STACK_TOP` used to sit beside it and no longer does —
+/// `UserWindow::stack_top` computes it from a window that is now per agent, and
+/// a board constant naming *the* stack top would describe one case out of many.
 pub const USER_STACK_PAGES: usize = 4;
-
-/// Exclusive top of the user stack VA range (`USER_VA_BASE + pages * 4 KiB`).
-pub const USER_STACK_TOP: u64 = USER_VA_BASE + (USER_STACK_PAGES as u64) * (FRAME_SIZE as u64);
 
 /// Device MMIO windows the kernel maps: `(base, length, name)`.
 ///

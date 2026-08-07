@@ -95,17 +95,22 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
    compiled, and is checked: `make product-builds` refuses one that still
    carries the demo strings.
 
-   That build also reports a number worth reading. **95 items are unreachable
-   without the oracle** — not only the demos, but `sched::spawn`, `ipc::send`,
-   `AddressSpace`, `task_trampoline`. Nothing in the product creates a task or
-   sends a message, because an agent's text has to be compiled in and there is
-   no loader. The rule-9 fix did not create that gap; it measured it.
+   That build also reports a number worth reading: **37 items are unreachable
+   without the oracle**, down from 95. `bootstrap::loader` is product code and
+   calls `sched::spawn_agent`, `AddressSpace`, `Agent` and the EL0 session, so
+   they finally have a product-path caller (ADR-0021).
 
-   The number moves with the kernel: it was 88 before `SYS_RECV` learned to
-   wait, because the park added product code the product cannot reach either.
-   `make product-builds` prints the current one, and this sentence is the only
-   place that repeats it — no gate compares the two, so a stale figure here is
-   drift a reader has to catch.
+   What did **not** change is the product image size — 54496 B before the loader
+   and after it. The manifest is `cfg(oracle)`, so without it the loader has
+   nothing to load and the linker keeps nothing. Reachable in the source, absent
+   from the image. It stays that way until M8 gives the product an agent to run,
+   and ADR-0021's consequences say so rather than letting "the loader is product
+   code" be read as "the product loads something".
+
+   The number moves with the kernel — 88, then 95 when `SYS_RECV` learned to
+   wait, then 37 when the loader landed. `make product-builds` prints the
+   current one, and this paragraph is the only place that repeats it: no gate
+   compares the two, so a stale figure here is drift a reader has to catch.
 
 10. **Facade isolation (ADR-0015).** Outside `src/arch/`, import only
     `crate::arch::{…}` — never `crate::arch::<isa>`. Outside a board package,
@@ -153,8 +158,26 @@ from `agent` — board PA/VA for demos live in bootstrap.
 | Agent      | Task + AS at EL0; multi-SVC (**HW**); IRQ resume + `SYS_PUTC` + PL011 RX own (**QEMU**) | **hybrid** — [Roadmap](#roadmap) |
 | Message    | Sole interaction channel (M4)                                                           | **done (HW)**                    |
 | Capability | Unforgeable handle (send/recv; future: IRQ notification)                                | **done (HW)** (IRQ caps later)   |
+| Manifest   | The table that says which agents exist and what each is granted ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | **done (QEMU)** |
 
 `irq::register` is the hook for later capability mediation.
+
+### An agent is data
+
+Since ADR-0021 an agent can be a **manifest entry** rather than a compiled-in
+Rust `fn`: an image, a window geometry, and a slot table. `bootstrap::loader` is
+one loop over `kernel_core::manifest`, and `sched::spawn_agent` gives every entry
+the same trampoline — one body, N descriptions.
+
+The security argument is arithmetic, not a check. An entry's slot carries an
+**index into the loader's own capability list**, never a `CapId`, so there is
+nothing outside that list for a manifest to name. `manifest::bind` is where the
+index becomes a capability, and an index past the end is a refusal that says
+which one it reached for.
+
+What is **not** a manifest entry: a body that runs several programs in sequence
+and checks counters between them. That is an oracle, and `el0_scheduled_task`
+and `el0_ipc_sender` stay hand-written for that reason.
 
 ## Milestones
 
@@ -295,7 +318,7 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 
 | #   | Work                                                                                                                                                               | Done when                                                                                                                                                                                                        |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Agent loading**: agents become data described by [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)'s manifest                               | Every grant in the machine is one table; the loader is one loop over it; an agent's text is no longer bounded by one page. `make product-builds` stops reporting that nothing in the product creates a task      |
+| 1   | ~~**Agent loading**~~ — **done (QEMU)**, awaiting a silicon stamp ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | Landed: `bootstrap::loader` is one loop over `kernel_core::manifest`, an agent's window is per entry rather than fixed at 4 KiB, and two entries running the same bytes differ only in whether the table granted a console. The product manifest is still empty — M8 is its first inhabitant |
 | 2   | ~~**Blocking `SYS_RECV`**~~ — **done (QEMU)**, awaiting a silicon stamp ([ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)) | Landed: the receiver is spawned first, parks on an empty mailbox, and the peer's send wakes it. `make irq-scope` keeps the `DAIF` scoping rule true rather than remembered |
 | 3   | **M8: console endpoint** (retire transitional `SYS_PUTC`)                                                                                                          | Same slot ABI; kernel or EL1 server drains; boot-check still asserts denied-by-default                                                                                                                           |
 | 4   | **Optional: IRQ-wake RX**                                                                                                                                          | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                                |

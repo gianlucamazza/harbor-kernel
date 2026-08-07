@@ -123,6 +123,10 @@ llvm-objcopy -O binary "${OUT}/harbor-kernel" "${OUT}/kernel8.img"
 
 printf 'product-builds: clean (no demo symbols; image %s B without the oracle, %s B with, +%s B)\n' \
 	"${product_size}" "${oracle_size}" "$((oracle_size - product_size))"
-printf '  %s items unreachable without it — not only the demos: spawn, ipc::send,\n' "${unreachable}"
-printf '  AddressSpace, task_trampoline. Nothing in the product creates a task or\n'
-printf '  sends a message, because the only creator is scaffolding compiled in.\n'
+printf '  %s items unreachable without it. This was 95 before the loader landed:\n' "${unreachable}"
+printf '  bootstrap::loader is product code and calls spawn_agent, AddressSpace,\n'
+printf '  Agent and the EL0 session, so they now have a product-path caller.\n'
+printf '  What has NOT changed is the product image size — the manifest is empty\n'
+printf '  without the oracle, so the loader loads nothing and the linker keeps\n'
+printf '  nothing. Reachable in the source, absent from the image, until M8 gives\n'
+printf '  the product an agent to run (ADR-0021 consequences).\n'
