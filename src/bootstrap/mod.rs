@@ -617,6 +617,19 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("el0-resolve: channel FAILED {e:?}"),
         }
 
+        // ADR-0040 / K2 residual: recv timeout without a sender.
+        match crate::ipc::create_channel() {
+            Ok(ch) => {
+                match crate::sched::spawn_with_caps(demos::timeout_recv_task, &[ch.recv]) {
+                    Ok(_) => crate::kprintln!("ipc: timeout-recv spawned"),
+                    Err(e) => crate::kprintln!("ipc: timeout-recv spawn FAILED {e:?}"),
+                }
+                // Keep send off-task so the waiter is not auto-reaped by K2 hold drop.
+                let _ = ch.send;
+            }
+            Err(e) => crate::kprintln!("ipc: timeout channel FAILED {e:?}"),
+        }
+
         // ADR-0032 / K3: a task that holds SEND revokes the channel; bootstrap
         // then proves the stale CapId refuses send (product path, not forged).
         match crate::ipc::create_channel() {

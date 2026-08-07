@@ -380,3 +380,17 @@ pub fn recv(cap: CapId) -> Result<Message, RecvError> {
         }
     }
 }
+
+/// Blocking recv that cancels after `timeout_ticks` monotonic ticks (ADR-0040).
+///
+/// Uses the same [`RecvError::Cancelled`] path as supervisor cancel. Disarms
+/// the deadline on every return path.
+pub fn recv_with_timeout(cap: CapId, timeout_ticks: u64) -> Result<Message, RecvError> {
+    let me = sched::current_task_id();
+    let wait = timeout_ticks.max(1);
+    let deadline = crate::time::ticks().saturating_add(wait);
+    let _ = sched::arm_park_deadline(me, deadline);
+    let result = recv(cap);
+    sched::disarm_park_deadline(me);
+    result
+}

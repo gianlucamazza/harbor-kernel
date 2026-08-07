@@ -37,9 +37,11 @@ allowed_for() {
 	# Cooperative scheduler: TCBs, stacks, switch, wake queue - not drivers/board.
 	# ADR-0028: drains irq::wait and exposes wait_for_irq.
 	# ADR-0031: spawn/exit register SEND holds via ipc (K2 last-hold auto-reap).
-	sched*) echo "arch mm irq ipc" ;;
+	# ADR-0040: park timeout polls time::ticks on the voluntary path.
+	sched*) echo "arch mm irq ipc time" ;;
 	# M4 IPC: mailboxes + caps; parks/wakes via sched only.
-	ipc*) echo "arch sched" ;;
+	# ADR-0040: recv_with_timeout reads time::ticks for the deadline.
+	ipc*) echo "arch sched time" ;;
 	# ADR-0035 / P5: name → CapId registry (trusted EL1).
 	naming*) echo "arch" ;;
 	# ADR-0036 / P2: keyed blob store (trusted EL1).

@@ -954,6 +954,22 @@ pub(super) fn cascade_parent_task() {
     }
 }
 
+/// ADR-0040: park on RECV with a short tick timeout; no sender → Cancelled.
+pub(super) fn timeout_recv_task() {
+    let Some(cap) = crate::sched::my_cap(0) else {
+        crate::kprintln!("ipc: timeout has no cap");
+        return;
+    };
+    // TIMER_HZ is 10; a few ticks is enough for idle to poll after WFI.
+    match crate::ipc::recv_with_timeout(cap, 3) {
+        Err(crate::ipc::RecvError::Cancelled) => {
+            crate::kprintln!("ipc: timed-out cancelled")
+        }
+        Ok(_) => crate::kprintln!("ipc: timeout unexpected msg"),
+        Err(e) => crate::kprintln!("ipc: timeout FAILED {e:?}"),
+    }
+}
+
 /// ADR-0039: EL0 SYS_RESOLVE into empty slot 0 for name `ab` (bound by bootstrap).
 pub(super) fn el0_resolve_task() {
     let mut agent = match crate::agent::Agent::create_prepared() {

@@ -76,7 +76,7 @@ not every symbol.
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
   a64, agentstore, bump, cap, delay, display, font8x8, frame, gic, heap, ipc,
-  irqcap, irqtable, irqwait, layout, manifest, naming, paging, poll, prog, reset, ring, rng,
+  irqcap, irqtable, irqwait, layout, manifest, naming, paging, parktime, poll, prog, reset, ring, rng,
   runqueue, rxline, spi, storage, syscall, tasks, textgrid, timer, uart, wake
   tests/ public_api, model_sched, model_ipc
 src/
@@ -111,7 +111,7 @@ Do **not** treat this block as a second status table — it only steers readers.
 | **H0 foundation** | **done (HW)** on Pi 4B (M0–M8 + parked cancel) |
 | **H1 first slices** | **done (QEMU):** K1–K3, K9, K10, K6, P1–P2, P5–P6 (+ transfer/cascade/resolve residuals) |
 | **H1 next** | (P3\|P4) · K5 |
-| **Residuals** | K2 timeout · K9 IRQ-agent · P2 media · H2 · HW stamps |
+| **Residuals** | K9 IRQ-agent · P2 media · EL0 transfer · H2 · HW stamps |
 | **Standing watch** | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020 |
 
 ## Decision records and reviews

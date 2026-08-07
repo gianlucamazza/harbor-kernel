@@ -318,6 +318,9 @@ grep -qa 'el0-resolve: ok' "${log}" ||
 	fail "EL0 resolve did not install a named cap (ADR-0039)"
 grep -qa 'el0-resolve: refused' "${log}" ||
 	fail "EL0 resolve did not refuse a missing name (ADR-0039)"
+# ADR-0040 / K2 residual: park timeout cancels without a sender.
+grep -qa 'ipc: timed-out cancelled' "${log}" ||
+	fail "park timeout did not cancel the waiter (ADR-0040)"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

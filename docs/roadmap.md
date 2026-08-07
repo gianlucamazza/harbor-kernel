@@ -56,7 +56,7 @@ the named level — not when prose wishes it.
 | Horizon | Product outcome | Tracks that close it |
 | --- | --- | --- |
 | **H0 — Foundation** | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel | **Done (HW)** — M0–M8 + ADR-0024/0025 |
-| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** K1–K3 (+ transfer), K9, K10 (+ cascade), K6, P1, P2, P5 (+ EL0 resolve), P6. **Still on the critical path:** P3/P4 as needed, K5. Residuals: K2 timeout, K9 IRQ-agent, P2 media/EL0 |
+| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** K1–K3 (+ transfer), K2 (+ timeout), K9, K10 (+ cascade), K6, P1, P2, P5 (+ EL0 resolve), P6. **Still on the critical path:** P3/P4 as needed, K5. Residuals: K9 IRQ-agent, P2 media/EL0, EL0 transfer |
 | **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | K4, K5 (remainder), K7, K8, remainder of P2–P5, hardening of first slices to **done (HW)** where claimed |
 
 **H1 product bar (what “composition OS” means here):**
@@ -65,7 +65,7 @@ the named level — not when prose wishes it.
 2. **Run several agents** from a product store, not a single beacon (P1; first slice done QEMU).
 3. **Load without rebuild-only** — external store path (K6; done QEMU); on-target put/get first slice (P2; done QEMU); media that survives reboot residual.
 4. **Wait and drive devices as agents** — IRQ wait (K1 QEMU); second map agent RNG200 (K9 QEMU); IRQ-cap device agent residual.
-5. **Supervise** — cancel (HW) + K2 auto-reap + K10 reap/restart + creator-exit cascade (QEMU); K2 timeout residual.
+5. **Supervise** — cancel (HW) + K2 auto-reap + park timeout + K10 reap/restart + cascade (QEMU).
 6. **Move authority** — channel revoke + EL1 transfer done (QEMU); EL0 transfer residual.
 7. **Find services** — EL1 registry + EL0 `SYS_RESOLVE` (P5 QEMU).
 
@@ -80,7 +80,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | ID | Track | Status | Done when (sketch) | Needs first |
 | --- | --- | --- | --- | --- |
 | K1 | Wait-on-IRQ (first-class) | **done (QEMU)** ([ADR-0028](adr/0028-wait-on-irq.md) EL1 + [ADR-0030](adr/0030-el0-irq-capability.md) EL0) | EL1 `wait_for_irq`; EL0 `SYS_WAIT_IRQ` via IRQ notification cap; oracle `irq-wait: woke` + `el0-irq: woke` | ADR-0008 → 0028 → 0030 |
-| K2 | Park reclaim (timeout and/or auto-reap on last send drop) | **done (QEMU)** first slice ([ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md) last-SEND-hold auto-reap); timeout still open | Ephemeral channels: last SEND hold drop cancels waiter; console default stays stable | Successor to ADR-0025 → 0031; timeout later |
+| K2 | Park reclaim (timeout and/or auto-reap on last send drop) | **done (QEMU)** ([ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md) auto-reap + [ADR-0040](adr/0040-k2-park-timeout.md) tick timeout); EL0 recv timeout later | Last SEND hold drop cancels; `recv_with_timeout` cancels on deadline | 0025 → 0031 → 0040 |
 | K3 | Cap transfer / revoke / endpoint release | **done (QEMU)** ([ADR-0032](adr/0032-k3-channel-revoke.md) revoke + [ADR-0037](adr/0037-k3-cap-transfer.md) EL1 transfer); EL0 transfer later | Channel can die; transfer moves CapId between tasks; stale CapId refused | ADR-0017 → 0032 → 0037 |
 | K4 | Preemption or CPU budget | **open** | Hostile busy-loop is not permanent DoS residual | Successor to ADR-0006; name agent-pair impact (0023) |
 | K5 | Agent density (shrink/collapse driver half) | **open** | Many small agents without 16 KiB kernel stack each by default | Successor to ADR-0023 |
@@ -119,7 +119,7 @@ its design ADR before boundary code.
 | 2 | **K5** density | Scale agent count when MAX_TASKS/stacks press |
 | — | **P2 media / EL0 storage** (later) | SD/eMMC + storage caps |
 | — | **K9 IRQ-cap device agent** (later) | Second agent that waits on device IRQ via cap |
-| — | **K2 timeout** / EL0 transfer / resolve grant | Later slices |
+| — | **EL0 transfer** / EL0 recv timeout / resolve grant | Later slices |
 
 **H2 (after or interleaved when design is ready):** **K4** preemption/budget,
 **K7** ASID/TTBR1, **K8** SMP — production fairness and isolation depth, not

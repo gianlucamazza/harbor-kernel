@@ -28,6 +28,8 @@ use kernel_core::cap::{CapId, SlotError};
 pub use kernel_core::runqueue::TaskId;
 use kernel_core::tasks::{Decision, Switch, Tasks};
 
+use kernel_core::parktime;
+
 use crate::arch::cpu;
 use crate::arch::el0::El0Session;
 use crate::arch::switch::{Context, context_switch};
@@ -35,6 +37,7 @@ use crate::ipc;
 use crate::irq;
 use crate::mm::{StackError, TaskStack};
 use crate::sync::SyncCell;
+use crate::time;
 
 /// Maximum concurrent tasks including idle.
 ///
@@ -447,8 +450,45 @@ pub fn wake_task(id: TaskId) {
 }
 
 /// Drain the IRQ wake queue into Ready (voluntary path only).
+///
+/// Also expires park deadlines (ADR-0040): cancel blocked waiters whose tick
+/// deadline has passed. Never switches from IRQ — idle/`yield_now` call this.
 pub fn poll_wakes() {
     irq::wait::drain(|token| wake_task(TaskId(token)));
+    poll_park_timeouts();
+}
+
+static PARK_DEADLINES: SyncCell<parktime::Table> = SyncCell::new(parktime::Table::new());
+
+/// Arm an absolute tick deadline for a parked wait (ADR-0040).
+pub fn arm_park_deadline(id: TaskId, deadline: u64) -> Result<(), parktime::ArmError> {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let table = unsafe { &mut *PARK_DEADLINES.get() };
+        table.arm(id, deadline)
+    })
+}
+
+/// Clear a park deadline (after recv returns or cancel).
+pub fn disarm_park_deadline(id: TaskId) {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let table = unsafe { &mut *PARK_DEADLINES.get() };
+        table.disarm(id);
+    });
+}
+
+fn poll_park_timeouts() {
+    let now = time::ticks();
+    let mut expired = [TaskId(0); parktime::MAX_ARMED];
+    let n = cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let table = unsafe { &mut *PARK_DEADLINES.get() };
+        table.poll(now, &mut expired)
+    });
+    for id in expired.iter().take(n) {
+        let _ = ipc::cancel_blocked(*id);
+    }
 }
 
 /// Why [`wait_for_irq`] refused to park (ADR-0028 / ADR-0030).

@@ -278,7 +278,7 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | **done (QEMU)** first slices | K1–K3 (+transfer), K9, K10 (+cascade), K6, P1, P2, P5 (+EL0 resolve), P6 |
 | **H1 next (product-critical)** | (P3\|P4) · K5 |
 | **H2 depth** | K4 preemption, K7 ASID, K8 SMP, HW stamps, remaining P depth |
-| **open (kernel)** | K2 timeout, K4, K5, K7, K8, K9 IRQ residual, EL0 transfer |
+| **open (kernel)** | K4, K5, K7, K8, K9 IRQ residual, EL0 transfer / EL0 recv timeout |
 | **open (product)** | P2 media/EL0 residual, P3 network, P4 display product |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
@@ -332,6 +332,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0037](adr/0037-k3-cap-transfer.md) | K3 residual: EL1 cap transfer (**accepted**) |
 | [ADR-0038](adr/0038-k10-creator-exit-cascade.md) | K10 residual: creator-exit cascade cancel (**accepted**) |
 | [ADR-0039](adr/0039-p5-el0-resolve.md) | P5 residual: EL0 SYS_RESOLVE (**accepted**) |
+| [ADR-0040](adr/0040-k2-park-timeout.md) | K2 residual: park timeout on ticks (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals
