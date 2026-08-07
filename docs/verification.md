@@ -1534,17 +1534,35 @@ ticks=10
 loader report; the adjacency claim for the barrier is that the beacon's bytes
 precede `loader: beacon ran`, which they do. Idle ticks continued past 300.
 
-## Parked-task visibility and cancel (ADR-0024 / 0025)
+## Parked-task visibility and cancel closed on silicon (ADR-0024 / 0025, 2026-08-07)
 
 | Claim | Gate / evidence |
 | ----- | --------------- |
 | Parks are counted | Host tests; boot-check `sched: blocked=… block_events=…` |
-| Orphan wait cancelled | Boot-check `ipc: reaped cancelled` + `ipc: cancel issued cancel_events=` |
+| Orphan wait cancelled | Boot-check + Pi 4B: `ipc: reaped cancelled` + `ipc: cancel issued cancel_events=` |
 | Waiter cleared without send | Host test `clear_waiter_drops_the_parked_slot_without_a_send` |
 | EL0 status | `Status::Cancelled = 5`; SECURITY authority table |
 
-**Status: done (QEMU)** on `main` (`e0e905e` lineage). **Silicon stamp:** open
-until an oracle image including the reaping demos is flashed and a transcript
-records the same two lines on Pi 4B (same procedure as M8).
+**Status: done (HW)** on Pi 4B, 2026-08-07 ~15:59 host time. Transcript:
+`.serial-log/20260807-155757.log` (oracle `kernel8.img` with reaping demos,
+`e0e905e` lineage).
+
+### Silicon excerpt (Pi 4B, PL011 @ 115200)
+
+```
+console-server: up
+…
+ipc: orphan spawned id=15
+ipc: reaper spawned
+…
+H!H!loader: beacon ran sends=2 refusals=0
+…
+ipc: refuse count=5 full=0 state=0
+ipc: cancel issued cancel_events=1
+sched: blocked=0 block_events=6
+ipc: reaped cancelled
+…
+ticks=10
+```
 
 Timeout and auto-reap on last send-capability drop remain **non-goals** (ADR-0025).

@@ -396,8 +396,8 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 
 | Slice | Status | Evidence |
 | --- | --- | --- |
-| Visibility (`blocked_count` / `block_events`) | **done (QEMU)** | [ADR-0024](adr/0024-parked-task-visibility.md); boot-check |
-| Supervisor `cancel_blocked` → `Cancelled` | **done (QEMU)**; HW stamp if present below | [ADR-0025](adr/0025-cancel-blocked-wait.md); oracle `ipc: reaped cancelled` |
+| Visibility (`blocked_count` / `block_events`) | **done (HW)** | [ADR-0024](adr/0024-parked-task-visibility.md); [verification §](verification.md#parked-task-visibility-and-cancel-closed-on-silicon-adr-0024--0025-2026-08-07) |
+| Supervisor `cancel_blocked` → `Cancelled` | **done (HW)** | [ADR-0025](adr/0025-cancel-blocked-wait.md); `ipc: reaped cancelled` on silicon |
 | Timeout / auto-reap on last send drop | **non-goal** (named residual) | SECURITY; needs successor ADR |
 
 Issue [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) is **closed**.

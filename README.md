@@ -71,7 +71,9 @@ in [`SECURITY.md`](SECURITY.md). Platform and hardware assumptions are in the
 The foundation through **M8** is stamped **done on Raspberry Pi 4B**: console
 endpoint, product beacon, and `SYS_PUTC` retirement included
 ([evidence](docs/verification.md#hardware-evidence-m8-console-endpoint-closed-on-silicon-2026-08-07)).
-Parked-task **visibility and supervisor cancel** are in tree (ADR-0024/0025);
+Parked-task **visibility and supervisor cancel** are stamped **done on Pi 4B**
+(ADR-0024/0025,
+[evidence](docs/verification.md#parked-task-visibility-and-cancel-closed-on-silicon-adr-0024--0025-2026-08-07));
 timeout and auto-reap on last send drop remain named non-goals.
 
 | Area | Current state |
