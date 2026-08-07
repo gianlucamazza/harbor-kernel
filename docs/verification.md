@@ -828,6 +828,9 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | No-`static mut` (ADR-0019)                                       | restore `static mut CURRENT_EL0: *mut El0Session`        | `no-static-mut: src/arch/aarch64/el0.rs:…: static mut CURRENT_EL0:…` then exit 1 — the gate greps declarations, not prose, so comments that name the form stay green |
 | `El0Session` field offsets                                       | insert a field before `user_ttbr` | eight `offset_of` assertions red at compile time, each naming its field and its expected offset. The assembly does not actually drift — its offsets are `.equ` symbols derived from the same struct — so this is a tripwire on an *unintended* reorder rather than the mechanism keeping the two in agreement |
 | Stale `#[allow(dead_code)]` | convert all thirteen to `#[expect(…, reason = …)]` | three came back *unfulfilled*: `TrapFrame`, `frames::alloc` and `frames::free` have had consumers for milestones while an attribute went on calling them dead. `allow` is silent forever; `expect` warns the moment the deroga stops being needed, which is the only difference and the whole reason to prefer it |
+| Scheduler model, idle requeue | make `Switch::Yield` requeue everything *except* idle | `invariant broken after step 2: idle is not current and nothing is queued` with the counter-example `[Admit, Switch(Yield)]`. Two operations, and nobody would have written that test — the first version of the invariant asserted `state(IDLE) == Ready`, which the mutation satisfies while idle sits outside the queue. The model found the *specification* too weak before it found anything about the code |
+| IPC model, generation check | drop `ep.generation != cap.generation()` from `Table::lookup` | `diverge at step 2 — Send(Stale): reference says Err(BadCap), table says Ok(None)`, counter-example `[Create, Send(Stale)]`. This is the check `SECURITY.md` calls latent: no kernel path mints a stale handle, so nothing exercised it until the model offered one at every step |
+| IPC model, full mailbox | `mbox.len == DEPTH` → `mbox.len > DEPTH` | `diverge at step 4 — reference says Err(Full), table says Ok(None)` with `[Create, Send, Send, Send]`. The off-by-one that lets a bounded queue grow by one |
 | Image declares a feature set it does not have | make the headless banner claim `debug-display` | `boot-check: FAIL — image says debug-display, but the panel never came up`. Checked in both directions: an image claiming the panel must bring it up, one claiming headless must not touch it. Neither half alone is enough — each is satisfiable by a lie |
 | Console denied by default (ADR-0017 §3) | grant `CONSOLE_SLOT` to the agent that is meant to lack it | the refusal line disappears and the byte `X` appears on the console. Both halves are asserted: the boot check fails if the denial line is missing *and* if the denied agent's byte shows up |
 | `SessionEnd` swallowed (ADR-0018 §4) | read `s.end` and drop it | `error: unused agent::SessionEnd that must be used`, carrying its own note — *the creator decides what happens to a faulting agent; the kernel only ended its session*. Under `-D warnings` that is a build failure, which is the whole point |
@@ -862,6 +865,75 @@ was confirmed by breaking the thing on purpose and watching the gate go red:
 | Slot reuse before collection                                     | let `admit` hand out a slot whose stack is still parked                                        | `a_slot_whose_stack_is_still_parked_is_not_handed_out` fails. A case the old design avoided by accident — it detached the stack on exit — and that became reachable when the stack was left attached to its slot |
 | User-window text bound                                           | widen `bound_text_write` back to `pages * frame`                                               | two tests fail, including `a_write_past_the_text_page_is_refused_even_though_the_window_is_bigger` — the P0-3 defect, where every offset in the window looked legal while the write went to page 0's physical address alone |
 | User-window offset overflow                                      | `checked_add` back to a wrapping add                                                           | `an_offset_that_would_overflow_is_refused_not_wrapped` fails: `usize::MAX + 1` wraps to zero and reads as a legal write at the start of the page |
+
+## Bounded exhaustive model checking (2026-08-07)
+
+Mutation testing asks *do the tests notice a change*. This asks a different
+question: *does the implementation agree with a statement of what it should do,
+over every sequence of operations up to a bound*. Two files, no dependencies,
+public API only, inside `make test` — so inside `make check`.
+
+### What is bounded, stated before what was found
+
+`crates/kernel-core/tests/model_sched.rs` — `Tasks<3>` (idle + two workers),
+every sequence of at most 7 operations over an 8-symbol alphabet: **2 396 745
+sequences in 0.45 s**. Five invariants after every step, all through the public
+API.
+
+`crates/kernel-core/tests/model_ipc.rs` — `Table<2, 4, 2>`, every sequence of at
+most 6 operations over 13 symbols: **5 229 043 sequences in 1.7 s**. Not
+invariants but a **reference implementation**: fifty lines that say what a
+bounded queue with one waiter slot does, compared against the real table on
+every observable — the exact `Ok`/`Err` variant, the message returned, the task
+id handed back for waking, and all three refusal counters. Plus conservation at
+the end of every sequence: what is drained equals what the reference still
+holds, in order.
+
+No state deduplication in either: sequences replay from scratch, so the search
+cannot prune a path a coarse fingerprint would have merged. It costs replay time
+and buys soundness within the bound.
+
+**This is not a proof.** It is exhaustive on a small instance to a chosen depth,
+and the step to `Tasks<12>` and `Table<8, 16, 4>` is an *argument* — none of the
+rules mentions the number of slots or mailboxes except through the constant the
+model carries as a parameter — not a theorem. It says nothing about `src/`'s
+`unsafe`, about the assembly, or about concurrency, of which there is none.
+
+### The first thing it caught was the specification, not the code
+
+The scheduler invariant was written as *"idle is `current` or `Ready`"*. Under a
+mutation that stops requeueing idle on yield, the model **passed**: idle stayed
+marked `Ready` while it had left the run queue. `State::Ready` is a field; queue
+membership is not observable through `Tasks`, and the two had been conflated.
+
+The property is observable by consequence — if idle is not running then idle
+itself is queued, so something is always ready — and with that line added the
+same mutation dies in two operations: `[Admit, Switch(Yield)]`.
+
+That is the useful failure mode of this technique. It did not find a kernel bug;
+it found that the thing being asserted was not the thing being claimed, which is
+the error a hand-written test cannot report because a hand-written test only
+visits states someone already believed in.
+
+### What it retires
+
+Three of the ten justified mutation survivors live on
+`Tasks::switch`'s `Ok(None) if current != IDLE` guard, and the code comment there
+says *"no test can honestly cover it"*. That remains true of chosen scenarios.
+It is no longer the whole story: the invariant the guard protects is now checked
+over every reachable state of `Tasks<3>` to depth 7, so the branch is
+**unreachable by exhaustion within the bound** rather than unreachable by
+argument. The survivors stay in the baseline; their justification is stronger.
+
+The six `!mbox.live` survivors are the same shape, and the model says the same
+thing about them: no sequence over the public API reaches a dead mailbox,
+because nothing releases an endpoint.
+
+`SECURITY.md` lists *"stale-handle check is latent"* among the residual risks.
+It is less latent now: a stale `CapId` — same index, previous generation — is in
+the alphabet and is offered at every step of all five million sequences, and
+removing the generation comparison from `lookup` is caught in two operations.
+The kernel still never mints one; the check no longer goes unexercised.
 
 ## Mutation testing: what the tests actually cover (2026-08-06)
 

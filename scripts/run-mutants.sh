@@ -21,6 +21,12 @@ cd "$(dirname "$0")/.." || exit 1
 #       branch cannot be taken; the mutants land on its `refusals.state += 1`
 #   3 × `Ok(None) if current != IDLE` in tasks — idle is always current or queued
 #   1 × `CapRights::SEND = 1 << 0` → `1 >> 0` in cap — equivalent, not untested
+#
+# The first nine are no longer justified by reading the code and agreeing with
+# it. `tests/model_sched.rs` and `tests/model_ipc.rs` walk every sequence of
+# operations up to a bound and never reach either branch, so they are
+# unreachable *by exhaustion within that bound* — see docs/verification.md
+# § bounded exhaustive model checking, which also states what the bound is.
 readonly BASELINE_MISSED=10
 
 # `partition`'s loop counter mutated to a no-op never terminates. That is a

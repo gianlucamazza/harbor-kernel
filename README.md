@@ -89,7 +89,7 @@ interactive serial console.
 | RNG          | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                   |
 | Console      | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                   |
 | TFT (lab)    | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                            |
-| Verification | 265 host tests (unit, integration, doc), Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
+| Verification | 270 host tests (unit, integration, doc), Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware                 |
 
 ## What is not there yet
 
