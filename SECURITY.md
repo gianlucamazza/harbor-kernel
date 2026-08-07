@@ -117,6 +117,7 @@ Defined by [ADR-0017](docs/adr/0017-el0-capability-abi.md) and
 | 3 | `SYS_SEND` | `CapRights::SEND` on endpoint in slot (console output uses this with tag 0 and the byte in `a` — M8) |
 | 4 | `SYS_RECV` | `CapRights::RECV` on endpoint in slot — **waits** if the mailbox is empty ([ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md)) |
 | 5 | `SYS_TRY_RECV` | `CapRights::RECV` on endpoint in slot, **never waits** — answers `Empty` |
+| 6 | `SYS_WAIT_IRQ` | IRQ notification in slot (`CapRights::IRQ` object, high-half `CapId` — [ADR-0030](docs/adr/0030-el0-irq-capability.md)); **waits** for cookie signal |
 
 Reply statuses include `Cancelled` (5) when a parked `SYS_RECV` is aborted by
 supervisor reaping ([ADR-0025](docs/adr/0025-cancel-blocked-wait.md)).
@@ -186,12 +187,12 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | Topic | Status |
 | ----- | ------ |
 | **Preemption** | None today (**open K4**). Hostile infinite loop at EL0 or EL1 is DoS until a successor to ADR-0006 lands. |
-| **Wait-on-IRQ** | Not implemented (**open K1**); an agent that wants an interrupt polls or yields. Blocking recv *is* implemented (ADR-0022). |
+| **Wait-on-IRQ** | **Done (QEMU):** EL1 `wait_for_irq` ([ADR-0028](docs/adr/0028-wait-on-irq.md)); EL0 `SYS_WAIT_IRQ` via IRQ notification cap ([ADR-0030](docs/adr/0030-el0-irq-capability.md)). Residual: no multi-waiter, no dynamic register, no cancel of IRQ parks. |
 | **A parked task may wait until cancelled** | **No timeout / auto-reap yet (open K2).** **Reaping (ADR-0025, done HW):** a supervisor may `ipc::cancel_blocked(id)` — clears the mailbox waiter, wakes the **driver task**, and `recv` returns `Cancelled`. Does not free frames until the task exits and destroys its AS. **Visibility (ADR-0024):** `blocked_count` / `block_events` / `cancel_events`. Intentional waiters (console server) are not auto-reaped. Residual: nothing auto-cancels when the last send holder exits — a buggy creator that never cancels still leaks a slot until reset. `MAX_TASKS` is 18. |
 | **Console TX depends on the server task** | After M8, agent console output is drained by an EL1 server. If that task exits or never runs, agents get `Full` / silent loss; kernel `kprintln` and panic steal still work. |
 | **Capability transfer / revocation** | Not implemented. |
 | **Endpoint release / generation recycle** | No kernel path releases an endpoint, so no kernel path mints a stale handle. The *check* is no longer unexercised: `tests/model_ipc.rs` offers a stale `CapId` — same index, previous generation — at every step of every sequence, and removing the generation comparison from `lookup` is caught in two operations. What stays untested is release itself, which does not exist. |
-| **IRQ notification capabilities** | Cookie shape exists; cookie unread; no cap_irq. |
+| **IRQ notification capabilities** | **Done (QEMU first slice):** `kernel_core::irqcap` + bootstrap mint of timer cookie; EL0 `SYS_WAIT_IRQ` (ADR-0030). Residual: no transfer/revoke; no manifest grant of IRQ caps yet. |
 
 | **Creator lifecycle** | Bootstrap outlives agents; reaping undefined. |
 | **Heap wild free** | Double-free refused; adversarial pointer that looks like a header can still corrupt. |

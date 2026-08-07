@@ -43,6 +43,7 @@ pub mod frame;
 pub mod gic;
 pub mod heap;
 pub mod ipc;
+pub mod irqcap;
 pub mod irqtable;
 pub mod irqwait;
 pub mod layout;

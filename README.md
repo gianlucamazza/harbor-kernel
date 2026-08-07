@@ -46,13 +46,14 @@ Full contrast:
 | | |
 | --- | --- |
 | **Foundation** | **Complete on Pi 4B** (2026-08-07): tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits |
-| **H1 first slices (QEMU)** | External agent store in image (**K6**), EL1 wait-on-IRQ (**K1**), multi-agent product store (**P1**), host compose tools (**P6**) |
-| **Goal** | Complete microkernel (**K**) and product OS (**P**) — [roadmap](docs/roadmap.md) |
-| **Not yet** | Preemption/budget, timeout/auto-reap, cap transfer, SMP, EL0 IRQ caps, on-target storage, network, … |
+| **H1 first slices (QEMU)** | External agent store (**K6**), wait-on-IRQ EL1+EL0 (**K1**), multi-agent product store (**P1**), host compose tools (**P6**) |
+| **H1 next** | Reclaim, cap economy, supervisor lifecycle, second driver-agent, naming, storage — [roadmap](docs/roadmap.md) |
+| **Goal** | Complete microkernel (**K**) and product OS (**P**) under agents + grants + evidence |
+| **Not yet (later)** | Preemption/budget, SMP, ASID, full product net/display depth, … |
 
 **What works today (short list):** cooperative tasks; message IPC; EL0 agents
 with private memory; least-privilege console; PL011 driver-agent; product
-composition via injected store (beacon + chirp); EL1 IRQ wait on timer cookie.
+composition via injected store (beacon + chirp); EL1+EL0 IRQ wait on timer cookie.
 
 | Area | State |
 | --- | --- |
@@ -60,7 +61,7 @@ composition via injected store (beacon + chirp); EL1 IRQ wait on timer cookie.
 | Execution | Cooperative only — preemption/SMP **open** |
 | Authority | Slot caps, refuse accounting, cancel blocked wait — transfer/timeout **open** |
 | Product OS | Multi-agent store composition (QEMU); broader services **open** |
-| Verification | 299 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 304 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

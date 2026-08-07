@@ -140,6 +140,7 @@ fn store_bytes() -> &'static [u8] {
     // the loaded image; inject finishes before entry.
     let len = unsafe { end.offset_from(start) as usize };
     debug_assert!(len == AGENT_STORE_CAPACITY);
+    // SAFETY: same as above — `start`/`len` describe the RO agent-store window.
     unsafe { core::slice::from_raw_parts(start, len) }
 }
 
@@ -161,6 +162,7 @@ fn try_store_manifest() -> Option<&'static [AgentEntry]> {
 
     // SAFETY: single-threaded boot; no agent has run yet.
     let names = unsafe { &mut *NAME_POOL.get() };
+    // SAFETY: same boot window — exclusive `&mut` of static pool storage.
     let entries = unsafe { &mut *STORE_ENTRIES.get() };
 
     for (i, a) in agents.iter().enumerate() {
@@ -181,9 +183,8 @@ fn try_store_manifest() -> Option<&'static [AgentEntry]> {
     }
 
     // SAFETY: first `agents.len()` entries were written above.
-    let slice: &'static [AgentEntry] = unsafe {
-        core::slice::from_raw_parts(entries.as_ptr() as *const AgentEntry, agents.len())
-    };
+    let slice: &'static [AgentEntry] =
+        unsafe { core::slice::from_raw_parts(entries.as_ptr() as *const AgentEntry, agents.len()) };
     Some(slice)
 }
 

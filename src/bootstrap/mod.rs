@@ -509,10 +509,26 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
         }
 
-        // K1 / ADR-0028: EL1 task parks on timer cookie; next tick wakes it.
-        match crate::sched::spawn(demos::irq_wait_task) {
+        // K1 / ADR-0028 + ADR-0030: mint timer IRQ notification; EL1 wait then
+        // EL0 SYS_WAIT_IRQ on the same task (sequential; one waiter per cookie).
+        let irq_timer_cap = match crate::irq::cap::mint(1) {
+            Ok(c) => {
+                crate::kprintln!("irq-cap: minted timer cookie=1");
+                Some(c)
+            }
+            Err(e) => {
+                crate::kprintln!("irq-cap: mint FAILED {e:?}");
+                None
+            }
+        };
+        match crate::sched::spawn_with_slots(demos::irq_wait_task, &[irq_timer_cap]) {
             Ok(_) => crate::kprintln!("sched: spawned irq-wait"),
             Err(e) => crate::kprintln!("sched: spawn irq-wait FAILED {e:?}"),
+        }
+        // Empty-slot SYS_WAIT_IRQ must refuse on the good path.
+        match crate::sched::spawn(demos::el0_irq_refuse_task) {
+            Ok(_) => crate::kprintln!("sched: spawned el0-irq-refuse"),
+            Err(e) => crate::kprintln!("sched: spawn el0-irq-refuse FAILED {e:?}"),
         }
 
         // ADR-0025: park with no sender, then cancel from a supervisor task.

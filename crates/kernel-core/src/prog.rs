@@ -156,6 +156,20 @@ pub const fn encode_try_recv_exit(slot: u16) -> [u8; 16] {
     out
 }
 
+/// A64: `movz x0,#slot; svc #6; svc #1; b .` — wait on IRQ notification, exit.
+///
+/// ADR-0030 / K1 remainder. Slot must hold an IRQ-notification cap (timer
+/// cookie in the oracle). Empty slot is the authority-refuse path.
+pub const fn encode_wait_irq_exit(slot: u16) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_WAIT_IRQ));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// A64: `movz x0,#8,lsl#16; str xzr,[x0]; svc #1; b .`
 ///
 /// Writes to a kernel address the agent does not have, which takes a data abort

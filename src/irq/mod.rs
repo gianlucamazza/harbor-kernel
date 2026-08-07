@@ -32,6 +32,7 @@
 //! Handlers are [`Handler`] = `fn(IrqCookie)`. The cookie is assigned at
 //! registration and is what a future capability names — not a raw GIC id.
 
+pub mod cap;
 mod chip;
 pub mod wait;
 

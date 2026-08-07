@@ -135,6 +135,8 @@ pub struct SessionStats {
     /// The number the boot oracle asserts. A protection nobody has seen fire is
     /// an assumption, so the good path is expected to contain one of these.
     pub authority_refusals: u32,
+    /// Successful `SYS_WAIT_IRQ` completions (ADR-0030).
+    pub wait_irqs: u32,
     /// Why the session stopped. See [`SessionEnd`].
     pub end: SessionEnd,
 }
@@ -183,6 +185,36 @@ fn end_step(session: *mut el0::El0Session) {
     // vector path after a fault. Ending under the mask is what clears
     // `el0_kernel_ttbr0` while nothing can fault.
     cpu::without_irqs(|| unsafe { el0::end_session(session) });
+}
+
+/// Resolve slot → IRQ cookie → park (ADR-0030). No payload registers.
+fn wait_irq_reply(slot: usize, stats: &mut SessionStats) -> Status {
+    let cap = match sched::my_cap_slot(slot) {
+        Ok(c) => c,
+        Err(_) => {
+            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+            return Status::Authority;
+        }
+    };
+    if !sched::current_holds(cap) {
+        stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+        return Status::Authority;
+    }
+    let cookie = match irq::cap::lookup(cap) {
+        Ok(c) => c,
+        Err(_) => {
+            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+            return Status::Authority;
+        }
+    };
+    match sched::wait_for_irq(cookie) {
+        Ok(()) => {
+            stats.wait_irqs = stats.wait_irqs.saturating_add(1);
+            Status::Ok
+        }
+        // Cookie or task already armed — not an authority failure (ADR-0028).
+        Err(sched::WaitIrqError::Busy) => Status::Busy,
+    }
 }
 
 /// Turn a recv result into the agent's `x0`, writing the payload on success.
@@ -368,6 +400,17 @@ impl Agent {
                             // SAFETY: as `Send`.
                             event = resume_step(session);
                         }
+                        Syscall::WaitIrq => {
+                            // ADR-0030 / K1 remainder: park on a granted IRQ
+                            // cookie. Slot → CapId → irqcap cookie → wait_for_irq.
+                            // Must not run under a mask that spans the park
+                            // (same discipline as SYS_RECV).
+                            let slot = el0::saved_gpr(session, 0) as usize;
+                            let status = wait_irq_reply(slot, &mut stats);
+                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            // SAFETY: as `Send`.
+                            event = resume_step(session);
+                        }
                         Syscall::Exit => {
                             // SAFETY: the session is resumable but will not be
                             // resumed — this returns, and EL0 is unreachable
@@ -431,6 +474,7 @@ pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
             Syscall::Send => crate::kprintln!("{prefix}: svc send"),
             Syscall::Recv => crate::kprintln!("{prefix}: svc recv"),
             Syscall::TryRecv => crate::kprintln!("{prefix}: svc try-recv"),
+            Syscall::WaitIrq => crate::kprintln!("{prefix}: svc wait-irq"),
             Syscall::Unknown { imm } => crate::kprintln!("{prefix}: svc refuse imm={imm:#x}"),
         },
         other => crate::kprintln!("{prefix}: unexpected {other:?}"),

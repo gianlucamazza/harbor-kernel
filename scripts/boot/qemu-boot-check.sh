@@ -261,11 +261,18 @@ grep -qaE 'ipc: refuse count=5 ' "${log}" ||
 # Instantaneous blocked= can be zero if sampled while the server is draining.
 grep -qaE 'sched: blocked=[0-9]+ block_events=[1-9][0-9]*' "${log}" ||
 	fail "parked-task counters missing or block_events still zero after the boot oracle"
-# K1 / ADR-0028: timer cookie has a real waiter and a real producer.
+# K1 / ADR-0028: timer cookie has a real waiter and a real producer (EL1).
 grep -qa 'irq-wait: arm cookie=1' "${log}" ||
 	fail "irq-wait task did not arm on the timer cookie"
 grep -qaE 'irq-wait: woke drops=0 idle_signals=[0-9]+' "${log}" ||
 	fail "irq-wait task was not woken cleanly by the timer IRQ"
+# K1 remainder / ADR-0030: EL0 waits via a granted IRQ notification (slot), not a raw cookie.
+grep -qa 'el0-irq: arm slot=0' "${log}" ||
+	fail "EL0 IRQ wait agent did not arm"
+grep -qaE 'el0-irq: woke wait_irqs=[1-9]' "${log}" ||
+	fail "EL0 SYS_WAIT_IRQ was not woken by the timer"
+grep -qaE 'el0-irq: refused refusals=[1-9]' "${log}" ||
+	fail "EL0 SYS_WAIT_IRQ empty-slot refuse was not seen"
 # ADR-0025: supervisor cancel of an orphaned park.
 grep -qa 'ipc: reaped cancelled' "${log}" ||
 	fail "orphan receiver was not cancelled (ADR-0025)"

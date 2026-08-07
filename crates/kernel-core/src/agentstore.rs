@@ -81,7 +81,7 @@ pub fn parse<'a>(
     let _reserved = read_u32(buf, 12)?;
 
     let mut off = 16usize;
-    for i in 0..count {
+    for entry in out.iter_mut().take(count) {
         let name_end = off.checked_add(NAME_LEN).ok_or(ParseError::Truncated)?;
         let name = buf.get(off..name_end).ok_or(ParseError::Truncated)?;
         off = name_end;
@@ -122,7 +122,7 @@ pub fn parse<'a>(
             return Err(ParseError::ImageTooLarge);
         }
 
-        out[i] = StoreAgent {
+        *entry = StoreAgent {
             name: &name[..name_len],
             text_pages,
             stack_pages,
@@ -155,14 +155,18 @@ pub fn append_agent(
     buf.extend_from_slice(&0u32.to_le_bytes());
     buf.extend_from_slice(&(image.len() as u32).to_le_bytes());
     buf.extend_from_slice(image);
-    while buf.len() % 4 != 0 {
+    while !buf.len().is_multiple_of(4) {
         buf.push(0);
     }
 }
 
+/// One agent argument to [`pack`] (host / packer helper).
+#[cfg(test)]
+type PackAgent<'a> = (&'a str, u32, u32, [u8; MAX_SLOTS], &'a [u8]);
+
 /// Build a complete store blob (host / packer helper).
 #[cfg(test)]
-pub fn pack(agents: &[(/*name*/ &str, u32, u32, [u8; MAX_SLOTS], &[u8])]) -> Vec<u8> {
+pub fn pack(agents: &[PackAgent<'_>]) -> Vec<u8> {
     let mut buf = Vec::new();
     buf.extend_from_slice(&MAGIC.to_le_bytes());
     buf.extend_from_slice(&VERSION.to_le_bytes());

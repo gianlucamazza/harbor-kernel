@@ -6,7 +6,7 @@ says **which document owns which fact**.
 ## Start here
 
 1. [**README**](../README.md) — what Harbor is, status, quick start  
-2. [**Roadmap**](roadmap.md) — completeness tracks K/P (status SSOT)  
+2. [**Roadmap**](roadmap.md) — mission, H0–H2 product path, K/P status SSOT  
 3. [**Architecture**](architecture.md) — model, layering, foundation history  
 4. [**Vision**](vision.md) — product OS shape and use cases  
 
@@ -18,7 +18,7 @@ Then, as needed: [`SECURITY.md`](../SECURITY.md) · [`verification.md`](verifica
 | Goal | Start | Then |
 | --- | --- | --- |
 | Build and boot | [README](../README.md) | [boot-chain](boot-chain.md), [hardware](hardware.md) |
-| Completeness tracks (K/P) | [roadmap](roadmap.md) | [ADR-0026](adr/0026-kernel-and-product-completeness.md) |
+| Completeness + product path (K/P) | [roadmap](roadmap.md) | [ADR-0026](adr/0026-kernel-and-product-completeness.md), [vision](vision.md) |
 | Understand the agent model | [architecture](architecture.md) | [differs §](architecture.md#how-harbor-differs-from-a-traditional-kernel), [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) |
 | Product vision / use cases | [vision](vision.md) | architecture, SECURITY |
 | Authority and threats | [SECURITY](../SECURITY.md) | architecture agent model |
@@ -32,7 +32,7 @@ Then, as needed: [`SECURITY.md`](../SECURITY.md) · [`verification.md`](verifica
 | Document | Owns | Does not own |
 | --- | --- | --- |
 | `README.md` | Public story, status snapshot, quick start | Full K/P tables, evidence transcripts |
-| [`roadmap.md`](roadmap.md) | **K/P track status** (single source of truth) | Design detail of each track |
+| [`roadmap.md`](roadmap.md) | **Mission, H0–H2 outcomes, H1 order, K/P status** (SSOT) | Per-track design ADRs |
 | `docs/architecture.md` | Normative model, layering, foundation history | Live K/P table copies |
 | `docs/vision.md` | Product shape, horizons, use cases | Silicon status claims |
 | [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness as goal | Per-track design |
@@ -62,14 +62,14 @@ not every symbol.
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
   a64, agentstore, bump, cap, delay, display, font8x8, frame, gic, heap, ipc,
-  irqtable, irqwait, layout, manifest, paging, poll, prog, reset, ring, rng,
+  irqcap, irqtable, irqwait, layout, manifest, paging, poll, prog, reset, ring, rng,
   runqueue, rxline, spi, syscall, tasks, textgrid, timer, uart, wake
   tests/ public_api, model_sched, model_ipc
 src/
   arch/           ISA facade and AArch64 entry, exceptions, MMU, switch, EL0
   bsp/            board selection, Raspberry Pi memory map, GPIO and bindings
   drivers/        PL011, GICv2, RNG200, power management and optional display
-  irq/            IRQ ownership, masking, counters, wait port
+  irq/            IRQ ownership, masking, counters, wait port, notification caps
   bootstrap/      boot sequence, loader, console server, demos and self-tests
   agent/          EL0 agent shell and session lifecycle
   sched/          TCBs, stacks, context switching and wake drain

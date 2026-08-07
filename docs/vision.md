@@ -53,11 +53,12 @@ design ADRs.
 | Authority is enumerable | Audit reads a grant table |
 | Evidence ≠ compile | Boundaries stay claims with gates |
 
-Open work that realises these at scale (design ADR before code): denser agents
-(**K5**), preemption/budget (**K4**), SMP (**K8**), product storage/network
-(**P2–P5**). First slices paid: external load (**K6**), IRQ wait (**K1**),
-multi-agent product store (**P1**), compose tools (**P6**). Status:
-[roadmap](roadmap.md).
+Open work that realises these at scale (design ADR before code): reclaim and
+cap economy (**K2**/**K3**), supervisor lifecycle (**K10**), denser agents
+(**K5**), preemption/budget (**K4**), SMP (**K8**), product storage/network/
+naming (**P2–P5**). First slices paid: external load (**K6**), IRQ wait EL1+EL0
+(**K1**), multi-agent product store (**P1**), compose tools (**P6**). Status and
+H1 order: [roadmap](roadmap.md).
 
 ---
 
@@ -103,8 +104,10 @@ H0 is **not** the end of the project: foundation complete, OS not yet complete.
 
 ### H1 — Composition / appliance OS
 
-Close early **K** tracks and **P1** (real multi-agent product), with pieces of
-storage/display as needed.
+Close the **composition bar**: multi-agent product images, loadable stores,
+early device/supervisor story, and enough authority lifecycle that compositions
+are not reboot-scoped demos. Storage/net/display land as **agents** when a
+concrete composition needs them — not as ambient kernel features.
 
 | Use case | Why the shape fits |
 | --- | --- |
@@ -113,19 +116,24 @@ storage/display as needed.
 | Sealed composition firmware | Kernel + grant table; update one agent without every device |
 | Third-party sandbox on-device | They supply text; you supply grants |
 
-**Paid (first slices):** external load (**K6**, [ADR-0027](adr/0027-h1-external-agent-store.md) +
-[ADR-0029](adr/0029-agent-store-in-image.md)); IRQ wait EL1 (**K1**,
-[ADR-0028](adr/0028-wait-on-irq.md)); multi-agent product store (**P1**);
-host compose tools (**P6**). EL0 IRQ caps still open.
+**Paid (first slices, QEMU):** external load (**K6**,
+[ADR-0027](adr/0027-h1-external-agent-store.md) +
+[ADR-0029](adr/0029-agent-store-in-image.md)); wait-on-IRQ EL1+EL0 (**K1**,
+[ADR-0028](adr/0028-wait-on-irq.md) + [ADR-0030](adr/0030-el0-irq-capability.md));
+multi-agent product store (**P1**); host compose tools (**P6**).
 
-**Must still pay:** more device agents (**K9**), reclaim beyond cancel (**K2**),
-agent density (**K5**), EL0 IRQ capability, on-target FS/storage (**P2**),
-network (**P3**). Full table: [roadmap](roadmap.md).
+**Must still pay (H1 critical path):** park reclaim (**K2**), cap
+transfer/revoke (**K3**), supervisor lifecycle (**K10**), second driver-agent
+(**K9**), naming (**P5**), on-target storage (**P2**); network (**P3**) and
+product display (**P4**) when an appliance composition needs them; density
+(**K5**) as agent count grows. Working order:
+[roadmap § H1 working order](roadmap.md#h1-working-order-product-critical-path).
 
 ### H2 — Boundary operating system
 
-Remaining **K** and **P**: preemption/density, cap economy, network, naming,
-tooling. Full OS sense — still not Linux.
+Remaining **K** and **P** for full boundary-OS depth: preemption/budget
+(**K4**), ASID/isolation (**K7**), SMP (**K8**), denser agents, HW stamps, and
+remaining product-path depth. Full OS sense under this model — still not Linux.
 
 | Traditional OS | Harbor (vision) |
 | --- | --- |

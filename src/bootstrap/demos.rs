@@ -97,6 +97,7 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
             Syscall::Send => println!(uart, "el0: SVC unexpected send"),
             Syscall::Recv => println!(uart, "el0: SVC unexpected recv"),
             Syscall::TryRecv => println!(uart, "el0: SVC unexpected try-recv"),
+            Syscall::WaitIrq => println!(uart, "el0: SVC unexpected wait-irq"),
             Syscall::Unknown { imm } => println!(uart, "el0: SVC unexpected imm={imm}"),
         },
         other => println!(uart, "el0: SVC unexpected {other:?}"),
@@ -574,19 +575,68 @@ pub(super) fn orphan_reaper() {
     crate::sched::yield_now();
 }
 
-/// K1 / ADR-0028: park on the timer cookie until the next tick wakes us.
+/// K1 / ADR-0028 + ADR-0030: EL1 timer wait, then EL0 `SYS_WAIT_IRQ` on the
+/// same cookie (sequential so the one-waiter table is free).
 ///
-/// Cookie `1` is what `bsp::rpi4::irq` registers for the arch timer. Proves the
-/// IRQ → `irq::wait::signal` → `poll_wakes` → Ready path has a real producer.
+/// Cookie `1` is what `bsp::rpi4::irq` registers for the arch timer. Slot 0 of
+/// this task holds the timer IRQ notification (minted at bootstrap).
 pub(super) fn irq_wait_task() {
     crate::kprintln!("irq-wait: arm cookie=1");
     // Timer runs at TIMER_HZ (10 Hz). One period is enough evidence.
-    crate::sched::wait_for_irq(1);
-    crate::kprintln!(
-        "irq-wait: woke drops={} idle_signals={}",
-        crate::sched::wake_drops(),
-        crate::irq::wait::signal_idle()
-    );
+    match crate::sched::wait_for_irq(1) {
+        Ok(()) => crate::kprintln!(
+            "irq-wait: woke drops={} idle_signals={}",
+            crate::sched::wake_drops(),
+            crate::irq::wait::signal_idle()
+        ),
+        Err(e) => crate::kprintln!("irq-wait: arm FAILED {e:?}"),
+    }
+
+    // ADR-0030: EL0 parks via a granted notification in slot 0 (not a raw cookie).
+    let mut agent = match crate::agent::Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-irq: create FAILED {e:?}");
+            return;
+        }
+    };
+    crate::kprintln!("el0-irq: arm slot=0");
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_wait_irq_exit(0)) {
+        Ok(stats) if stats.wait_irqs >= 1 && stats.authority_refusals == 0 => {
+            crate::kprintln!("el0-irq: woke wait_irqs={}", stats.wait_irqs);
+        }
+        Ok(stats) => crate::kprintln!(
+            "el0-irq: unexpected end={:?} wait_irqs={} refusals={}",
+            stats.end,
+            stats.wait_irqs,
+            stats.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-irq: run FAILED {e:?}"),
+    }
+    agent.destroy();
+}
+
+/// ADR-0030: `SYS_WAIT_IRQ` with an empty slot must be Authority (seen on the good path).
+pub(super) fn el0_irq_refuse_task() {
+    let mut agent = match crate::agent::Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-irq-refuse: create FAILED {e:?}");
+            return;
+        }
+    };
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_wait_irq_exit(0)) {
+        Ok(stats) if stats.authority_refusals >= 1 => {
+            crate::kprintln!("el0-irq: refused refusals={}", stats.authority_refusals);
+        }
+        Ok(stats) => crate::kprintln!(
+            "el0-irq-refuse: unexpected end={:?} refusals={}",
+            stats.end,
+            stats.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-irq-refuse: run FAILED {e:?}"),
+    }
+    agent.destroy();
 }
 
 /// M4: holds recv cap only; blocks until sender posts.

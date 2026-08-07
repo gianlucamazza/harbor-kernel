@@ -95,6 +95,8 @@ pub struct CapRights(u8);
 impl CapRights {
     pub const SEND: Self = Self(1 << 0);
     pub const RECV: Self = Self(1 << 1);
+    /// Wait on an IRQ notification cookie (ADR-0030). Not SEND/RECV.
+    pub const IRQ: Self = Self(1 << 2);
 
     #[inline]
     pub const fn empty() -> Self {
@@ -267,6 +269,11 @@ mod tests {
         assert!(!CapRights::empty().contains(CapRights::RECV));
         assert!(CapRights::SEND.contains(CapRights::SEND));
         assert!(CapRights::RECV.contains(CapRights::RECV));
+        assert!(!CapRights::SEND.contains(CapRights::IRQ));
+        assert!(!CapRights::RECV.contains(CapRights::IRQ));
+        assert!(!CapRights::IRQ.contains(CapRights::SEND));
+        assert!(!CapRights::empty().contains(CapRights::IRQ));
+        assert!(CapRights::IRQ.contains(CapRights::IRQ));
     }
 
     #[test]

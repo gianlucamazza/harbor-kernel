@@ -46,6 +46,7 @@ the code that follows.
 | [0027](0027-h1-external-agent-store.md)                     | H1 first slice — external agent store at a fixed physical address                               | accepted   |
 | [0028](0028-wait-on-irq.md)                                 | K1 first slice — wait on IRQ cookie (EL1)                                                         | accepted   |
 | [0029](0029-agent-store-in-image.md)                        | Agent store lives in the kernel image section (placement)                                         | accepted   |
+| [0030](0030-el0-irq-capability.md)                          | K1 remainder — EL0 IRQ notification capability and `SYS_WAIT_IRQ`                                   | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

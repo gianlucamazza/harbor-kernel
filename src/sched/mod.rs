@@ -352,25 +352,32 @@ pub fn poll_wakes() {
     irq::wait::drain(|token| wake_task(TaskId(token)));
 }
 
+/// Why [`wait_for_irq`] refused to park (ADR-0028 / ADR-0030).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WaitIrqError {
+    /// Cookie already has a waiter, this task is already armed, or table full.
+    Busy,
+}
+
 /// Park the current non-idle task until the IRQ line registered with `cookie`
 /// signals (ADR-0028 / K1).
 ///
 /// Never call from an IRQ handler or from idle. Refuses to overwrite another
 /// waiter's cookie (see [`kernel_core::irqwait`]).
-pub fn wait_for_irq(cookie: u32) {
+pub fn wait_for_irq(cookie: u32) -> Result<(), WaitIrqError> {
     let me = current_task_id().0;
     if irq::wait::arm(cookie, me).is_err() {
-        crate::kprintln!("irq-wait: arm FAILED cookie={cookie}");
-        return;
+        return Err(WaitIrqError::Busy);
     }
     // Lost-wakeup: IRQ may have run after arm and before park.
     if irq::wait::take_pending(me) {
         irq::wait::disarm_task(me);
-        return;
+        return Ok(());
     }
     block_current();
     let _ = irq::wait::take_pending(me);
     irq::wait::disarm_task(me);
+    Ok(())
 }
 
 /// Exits that found a stack still parked from an earlier exit.

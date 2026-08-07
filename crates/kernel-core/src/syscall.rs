@@ -12,6 +12,7 @@
 //! | `SYS_SEND`     | slot    | tag     | a       | b       | [`Status`] | unchanged     |
 //! | `SYS_RECV`     | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
 //! | `SYS_TRY_RECV` | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
+//! | `SYS_WAIT_IRQ` | slot    | —       | —       | —       | [`Status`] | unchanged     |
 //!
 //! Imm 2 is **unused** (formerly transitional `SYS_PUTC`, removed in M8). It
 //! decodes as [`Syscall::Unknown`] so a stale agent image that still issues
@@ -60,6 +61,13 @@ pub const SYS_RECV: u16 = 4;
 /// needs to say so at the call, and a blocking-only recv would take that away
 /// (ADR-0022 §4).
 pub const SYS_TRY_RECV: u16 = 5;
+
+/// `svc #6` — wait until the IRQ cookie named by the notification in slot `x0`
+/// signals (ADR-0030 / K1 remainder).
+///
+/// Authority is the IRQ-notification cap, not a raw cookie. No payload: `x0`
+/// carries [`Status`] only.
+pub const SYS_WAIT_IRQ: u16 = 6;
 
 /// What an agent reads in `x0` after a call that names a capability.
 ///
@@ -112,6 +120,8 @@ pub enum Syscall {
     Recv,
     /// Take a queued message from the slot in `x0`, or answer `Empty`.
     TryRecv,
+    /// Wait on the IRQ notification in slot `x0` (ADR-0030).
+    WaitIrq,
     /// Not in the table — refuse, do not invent behaviour.
     Unknown { imm: u16 },
 }
@@ -125,6 +135,7 @@ pub const fn decode(imm: u16) -> Syscall {
         SYS_SEND => Syscall::Send,
         SYS_RECV => Syscall::Recv,
         SYS_TRY_RECV => Syscall::TryRecv,
+        SYS_WAIT_IRQ => Syscall::WaitIrq,
         other => Syscall::Unknown { imm: other },
     }
 }
@@ -140,6 +151,7 @@ mod tests {
         assert_eq!(decode(3), Syscall::Send);
         assert_eq!(decode(4), Syscall::Recv);
         assert_eq!(decode(5), Syscall::TryRecv);
+        assert_eq!(decode(6), Syscall::WaitIrq);
     }
 
     #[test]
@@ -158,12 +170,8 @@ mod tests {
 
     #[test]
     fn unknown_is_refused_not_aliased() {
-        // The first immediate past the table. It used to be 3, then 6; every
-        // call added moves it, and an ABI that grows must not grow by accident
-        // — an unimplemented call ends the session rather than aliasing a real
-        // one.
-        // First unused imm after the last known syscall (TRY_RECV = 5).
-        assert_eq!(decode(6), Syscall::Unknown { imm: 6 });
+        // First unused imm after the last known syscall (WAIT_IRQ = 6).
+        assert_eq!(decode(7), Syscall::Unknown { imm: 7 });
         assert_eq!(decode(0xffff), Syscall::Unknown { imm: 0xffff });
     }
 
