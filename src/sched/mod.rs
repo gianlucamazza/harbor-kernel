@@ -41,11 +41,11 @@ use crate::sync::SyncCell;
 /// agent peers + the manifest's two + bringup probe margin. Slots are not
 /// reused before exit, so this is a boot-time total and not a high-water mark.
 ///
-/// It went 12 → 14 when the loader landed, then 14 → 16 for M8 console server + product beacon: the oracle was already at exactly
-/// 12, and the first manifest entry reported `spawn FAILED Full` rather than
-/// running. Raising it costs two task stacks and two entries of the page-table
-/// reserve, both derived from this constant.
-pub const MAX_TASKS: usize = 16;
+/// It went 12 → 14 when the loader landed, 14 → 16 for M8 console server +
+/// product beacon, then 16 → 18 for the ADR-0025 reaping oracle (orphan
+/// receiver + margin). Raising it costs task stacks and page-table reserve
+/// derived from this constant.
+pub const MAX_TASKS: usize = 18;
 
 /// Caps a task may hold (M4 local table — not shared globals).
 pub const MAX_CAPS_PER_TASK: usize = 4;
@@ -76,6 +76,8 @@ struct Tcb {
     /// [`publish_el0`] hands `arch` a pointer to the running task's copy on
     /// every switch.
     el0: Option<El0Session>,
+    /// Set by [`cancel_blocked`]; consumed by the IPC wait path (ADR-0025).
+    cancel_wait: bool,
 }
 
 impl Tcb {
@@ -86,6 +88,7 @@ impl Tcb {
             entry: None,
             caps: [None; MAX_CAPS_PER_TASK],
             el0: None,
+            cancel_wait: false,
         }
     }
 }
@@ -231,6 +234,7 @@ fn spawn_inner(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, SpawnErro
             // whatever the slot holds, so a session that appears later would be
             // a pointer the last switch could not have published.
             el0: Some(El0Session::new()),
+            cancel_wait: false,
         };
         Ok(id)
     })
@@ -401,6 +405,62 @@ pub fn block_events() -> u32 {
         let sched = unsafe { &*SCHED.get() };
         sched.tasks.block_events()
     })
+}
+
+/// Successful supervisor cancels of a blocked wait (ADR-0025).
+static CANCEL_EVENTS: AtomicU32 = AtomicU32::new(0);
+
+/// Mark a blocked task for wait cancellation and wake it (ADR-0025).
+///
+/// Does **not** clear the IPC waiter — the caller ([`crate::ipc::cancel_blocked`])
+/// must, so `sched` does not import `ipc` (layering).
+///
+/// Returns `false` if `id` is idle, unknown, or not [`State::Blocked`].
+pub fn prepare_cancel_blocked(id: TaskId) -> bool {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked; single core.
+        let sched = unsafe { &mut *SCHED.get() };
+        if !matches!(
+            sched.tasks.state(id),
+            Some(kernel_core::tasks::State::Blocked)
+        ) {
+            return false;
+        }
+        let idx = id.0 as usize;
+        if idx >= MAX_TASKS || id == Tasks::<MAX_TASKS>::IDLE {
+            return false;
+        }
+        sched.tcbs[idx].cancel_wait = true;
+        if !sched.tasks.wake(id) {
+            return false;
+        }
+        CANCEL_EVENTS.fetch_add(1, Ordering::Relaxed);
+        true
+    })
+}
+
+/// Take and clear the current task's cancel-wait flag (ADR-0025).
+pub fn take_cancel_wait() -> bool {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let sched = unsafe { &mut *SCHED.get() };
+        let idx = sched.tasks.current().0 as usize;
+        let flag = sched
+            .tcbs
+            .get_mut(idx)
+            .map(|t| t.cancel_wait)
+            .unwrap_or(false);
+        if let Some(t) = sched.tcbs.get_mut(idx) {
+            t.cancel_wait = false;
+        }
+        flag
+    })
+}
+
+/// How many times a cancel prepared successfully.
+#[inline]
+pub fn cancel_events() -> u32 {
+    CANCEL_EVENTS.load(Ordering::Relaxed)
 }
 
 /// Wake queue drop count (full queue under IRQ pressure).

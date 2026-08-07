@@ -212,6 +212,7 @@ fn recv_reply(
         // violation — the agent holds what it named — so it does not touch the
         // counter the boot check asserts exactly (ADR-0022 §4).
         Err(ipc::RecvError::Busy) => Status::Busy,
+        Err(ipc::RecvError::Cancelled) => Status::Cancelled,
         Err(ipc::RecvError::BadCap) => {
             stats.authority_refusals = stats.authority_refusals.saturating_add(1);
             Status::Authority

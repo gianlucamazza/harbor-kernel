@@ -258,6 +258,11 @@ grep -qaE 'ipc: refuse count=5 ' "${log}" ||
 # Instantaneous blocked= can be zero if sampled while the server is draining.
 grep -qaE 'sched: blocked=[0-9]+ block_events=[1-9][0-9]*' "${log}" ||
 	fail "parked-task counters missing or block_events still zero after the boot oracle"
+# ADR-0025: supervisor cancel of an orphaned park.
+grep -qa 'ipc: reaped cancelled' "${log}" ||
+	fail "orphan receiver was not cancelled (ADR-0025)"
+grep -qaE 'ipc: cancel issued cancel_events=[1-9]' "${log}" ||
+	fail "supervisor cancel was not issued"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

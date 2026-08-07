@@ -85,6 +85,9 @@ pub enum Status {
     /// *state* refusal. Folding it into `Authority` would inflate the number the
     /// boot check asserts exactly.
     Busy = 4,
+    /// The wait was cancelled by a supervisor (`sched::cancel_blocked`, ADR-0025).
+    /// Not an authority failure: the agent held the cap; the park was aborted.
+    Cancelled = 5,
 }
 
 impl Status {
@@ -159,6 +162,7 @@ mod tests {
         // call added moves it, and an ABI that grows must not grow by accident
         // — an unimplemented call ends the session rather than aliasing a real
         // one.
+        // First unused imm after the last known syscall (TRY_RECV = 5).
         assert_eq!(decode(6), Syscall::Unknown { imm: 6 });
         assert_eq!(decode(0xffff), Syscall::Unknown { imm: 0xffff });
     }
@@ -172,5 +176,6 @@ mod tests {
         assert_eq!(Status::Full.as_u64(), 2);
         assert_eq!(Status::Empty.as_u64(), 3);
         assert_eq!(Status::Busy.as_u64(), 4);
+        assert_eq!(Status::Cancelled.as_u64(), 5);
     }
 }

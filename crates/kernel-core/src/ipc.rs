@@ -65,6 +65,11 @@ pub enum RecvError {
     Busy,
     BadCap,
     Empty,
+    /// The wait was cancelled by supervisor reaping (ADR-0025).
+    ///
+    /// Not produced by the pure table alone — the policy half sets a flag and
+    /// clears the waiter; `src/ipc::recv` surfaces this after unpark.
+    Cancelled,
 }
 
 /// Why a depth observation failed.
@@ -349,6 +354,21 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
         Ok(mbox.pop())
     }
 
+    /// Drop any mailbox waiter slot held by `id` (ADR-0025 cancel).
+    ///
+    /// Returns how many waiters were cleared (0 or 1 with current topology).
+    /// Does not change message buffers or refuse counts.
+    pub fn clear_waiter(&mut self, id: TaskId) -> u32 {
+        let mut n = 0u32;
+        for mbox in &mut self.mailboxes {
+            if mbox.waiter == Some(id) {
+                mbox.waiter = None;
+                n = n.saturating_add(1);
+            }
+        }
+        n
+    }
+
     /// Messages currently queued on the mailbox named by `cap`.
     ///
     /// Resolves if `cap` is a live endpoint with **either** [`CapRights::SEND`]
@@ -421,6 +441,19 @@ mod tests {
             a: u64::from(tag) * 2,
             b: 0,
         }
+    }
+
+    #[test]
+    fn clear_waiter_drops_the_parked_slot_without_a_send() {
+        let mut t = T::new();
+        let ch = t.create_channel().unwrap();
+        let waiter = TaskId(3);
+        assert_eq!(t.park(ch.recv, waiter), Ok(None));
+        assert_eq!(t.clear_waiter(waiter), 1);
+        assert_eq!(t.clear_waiter(waiter), 0);
+        // A later send must not invent a wake for the cancelled waiter.
+        assert_eq!(t.send(ch.send, msg(1)), Ok(None));
+        assert_eq!(t.try_recv(ch.recv), Ok(msg(1)));
     }
 
     #[test]

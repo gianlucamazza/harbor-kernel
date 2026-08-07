@@ -533,6 +533,47 @@ pub(super) fn el0_ipc_receiver() {
     agent.destroy();
 }
 
+/// ADR-0025: published so the reaper can cancel this task after it parks.
+pub(super) static ORPHAN_TASK: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(u32::MAX);
+
+/// ADR-0025: parks on a mailbox nobody will send to; expects cancel.
+pub(super) fn orphan_receiver() {
+    let Some(cap) = crate::sched::my_cap(0) else {
+        crate::kprintln!("ipc: orphan has no cap");
+        return;
+    };
+    match crate::ipc::recv(cap) {
+        Err(crate::ipc::RecvError::Cancelled) => {
+            crate::kprintln!("ipc: reaped cancelled")
+        }
+        Ok(msg) => crate::kprintln!("ipc: reaped unexpected tag={} a={}", msg.tag, msg.a),
+        Err(e) => crate::kprintln!("ipc: reaped FAILED {e:?}"),
+    }
+}
+
+/// ADR-0025: after the orphan parks, cancel its wait (creator/supervisor role).
+pub(super) fn orphan_reaper() {
+    // Two yields: orphan must run and block first.
+    crate::sched::yield_now();
+    crate::sched::yield_now();
+    let raw = ORPHAN_TASK.load(core::sync::atomic::Ordering::Relaxed);
+    if raw == u32::MAX {
+        crate::kprintln!("ipc: reaper has no orphan id");
+        return;
+    }
+    let id = kernel_core::runqueue::TaskId(raw);
+    if crate::ipc::cancel_blocked(id) {
+        crate::kprintln!(
+            "ipc: cancel issued cancel_events={}",
+            crate::sched::cancel_events()
+        );
+    } else {
+        crate::kprintln!("ipc: cancel FAILED (not blocked?)");
+    }
+    crate::sched::yield_now();
+}
+
 /// M4: holds recv cap only; blocks until sender posts.
 pub(super) fn ipc_receiver() {
     let Some(cap) = crate::sched::my_cap(0) else {

@@ -33,6 +33,11 @@ pub fn run() {
                 crate::kprintln!("console-server: recv FAILED");
                 return;
             }
+            Err(ipc::RecvError::Cancelled) => {
+                // Product must not cancel the console server; if it does, stop.
+                crate::kprintln!("console-server: cancelled");
+                return;
+            }
             Err(ipc::RecvError::Empty) => {
                 // Blocking recv never returns Empty for a non-idle task.
                 crate::kprintln!("console-server: unexpected Empty");

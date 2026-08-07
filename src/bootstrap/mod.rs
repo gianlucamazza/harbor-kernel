@@ -508,6 +508,26 @@ pub fn run() -> ! {
             }
             Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
         }
+
+        // ADR-0025: park with no sender, then cancel from a supervisor task.
+        // The send capability is dropped — the orphan cannot be woken by IPC.
+        match crate::ipc::create_channel() {
+            Ok(ch) => {
+                match crate::sched::spawn_with_caps(demos::orphan_receiver, &[ch.recv]) {
+                    Ok(id) => {
+                        demos::ORPHAN_TASK.store(id.0, core::sync::atomic::Ordering::Relaxed);
+                        crate::kprintln!("ipc: orphan spawned id={}", id.0);
+                    }
+                    Err(e) => crate::kprintln!("ipc: orphan spawn FAILED {e:?}"),
+                }
+                // `ch.send` dropped here: nobody holds send.
+                match crate::sched::spawn(demos::orphan_reaper) {
+                    Ok(_) => crate::kprintln!("ipc: reaper spawned"),
+                    Err(e) => crate::kprintln!("ipc: reaper spawn FAILED {e:?}"),
+                }
+            }
+            Err(e) => crate::kprintln!("ipc: orphan channel FAILED {e:?}"),
+        }
     }
 
     // Deliberate fault, last so the demo tasks are alive when it runs: the

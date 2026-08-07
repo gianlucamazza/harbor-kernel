@@ -259,6 +259,26 @@ pub fn try_recv(cap: CapId) -> Result<Message, RecvError> {
     with_table(|t| t.try_recv(cap))
 }
 
+/// Drop any mailbox waiter held by `id` (ADR-0025 cancel path).
+pub fn clear_waiter(id: kernel_core::runqueue::TaskId) {
+    with_table(|t| {
+        let _ = t.clear_waiter(id);
+    });
+}
+
+/// Abort a blocked peer's IPC wait (ADR-0025 creator/supervisor reaping).
+///
+/// Marks the task, wakes it, and clears its mailbox waiter so a later send
+/// does not invent a stale wake. The waiter resumes from `block_current` and
+/// `recv` returns [`RecvError::Cancelled`].
+pub fn cancel_blocked(id: kernel_core::runqueue::TaskId) -> bool {
+    if !sched::prepare_cancel_blocked(id) {
+        return false;
+    }
+    clear_waiter(id);
+    true
+}
+
 /// Blocking recv: parks the current task until a message is available.
 ///
 /// Must not be called from an IRQ handler. Idle **is** checked rather than
@@ -273,9 +293,13 @@ pub fn try_recv(cap: CapId) -> Result<Message, RecvError> {
 /// that has ended.
 pub fn recv(cap: CapId) -> Result<Message, RecvError> {
     loop {
+        if sched::take_cancel_wait() {
+            return Err(RecvError::Cancelled);
+        }
         match try_recv(cap) {
             Ok(msg) => return Ok(msg),
             Err(e @ (RecvError::BadCap | RecvError::Busy)) => return Err(e),
+            Err(RecvError::Cancelled) => return Err(RecvError::Cancelled),
             Err(RecvError::Empty) if sched::current_is_idle() => {
                 note_state_refusal();
                 return Err(RecvError::Empty);
@@ -286,7 +310,13 @@ pub fn recv(cap: CapId) -> Result<Message, RecvError> {
                 let me = sched::current_task_id();
                 match with_table(|t| t.park(cap, me))? {
                     Some(msg) => return Ok(msg),
-                    None => sched::block_current(),
+                    None => {
+                        sched::block_current();
+                        // ADR-0025: supervisor may have woken us without a message.
+                        if sched::take_cancel_wait() {
+                            return Err(RecvError::Cancelled);
+                        }
+                    }
                 }
             }
         }
