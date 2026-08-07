@@ -24,7 +24,7 @@
 # board is not the same as depending on one.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 # 256 MiB. Anything at least this large and aligned to it is a range base.
 readonly ALIGNMENT=$((256 * 1024 * 1024))

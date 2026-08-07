@@ -8,7 +8,7 @@
 # attention, and attention does not survive a rename.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 violations=0
 note() {

@@ -11,7 +11,7 @@
 //! When a valid store is present in the image `.agent_store` section
 //! ([ADR-0029](../../docs/adr/0029-agent-store-in-image.md)), that table
 //! **replaces** the built-in one for the boot. The host injects the blob after
-//! link (`scripts/inject-agent-store.py`); the same image boots on QEMU and Pi.
+//! link (`scripts/agent/inject-store.py`); the same image boots on QEMU and Pi.
 
 use core::mem::MaybeUninit;
 

@@ -2,7 +2,7 @@
 # Copy kernel image, config.txt, and platform blobs onto a mounted boot partition.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MOUNT="${1:-}"
 IMG="${2:-}"
 

@@ -5,7 +5,7 @@
 # multi-agent store injected into the image (ADR-0029), agents ran.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 readonly TARGET=aarch64-unknown-none-softfloat
 readonly OUT="target/${TARGET}/release"
@@ -15,7 +15,7 @@ readonly SECONDS_LIMIT="${PRODUCT_BOOT_SECONDS:-8}"
 
 if [[ ! -f "${IMG}" ]]; then
 	echo "product-boot-check: building product image" >&2
-	./scripts/check-product-image.sh
+	./scripts/boot/product-image.sh
 fi
 
 if ! command -v "${QEMU}" >/dev/null; then

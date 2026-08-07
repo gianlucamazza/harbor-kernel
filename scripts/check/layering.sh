@@ -12,7 +12,7 @@
 # edges that propagate it, so an edge nobody looks at is where it stops holding.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 # Modules every layer may use: the macro surface and the shared-state primitive.
 # `println`/`print` are macro paths, not a layer.

@@ -46,19 +46,20 @@ Full contrast:
 | | |
 | --- | --- |
 | **Foundation** | **Complete on Pi 4B** (2026-08-07): tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits |
-| **Goal** | Complete microkernel (**K**) and product OS (**P**) — [roadmap](docs/architecture.md#completeness-roadmap) |
-| **Not yet** | Preemption/budget, IRQ as first-class wait, timeout/auto-reap, cap transfer, SMP, external load, multi-agent product, storage, network, … |
+| **H1 first slices (QEMU)** | External agent store in image (**K6**), EL1 wait-on-IRQ (**K1**), multi-agent product store (**P1**), host compose tools (**P6**) |
+| **Goal** | Complete microkernel (**K**) and product OS (**P**) — [roadmap](docs/roadmap.md) |
+| **Not yet** | Preemption/budget, timeout/auto-reap, cap transfer, SMP, EL0 IRQ caps, on-target storage, network, … |
 
 **What works today (short list):** cooperative tasks; message IPC; EL0 agents
-with private memory; least-privilege console (denied by default); PL011 as a
-contained driver agent; product beacon via the console endpoint.
+with private memory; least-privilege console; PL011 driver-agent; product
+composition via injected store (beacon + chirp); EL1 IRQ wait on timer cookie.
 
 | Area | State |
 | --- | --- |
 | Platform | Single-core AArch64, Pi 4B, early MMU, W^X, heap, guarded stacks |
 | Execution | Cooperative only — preemption/SMP **open** |
 | Authority | Slot caps, refuse accounting, cancel blocked wait — transfer/timeout **open** |
-| Product OS | Beacon composition; broader services **open** |
+| Product OS | Multi-agent store composition (QEMU); broader services **open** |
 | Verification | 299 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
@@ -100,20 +101,16 @@ Optional SPI TFT status panel: `FEATURES=debug-display` — see
 | I want to… | Read |
 | --- | --- |
 | Navigate all docs | [`docs/README.md`](docs/README.md) |
-| Architecture, layering, roadmaps | [`docs/architecture.md`](docs/architecture.md) |
+| Completeness tracks (K/P) | [`docs/roadmap.md`](docs/roadmap.md) |
+| Architecture and layering | [`docs/architecture.md`](docs/architecture.md) |
 | Product vision and use cases | [`docs/vision.md`](docs/vision.md) |
 | Threat model and authority | [`SECURITY.md`](SECURITY.md) |
 | What is actually proven | [`docs/verification.md`](docs/verification.md) |
+| How to contribute | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 
 Hardware and boot: [`docs/boot-chain.md`](docs/boot-chain.md),
 [`docs/hardware.md`](docs/hardware.md). Decisions: [`docs/adr/`](docs/adr/README.md).
-
-## Contributing
-
-Boundary changes need an ADR first ([ADR-0001](docs/adr/0001-multi-role-analysis.md)).
-Before calling work complete: `make check`. Keep status in the owning doc,
-evidence in verification, history in ADRs/reviews — see
-[`docs/README.md`](docs/README.md).
+Scripts layout: [`scripts/README.md`](scripts/README.md).
 
 ## License
 

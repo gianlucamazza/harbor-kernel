@@ -11,7 +11,7 @@ Closed-source Raspberry Pi firmware stages required to reach our kernel.
 
 ```bash
 make blobs
-# or: ./scripts/fetch-blobs.sh
+# or: ./scripts/host/fetch-blobs.sh
 ```
 
 Provenance (tag + SHA-256) is recorded in `MANIFEST.txt` after fetch.

@@ -41,7 +41,7 @@ Default remains `board-rpi4`. Building with `--no-default-features` and no
    pub use <isa>::{ /* same facade set */ };
    ```
    Adjust the `compile_error!` for unsupported arches.
-4. Extend `scripts/check-layering.sh` if the facade-isolation regex must name
+4. Extend `scripts/check/layering.sh` if the facade-isolation regex must name
    the new ISA directory.
 5. Toolchain / build:
    - `rust-toolchain.toml` `targets`

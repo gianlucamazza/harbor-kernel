@@ -65,7 +65,7 @@ where attributes, firmware, or devices matter ([`verification.md`](../verificati
 ### 4. Roadmap ownership
 
 The ordered **K** and **P** tracks live in
-[`architecture.md` § Completeness roadmap](../architecture.md#completeness-roadmap).
+[`architecture.md` § Completeness roadmap](../roadmap.md).
 Order may change without a new policy ADR; **dropping the goal of completeness**
 or reclassifying a K/P item as a permanent non-goal without exclusion rationale
 requires a successor to this ADR.

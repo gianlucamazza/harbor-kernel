@@ -66,7 +66,7 @@ The `--features bringup` gates (`make bringup-builds` guarantees they compile;
 running them requires hardware). Verified on a Pi 4B Rev 1.5 on 2026-08-04, after
 the move to an early MMU changed the memory regime underneath them.
 
-`scripts/fetch-blobs.sh` refuses blobs whose hashes do not match the committed
+`scripts/host/fetch-blobs.sh` refuses blobs whose hashes do not match the committed
 ones — **seen red** by corrupting an expected hash.
 
 ## When to revisit

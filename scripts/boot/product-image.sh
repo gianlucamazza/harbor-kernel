@@ -27,7 +27,7 @@
 # a missing feature it has never claimed to have.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 readonly TARGET=aarch64-unknown-none-softfloat
 readonly OUT="target/${TARGET}/release"
@@ -56,8 +56,8 @@ product_elf="${OUT}/harbor-kernel"
 llvm-objcopy -O binary "${product_elf}" "${OUT}/kernel8-product.img"
 # ADR-0029: inject the multi-agent composition into `.agent_store` so product
 # boots the store on QEMU and Pi without a fixed-PA loader device.
-python3 scripts/pack-agent-store.py -o target/agents.bin
-python3 scripts/inject-agent-store.py \
+python3 scripts/agent/pack-store.py -o target/agents.bin
+python3 scripts/agent/inject-store.py \
 	--elf "${product_elf}" \
 	--image "${OUT}/kernel8-product.img" \
 	--store target/agents.bin

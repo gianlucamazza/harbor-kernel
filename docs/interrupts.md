@@ -118,7 +118,7 @@ region shrank from the session to the step: `enter_step`, `resume_step`,
 `arch::el0` requires it for, and give it back. The loop body between two steps
 runs unmasked, and that is where the park happens.
 
-`make irq-scope` (`scripts/check-irq-scope.sh`) keeps the rule true instead of
+`make irq-scope` (`scripts/check/irq-scope.sh`) keeps the rule true instead of
 remembered. It walks each `cpu::without_irqs(` region by brace depth — a scope
 is not a line, and the offending call is usually far below the one that opened
 it — and fails on `block_current`, `yield_now`, `switch_with`, `context_switch`

@@ -94,7 +94,7 @@ board's own diagnostics pointed away from the kernel.
 
 The fix was not to remember the rule. `boot.s` now enables a compile-time
 identity map before any Rust runs, so the window does not exist, and
-`scripts/check-pre-mmu-path.sh` fails the build if anything re-enters it.
+`scripts/check/pre-mmu-path.sh` fails the build if anything re-enters it.
 
 **Rule of thumb:** if a change concerns memory attributes, cache maintenance,
 exclusive access, or the state the firmware leaves behind, a green QEMU boot is
@@ -401,7 +401,7 @@ Lab procedure (re-run after layout changes):
 cargo build --release --features bringup
 llvm-objcopy -O binary target/aarch64-unknown-none-softfloat/release/harbor-kernel \
   target/aarch64-unknown-none-softfloat/release/kernel8-bringup.img
-./scripts/deploy-sd.sh /run/media/$USER/bootfs \
+./scripts/host/deploy-sd.sh /run/media/$USER/bootfs \
   target/aarch64-unknown-none-softfloat/release/kernel8-bringup.img
 ```
 

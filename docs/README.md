@@ -6,31 +6,34 @@ says **which document owns which fact**.
 ## Start here
 
 1. [**README**](../README.md) — what Harbor is, status, quick start  
-2. [**Architecture**](architecture.md) — model, layering, foundation history, [completeness roadmap](architecture.md#completeness-roadmap)  
-3. [**Vision**](vision.md) — product OS shape and use cases  
+2. [**Roadmap**](roadmap.md) — completeness tracks K/P (status SSOT)  
+3. [**Architecture**](architecture.md) — model, layering, foundation history  
+4. [**Vision**](vision.md) — product OS shape and use cases  
 
-Then, as needed: [`SECURITY.md`](../SECURITY.md) (authority / threats) ·
-[`verification.md`](verification.md) (evidence).
+Then, as needed: [`SECURITY.md`](../SECURITY.md) · [`verification.md`](verification.md) ·
+[`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ## By goal
 
 | Goal | Start | Then |
 | --- | --- | --- |
 | Build and boot | [README](../README.md) | [boot-chain](boot-chain.md), [hardware](hardware.md) |
+| Completeness tracks (K/P) | [roadmap](roadmap.md) | [ADR-0026](adr/0026-kernel-and-product-completeness.md) |
 | Understand the agent model | [architecture](architecture.md) | [differs §](architecture.md#how-harbor-differs-from-a-traditional-kernel), [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) |
-| Completeness roadmap (K/P) | [architecture § completeness](architecture.md#completeness-roadmap) | [ADR-0026](adr/0026-kernel-and-product-completeness.md) |
 | Product vision / use cases | [vision](vision.md) | architecture, SECURITY |
 | Authority and threats | [SECURITY](../SECURITY.md) | architecture agent model |
 | Verify a claim | [verification](verification.md) | linked transcript or gate |
 | Port ISA/board | [porting](porting.md) | [arch-contract](arch-contract.md) |
 | Structural decision | [adr/](adr/README.md) | the linked ADR |
+| Extend the tree | [CONTRIBUTING](../CONTRIBUTING.md) | [scripts map](../scripts/README.md) |
 
 ## Ownership and status vocabulary
 
 | Document | Owns | Does not own |
 | --- | --- | --- |
-| `README.md` | Public story, status snapshot, quick start | Full evidence transcripts |
-| `docs/architecture.md` | Normative model, layering, foundation + K/P roadmap | Product narrative |
+| `README.md` | Public story, status snapshot, quick start | Full K/P tables, evidence transcripts |
+| [`roadmap.md`](roadmap.md) | **K/P track status** (single source of truth) | Design detail of each track |
+| `docs/architecture.md` | Normative model, layering, foundation history | Live K/P table copies |
 | `docs/vision.md` | Product shape, horizons, use cases | Silicon status claims |
 | [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness as goal | Per-track design |
 | `SECURITY.md` | Threat model, authority surface, residuals | Roadmap ordering |
@@ -38,6 +41,7 @@ Then, as needed: [`SECURITY.md`](../SECURITY.md) (authority / threats) ·
 | `docs/adr/*.md` | Immutable structural decisions | Live dashboard |
 | `docs/reviews/*.md` | Dated findings | Current truth after later fixes |
 | `docs/design/*.md` | Design contracts | Completion claims without evidence |
+| `scripts/README.md` | Script taxonomy | Kernel architecture |
 
 Status labels:
 
@@ -65,10 +69,10 @@ src/
   arch/           ISA facade and AArch64 entry, exceptions, MMU, switch, EL0
   bsp/            board selection, Raspberry Pi memory map, GPIO and bindings
   drivers/        PL011, GICv2, RNG200, power management and optional display
-  irq/            IRQ ownership, masking, counters and dispatch wiring
+  irq/            IRQ ownership, masking, counters, wait port
   bootstrap/      boot sequence, loader, console server, demos and self-tests
   agent/          EL0 agent shell and session lifecycle
-  sched/          TCBs, stacks, context switching and wake queue
+  sched/          TCBs, stacks, context switching and wake drain
   ipc/            kernel IPC policy and capability translation
   mm/             heap, address spaces, frames, layout and task stacks
   console.rs      kernel TX/RX policy
@@ -78,15 +82,15 @@ src/
   sync.rs         shared-state cell
   time.rs         tick policy
 boot/             Raspberry Pi firmware configuration
-scripts/          build, layering, documentation and QEMU gates
+scripts/          check/ boot/ agent/ host/ lib/ — see scripts/README.md
 ```
 
 ## Decision records and reviews
 
 [`adr/README.md`](adr/README.md) — ADR lifecycle. Accepted ADRs are immutable;
 change requires a successor. [`reviews/`](reviews/) — dated findings, not live
-status. Active work: [completeness roadmap](architecture.md#completeness-roadmap);
-foundation history: [architecture § roadmap](architecture.md#roadmap).
+status. Active work: [roadmap](roadmap.md); foundation history:
+[architecture § roadmap](architecture.md#roadmap).
 
 ## Documentation checks
 

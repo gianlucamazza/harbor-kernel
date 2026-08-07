@@ -70,7 +70,7 @@ That is necessary: without attributes you cannot even reach the console. If
 
 ## The gate that protects this decision
 
-`scripts/check-pre-mmu-path.sh` derives the `_start` → gate path from the image
+`scripts/check/pre-mmu-path.sh` derives the `_start` → gate path from the image
 and fails if an exclusive appears or if the path grows. **Seen red** by planting
 a `fetch_add` called from `_start` before the gate.
 

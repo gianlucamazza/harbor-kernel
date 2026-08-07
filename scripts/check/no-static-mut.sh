@@ -17,7 +17,7 @@
 # `src/arch/aarch64/el0.rs`). Seen green after the atomic landing.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 violations=0
 while IFS= read -r file; do

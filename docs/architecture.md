@@ -18,8 +18,8 @@ that model — not Linux/POSIX parity
 **Today:** foundation **done on Pi 4B** (cooperative tasks through console
 endpoint, manifest loader, blocking recv, parked-wait cancel). The kernel and
 product OS are **not yet complete**; open work is the
-[completeness roadmap](#completeness-roadmap). Historical milestone narrative:
-[Roadmap](#roadmap).
+[completeness roadmap](roadmap.md). Historical milestone narrative:
+[Foundation roadmap](#roadmap).
 
 ## How Harbor differs from a traditional kernel
 
@@ -117,7 +117,7 @@ is named, gated, and demonstrable rather than implied by a large ABI.
    not reproduce it, because its exclusive monitor ignores memory attributes.
    Plain atomic loads and stores (`LDAR`/`STLR`) are fine anywhere. Code that
    runs before the MMU is on is confined to `_start` and `early_mmu_enable`,
-   and `scripts/check-pre-mmu-path.sh` fails the build if that changes. Because
+   and `scripts/check/pre-mmu-path.sh` fails the build if that changes. Because
    the window is now that small, `console::acquire` and the panic handler use
    ordinary atomics like everything else.
 
@@ -127,7 +127,7 @@ is named, gated, and demonstrable rather than implied by a large ABI.
    so a switch in between hands the next task this task's mask and later
    restores a value captured in an epoch that has ended. The EL0 session loop
    used to hold one mask for the whole session; it holds one per enter/resume
-   step now, because `SYS_RECV` parks (ADR-0022). `scripts/check-irq-scope.sh`
+   step now, because `SYS_RECV` parks (ADR-0022). `scripts/check/irq-scope.sh`
    walks each region by brace depth and fails on a switching call inside it.
 
 8. Idle (console loop) uses `WFI` when the RX ring is empty, no tick report is
@@ -166,7 +166,7 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
     structure is multi-arch _ready_, not multi-arch product. Contract:
     [`arch-contract.md`](arch-contract.md); port checklist: [`porting.md`](porting.md).
 
-Rules 1–4 and 10 are checked by `make layering` (`scripts/check-layering.sh`)
+Rules 1–4 and 10 are checked by `make layering` (`scripts/check/layering.sh`)
 against every `crate::` import edge (and ISA/board path leaks). Coupling that
 is not an import (a shared constant, an agreed register value) is still
 review-only — see [`verification.md`](verification.md).
@@ -361,7 +361,7 @@ Transcript and the four register-level claims:
 | **Kill restores kernel drain** | **done (HW)** | `resume_rx` + `killed ok`; idle ticks ran to 270 with no storm                                                                                          |
 | Kernel TX / panic              | preserved     | TX never handed to agent                                                                                                                                |
 
-QEMU gate: `make boot-check` / `scripts/qemu-boot-check.sh` (all of the above
+QEMU gate: `make boot-check` / `scripts/boot/qemu-boot-check.sh` (all of the above
 oracles). It has three outcomes, not two: `timer: MISSED` is corroborated
 against the host CPU the emulator received, and reports **INDETERMINATE**
 (exit 3) rather than a red it cannot attribute.
@@ -385,7 +385,7 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 
 | Slice | Status | Evidence |
 | --- | --- | --- |
-| EL1 console server drains the endpoint | **done (HW)** | [`verification.md` §M8](verification.md#hardware-evidence-m8-console-endpoint-closed-on-silicon-2026-08-07); design: [`design-m8-console-endpoint.md`](design-m8-console-endpoint.md) |
+| EL1 console server drains the endpoint | **done (HW)** | [`verification.md` §M8](verification.md#hardware-evidence-m8-console-endpoint-closed-on-silicon-2026-08-07); design: [`design/m8-console-endpoint.md`](design/m8-console-endpoint.md) |
 | Product manifest carries the beacon | **done (HW)** | same transcript + product QEMU gate |
 | `SYS_PUTC` removed; denied-by-default preserved | **done (HW)** | mute refusals=2; refuse count=5; syscall gate |
 
@@ -421,51 +421,17 @@ blanket, or if an audit shows EL1 stray stores into Device as a live bug class.
 
 ## Completeness roadmap
 
-Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md). Foundation
-M0–M8 is closed; the project goal is **kernel completeness (K)** and **product
-OS completeness (P)**. Order is a working plan — design ADR before any boundary
-move ([ADR-0001](adr/0001-multi-role-analysis.md)). Status vocabulary:
-`open` | `in design` | `done (QEMU)` | `done (HW)`.
+**Tables live in [`roadmap.md`](roadmap.md)** (single source of truth for K/P
+status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 
-### K — microkernel mechanisms
+| Snapshot | Tracks |
+| --- | --- |
+| **done (QEMU)** first slices | K1 (EL1 wait), K6 (image store), P1 (multi-agent store), P6 (pack/inject/inspect) |
+| **open (kernel)** | K2 reclaim, K3 cap economy, K4 preemption, K5 density, K7 ASID, K8 SMP, K9 drivers, K10 lifecycle, K1 EL0 remainder |
+| **open (product)** | P2 storage, P3 network, P4 display product, P5 naming |
 
-| ID | Track | Status | Done when (sketch) | Needs first |
-| --- | --- | --- | --- | --- |
-| K1 | Wait-on-IRQ (first-class) | **done (QEMU)** first slice ([ADR-0028](adr/0028-wait-on-irq.md)); EL0 IRQ cap open | EL1 `wait_for_irq(cookie)`; timer/UART `signal`; oracle `irq-wait: woke` | ADR-0008 → 0028; EL0 syscall successor |
-| K2 | Park reclaim (timeout and/or auto-reap on last send drop) | **open** | Orphan parks do not hold `MAX_TASKS` forever without policy | Successor to ADR-0025 |
-| K3 | Cap transfer / revoke / endpoint release | **open** | Authority can move and die without reboot; stale generation exercised by real release | ADR-0017 successor |
-| K4 | Preemption or CPU budget | **open** | Hostile busy-loop is not permanent DoS residual | Successor to ADR-0006; name agent-pair impact (0023) |
-| K5 | Agent density (shrink/collapse driver half) | **open** | Many small agents without 16 KiB kernel stack each by default | Successor to ADR-0023 |
-| K6 | External agent load + byte manifest | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement) | Image `.agent_store` inject; product prefers store, oracle empty → builtin | ADR-0021 → 0027 → 0029 |
-| K7 | ASID (+ TTBR1 if required) | **open** | Production isolation without cloned-kernel-only story as the end state | Design ADR |
-| K8 | SMP | **open** | Multi-core runqueue/IRQ model on silicon | Design ADR |
-| K9 | Driver-as-agent beyond PL011 (+ IRQ caps) | **open** | Second peripheral on the M6 pattern; IRQ-cap path | K1 useful; ADR-0013 pattern |
-| K10 | Supervisor lifecycle (restart, creator exit) | **open** | Product supervisor can restart/reap without ad-hoc demos | Builds on 0018/0025 |
-
-### P — product operating system
-
-| ID | Track | Status | Done when (sketch) | Typical deps |
-| --- | --- | --- | --- | --- |
-| P1 | Multi-agent product image beyond beacon | **done (QEMU)** first slice (beacon + chirp in store) | Product `agents.bin` n≥2; both run via console endpoint | ADR-0027 store; richer agents later |
-| P2 | Storage path (block + load/persist) | **open** | Persist or load agent/data without rebuild-only workflow | Often after K6 |
-| P3 | Network agent + caps | **open** | Network I/O only via granted caps; no ambient net | K1/K9 helpful |
-| P4 | Display/input product path | **open** | Product-grade path (may graduate `debug-display` discipline) | Device agents |
-| P5 | Naming / discovery / system services | **open** | Endpoints findable without hard-coded oracle wiring | K3 useful |
-| P6 | Compose/audit tooling | **open** | Host and/or on-target tools for grant graph and manifests | P1 |
-
-### Standing watches (not completeness tracks)
-
-| Work | Done when | Issue |
-| --- | --- | --- |
-| **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets a caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
-
-### Out of model (permanent non-goals)
-
-These are **not** completeness tracks ([ADR-0026](adr/0026-kernel-and-product-completeness.md)):
-
-- Linux / POSIX / glibc compatibility
-- Hiding platform firmware blobs ([`blobs.md`](blobs.md))
-- Multi-tenant cloud hypervisor (unless a future ADR owns it)
+When a track changes status, edit **`roadmap.md` only** — do not re-list full
+K/P tables here.
 
 ### Open findings, against the milestone they block
 

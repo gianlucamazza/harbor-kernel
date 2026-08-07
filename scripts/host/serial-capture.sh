@@ -27,7 +27,7 @@ set -euo pipefail
 # cause; matching both separators downstream would only paper over it.
 export LC_NUMERIC=C
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BAUD="${BAUD:-115200}"
 LOG_DIR="${SERIAL_LOG_DIR:-${ROOT}/.serial-log}"
 WAIT_SECONDS="${WAIT_SECONDS:-0}"

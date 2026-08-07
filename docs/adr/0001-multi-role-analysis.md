@@ -32,7 +32,7 @@ The failure surface of a bare-metal kernel is asymmetric:
 - When this ADR was written, the layering rules in
   [`architecture.md`](../architecture.md) were explicit but not enforced by
   tooling — discipline plus human review only. That gap was finding F24; it is
-  **closed for import edges** by `make layering` (`scripts/check-layering.sh`).
+  **closed for import edges** by `make layering` (`scripts/check/layering.sh`).
   What remains review-only is coupling that is not an import (shared constants,
   agreed register values, naming conventions) — the gate's documented blind
   spot, not a claim that layering is ungated.

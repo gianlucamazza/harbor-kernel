@@ -14,7 +14,7 @@
 # of against zero, and fails only when the number moves the wrong way.
 set -uo pipefail
 
-cd "$(dirname "$0")/.." || exit 1
+cd "$(dirname "$0")/../.." || exit 1
 
 # Survivors justified in docs/verification.md § mutation testing:
 #   6 × the `!mbox.live` arm in ipc — no endpoint is ever released, so the

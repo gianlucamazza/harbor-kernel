@@ -14,7 +14,7 @@
 # that they are not recording.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEV="${1:-/dev/ttyUSB0}"
 BAUD="${2:-115200}"
 LOG_DIR="${SERIAL_LOG_DIR:-${ROOT}/.serial-log}"

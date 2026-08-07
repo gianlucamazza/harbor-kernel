@@ -50,7 +50,7 @@
 # the \`without_irqs\` opened at line 177`, exit 1.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 python3 - <<'PY'
 import io, re, subprocess, sys

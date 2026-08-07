@@ -87,7 +87,7 @@ static EARLY_L1: Table = Table {
 /// kernel — atomics included — behaves as the architecture documents.
 ///
 /// `#[unsafe(no_mangle)]` because `boot.s` branches to it by name;
-/// `scripts/check-pre-mmu-path.sh` walks `_start` to here and refuses anything
+/// `scripts/check/pre-mmu-path.sh` walks `_start` to here and refuses anything
 /// on the way that could touch memory without attributes. Which module the
 /// symbol lives in does not change either fact.
 ///

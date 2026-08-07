@@ -17,7 +17,7 @@
 # learned to block, because the row was present and the number was right.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 fail() {
 	echo "doc-claims: FAIL — $1" >&2

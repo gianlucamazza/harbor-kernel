@@ -3,7 +3,7 @@
 # (diagnostic: verify serial wiring with a known-good OS).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKUP="${ROOT}/.sd-backup"
 MOUNT="${1:-}"
 

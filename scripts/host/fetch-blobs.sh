@@ -4,7 +4,7 @@
 # These are closed-source VideoCore stages; see docs/blobs.md.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 OUT="${ROOT}/third_party/blobs"
 EXPECTED="${OUT}/EXPECTED.sha256"
 

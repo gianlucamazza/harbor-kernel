@@ -19,7 +19,7 @@ tool-limited software inside an agent is a future *use* of that unit.
 | This document | Elsewhere |
 | --- | --- |
 | Product shape, horizons, use cases | — |
-| Completeness **policy** and K/P **table** | [ADR-0026](adr/0026-kernel-and-product-completeness.md), [architecture § completeness](architecture.md#completeness-roadmap) |
+| Completeness **policy** and K/P **table** | [ADR-0026](adr/0026-kernel-and-product-completeness.md), [roadmap](roadmap.md) |
 | What is done on silicon | [architecture](architecture.md), [verification](verification.md) |
 | Threat model | [`SECURITY.md`](../SECURITY.md) |
 
@@ -38,7 +38,7 @@ design ADRs.
 | **H0 (today)** | Foundation complete on Pi 4B; kernel/product **not yet** complete |
 | **H1** | Appliance / composition OS (early K + multi-agent product) |
 | **H2** | Full boundary OS (remaining K/P: preemption, network, naming, tooling, …) |
-| **Roadmap** | [K and P tracks](architecture.md#completeness-roadmap) |
+| **Roadmap** | [K and P tracks](roadmap.md) |
 
 ---
 
@@ -55,8 +55,9 @@ design ADRs.
 
 Open work that realises these at scale (design ADR before code): denser agents
 (**K5**), preemption/budget (**K4**), SMP (**K8**), product storage/network
-(**P2+**). First slices paid: external load (**K6**), IRQ wait (**K1**),
-multi-agent product store (**P1**).
+(**P2–P5**). First slices paid: external load (**K6**), IRQ wait (**K1**),
+multi-agent product store (**P1**), compose tools (**P6**). Status:
+[roadmap](roadmap.md).
 
 ---
 
@@ -113,13 +114,13 @@ storage/display as needed.
 | Third-party sandbox on-device | They supply text; you supply grants |
 
 **Paid (first slices):** external load (**K6**, [ADR-0027](adr/0027-h1-external-agent-store.md) +
-[ADR-0029](adr/0029-agent-store-in-image.md) image inject); IRQ wait EL1
-(**K1**, [ADR-0028](adr/0028-wait-on-irq.md)); multi-agent product store
-(**P1**, beacon+chirp). EL0 IRQ caps still open.
+[ADR-0029](adr/0029-agent-store-in-image.md)); IRQ wait EL1 (**K1**,
+[ADR-0028](adr/0028-wait-on-irq.md)); multi-agent product store (**P1**);
+host compose tools (**P6**). EL0 IRQ caps still open.
 
 **Must still pay:** more device agents (**K9**), reclaim beyond cancel (**K2**),
 agent density (**K5**), EL0 IRQ capability, on-target FS/storage (**P2**),
-network (**P3**).
+network (**P3**). Full table: [roadmap](roadmap.md).
 
 ### H2 — Boundary operating system
 

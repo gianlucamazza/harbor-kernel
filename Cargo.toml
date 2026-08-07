@@ -88,7 +88,7 @@ lto = true
 codegen-units = 1
 # Debug info and symbols are kept deliberately. `llvm-objcopy -O binary` drops
 # every non-alloc section, so `kernel8.img` is unaffected — but `make no-simd`
-# and `scripts/check-pre-mmu-path.sh` disassemble the *ELF*, and both need
+# and `scripts/check/pre-mmu-path.sh` disassemble the *ELF*, and both need
 # symbol names to say which function they are complaining about. Stripping here
 # would leave those gates reporting hex addresses.
 debug = true

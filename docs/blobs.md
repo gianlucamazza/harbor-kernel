@@ -42,7 +42,7 @@ manifest records what was fetched; it agrees with itself whatever arrives.
 ## Operational rules
 
 1. Blobs are **not** committed as opaque binary history without a manifest.
-2. Fetch only via `scripts/fetch-blobs.sh` / `make blobs` at a **pinned tag**.
+2. Fetch only via `scripts/host/fetch-blobs.sh` / `make blobs` at a **pinned tag**.
 3. Integrity is `third_party/blobs/EXPECTED.sha256`, committed and verified
    before install. `MANIFEST.txt` records provenance — what was fetched, when —
    and is not a check: it is written from whatever arrived.

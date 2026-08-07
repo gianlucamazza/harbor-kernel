@@ -39,7 +39,7 @@ Composition still changes **without** recompiling agent programs into Rust
 | --- | --- |
 | Section | `.agent_store` (linker + `#[link_section]`) |
 | Capacity | 16 KiB (`AGENT_STORE_CAPACITY`) |
-| Inject | `scripts/inject-agent-store.py --elf … --image … --store …` |
+| Inject | `scripts/agent/inject-store.py --elf … --image … --store …` |
 | Product gate | inject after product `objcopy`; QEMU boots that image with **no** `-device loader` |
 | Oracle | section left zero → `loader: builtin` |
 | Fixed PA `0x10000000` | **withdrawn** as a load path |

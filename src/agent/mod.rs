@@ -37,7 +37,7 @@
 //! no mask: it is plain memory in the running task's own TCB, and every
 //! `arch::el0` call checks the session is the published one.
 //!
-//! `scripts/check-irq-scope.sh` is what keeps the rule from being remembered
+//! `scripts/check/irq-scope.sh` is what keeps the rule from being remembered
 //! rather than true.
 
 use core::sync::atomic::{AtomicU32, Ordering};

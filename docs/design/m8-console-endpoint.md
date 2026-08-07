@@ -13,7 +13,7 @@
 
 ## Overview
 
-Today an EL0 agent that holds the console capability writes the UART through a **kernel special case**: `SYS_PUTC` (imm 2) looks up a slot, checks `console::is_console_cap`, and drains one byte via `console::with_tx` inside the agent session loop (`src/agent/mod.rs`). That path is transitional by design ([ADR-0017](adr/0017-el0-capability-abi.md) §4): the same slot already names a send capability on a console channel; only who drains the mailbox differs (kernel today, server tomorrow).
+Today an EL0 agent that holds the console capability writes the UART through a **kernel special case**: `SYS_PUTC` (imm 2) looks up a slot, checks `console::is_console_cap`, and drains one byte via `console::with_tx` inside the agent session loop (`src/agent/mod.rs`). That path is transitional by design ([ADR-0017](../adr/0017-el0-capability-abi.md) §4): the same slot already names a send capability on a console channel; only who drains the mailbox differs (kernel today, server tomorrow).
 
 M8 completes that isomorphism. Bootstrap already mints the console channel and grants the **send** end (`src/bootstrap/mod.rs` → `console::grant_console_cap(ch.send)`), but the **recv CapId is discarded** — the endpoint stays live and holderless, so nobody can drain. A resident **EL1 console server** will hold that recv end, park on `ipc::recv` when the mailbox is empty, and write each drained byte through the shared kernel TX handle. Creators that need “bytes before report” on the wire call a cooperative **drain barrier** before `kprintln!`. `SYS_PUTC` is removed from the ABI. Agents print with `SYS_SEND` on the same slot. The console remains **denied by default**; `boot-check` continues to assert that the deliberately denied byte never reaches the wire.
 
@@ -33,7 +33,7 @@ M8 completes that isomorphism. Bootstrap already mints the console channel and g
 | `SYS_SEND` / `SYS_RECV` | `src/ipc/mod.rs`, `kernel_core::ipc::Message` | Mailbox depth **4**, max 8 mailboxes, 16 endpoints (ABI, ADR-0017) |
 | Idle body | `src/bootstrap/console_loop.rs::run` | RX echo, tick reports, `WFI` / yield — owns no exclusive `Pl011` after `install_tx` |
 | Product manifest | `src/bootstrap/loader.rs` | Empty without `oracle`; oracle has `echo` / `mute` (`encode_putc_hi_exit`) |
-| Product gap | `scripts/check-product-image.sh`, `docs/architecture.md` rule 9 | **36** unreachable items (architecture.md); issue #12 still says ~37 — pin to 36 at close |
+| Product gap | `scripts/boot/product-image.sh`, `docs/architecture.md` rule 9 | **36** unreachable items (architecture.md); issue #12 still says ~37 — pin to 36 at close |
 | Task table | `sched::MAX_TASKS = 14` | Oracle boot uses **exactly 14** slots (idle + 13 spawns) |
 
 ### Oracle task census today (exact)
@@ -284,7 +284,7 @@ fn write_console_msg(msg: ipc::Message) {
 
 #### Problem
 
-Under putc, bytes hit the UART **inside** `run_user_prog_resuming`, before the driver prints `loader: … ran …`. That yields the literal log fragment `H!loader: echo ran…` that `scripts/qemu-boot-check.sh` greps.
+Under putc, bytes hit the UART **inside** `run_user_prog_resuming`, before the driver prints `loader: … ran …`. That yields the literal log fragment `H!loader: echo ran…` that `scripts/boot/qemu-boot-check.sh` greps.
 
 Under M8, `SYS_SEND` only enqueues. The driver does not yield between session end and `kprintln!`, so without a barrier the natural order is:
 
@@ -497,9 +497,9 @@ Grep-driven list for PR3 (atomic flip with boot-check):
 | Encoders + llvm-mc tests | `crates/kernel-core/src/prog.rs` | all `encode_putc*`, docs |
 | Authority note | `src/ipc/mod.rs` | `note_authority_refusal` putc comment |
 | Console cap helpers | `src/console.rs` | `grant` / `is_console` (delete PR5) |
-| Boot-check greps | `scripts/qemu-boot-check.sh` | `putc bytes`, `putcs=`, `H!loader: echo`, refuse comments |
+| Boot-check greps | `scripts/boot/qemu-boot-check.sh` | `putc bytes`, `putcs=`, `H!loader: echo`, refuse comments |
 | Docs / SECURITY | `SECURITY.md`, `docs/architecture.md`, `docs/verification.md`, `README.md` | claims and tables |
-| Layering comment | `scripts/check-layering.sh` | SYS_PUTC mention |
+| Layering comment | `scripts/check/layering.sh` | SYS_PUTC mention |
 
 ### Who holds which end
 
@@ -781,7 +781,7 @@ No per-byte server logs.
 
 ### Product gate (concrete — PR4 acceptance)
 
-`scripts/check-product-image.sh` (and/or a thin sibling) must assert **all** of:
+`scripts/boot/product-image.sh` (and/or a thin sibling) must assert **all** of:
 
 1. **Non-empty product manifest** — source-level: `MANIFEST` / product table length ≥ 1 without `oracle` (or build-time `const` assert).
 2. **Product image size increases** vs pre-M8 baseline (record numbers in architecture rule 9 paragraph).
@@ -864,7 +864,7 @@ Oracle image transcript: `console-server: up`, `H!`, beacon/mute lines, denial w
 | `SECURITY.md` | Authority table; residuals |
 | `src/console.rs`, `agent`, `ipc`, `bootstrap/*`, `sched` | Implementation surface |
 | `kernel_core::{syscall,prog,ipc,manifest}` | ABI and encodings |
-| `scripts/qemu-boot-check.sh`, `check-product-image.sh` | Gates |
+| `scripts/boot/qemu-boot-check.sh`, `check-product-image.sh` | Gates |
 | Issue #12 | Done-when |
 
 ---
@@ -920,7 +920,7 @@ Each PR independently reviewable; every PR that changes spawn topology or oracle
 | | |
 | - | - |
 | **Title** | `m8: product manifest beacon and product-builds proof` |
-| **Files** | `src/bootstrap/loader.rs` (always-on product **`beacon`**; remove oracle **`echo`**; oracle adds **`mute` only**; shared `CONSOLE_HI`); `scripts/qemu-boot-check.sh` (greps **`echo` → `beacon`**); `scripts/check-product-image.sh`; `docs/architecture.md` rule 9; SECURITY/verification strings that still name `echo` as the granted path |
+| **Files** | `src/bootstrap/loader.rs` (always-on product **`beacon`**; remove oracle **`echo`**; oracle adds **`mute` only**; shared `CONSOLE_HI`); `scripts/boot/qemu-boot-check.sh` (greps **`echo` → `beacon`**); `scripts/boot/product-image.sh`; `docs/architecture.md` rule 9; SECURITY/verification strings that still name `echo` as the granted path |
 | **Depends on** | **PR3** (default; shared SEND image + no putc encodings). Theoretically PR1+PR2 suffice for a product-only path, but landing after PR3 avoids dual encoding and a second rename. |
 | **Description** | **Rename granted entry `echo` → `beacon`**, make it always-on product; oracle table is mute-only on top of product. Product gate: size↑, unreachable **&lt; 36**, rodata markers `console-server: up` / `loader: beacon`, **and mandatory product QEMU smoke wired into `make check`** (greps `console-server: up`, `loader: beacon ran`, `H!`). **Boot-check greps flip to beacon in this PR** (not PR3). **Required** to close architecture M8 row. |
 

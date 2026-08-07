@@ -144,46 +144,46 @@ shellcheck:
 	  echo "shellcheck: SKIPPED — not installed (pacman -S shellcheck)" >&2; \
 	  exit 0; \
 	fi; \
-	shellcheck -x -P scripts scripts/*.sh scripts/lib/*.sh && echo "shellcheck: clean"
+	shellcheck -x -P scripts scripts/check/*.sh scripts/boot/*.sh scripts/host/*.sh scripts/lib/*.sh && echo "shellcheck: clean"
 
 # Facts that live in two places with nothing comparing them: markdown links,
 # `ADR-NNNN` citations, and the status and id each ADR repeats in the index.
 # All four were true when the gate was written — by attention, which does not
 # survive a rename.
 xrefs:
-	./scripts/check-xrefs.sh
+	./scripts/check/xrefs.sh
 
 # A module path in the descriptive docs must name code that is there. `xrefs`
 # follows links and `doc-claims` counts two numbers; neither sees a sentence
 # that names `arch::mmu::EARLY_L1` after the map moved to `src/mm/early.rs`.
 # Path-aware on purpose: the symbol still exists, in another module.
 doc-symbols:
-	./scripts/check-doc-symbols.sh
+	./scripts/check/doc-symbols.sh
 
 # The layering rules in docs/architecture.md, checked against real imports.
 # They are the architecture, and were enforced by review alone until now.
 layering:
-	./scripts/check-layering.sh
+	./scripts/check/layering.sh
 
 # `layering` sees imports; this sees the other way of knowing the board, which
 # is to write its addresses out by hand. F23 lived in that blind spot.
 arch-board-free:
-	./scripts/check-arch-board-free.sh
+	./scripts/check/arch-board-free.sh
 
 # The README claims a machine can settle, plus the arch facade against its contract.
 # Both have drifted, the gate list twice — once on the commit that added a gate.
 doc-claims:
-	./scripts/check-doc-claims.sh
+	./scripts/check/doc-claims.sh
 
 # Boot the image under QEMU and assert it reaches a healthy steady state.
 # The assertions live in the script, not here and not in the CI workflow, so
 # the two cannot drift apart.
 # ADR-0029: pack composition blob (input to inject-agent-store.py).
 agents:
-	python3 scripts/pack-agent-store.py -o $(AGENTS_BIN)
+	python3 scripts/agent/pack-store.py -o $(AGENTS_BIN)
 
 boot-check: img
-	./scripts/qemu-boot-check.sh $(IMG) $(BOOT_CHECK_SECONDS)
+	./scripts/boot/qemu-boot-check.sh $(IMG) $(BOOT_CHECK_SECONDS)
 
 test:
 	cargo test -p $(TEST_PKG) --target $(HOST_TARGET)
@@ -208,7 +208,7 @@ test:
 # The tool check is not decoration. Without it a missing `llvm-objdump` makes
 # the pipeline produce nothing, `grep .` fail, `!` invert that into success,
 # and the target print `no-simd: clean` having disassembled nothing at all —
-# the exact failure `scripts/check-pre-mmu-path.sh` refuses by design.
+# the exact failure `scripts/check/pre-mmu-path.sh` refuses by design.
 no-simd: elf
 	@command -v $(OBJDUMP) >/dev/null || { \
 	  echo "no-simd: FAIL — $(OBJDUMP) not found; refusing to report clean" >&2; \
@@ -227,30 +227,30 @@ no-simd: elf
 # The script checks the whole entry path, not one function, and fails if the
 # path grows.
 no-early-exclusives: elf
-	./scripts/check-pre-mmu-path.sh $(ELF)
+	./scripts/check/pre-mmu-path.sh $(ELF)
 
 # No `static mut` under src/ (ADR-0019). Rule 7 is absolute after CURRENT_EL0
 # became an AtomicPtr; this gate is what keeps a second exception from landing
 # as a comment nobody re-checks. Does not need the ELF — it greps source.
 no-static-mut:
-	./scripts/check-no-static-mut.sh
+	./scripts/check/no-static-mut.sh
 
 # ADR-0022: a DAIF save/restore pair must not span a call that can switch tasks.
 # Brace-aware rather than line-based — a scope is not a line, and the offending
 # call is usually far below the `without_irqs(` that opens the region.
 irq-scope:
-	./scripts/check-irq-scope.sh
+	./scripts/check/irq-scope.sh
 
 # Rule 9: diagnostic scaffolding stays out of the production surface. Builds the
 # image without the `oracle` feature and refuses one that still carries the demo
 # strings — derived from `demos.rs`, not listed here, because a hand-written
 # marker list passed a real leak twice while this was being written.
 product-builds:
-	./scripts/check-product-image.sh
+	./scripts/boot/product-image.sh
 
 # M8: product image (no oracle) must actually run beacon + console server.
 product-boot-check: product-builds
-	./scripts/qemu-product-boot-check.sh
+	./scripts/boot/qemu-product-boot-check.sh
 
 # Miri interprets the host tests and checks the aliasing and provenance rules
 # that running the code cannot sample. It covers the only `unsafe` in
@@ -262,7 +262,7 @@ product-boot-check: product-builds
 # reading which mutants survived rather than in a threshold. See the script for
 # the baseline and why it is not zero.
 mutants:
-	./scripts/run-mutants.sh
+	./scripts/host/run-mutants.sh
 
 miri:
 	@if ! rustup toolchain list | grep -q nightly; then \
@@ -327,7 +327,7 @@ qemu-gdb: img
 	$(QEMU) $(QEMU_FLAGS) -S -s
 
 blobs:
-	./scripts/fetch-blobs.sh
+	./scripts/host/fetch-blobs.sh
 
 deploy: img
 	@if [ -z "$(strip $(FEATURES))" ]; then \
@@ -336,20 +336,20 @@ deploy: img
 	else \
 	  echo "deploy: FEATURES=$(FEATURES)"; \
 	fi
-	./scripts/deploy-sd.sh "$(SD_MOUNT)" "$(IMG)"
+	./scripts/host/deploy-sd.sh "$(SD_MOUNT)" "$(IMG)"
 
 # Same mount-point guard as deploy; needs a prior backup under .sd-backup/.
 restore-rpios:
-	./scripts/restore-rpios-boot.sh "$(SD_MOUNT)"
+	./scripts/host/restore-rpios-boot.sh "$(SD_MOUNT)"
 
 serial:
-	./scripts/serial.sh "$(SERIAL_DEV)" "$(BAUD)"
+	./scripts/host/serial.sh "$(SERIAL_DEV)" "$(BAUD)"
 
 # Non-interactive half of `serial`: timestamps every line and opens a FIFO so a
 # script can send bytes to the board. Used for anything that has to answer
 # "how long between X and Y", which a picocom transcript cannot.
 serial-capture:
-	./scripts/serial-capture.sh
+	./scripts/host/serial-capture.sh
 
 clean:
 	cargo clean
