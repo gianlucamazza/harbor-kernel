@@ -550,6 +550,22 @@ pub fn run() -> ! {
             }
             Err(e) => crate::kprintln!("ipc: orphan channel FAILED {e:?}"),
         }
+
+        // ADR-0031 / K2: ephemeral channel — sole SEND holder exits, waiter
+        // is auto-cancelled without a supervisor reaper.
+        match crate::ipc::create_channel_ephemeral() {
+            Ok(ch) => {
+                match crate::sched::spawn_with_caps(demos::auto_reap_receiver, &[ch.recv]) {
+                    Ok(_) => crate::kprintln!("ipc: auto-reap receiver spawned"),
+                    Err(e) => crate::kprintln!("ipc: auto-reap receiver FAILED {e:?}"),
+                }
+                match crate::sched::spawn_with_caps(demos::auto_reap_sender, &[ch.send]) {
+                    Ok(_) => crate::kprintln!("ipc: auto-reap sender spawned"),
+                    Err(e) => crate::kprintln!("ipc: auto-reap sender FAILED {e:?}"),
+                }
+            }
+            Err(e) => crate::kprintln!("ipc: auto-reap channel FAILED {e:?}"),
+        }
     }
 
     // Deliberate fault, last so the demo tasks are alive when it runs: the

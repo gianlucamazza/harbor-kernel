@@ -31,6 +31,7 @@ use kernel_core::tasks::{Decision, Switch, Tasks};
 use crate::arch::cpu;
 use crate::arch::el0::El0Session;
 use crate::arch::switch::{Context, context_switch};
+use crate::ipc;
 use crate::irq;
 use crate::mm::{StackError, TaskStack};
 use crate::sync::SyncCell;
@@ -42,10 +43,10 @@ use crate::sync::SyncCell;
 /// reused before exit, so this is a boot-time total and not a high-water mark.
 ///
 /// It went 12 → 14 when the loader landed, 14 → 16 for M8 console server +
-/// product beacon, 16 → 18 for the ADR-0025 reaping oracle, then 18 → 19 for
-/// the K1 irq-wait oracle (ADR-0028). Raising it costs task stacks and
+/// product beacon, 16 → 18 for the ADR-0025 reaping oracle, then 18 → 19 for the K1 irq-wait oracle (ADR-0028),
+/// 19 → 21 for ADR-0031 auto-reap sender/receiver. Raising it costs task stacks and
 /// page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 19;
+pub const MAX_TASKS: usize = 21;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -235,6 +236,8 @@ fn spawn_inner(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, SpawnErro
             el0: Some(El0Session::new()),
             cancel_wait: false,
         };
+        // ADR-0031: SEND holds are TCB slots, not stack CapId copies.
+        ipc::register_holds(&held);
         Ok(id)
     })
 }
@@ -571,30 +574,46 @@ fn switch_with(kind: Switch) {
 
     let daif = cpu::irq_save();
 
-    // SAFETY: IRQs masked for schedule + switch.
-    let sched = unsafe { &mut *SCHED.get() };
+    // Bookkeeping under an exclusive SCHED borrow, then drop it before ipc
+    // may re-enter via `prepare_cancel_blocked` (ADR-0031).
+    let (from, to, release, exit_caps) = {
+        // SAFETY: IRQs masked for schedule + switch.
+        let sched = unsafe { &mut *SCHED.get() };
 
-    let (from, to, release) = match sched.tasks.switch(kind) {
-        Decision::Stay => {
-            // SAFETY: closes the section opened above, on the path that does
-            // not change stacks.
-            unsafe { cpu::irq_restore(daif) };
-            return;
-        }
-        Decision::Switch { from, to, release } => (from, to, release),
+        let (from, to, release) = match sched.tasks.switch(kind) {
+            Decision::Stay => {
+                // SAFETY: closes the section opened above, on the path that does
+                // not change stacks.
+                unsafe { cpu::irq_restore(daif) };
+                return;
+            }
+            Decision::Switch { from, to, release } => (from, to, release),
+        };
+
+        let exit_caps = if kind == Switch::Exit {
+            // The slot is `Empty` and its stack stays attached until collected —
+            // the model refuses to hand the slot out again until then.
+            let slot = &mut sched.tcbs[from.0 as usize];
+            let caps = slot.caps;
+            slot.entry = None;
+            slot.caps = [None; MAX_CAPS_PER_TASK];
+            slot.context = Context::zeroed();
+            // The session dies with the task. Nothing scrubs what a faulting agent
+            // left in it before this point — see ADR-0018's fifth reversal row.
+            slot.el0 = None;
+            Some(caps)
+        } else {
+            None
+        };
+        (from, to, release, exit_caps)
     };
 
-    if kind == Switch::Exit {
-        // The slot is `Empty` and its stack stays attached until collected —
-        // the model refuses to hand the slot out again until then.
-        let slot = &mut sched.tcbs[from.0 as usize];
-        slot.entry = None;
-        slot.caps = [None; MAX_CAPS_PER_TASK];
-        slot.context = Context::zeroed();
-        // The session dies with the task. Nothing scrubs what a faulting agent
-        // left in it before this point — see ADR-0018's fifth reversal row.
-        slot.el0 = None;
+    if let Some(caps) = exit_caps {
+        ipc::release_holds_and_reap(&caps);
     }
+
+    // SAFETY: IRQs still masked; exclusive again for context pointers.
+    let sched = unsafe { &mut *SCHED.get() };
 
     if let Some(stranded) = release {
         // An exit that found the parked slot already taken. The model counts

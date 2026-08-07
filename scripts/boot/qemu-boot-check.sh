@@ -278,6 +278,9 @@ grep -qa 'ipc: reaped cancelled' "${log}" ||
 	fail "orphan receiver was not cancelled (ADR-0025)"
 grep -qaE 'ipc: cancel issued cancel_events=[1-9]' "${log}" ||
 	fail "supervisor cancel was not issued"
+# ADR-0031 / K2: last SEND-hold drop on an ephemeral channel auto-cancels.
+grep -qa 'ipc: auto-reaped cancelled' "${log}" ||
+	fail "ephemeral last-hold auto-reap did not cancel the waiter (ADR-0031)"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

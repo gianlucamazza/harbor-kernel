@@ -134,9 +134,31 @@ pub fn refused_state_count() -> u32 {
     REFUSED_STATE.load(Ordering::Relaxed)
 }
 
-/// Allocate a mailbox and mint send + recv capabilities.
+/// Allocate a mailbox and mint send + recv capabilities (no auto-reap).
 pub fn create_channel() -> Result<Channel, CreateError> {
     with_table(|t| t.create_channel())
+}
+
+/// Like [`create_channel`], but last SEND-hold drop cancels a parked waiter
+/// (ADR-0031 / K2). Console and intentional servers use [`create_channel`].
+pub fn create_channel_ephemeral() -> Result<Channel, CreateError> {
+    with_table(|t| t.create_channel_ephemeral())
+}
+
+/// Record SEND caps installed into a new task's table (ADR-0031).
+pub fn register_holds(caps: &[Option<CapId>]) {
+    with_table(|t| t.register_holds(caps));
+}
+
+/// Drop holds for an exiting task's caps; auto-reap waiters get cancelled
+/// (ADR-0031). Call **before** the TCB slots are zeroed if the caller still
+/// needs the snapshot — pass a copy of the slots.
+pub fn release_holds_and_reap(caps: &[Option<CapId>; crate::sched::MAX_CAPS_PER_TASK]) {
+    let waiters = with_table(|t| t.release_holds(caps));
+    for waiter in waiters.into_iter().flatten() {
+        // Waiter slot already cleared by `release_holds`; only mark + wake.
+        let _ = sched::prepare_cancel_blocked(waiter);
+    }
 }
 
 /// Send `msg` using a send capability. Wakes a blocked receiver if any.

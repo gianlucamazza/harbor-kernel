@@ -36,7 +36,8 @@ allowed_for() {
 	mm*) echo "arch bsp" ;;
 	# Cooperative scheduler: TCBs, stacks, switch, wake queue - not drivers/board.
 	# ADR-0028: drains irq::wait and exposes wait_for_irq.
-	sched*) echo "arch mm irq" ;;
+	# ADR-0031: spawn/exit register SEND holds via ipc (K2 last-hold auto-reap).
+	sched*) echo "arch mm irq ipc" ;;
 	# M4 IPC: mailboxes + caps; parks/wakes via sched only.
 	ipc*) echo "arch sched" ;;
 	# The board binds protocols together; that is its job (rule 2).

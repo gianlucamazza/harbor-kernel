@@ -124,6 +124,10 @@ struct Mailbox<const DEPTH: usize> {
     tail: usize,
     len: usize,
     waiter: Option<TaskId>,
+    /// TCB slots that currently hold a SEND end of this mailbox (ADR-0031).
+    send_holders: u32,
+    /// When true, last SEND-hold drop cancels a parked waiter (ADR-0031).
+    auto_reap: bool,
 }
 
 impl<const DEPTH: usize> Mailbox<DEPTH> {
@@ -134,6 +138,8 @@ impl<const DEPTH: usize> Mailbox<DEPTH> {
         tail: 0,
         len: 0,
         waiter: None,
+        send_holders: 0,
+        auto_reap: false,
     };
 
     fn push(&mut self, msg: Message) {
@@ -223,9 +229,22 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
 
     /// Allocate a mailbox and mint one send and one recv capability for it.
     ///
-    /// Both carry the same generation: they name the same channel at the same
-    /// moment in time, which is what the generation records.
+    /// Default channels do **not** auto-reap waiters when the last SEND hold
+    /// drops (console-safe). Use [`Self::create_channel_ephemeral`] for agent
+    /// mailboxes that should cancel on last sender exit (ADR-0031).
+    ///
+    /// Both ends carry the same generation: they name the same channel at the
+    /// same moment in time, which is what the generation records.
     pub fn create_channel(&mut self) -> Result<Channel, CreateError> {
+        self.create_channel_with_auto_reap(false)
+    }
+
+    /// Like [`Self::create_channel`], but last SEND-hold drop cancels a waiter.
+    pub fn create_channel_ephemeral(&mut self) -> Result<Channel, CreateError> {
+        self.create_channel_with_auto_reap(true)
+    }
+
+    fn create_channel_with_auto_reap(&mut self, auto_reap: bool) -> Result<Channel, CreateError> {
         let mb = self
             .mailboxes
             .iter()
@@ -252,6 +271,7 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
 
         self.mailboxes[mb] = Mailbox {
             live: true,
+            auto_reap,
             ..Mailbox::EMPTY
         };
         self.endpoints[send_ep] = Endpoint {
@@ -271,6 +291,52 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
             send: CapId::new(send_ep as u16, generation),
             recv: CapId::new(recv_ep as u16, generation),
         })
+    }
+
+    /// Record SEND caps installed into a TCB (ADR-0031). Non-SEND caps are ignored.
+    pub fn register_holds(&mut self, caps: &[Option<CapId>]) {
+        for cap in caps.iter().flatten() {
+            if let Some(mb) = self.lookup(*cap, CapRights::SEND) {
+                let h = &mut self.mailboxes[mb].send_holders;
+                *h = h.saturating_add(1);
+            }
+        }
+    }
+
+    /// Drop SEND holds for caps leaving a TCB. Returns waiters to cancel
+    /// (already cleared from the mailbox) when auto-reap fires (ADR-0031).
+    ///
+    /// At most one waiter per mailbox; the array is sized for a task's slot
+    /// table so callers can process without allocating.
+    pub fn release_holds<const N: usize>(
+        &mut self,
+        caps: &[Option<CapId>; N],
+    ) -> [Option<TaskId>; N] {
+        let mut out = [None; N];
+        let mut n = 0usize;
+        for cap in caps.iter().flatten() {
+            if let Some(mb) = self.lookup(*cap, CapRights::SEND) {
+                let mbox = &mut self.mailboxes[mb];
+                if mbox.send_holders > 0 {
+                    mbox.send_holders -= 1;
+                }
+                if mbox.send_holders == 0
+                    && mbox.auto_reap
+                    && let Some(waiter) = mbox.waiter.take()
+                    && n < N
+                {
+                    out[n] = Some(waiter);
+                    n += 1;
+                }
+            }
+        }
+        out
+    }
+
+    /// How many TCB slots hold SEND for the mailbox named by `cap` (test/debug).
+    pub fn send_holders(&self, cap: CapId) -> Option<u32> {
+        let mb = self.lookup(cap, CapRights::SEND)?;
+        Some(self.mailboxes[mb].send_holders)
     }
 
     /// Resolve a capability to its mailbox, or say why it does not resolve.
@@ -415,6 +481,10 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
         if mbox.len > 0 {
             return Ok(Some(mbox.pop()));
         }
+        // ADR-0031: ephemeral channel with no SEND holders — refuse to park.
+        if mbox.auto_reap && mbox.send_holders == 0 {
+            return Err(RecvError::Cancelled);
+        }
         match mbox.waiter {
             Some(existing) if existing != me => {
                 self.refusals.state += 1;
@@ -454,6 +524,70 @@ mod tests {
         // A later send must not invent a wake for the cancelled waiter.
         assert_eq!(t.send(ch.send, msg(1)), Ok(None));
         assert_eq!(t.try_recv(ch.recv), Ok(msg(1)));
+    }
+
+    #[test]
+    fn last_send_hold_on_ephemeral_channel_names_the_waiter() {
+        // ADR-0031: sole SEND holder exits while peer is parked → cancel path.
+        let mut t = T::new();
+        let ch = t.create_channel_ephemeral().unwrap();
+        let waiter = TaskId(4);
+        let slots = [Some(ch.send), None, None, None];
+        t.register_holds(&slots);
+        assert_eq!(t.send_holders(ch.send), Some(1));
+        assert_eq!(t.park(ch.recv, waiter), Ok(None));
+        let released = t.release_holds(&slots);
+        assert_eq!(released[0], Some(waiter));
+        assert_eq!(t.send_holders(ch.send), Some(0));
+        // Waiter already cleared; send must not invent a wake.
+        assert_eq!(t.send(ch.send, msg(1)), Ok(None));
+    }
+
+    #[test]
+    fn default_channel_never_auto_reaps_on_last_unhold() {
+        // Console-safe: intentional servers park with zero SEND holders after
+        // clients exit.
+        let mut t = T::new();
+        let ch = t.create_channel().unwrap();
+        let waiter = TaskId(5);
+        let slots = [Some(ch.send), None, None, None];
+        t.register_holds(&slots);
+        assert_eq!(t.park(ch.recv, waiter), Ok(None));
+        let released = t.release_holds(&slots);
+        assert!(released.iter().all(|w| w.is_none()));
+        // Waiter still set — a later send still wakes it.
+        assert_eq!(t.send(ch.send, msg(2)), Ok(Some(waiter)));
+    }
+
+    #[test]
+    fn two_holders_first_unhold_does_not_cancel() {
+        let mut t = T::new();
+        let ch = t.create_channel_ephemeral().unwrap();
+        let waiter = TaskId(6);
+        let a = [Some(ch.send), None, None, None];
+        let b = [Some(ch.send), None, None, None];
+        t.register_holds(&a);
+        t.register_holds(&b);
+        assert_eq!(t.send_holders(ch.send), Some(2));
+        assert_eq!(t.park(ch.recv, waiter), Ok(None));
+        let first = t.release_holds(&a);
+        assert!(first.iter().all(|w| w.is_none()));
+        let second = t.release_holds(&b);
+        assert_eq!(second[0], Some(waiter));
+    }
+
+    #[test]
+    fn ephemeral_park_with_zero_holders_is_cancelled() {
+        let mut t = T::new();
+        let ch = t.create_channel_ephemeral().unwrap();
+        assert_eq!(t.park(ch.recv, TaskId(1)), Err(RecvError::Cancelled));
+    }
+
+    #[test]
+    fn default_channel_allows_park_with_zero_holders() {
+        let mut t = T::new();
+        let ch = t.create_channel().unwrap();
+        assert_eq!(t.park(ch.recv, TaskId(1)), Ok(None));
     }
 
     #[test]

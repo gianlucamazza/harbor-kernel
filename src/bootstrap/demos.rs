@@ -538,7 +538,7 @@ pub(super) fn el0_ipc_receiver() {
 pub(super) static ORPHAN_TASK: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(u32::MAX);
 
-/// ADR-0025: parks on a mailbox nobody will send to; expects cancel.
+/// ADR-0025: parks on a mailbox nobody will send to; expects supervisor cancel.
 pub(super) fn orphan_receiver() {
     let Some(cap) = crate::sched::my_cap(0) else {
         crate::kprintln!("ipc: orphan has no cap");
@@ -573,6 +573,28 @@ pub(super) fn orphan_reaper() {
         crate::kprintln!("ipc: cancel FAILED (not blocked?)");
     }
     crate::sched::yield_now();
+}
+
+/// ADR-0031 / K2: parks on an ephemeral channel; sole SEND holder will exit.
+pub(super) fn auto_reap_receiver() {
+    let Some(cap) = crate::sched::my_cap(0) else {
+        crate::kprintln!("ipc: auto-reap recv has no cap");
+        return;
+    };
+    match crate::ipc::recv(cap) {
+        Err(crate::ipc::RecvError::Cancelled) => {
+            crate::kprintln!("ipc: auto-reaped cancelled")
+        }
+        Ok(msg) => crate::kprintln!("ipc: auto-reap unexpected tag={} a={}", msg.tag, msg.a),
+        Err(e) => crate::kprintln!("ipc: auto-reap FAILED {e:?}"),
+    }
+}
+
+/// ADR-0031: holds SEND, yields so the peer parks, then exits (drops the hold).
+pub(super) fn auto_reap_sender() {
+    crate::sched::yield_now();
+    crate::sched::yield_now();
+    // Exit without sending — last SEND hold drop auto-cancels the waiter.
 }
 
 /// K1 / ADR-0028 + ADR-0030: EL1 timer wait, then EL0 `SYS_WAIT_IRQ` on the

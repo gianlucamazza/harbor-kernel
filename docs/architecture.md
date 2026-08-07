@@ -395,7 +395,8 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 | --- | --- | --- |
 | Visibility (`blocked_count` / `block_events`) | **done (HW)** | [ADR-0024](adr/0024-parked-task-visibility.md); [verification §](verification.md#parked-task-visibility-and-cancel-closed-on-silicon-adr-0024--0025-2026-08-07) |
 | Supervisor `cancel_blocked` → `Cancelled` | **done (HW)** | [ADR-0025](adr/0025-cancel-blocked-wait.md); `ipc: reaped cancelled` on silicon |
-| Timeout / auto-reap on last send drop | **open (K2)** | Completeness track; not done by ADR-0025 |
+| Last-SEND-hold auto-reap (ephemeral) | **done (QEMU)** | [ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md); timeout residual still open |
+| Timeout / deadline queue | **open (K2 residual)** | Not done by ADR-0025/0031 |
 
 Issue [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) is **closed**
 for visibility + cancel. [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)
@@ -426,10 +427,10 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 
 | Snapshot | Tracks |
 | --- | --- |
-| **done (QEMU)** first slices | K1 (EL1 + EL0 wait-on-IRQ), K6 (image store), P1 (multi-agent store), P6 (pack/inject/inspect) |
-| **H1 next (product-critical)** | K2 reclaim → K3 cap economy → K10 lifecycle → K9 drivers → P5 naming → P2 storage → (P3\|P4) · K5 |
+| **done (QEMU)** first slices | K1 (EL1 + EL0 wait-on-IRQ), K2 (last-SEND-hold auto-reap), K6 (image store), P1 (multi-agent store), P6 (pack/inject/inspect) |
+| **H1 next (product-critical)** | K3 cap economy → K10 lifecycle → K9 drivers → P5 naming → P2 storage → (P3\|P4) · K5 |
 | **H2 depth** | K4 preemption, K7 ASID, K8 SMP, HW stamps, remaining P depth |
-| **open (kernel)** | K2, K3, K4, K5, K7, K8, K9, K10 |
+| **open (kernel)** | K2 timeout residual, K3, K4, K5, K7, K8, K9, K10 |
 | **open (product)** | P2 storage, P3 network, P4 display product, P5 naming |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
@@ -513,6 +514,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0028](adr/0028-wait-on-irq.md) | K1 entry: EL1 wait on IRQ cookie (**accepted**) |
 | [ADR-0029](adr/0029-agent-store-in-image.md) | Agent store placement: image section inject (**accepted**) |
 | [ADR-0030](adr/0030-el0-irq-capability.md) | K1 remainder: EL0 `SYS_WAIT_IRQ` + IRQ notification caps (**accepted**) |
+| [ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md) | K2 entry: last SEND-hold auto-cancel on ephemeral channels (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

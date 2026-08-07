@@ -43,7 +43,7 @@ the named level — not when prose wishes it.
 | Horizon | Product outcome | Tracks that close it |
 | --- | --- | --- |
 | **H0 — Foundation** | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel | **Done (HW)** — M0–M8 + ADR-0024/0025 |
-| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** K1, K6, P1, P6. **Still on the critical path:** K2, K3, K9, K10, then P2 / P5 (and P3/P4 as the appliance needs them). K5 helps density |
+| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** K1, K2 (auto-reap), K6, P1, P6. **Still on the critical path:** K3, K9, K10, then P2 / P5 (and P3/P4 as the appliance needs them). K5 helps density; K2 timeout residual open |
 | **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | K4, K5 (remainder), K7, K8, remainder of P2–P5, hardening of first slices to **done (HW)** where claimed |
 
 **H1 product bar (what “composition OS” means here):**
@@ -67,7 +67,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | ID | Track | Status | Done when (sketch) | Needs first |
 | --- | --- | --- | --- | --- |
 | K1 | Wait-on-IRQ (first-class) | **done (QEMU)** ([ADR-0028](adr/0028-wait-on-irq.md) EL1 + [ADR-0030](adr/0030-el0-irq-capability.md) EL0) | EL1 `wait_for_irq`; EL0 `SYS_WAIT_IRQ` via IRQ notification cap; oracle `irq-wait: woke` + `el0-irq: woke` | ADR-0008 → 0028 → 0030 |
-| K2 | Park reclaim (timeout and/or auto-reap on last send drop) | **open** | Orphan parks do not hold `MAX_TASKS` forever without policy | Successor to ADR-0025 |
+| K2 | Park reclaim (timeout and/or auto-reap on last send drop) | **done (QEMU)** first slice ([ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md) last-SEND-hold auto-reap); timeout still open | Ephemeral channels: last SEND hold drop cancels waiter; console default stays stable | Successor to ADR-0025 → 0031; timeout later |
 | K3 | Cap transfer / revoke / endpoint release | **open** | Authority can move and die without reboot; stale generation exercised by real release | ADR-0017 successor |
 | K4 | Preemption or CPU budget | **open** | Hostile busy-loop is not permanent DoS residual | Successor to ADR-0006; name agent-pair impact (0023) |
 | K5 | Agent density (shrink/collapse driver half) | **open** | Many small agents without 16 KiB kernel stack each by default | Successor to ADR-0023 |
@@ -102,14 +102,14 @@ its design ADR before boundary code.
 
 | Step | Track(s) | Why now (mission fit) |
 | --- | --- | --- |
-| 1 | **K2** park reclaim | Composition reliability: orphans must not exhaust `MAX_TASKS` without policy |
-| 2 | **K3** cap transfer / revoke / release | Authority must move with the composition, not only at spawn |
-| 3 | **K10** supervisor lifecycle | Creator/supervisor restarts and reaps real product agents |
-| 4 | **K9** second driver-as-agent | Proves device agents beyond PL011 using IRQ caps (K1) |
-| 5 | **P5** naming / discovery | Compositions find endpoints without oracle hard-wiring (wants K3) |
-| 6 | **P2** storage path | Appliance load/persist without rebuild-only workflow |
-| 7 | **P3** / **P4** as needed | Edge net / product display when a concrete composition needs them |
-| 8 | **K5** density | Scale agent count for multi-agent appliances (can interleave earlier if blocked on slots) |
+| 1 | **K3** cap transfer / revoke / release | Authority must move with the composition, not only at spawn |
+| 2 | **K10** supervisor lifecycle | Creator/supervisor restarts and reaps real product agents |
+| 3 | **K9** second driver-as-agent | Proves device agents beyond PL011 using IRQ caps (K1) |
+| 4 | **P5** naming / discovery | Compositions find endpoints without oracle hard-wiring (wants K3) |
+| 5 | **P2** storage path | Appliance load/persist without rebuild-only workflow |
+| 6 | **P3** / **P4** as needed | Edge net / product display when a concrete composition needs them |
+| 7 | **K5** density | Scale agent count for multi-agent appliances (can interleave earlier if blocked on slots) |
+| — | **K2 timeout** (later slice) | Deadline queue; not required for last-hold auto-reap |
 
 **H2 (after or interleaved when design is ready):** **K4** preemption/budget,
 **K7** ASID/TTBR1, **K8** SMP — production fairness and isolation depth, not
@@ -122,8 +122,8 @@ Mission: agents · grants · evidence · finish the OS
                 │
     H0 foundation ████████ done (HW)
                 │
-    H1 composition ██░░░░░░ K1 K6 P1 P6 done (QEMU)
-                │          next: K2 → K3 → K10 → K9 → P5 → P2 → (P3|P4) · K5
+    H1 composition ███░░░░░ K1 K2 K6 P1 P6 done (QEMU)
+                │          next: K3 → K10 → K9 → P5 → P2 → (P3|P4) · K5
                 │
     H2 boundary    ░░░░░░░░ K4 K7 K8 + HW stamps + remaining P depth
 ```
