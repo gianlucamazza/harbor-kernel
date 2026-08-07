@@ -1,8 +1,9 @@
 ---
 id: 0022
 title: Blocking SYS_RECV — an agent parks, and the interrupt mask stops travelling with the switch
-status: proposed
+status: accepted
 date: 2026-08-07
+accepted: 2026-08-07
 related: [0006, 0008, 0017, 0018, 0019]
 ---
 
@@ -10,7 +11,8 @@ related: [0006, 0008, 0017, 0018, 0019]
 
 ## Acceptance status
 
-**Proposed** (2026-08-07). Deferred deliberately by
+**Accepted** (2026-08-07) by the project owner, as drafted. Deferred
+deliberately by
 [ADR-0017](0017-el0-capability-abi.md), whose consequences say a blocking recv
 is the change that would make an agent yield out of a live EL0 session, and that
 M7 does not do it.

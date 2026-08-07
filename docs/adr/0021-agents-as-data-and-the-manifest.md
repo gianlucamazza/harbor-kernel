@@ -1,8 +1,9 @@
 ---
 id: 0021
 title: Agents become data described by a manifest, and authority becomes enumerable in one artefact
-status: proposed
+status: accepted
 date: 2026-08-07
+accepted: 2026-08-07
 related: [0012, 0017, 0018]
 ---
 
@@ -10,9 +11,11 @@ related: [0012, 0017, 0018]
 
 ## Acceptance status
 
-**Proposed** (2026-08-07). Required before the loader milestone by
-[ADR-0001](0001-multi-role-analysis.md): it moves where authority is decided,
-which is the boundary this project exists to defend.
+**Accepted** (2026-08-07) by the project owner, who delegated the drafting and
+took the two decisions that changed the text before it was accepted: the image
+source (§3) and the empty product manifest (consequences). Required before the
+loader milestone by [ADR-0001](0001-multi-role-analysis.md), because it moves
+where authority is decided — the boundary this project exists to defend.
 
 ## Context
 
@@ -76,10 +79,23 @@ cannot escalate, and that is a property of the shape rather than of a check.
 **3. The source of the data is separable, and step one is the kernel's own
 `.rodata`.**
 
-Embedded with `include_bytes!`. That is deliberately _not_ a filesystem: reading
-from FAT needs an SD block driver, and by this project's own doctrine a block
-driver is a driver-agent, which needs the loader. The circle is broken by not
-entering it.
+The images are `const` byte arrays produced by `prog::encode_*` — the same
+functions whose output `crates/kernel-core/src/prog.rs` already compares
+byte-for-byte against `llvm-mc`. They land in `.rodata` and the manifest holds
+`&'static [u8]` into them.
+
+An earlier draft of this decision said `include_bytes!` of checked-in `.bin`
+files. That was rejected on the way to acceptance for a reason worth recording:
+a binary in the tree is bytes no test ties back to the assembly text they are
+supposed to be. The `const` route buys the same property this ADR actually wants
+— bytes in `.rodata`, no parser, no loader-time format — and keeps every image
+under the assembler oracle. `include_bytes!` becomes right the day the source
+moves outside the image, which is the same day the manifest becomes a byte
+format (§4).
+
+Either way this is deliberately _not_ a filesystem: reading from FAT needs an SD
+block driver, and by this project's own doctrine a block driver is a
+driver-agent, which needs the loader. The circle is broken by not entering it.
 
 What this buys is the part that matters and is independent of where bytes come
 from: **every grant in the machine is one table**, and the loader is one loop
@@ -117,8 +133,8 @@ function. That is the honest claim, and the temptation is to make a larger one.
 
 - Authority becomes enumerable in a single artefact — the property
   `SECURITY.md` needs and cannot currently state.
-- The 88 unreachable items get a product-path caller: the loader creates agents
-  because the manifest says so, not because a demo does.
+- The creator of agents becomes product code. The loader is compiled into every
+  image and reads a table; only the **table** is scaffolding.
 - An agent can be written in a language, because its text is no longer bounded
   by one page.
 - The oracle's agents become manifest entries like any other, so the boot check
@@ -126,6 +142,22 @@ function. That is the honest claim, and the temptation is to make a larger one.
 
 ### Negative / debt
 
+- **The product manifest is empty, so the 88 does not go to zero.** Every entry
+  is `cfg(feature = "oracle")`, because there is no product agent yet: the
+  console endpoint of M8 is the first thing the product would actually want
+  loaded. So the loader becomes reachable and the demos' creator-side code stops
+  being the only creator, but the product image still creates no task. The
+  number `make product-builds` reports must fall, and the amount it falls by is
+  the honest measure of how much of this decision is delivered. Stating it here
+  because the temptation is to read "the loader is product code" as "the product
+  loads something".
+- **The manifest describes agents, not test drivers.** An entry is one image and
+  its grants, so it fits an agent whose whole life is that image. It does not
+  fit `el0_scheduled_task` or `el0_ipc_sender`, which run four and five programs
+  in sequence and check refusal counters and fault policy between them. Those
+  stay creator-driven tasks. The boundary is real and worth naming: a manifest
+  entry is an agent, and a sequence of programs with assertions between them is
+  an oracle.
 - **A manifest in the image is not a manifest from outside it.** Everything that
   makes this interesting as an _operating system_ — an agent the operator
   chooses, signature checking, a per-agent identity — begins only when the

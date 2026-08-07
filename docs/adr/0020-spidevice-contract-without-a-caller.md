@@ -1,8 +1,9 @@
 ---
 id: 0020
 title: SpiDevice — an adopted contract with no caller, and a sentence in ADR-0010 that stopped describing anything
-status: proposed
+status: accepted
 date: 2026-08-07
+accepted: 2026-08-07
 related: [0009, 0010]
 ---
 
@@ -10,7 +11,8 @@ related: [0009, 0010]
 
 ## Acceptance status
 
-**Proposed** (2026-08-07). Successor to a _description_ inside
+**Accepted** (2026-08-07) by the project owner, as drafted. Successor to a
+_description_ inside
 [ADR-0010](0010-spi-transaction-and-dbi-panel.md), not to any of its decisions.
 Accepted ADRs are immutable, so a sentence that has stopped being true is
 corrected here rather than edited there.

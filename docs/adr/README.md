@@ -32,9 +32,9 @@ the code that follows.
 | [0017](0017-el0-capability-abi.md)                      | EL0 capability ABI (slot-indexed authority, session in TCB)                       | accepted   |
 | [0018](0018-agent-fault-policy.md)                      | Agent fault policy (kernel ends session, creator decides task)                    | accepted   |
 | [0019](0019-no-static-mut.md)                           | No `static mut` — the last one becomes an atomic (rule 7)                         | accepted   |
-| [0020](0020-spidevice-contract-without-a-caller.md)     | `SpiDevice`: an adopted contract with no caller; ADR-0010's description retracted | proposed   |
-| [0021](0021-agents-as-data-and-the-manifest.md)         | Agents as data + manifest: authority enumerable in one artefact                   | proposed   |
-| [0022](0022-blocking-recv-and-the-mask-that-travels.md) | Blocking `SYS_RECV`: an agent parks, and `without_irqs` stops spanning a switch   | proposed   |
+| [0020](0020-spidevice-contract-without-a-caller.md)     | `SpiDevice`: an adopted contract with no caller; ADR-0010's description retracted | accepted   |
+| [0021](0021-agents-as-data-and-the-manifest.md)         | Agents as data + manifest: authority enumerable in one artefact                   | accepted   |
+| [0022](0022-blocking-recv-and-the-mask-that-travels.md) | Blocking `SYS_RECV`: an agent parks, and `without_irqs` stops spanning a switch   | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).
