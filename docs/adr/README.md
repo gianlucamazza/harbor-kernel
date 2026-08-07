@@ -11,29 +11,30 @@ Structural decisions. Lifecycle:
 Numbering is monotonic; never renumber. Prefer a separate `docs:` commit from
 the code that follows.
 
-| ID                                      | Title                                                | Status   |
-| --------------------------------------- | ---------------------------------------------------- | -------- |
-| [0001](0001-multi-role-analysis.md)     | Multi-role analysis as project gate before M3        | accepted |
-| [0002](0002-softfloat-kernel.md)        | Kernel compiled softfloat, FP left trapping          | accepted |
-| [0003](0003-early-mmu.md)               | MMU enabled before any Rust runs                     | accepted |
-| [0004](0004-gic-group0-firmware-pin.md) | GIC Group 0 with IAR/EOIR, and the firmware pin      | accepted |
-| [0005](0005-static-page-table-arena.md) | Static page-table arena instead of a frame allocator | accepted |
-| [0006](0006-cooperative-execution-model.md) | Cooperative execution model (M3 tasks)           | accepted |
-| [0007](0007-project-identity-harbor-kernel.md) | Project identity — Harbor and `harbor-kernel` | accepted |
-| [0008](0008-irq-handler-policy.md)          | IRQ handler policy for cooperative wakes (F13/M4)| accepted |
-| [0009](0009-optional-spi-tft-debug-console.md) | Optional SPI TFT status surface (ILI9486 HAT) | accepted |
-| [0010](0010-spi-transaction-and-dbi-panel.md) | SPI transactions and DBI panel streaming | accepted |
-| [0011](0011-dtb-mapped-board-constants-risk-accept.md) | DTB mapped; board truth compiled-in (F15) | accepted |
-| [0012](0012-frame-allocator-for-address-spaces.md) | Frame allocator for user address spaces (M5) | accepted |
-| [0013](0013-narrow-device-windows.md) | Narrow device MMIO windows (F26 / M6) | accepted |
-| [0014](0014-ttbr-split-m5.md) | TTBR regime for M5 (TTBR0 + shared kernel maps v1) | accepted |
-| [0015](0015-multi-arch-scaffold.md) | Multi-arch scaffold (cfg facade, board features) | accepted |
-| [0016](0016-el0-session-protocol.md) | EL0 session protocol (one slot, prose contract) | superseded |
-| [0017](0017-el0-capability-abi.md) | EL0 capability ABI (slot-indexed authority, session in TCB) | accepted |
-| [0018](0018-agent-fault-policy.md) | Agent fault policy (kernel ends session, creator decides task) | accepted |
-| [0019](0019-no-static-mut.md) | No `static mut` — the last one becomes an atomic (rule 7) | accepted |
-| [0020](0020-spidevice-contract-without-a-caller.md) | `SpiDevice`: an adopted contract with no caller; ADR-0010's description retracted | proposed |
-| [0021](0021-agents-as-data-and-the-manifest.md) | Agents as data + manifest: authority enumerable in one artefact | proposed |
+| ID                                                      | Title                                                                             | Status     |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------- |
+| [0001](0001-multi-role-analysis.md)                     | Multi-role analysis as project gate before M3                                     | accepted   |
+| [0002](0002-softfloat-kernel.md)                        | Kernel compiled softfloat, FP left trapping                                       | accepted   |
+| [0003](0003-early-mmu.md)                               | MMU enabled before any Rust runs                                                  | accepted   |
+| [0004](0004-gic-group0-firmware-pin.md)                 | GIC Group 0 with IAR/EOIR, and the firmware pin                                   | accepted   |
+| [0005](0005-static-page-table-arena.md)                 | Static page-table arena instead of a frame allocator                              | accepted   |
+| [0006](0006-cooperative-execution-model.md)             | Cooperative execution model (M3 tasks)                                            | accepted   |
+| [0007](0007-project-identity-harbor-kernel.md)          | Project identity — Harbor and `harbor-kernel`                                     | accepted   |
+| [0008](0008-irq-handler-policy.md)                      | IRQ handler policy for cooperative wakes (F13/M4)                                 | accepted   |
+| [0009](0009-optional-spi-tft-debug-console.md)          | Optional SPI TFT status surface (ILI9486 HAT)                                     | accepted   |
+| [0010](0010-spi-transaction-and-dbi-panel.md)           | SPI transactions and DBI panel streaming                                          | accepted   |
+| [0011](0011-dtb-mapped-board-constants-risk-accept.md)  | DTB mapped; board truth compiled-in (F15)                                         | accepted   |
+| [0012](0012-frame-allocator-for-address-spaces.md)      | Frame allocator for user address spaces (M5)                                      | accepted   |
+| [0013](0013-narrow-device-windows.md)                   | Narrow device MMIO windows (F26 / M6)                                             | accepted   |
+| [0014](0014-ttbr-split-m5.md)                           | TTBR regime for M5 (TTBR0 + shared kernel maps v1)                                | accepted   |
+| [0015](0015-multi-arch-scaffold.md)                     | Multi-arch scaffold (cfg facade, board features)                                  | accepted   |
+| [0016](0016-el0-session-protocol.md)                    | EL0 session protocol (one slot, prose contract)                                   | superseded |
+| [0017](0017-el0-capability-abi.md)                      | EL0 capability ABI (slot-indexed authority, session in TCB)                       | accepted   |
+| [0018](0018-agent-fault-policy.md)                      | Agent fault policy (kernel ends session, creator decides task)                    | accepted   |
+| [0019](0019-no-static-mut.md)                           | No `static mut` — the last one becomes an atomic (rule 7)                         | accepted   |
+| [0020](0020-spidevice-contract-without-a-caller.md)     | `SpiDevice`: an adopted contract with no caller; ADR-0010's description retracted | proposed   |
+| [0021](0021-agents-as-data-and-the-manifest.md)         | Agents as data + manifest: authority enumerable in one artefact                   | proposed   |
+| [0022](0022-blocking-recv-and-the-mask-that-travels.md) | Blocking `SYS_RECV`: an agent parks, and `without_irqs` stops spanning a switch   | proposed   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).
