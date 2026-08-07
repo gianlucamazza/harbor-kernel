@@ -12,7 +12,7 @@ EL1 with a protected identity map, interrupts, a heap, **cooperative tasks
 (M6)**, and **EL0 agents that name their authority by capability slot (M7)** —
 all **done on Pi 4B**, the last of them 2026-08-07.
 
-What that does *not* mean: an agent still cannot block, cannot wait on an
+What that does _not_ mean: an agent still cannot block, cannot wait on an
 interrupt, and cannot be preempted; the console is a capability but the kernel
 is still what drains it. See [Roadmap](#roadmap).
 
@@ -81,7 +81,7 @@ is still what drains it. See [Roadmap](#roadmap).
    assertion reads.
 
    `oracle` is **on by default**, unlike the other two, because `make
-   boot-check` *is* the oracle and a gate that needs a flag is a gate someone
+boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
    forgets. What the feature buys is that an image without it exists, is
    compiled, and is checked: `make product-builds` refuses one that still
    carries the demo strings.
@@ -91,6 +91,7 @@ is still what drains it. See [Roadmap](#roadmap).
    `AddressSpace`, `task_trampoline`. Nothing in the product creates a task or
    sends a message, because an agent's text has to be compiled in and there is
    no loader. The rule-9 fix did not create that gap; it measured it.
+
 10. **Facade isolation (ADR-0015).** Outside `src/arch/`, import only
     `crate::arch::{…}` — never `crate::arch::<isa>`. Outside a board package,
     import only `crate::bsp::board` — never `crate::bsp::<board>`. ISA
@@ -142,19 +143,19 @@ from `agent` — board PA/VA for demos live in bootstrap.
 
 ## Milestones
 
-| ID  | Deliverable                                              | Status                                                 |
-| --- | -------------------------------------------------------- | ------------------------------------------------------ |
-| M0  | Hello UART + echo                                        | **done**                                               |
-| M1  | Exceptions + timer IRQ ticks                             | **done** (HW)                                          |
-| M2  | MMU + kernel heap (+ atomics after attrs)                | **done** (HW)                                          |
-| P0  | Idle (WFI) + UART RX IRQ + ring                          | **done** (HW)                                          |
-| P1  | W^X + guard page + free-list `GlobalAlloc`               | **done** (HW, fault-probed)                            |
-| P2  | Early MMU, softfloat, build-enforced gates               | **done** (HW)                                          |
-| P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)                                          |
-| P4  | Exception stack, refused frees, fatal map failure        | **done** (HW, fault-probed)                            |
-| M3  | Cooperative tasks                                        | **done** (HW, fault-probed)                            |
-| M4  | IPC + capabilities                                       | **done (HW)**                                          |
-| M5  | EL0 agents                                               | **done (HW)**                                          |
+| ID  | Deliverable                                              | Status                                                              |
+| --- | -------------------------------------------------------- | ------------------------------------------------------------------- |
+| M0  | Hello UART + echo                                        | **done**                                                            |
+| M1  | Exceptions + timer IRQ ticks                             | **done** (HW)                                                       |
+| M2  | MMU + kernel heap (+ atomics after attrs)                | **done** (HW)                                                       |
+| P0  | Idle (WFI) + UART RX IRQ + ring                          | **done** (HW)                                                       |
+| P1  | W^X + guard page + free-list `GlobalAlloc`               | **done** (HW, fault-probed)                                         |
+| P2  | Early MMU, softfloat, build-enforced gates               | **done** (HW)                                                       |
+| P3  | Layout validation, runtime `map` + TLB maintenance, ADRs | **done** (HW)                                                       |
+| P4  | Exception stack, refused frees, fatal map failure        | **done** (HW, fault-probed)                                         |
+| M3  | Cooperative tasks                                        | **done** (HW, fault-probed)                                         |
+| M4  | IPC + capabilities                                       | **done (HW)**                                                       |
+| M5  | EL0 agents                                               | **done (HW)**                                                       |
 | M6  | Driver-as-agent                                          | **done (HW)** page map + FR + kill; **RX own done (HW)** 2026-08-06 |
 
 **M** milestones add capability. **P** milestones add protection or evidence and
@@ -175,13 +176,13 @@ EL1t vector entries — and both fault probes were re-run at their new addresses
 The done column above was earned against a stated observable. The same standard
 applies forwards, or it is not the same standard.
 
-| ID  | Needs first                                                                                                                                                                                                                                                | Done when                                                                                                                                                                                                                                                                                                                                                                                |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| M3  | [ADR-0006](adr/0006-cooperative-execution-model.md) (F12 done); per-task heap stack + unmapped guard                                                                                                                                                       | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack                                                                                                                                                                  |
-| M4  | [ADR-0008](adr/0008-irq-handler-policy.md) (**accepted**): cookie handlers + wake queue; mailbox ABI                                                                                                                                                       | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console; IRQ wakes use the ADR-0008 queue only                                                                                                                                                                       |
-| M5  | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) + [ADR-0014](adr/0014-ttbr-split-m5.md) (TTBR0 v1); multi-role prep                                                                                                                             | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                                                                                                                                                                                              |
-| M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**accepted**); F26                                                                                                                                                                                 | EL0 agent maps **only** the PL011 page, touches the device, is destroyed (kill); kernel console/ticks continue. RX ownership (poll + real bytes) was a post-v1 product slice, closed on silicon 2026-08-06 with [issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1).                                                                                                                                                                                |
-| M7  | [ADR-0017](adr/0017-el0-capability-abi.md) (EL0 capability ABI) and [ADR-0018](adr/0018-agent-fault-policy.md) (agent fault policy), both **accepted** 2026-08-06 — which is what unblocks the milestone under [ADR-0001](adr/0001-multi-role-analysis.md) | Two EL0 agents exchange a message neither can forge; one of them faults; its creator handles the fault and the other keeps running; the kernel stays alive — **on silicon**, with a serial transcript. **Done (HW) 2026-08-07** in one boot across all four slices |
+| ID  | Needs first                                                                                                                                                                                                                                                | Done when                                                                                                                                                                                                                                                                            |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| M3  | [ADR-0006](adr/0006-cooperative-execution-model.md) (F12 done); per-task heap stack + unmapped guard                                                                                                                                                       | Two tasks yield to each other on hardware and the console shows their output interleaved; each task stack is validated by `mm::layout`; a probe shows one task's overflow faulting rather than reaching another's stack                                                              |
+| M4  | [ADR-0008](adr/0008-irq-handler-policy.md) (**accepted**): cookie handlers + wake queue; mailbox ABI                                                                                                                                                       | A message crosses between two tasks that share no memory; a send on a capability the sender does not hold is refused and counted, and the refusal is visible on the console; IRQ wakes use the ADR-0008 queue only                                                                   |
+| M5  | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md) + [ADR-0014](adr/0014-ttbr-split-m5.md) (TTBR0 v1); multi-role prep                                                                                                                             | A task runs at EL0 in its own `TTBR0`; an EL0 write to a kernel address takes a permission fault with the ESR recorded here, the way W^X was; `SVC` returns to EL1 and back                                                                                                          |
+| M6  | M5 done; [ADR-0013](adr/0013-narrow-device-windows.md) (**accepted**); F26                                                                                                                                                                                 | EL0 agent maps **only** the PL011 page, touches the device, is destroyed (kill); kernel console/ticks continue. RX ownership (poll + real bytes) was a post-v1 product slice, closed on silicon 2026-08-06 with [issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1). |
+| M7  | [ADR-0017](adr/0017-el0-capability-abi.md) (EL0 capability ABI) and [ADR-0018](adr/0018-agent-fault-policy.md) (agent fault policy), both **accepted** 2026-08-06 — which is what unblocks the milestone under [ADR-0001](adr/0001-multi-role-analysis.md) | Two EL0 agents exchange a message neither can forge; one of them faults; its creator handles the fault and the other keeps running; the kernel stays alive — **on silicon**, with a serial transcript. **Done (HW) 2026-08-07** in one boot across all four slices                   |
 
 M3 is **done (HW)**. [ADR-0006](adr/0006-cooperative-execution-model.md) is
 **accepted**. Observed on **Pi 4B silicon**: interleaved `task-a`/`task-b`,
@@ -226,15 +227,15 @@ Pi 4B stamp detail: [verification.md §M5-P / M6](verification.md#m5-p--m6-post)
 One boot carrying all four slices. Transcript and what the ordering proves:
 [verification.md §M7 closed on silicon](verification.md#hardware-evidence-m7-closed-on-silicon-2026-08-07).
 
-| Slice                                        | Status        | Evidence                                                                                                                                                                                     |
-| -------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 — EL0 session state in the `Tcb`**       | **done (HW)** | nine `static mut` → one published `CURRENT_EL0`; no panic across five agents in four tasks, and deleting the publish from the switch panics on the first spawned-task entry                  |
-| **2 — `SYS_SEND` / `SYS_RECV` by slot**      | **done (HW)** | `el0-ipc: sent slot=0 tag=7 a=42` → `*el0-ipc: got payload via EL0 recvs=1`; the receiving agent moves the payload into `SYS_PUTC` itself, so the `*` is the message and not a status code    |
-| **2 — authority refused on the good path**   | **done (HW)** | `el0-ipc: refused slot=1 authority=2`; a full mailbox counts as `full`, never as authority                                                                                                    |
-| **3 — `SYS_PUTC` behind a capability**       | **done (HW)** | `console: capability minted`, then `el0-ipc: console denied, printed nothing` — and the byte that agent tried to print is asserted **absent** from the log                                    |
-| **4 — fault policy** (ADR-0018)              | **done (HW)** | `agent faulted esr=0x9200004f far=0x80000 faults=1` then `creator alive after fault`, with the peer completing 22 ms later; `SessionEnd` is `#[must_use]` and has been seen to fail a build   |
-| **The done-when, end to end**                | **done (HW)** | two EL0 agents with different capability tables exchange a message neither can forge, one faults, its creator handles it, the other completes, the kernel keeps ticking                       |
-| Blocking `SYS_RECV`                          | **not done**  | needs a yield out of a live session. Per-task state makes such a switch harmless and nothing performs one; deliberately out of M7 (ADR-0017 consequences)                                     |
+| Slice                                      | Status        | Evidence                                                                                                                                                                                    |
+| ------------------------------------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — EL0 session state in the `Tcb`**     | **done (HW)** | nine `static mut` → one published `CURRENT_EL0`; no panic across five agents in four tasks, and deleting the publish from the switch panics on the first spawned-task entry                 |
+| **2 — `SYS_SEND` / `SYS_RECV` by slot**    | **done (HW)** | `el0-ipc: sent slot=0 tag=7 a=42` → `*el0-ipc: got payload via EL0 recvs=1`; the receiving agent moves the payload into `SYS_PUTC` itself, so the `*` is the message and not a status code  |
+| **2 — authority refused on the good path** | **done (HW)** | `el0-ipc: refused slot=1 authority=2`; a full mailbox counts as `full`, never as authority                                                                                                  |
+| **3 — `SYS_PUTC` behind a capability**     | **done (HW)** | `console: capability minted`, then `el0-ipc: console denied, printed nothing` — and the byte that agent tried to print is asserted **absent** from the log                                  |
+| **4 — fault policy** (ADR-0018)            | **done (HW)** | `agent faulted esr=0x9200004f far=0x80000 faults=1` then `creator alive after fault`, with the peer completing 22 ms later; `SessionEnd` is `#[must_use]` and has been seen to fail a build |
+| **The done-when, end to end**              | **done (HW)** | two EL0 agents with different capability tables exchange a message neither can forge, one faults, its creator handles it, the other completes, the kernel keeps ticking                     |
+| Blocking `SYS_RECV`                        | **not done**  | needs a yield out of a live session. Per-task state makes such a switch harmless and nothing performs one; deliberately out of M7 (ADR-0017 consequences)                                   |
 
 Cost: `pool=496` at the concurrent peak and `pool=512` after the kill, identical
 to the pre-M7 sessions. Four slices, no frames.
@@ -262,28 +263,28 @@ against the host CPU the emulator received, and reports **INDETERMINATE**
 
 ### Closed — ADR-0019 (rule 7 absolute)
 
-| Slice | Status | Evidence |
-| ----- | ------ | -------- |
-| **`CURRENT_EL0` → `AtomicPtr`** | **done** | same `adrp`/`add`/`ldr` symbol; `Release` publish / `Acquire` load |
-| **`make no-static-mut`** | **done** | greps `src/` for declarations; prerequisite of `make check` |
-| Rule 7 exception | **gone** | no `static mut` remains; ADR-0016/0017 keep their false premise text (immutable) and point here |
+| Slice                           | Status        | Evidence                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`CURRENT_EL0` → `AtomicPtr`** | **done (HW)** | same `adrp`/`add`/`ldr` symbol; `Release` publish / `Acquire` load. Stamped on silicon 2026-08-07 10:24 — the plain `ldr` in `vectors.s` sees the published pointer on every EL0 exception, with zero panics and zero `no published session` ([verification](verification.md#hardware-evidence-main-after-adr-0019--the-atomic-on-the-vector-path-2026-08-07)) |
+| **`make no-static-mut`**        | **done**      | greps `src/` for declarations; prerequisite of `make check`                                                                                                                                                                                                                                                                                                    |
+| Rule 7 exception                | **gone**      | no `static mut` remains; ADR-0016/0017 keep their false premise text (immutable) and point here                                                                                                                                                                                                                                                                |
 
 ### Closed — threat model ([`SECURITY.md`](../SECURITY.md))
 
-| Slice | Status | Evidence |
-| ----- | ------ | -------- |
+| Slice                        | Status   | Evidence                                                                                                           |
+| ---------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------ |
 | **Threat model + reporting** | **done** | Root [`SECURITY.md`](../SECURITY.md): TCB, attacker, authority surface, claims with gates, residual non-guarantees |
-| Bound to M7 authority | **yes** | Slot ABI, console denied-by-default, fault policy, refusal counters — as of silicon 2026-08-07 |
+| Bound to M7 authority        | **yes**  | Slot ABI, console denied-by-default, fault policy, refusal counters — as of silicon 2026-08-07                     |
 
 ### Next (ordered)
 
-| #   | Work                                                                                                                         | Done when                                                                                                                                                                                                                                                                    |
-| --- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #   | Work                                                                                                                                 | Done when                                                                                                                                                                                                   |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | **Agent loading**: [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md) accepted, then agents become data described by a manifest | Every grant in the machine is one table; the loader is one loop over it; an agent's text is no longer bounded by one page. `make product-builds` stops reporting that nothing in the product creates a task |
-| 2   | **Blocking `SYS_RECV`** (yield out of a live EL0 session)                                                                    | An agent parks on empty recv; a peer send wakes it; both still pass authority checks — QEMU + HW stamp                                                                                                                                                                      |
-| 3   | **M8: console endpoint** (retire transitional `SYS_PUTC`)                                                                    | Same slot ABI; kernel or EL1 server drains; boot-check still asserts denied-by-default                                                                                                                                                                                       |
-| 4   | **Optional: IRQ-wake RX**                                                                                                    | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                                                                                            |
-| 5   | **Optional P-pass**                                                                                                          | Tighten kernel EL1 Device blankets (not required for M6 v1)                                                                                                                                                                                                                  |
+| 2   | **Blocking `SYS_RECV`** (yield out of a live EL0 session)                                                                            | An agent parks on empty recv; a peer send wakes it; both still pass authority checks — QEMU + HW stamp                                                                                                      |
+| 3   | **M8: console endpoint** (retire transitional `SYS_PUTC`)                                                                            | Same slot ABI; kernel or EL1 server drains; boot-check still asserts denied-by-default                                                                                                                      |
+| 4   | **Optional: IRQ-wake RX**                                                                                                            | UART SPI → EL0 `Irq` without kernel draining `DR`                                                                                                                                                           |
+| 5   | **Optional P-pass**                                                                                                                  | Tighten kernel EL1 Device blankets (not required for M6 v1)                                                                                                                                                 |
 
 **Explicit non-goals** until their own ADR: preemption, TTBR1 high-half, ASID production, SMP, USB host, full framebuffer; long-running interactive echo agent replacing the idle body.
 
@@ -353,9 +354,9 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0016](adr/0016-el0-session-protocol.md)                   | EL0 session protocol: one slot, prose contract, named successor (**superseded**) — by 0017 and 0018 |
 | [ADR-0017](adr/0017-el0-capability-abi.md)                     | EL0 capability ABI: slot-indexed authority, session state in the TCB (**accepted**)                 |
 | [ADR-0018](adr/0018-agent-fault-policy.md)                     | Agent fault policy: the kernel ends the session, the creator decides the task (**accepted**)        |
-| [ADR-0019](adr/0019-no-static-mut.md) | No `static mut`: the last one becomes an atomic, rule 7 without an exception (**accepted**) |
-| [ADR-0020](adr/0020-spidevice-contract-without-a-caller.md) | `SpiDevice`: contract kept, ADR-0010's descriptive sentence retracted (**proposed**) |
-| [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md) | Agents as data described by a manifest; the grant becomes a binding, not code (**proposed**) |
+| [ADR-0019](adr/0019-no-static-mut.md)                          | No `static mut`: the last one becomes an atomic, rule 7 without an exception (**accepted**)         |
+| [ADR-0020](adr/0020-spidevice-contract-without-a-caller.md)    | `SpiDevice`: contract kept, ADR-0010's descriptive sentence retracted (**proposed**)                |
+| [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)        | Agents as data described by a manifest; the grant becomes a binding, not code (**proposed**)        |
 | [`docs/reviews/`](reviews/)                                    | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals
