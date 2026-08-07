@@ -93,8 +93,8 @@ Snapshot, 2026-08-07 — status of record is [`docs/roadmap.md`](docs/roadmap.md
 | | |
 | --- | --- |
 | **Foundation** | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits |
-| **H1 first slices (QEMU)** | Store (**K6**), wait-on-IRQ (**K1**), auto-reap (**K2**), revoke (**K3**), RNG agent (**K9**), supervisor (**K10**), multi-agent (**P1**), compose (**P6**) |
-| **H1 next** | Naming, storage — [roadmap](docs/roadmap.md) |
+| **H1 first slices (QEMU)** | Store (**K6**), wait-on-IRQ (**K1**), auto-reap (**K2**), revoke (**K3**), RNG (**K9**), supervisor (**K10**), multi-agent (**P1**), names (**P5**), compose (**P6**) |
+| **H1 next** | Storage — [roadmap](docs/roadmap.md) |
 | **Not yet (later)** | Preemption/budget, SMP, ASID, full product net/display depth, … |
 
 **What works today (short list):** cooperative tasks; message IPC; EL0 agents
@@ -108,7 +108,7 @@ auto-reap (ephemeral channels); channel revoke (stale CapId refused).
 | Execution | Cooperative only — preemption/SMP **open** |
 | Authority | Slot caps, cancel, auto-reap, revoke, supervisor reap — transfer/timeout/creator-exit cascade **open** |
 | Product OS | Multi-agent store composition (QEMU); broader services **open** |
-| Verification | 312 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 319 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

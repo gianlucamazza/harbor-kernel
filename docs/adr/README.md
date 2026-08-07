@@ -51,6 +51,7 @@ the code that follows.
 | [0032](0032-k3-channel-revoke.md)                           | K3 first slice — channel revoke and generation recycle                                              | accepted   |
 | [0033](0033-k10-supervisor-reap.md)                         | K10 first slice — supervisor reaps a blocked task (restart = re-spawn)                              | accepted   |
 | [0034](0034-k9-rng-driver-agent.md)                          | K9 first slice — RNG200 second driver-as-agent (page map)                                           | accepted   |
+| [0035](0035-p5-name-registry.md)                             | P5 first slice — EL1 name registry (name to CapId)                                                  | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

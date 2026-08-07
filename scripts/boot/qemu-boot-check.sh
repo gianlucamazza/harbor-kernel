@@ -297,6 +297,11 @@ grep -qaE 'rng-agent: map (read|fault) ok' "${log}" ||
 	fail "rng-agent did not exercise the Device page map (ADR-0034)"
 grep -qa 'rng-agent: killed ok' "${log}" ||
 	fail "rng-agent did not destroy/unmap (ADR-0034)"
+# ADR-0035 / P5: name registry bind/resolve/missing.
+grep -qa 'name: resolved' "${log}" ||
+	fail "name registry did not resolve a bound service (ADR-0035)"
+grep -qa 'name: missing' "${log}" ||
+	fail "name registry did not report missing (ADR-0035)"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

@@ -76,7 +76,7 @@ not every symbol.
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
   a64, agentstore, bump, cap, delay, display, font8x8, frame, gic, heap, ipc,
-  irqcap, irqtable, irqwait, layout, manifest, paging, poll, prog, reset, ring, rng,
+  irqcap, irqtable, irqwait, layout, manifest, naming, paging, poll, prog, reset, ring, rng,
   runqueue, rxline, spi, syscall, tasks, textgrid, timer, uart, wake
   tests/ public_api, model_sched, model_ipc
 src/
@@ -88,6 +88,7 @@ src/
   agent/          EL0 agent shell and session lifecycle
   sched/          TCBs, stacks, context switching and wake drain
   ipc/            kernel IPC policy and capability translation
+  naming/         EL1 name registry (ADR-0035)
   mm/             heap, address spaces, frames, layout and task stacks
   console.rs      kernel TX/RX policy
   main.rs         bootstrap entry
@@ -107,8 +108,8 @@ Do **not** treat this block as a second status table — it only steers readers.
 | Layer | State (2026-08-07) |
 | --- | --- |
 | **H0 foundation** | **done (HW)** on Pi 4B (M0–M8 + parked cancel) |
-| **H1 first slices** | **done (QEMU):** K1–K3, K9 RNG map, K10, K6, P1, P6 |
-| **H1 next** | P5 → P2 → (P3\|P4) · K5 |
+| **H1 first slices** | **done (QEMU):** K1–K3, K9, K10, K6, P1, P5, P6 |
+| **H1 next** | P2 → (P3\|P4) · K5 |
 | **Residuals** | K2 timeout · K3 transfer · K10 creator-exit cascade · H2 · HW stamps |
 | **Standing watch** | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020 |
 

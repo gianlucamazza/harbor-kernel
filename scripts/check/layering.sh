@@ -40,10 +40,12 @@ allowed_for() {
 	sched*) echo "arch mm irq ipc" ;;
 	# M4 IPC: mailboxes + caps; parks/wakes via sched only.
 	ipc*) echo "arch sched" ;;
+	# ADR-0035 / P5: name → CapId registry (trusted EL1).
+	naming*) echo "arch" ;;
 	# The board binds protocols together; that is its job (rule 2).
 	bsp*) echo "arch bsp console drivers irq time" ;;
 	# Policy sits on top of everything and is allowed to.
-	bootstrap* | main) echo "agent arch bsp console drivers ipc irq mm sched status time" ;;
+	bootstrap* | main) echo "agent arch bsp console drivers ipc irq mm naming sched status time" ;;
 	# Agent shell: AS + EL0 sessions; SYS_SEND/RECV via ipc; Irq → irq::handle_cpu_irq.
 	# No drivers/board (device PA/VA come from bootstrap demos / BSP constants via mm).
 	#

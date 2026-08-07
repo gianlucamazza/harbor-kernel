@@ -275,8 +275,8 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 
 | Snapshot | Tracks |
 | --- | --- |
-| **done (QEMU)** first slices | K1, K2, K3, K9 (RNG map), K10, K6, P1, P6 |
-| **H1 next (product-critical)** | P5 naming → P2 storage → (P3\|P4) · K5 |
+| **done (QEMU)** first slices | K1–K3, K9, K10, K6, P1, P5 (names), P6 |
+| **H1 next (product-critical)** | P2 storage → (P3\|P4) · K5 |
 | **H2 depth** | K4 preemption, K7 ASID, K8 SMP, HW stamps, remaining P depth |
 | **open (kernel)** | K2 timeout, K3 transfer, K4, K5, K7, K8, K9 IRQ residual, K10 cascade |
 | **open (product)** | P2 storage, P3 network, P4 display product, P5 naming |
@@ -327,6 +327,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0032](adr/0032-k3-channel-revoke.md) | K3 entry: channel revoke + generation recycle (**accepted**) |
 | [ADR-0033](adr/0033-k10-supervisor-reap.md) | K10 entry: supervisor reaps blocked task; restart = re-spawn (**accepted**) |
 | [ADR-0034](adr/0034-k9-rng-driver-agent.md) | K9 entry: RNG200 second driver-as-agent page map (**accepted**) |
+| [ADR-0035](adr/0035-p5-name-registry.md) | P5 entry: EL1 name registry (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

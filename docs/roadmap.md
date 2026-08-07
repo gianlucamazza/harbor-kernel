@@ -56,7 +56,7 @@ the named level — not when prose wishes it.
 | Horizon | Product outcome | Tracks that close it |
 | --- | --- | --- |
 | **H0 — Foundation** | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel | **Done (HW)** — M0–M8 + ADR-0024/0025 |
-| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** K1, K2, K3, K9 (RNG map), K10, K6, P1, P6. **Still on the critical path:** P5, P2 (and P3/P4 as needed). Residuals: K2 timeout, K3 transfer, K10 cascade, K9 IRQ-agent |
+| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** K1–K3, K9, K10, K6, P1, P5 (name registry), P6. **Still on the critical path:** P2 (and P3/P4 as needed). Residuals: K2 timeout, K3 transfer, K10 cascade, K9 IRQ-agent, P5 EL0 resolve |
 | **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | K4, K5 (remainder), K7, K8, remainder of P2–P5, hardening of first slices to **done (HW)** where claimed |
 
 **H1 product bar (what “composition OS” means here):**
@@ -67,7 +67,7 @@ the named level — not when prose wishes it.
 4. **Wait and drive devices as agents** — IRQ wait (K1 QEMU); second map agent RNG200 (K9 QEMU); IRQ-cap device agent residual.
 5. **Supervise** — cancel (HW) + K2 auto-reap + K10 reap/restart (QEMU); creator-exit cascade residual; K2 timeout residual.
 6. **Move authority** — channel revoke done (QEMU); **transfer** still open (K3 residual).
-7. **Find services** — naming without hard-wired oracle tables (P5; wants K3).
+7. **Find services** — EL1 name registry (P5 QEMU); EL0 resolve residual.
 
 Use cases that pull H1: modular robot/industrial stacks, least-privilege edge
 gateways, sealed composition firmware, on-device third-party sandbox
@@ -103,7 +103,7 @@ not as a growing special-case syscall surface ([vision](vision.md) shape).
 | P2 | Storage path (block + load/persist) | **open** | Persist or load agent/data without rebuild-only workflow | Often after K6 | H1 (appliance) → H2 depth |
 | P3 | Network agent + caps | **open** | Network I/O only via granted caps; no ambient net | K1/K9 helpful | H1 edge gateway → H2 |
 | P4 | Display/input product path | **open** | Product-grade path (may graduate `debug-display` discipline) | Device agents; optional after K9 | H1 lab UI → H2 |
-| P5 | Naming / discovery / system services | **open** | Endpoints findable without hard-coded oracle wiring | K3 useful | H1 composition → H2 |
+| P5 | Naming / discovery / system services | **done (QEMU)** first slice ([ADR-0035](adr/0035-p5-name-registry.md) EL1 registry); EL0 resolve later | Bind/resolve/unbind short names to CapId | ADR-0035 | H1 composition → H2 |
 | P6 | Compose/audit tooling | **done (QEMU)** first slice (pack / inject / inspect) | Host tools for store composition and audit | P1 | H1 |
 
 ---
@@ -115,10 +115,10 @@ its design ADR before boundary code.
 
 | Step | Track(s) | Why now (mission fit) |
 | --- | --- | --- |
-| 1 | **P5** naming / discovery | Compositions find endpoints without oracle hard-wiring |
-| 2 | **P2** storage path | Appliance load/persist without rebuild-only workflow |
-| 3 | **P3** / **P4** as needed | Edge net / product display when a concrete composition needs them |
-| 4 | **K5** density | Scale agent count when MAX_TASKS/stacks press |
+| 1 | **P2** storage path | Appliance load/persist without rebuild-only workflow |
+| 2 | **P3** / **P4** as needed | Edge net / product display when a concrete composition needs them |
+| 3 | **K5** density | Scale agent count when MAX_TASKS/stacks press |
+| — | **P5 EL0 resolve** (later) | Syscall or grant of resolve authority |
 | — | **K9 IRQ-cap device agent** (later) | Second agent that waits on device IRQ via cap |
 | — | **K10 creator-exit cascade** (later) | Reap children when creator exits |
 | — | **K3 transfer** / **K2 timeout** | Later slices |
@@ -127,16 +127,15 @@ its design ADR before boundary code.
 **K7** ASID/TTBR1, **K8** SMP — production fairness and isolation depth, not
 the first composition demo.
 
-First slices already paid for H1 entry: **K1**, **K2**, **K3**, **K9** (RNG map),
-**K10**, **K6**, **P1**, **P6**.
+First slices already paid for H1 entry: **K1**, **K2**, **K3**, **K9** (RNG map), **K10**, **K6**, **P1**, **P5** (names), **P6**.
 
 ```text
 Mission: agents · grants · evidence · finish the OS
                 │
     H0 foundation ████████ done (HW)
                 │
-    H1 composition ██████░░ K1–K3 K9 K10 K6 P1 P6 done (QEMU)
-                │          next: P5 → P2 → (P3|P4) · K5
+    H1 composition ███████░ K1–K3 K9 K10 K6 P1 P5 P6 done (QEMU)
+                │          next: P2 → (P3|P4) · K5
                 │
     H2 boundary    ░░░░░░░░ K4 K7 K8 + HW stamps + remaining P depth
 ```

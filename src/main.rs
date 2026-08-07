@@ -16,6 +16,7 @@ mod drivers;
 mod ipc;
 mod irq;
 mod mm;
+mod naming;
 mod panic;
 mod sched;
 #[cfg(feature = "debug-display")]

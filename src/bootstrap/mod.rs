@@ -537,6 +537,30 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("sched: spawn el0-irq-refuse FAILED {e:?}"),
         }
 
+        // ADR-0035 / P5: bind a service name to a CapId; resolve and missing.
+        match crate::ipc::create_channel() {
+            Ok(ch) => {
+                match crate::naming::bind(b"svc", ch.send) {
+                    Ok(()) => match crate::naming::resolve(b"svc") {
+                        Ok(c) if c == ch.send => crate::kprintln!("name: resolved"),
+                        Ok(_) => crate::kprintln!("name: resolved WRONG cap"),
+                        Err(e) => crate::kprintln!("name: resolve FAILED {e:?}"),
+                    },
+                    Err(e) => crate::kprintln!("name: bind FAILED {e:?}"),
+                }
+                match crate::naming::resolve(b"nope") {
+                    Err(crate::naming::ResolveError::Missing) => {
+                        crate::kprintln!("name: missing")
+                    }
+                    other => crate::kprintln!("name: missing unexpected {other:?}"),
+                }
+                let _ = crate::naming::unbind(b"svc");
+                // Channel only for the name demo; drop ends.
+                let _ = crate::ipc::creator_revoke(ch.send);
+            }
+            Err(e) => crate::kprintln!("name: channel FAILED {e:?}"),
+        }
+
         // ADR-0032 / K3: a task that holds SEND revokes the channel; bootstrap
         // then proves the stale CapId refuses send (product path, not forged).
         match crate::ipc::create_channel() {
