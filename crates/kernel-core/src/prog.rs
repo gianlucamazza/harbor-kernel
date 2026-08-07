@@ -4,9 +4,9 @@
 //! Every agent in the boot oracle — on QEMU and on silicon — executes one of the
 //! byte sequences below. They used to live in `src/agent`, where they were pure
 //! functions with no tests: their only check was that the boot passed. But
-//! `el0-task: putc bytes=2` proves the *kernel* counted two `SYS_PUTC`, not that
-//! the program said what anyone believed. An encoder wrong in a way that still
-//! produces two putcs passes that assertion.
+//! `el0-task: console sends=2` proves the *kernel* counted two `SYS_SEND`, not
+//! that the program said what anyone believed. An encoder wrong in a way that
+//! still produces two sends passes that assertion.
 //!
 //! # Why the tests disassemble instead of comparing bytes
 //!
@@ -28,10 +28,10 @@
 //! interface. Assembly input is.
 //!
 //! The one that earns its keep is [`encode_pl011_rx_poll_exit`]: its `tbnz`
-//! skips three instructions, and the branch offset had to be recomputed by hand
-//! the day `SYS_PUTC` grew a slot argument. A wrong offset there does not fail a
-//! test — it produces `rx poll unexpected putcs=…` on a board, and sends whoever
-//! reads it into the kernel instead of into the program.
+//! skips the poll path when RX is empty, and the branch offset had to be
+//! recomputed the day console output moved from `SYS_PUTC` to `SYS_SEND`. A
+//! wrong offset there does not fail a unit test of the kernel — it produces
+//! `rx poll unexpected sends=…` on a board.
 //!
 //! [`kernel_core::a64`] states the same principle about instruction words:
 //! host-tested so nothing invents an encoding by hand in two places. This module
@@ -39,6 +39,11 @@
 
 use crate::a64;
 use crate::syscall;
+
+/// Message `tag` for one console byte via `SYS_SEND` (M8).
+///
+/// The console server drops any other tag without TX.
+pub const CONSOLE_TAG_BYTE: u16 = 0;
 
 /// Append one instruction word, little-endian.
 ///
@@ -72,42 +77,47 @@ pub const fn encode_send_exit(slot: u16, tag: u16, a: u16) -> [u8; 24] {
     out
 }
 
-/// A64: `movz x0,#slot; svc #4; mov x0,x2; svc #2; svc #1; b .`
+/// A64: recv through a slot, then `SYS_SEND` the payload byte to the console.
 ///
-/// Receive through a slot, then `SYS_PUTC` the payload the kernel delivered.
+/// ```text
+/// movz x0, #recv_slot
+/// svc  #4                 // RECV → x1=tag, x2=a, x3=b
+/// mov  x2, x2             // a stays in x2 (Message.a is the console byte)
+/// movz x1, #CONSOLE_TAG
+/// movz x0, #console_slot
+/// svc  #3                 // SEND
+/// svc  #1
+/// b .
+/// ```
 ///
-/// The `mov` is the evidence. `SYS_RECV` returns the status in `x0` and the
-/// message in `x1..x3`, so an agent that printed `x0` would print a zero and
-/// prove only that it resumed. Moving `x2` — the message's `a` field — into the
-/// `putc` argument makes the byte on the console *the payload*, carried from
-/// another agent's registers through the kernel into this one's.
-pub const fn encode_recv_putc_exit(recv_slot: u16, console_slot: u16) -> [u8; 28] {
+/// `SYS_RECV` leaves the payload in `x2`. `SYS_SEND` wants tag in `x1` and `a`
+/// in `x2`, so only the tag and slot need loading — the byte is already where
+/// SEND wants it.
+pub const fn encode_recv_console_exit(recv_slot: u16, console_slot: u16) -> [u8; 28] {
     let mut out = [0u8; 28];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, recv_slot));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
-    // The payload arrives in x2 and `SYS_PUTC` wants it in x1, under the
-    // console slot in x0. Two moves rather than one, because the two calls
-    // disagree about where a byte lives — which is what an ABI table is for.
-    push_word(&mut out, &mut i, a64::mov_x_reg(1, 2));
+    // x2 already holds Message.a (the payload byte). Load tag and console slot.
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
     push_word(&mut out, &mut i, a64::movz_x(0, console_slot));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
     out
 }
 
-/// A64: `movz x0,#slot; movz x1,#byte; svc #2; svc #1; b .`
+/// A64: one console byte via `SYS_SEND`, then exit.
 ///
-/// One `SYS_PUTC` through a named slot, then exit. Pointed at a slot that holds
-/// no console capability, this is the agent that must be refused on the good
-/// path (ADR-0017 §3).
-pub const fn encode_putc_once_exit(slot: u16, byte: u8) -> [u8; 20] {
-    let mut out = [0u8; 20];
+/// Pointed at a slot that holds no send capability, this is the agent that must
+/// be refused on the good path (denied-by-default console).
+pub const fn encode_console_once_exit(slot: u16, byte: u8) -> [u8; 24] {
+    let mut out = [0u8; 24];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::movz_x(1, byte as u16));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
+    push_word(&mut out, &mut i, a64::movz_x(2, byte as u16));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
     out
@@ -183,16 +193,24 @@ pub const fn encode_ping_ping_exit() -> [u8; 16] {
     out
 }
 
-/// A64: `movz x0, #'H'; svc #2; movz x0, #'!'; svc #2; svc #1; b .`
-pub const fn encode_putc_hi_exit(slot: u16) -> [u8; 32] {
-    let mut out = [0u8; 32];
+/// A64: two console bytes `H!` via `SYS_SEND`, then exit.
+///
+/// ```text
+/// movz x0, #slot; movz x1, #0; movz x2, #'H'; svc #3
+/// movz x0, #slot; movz x1, #0; movz x2, #'!'; svc #3
+/// svc #1; b .
+/// ```
+pub const fn encode_console_hi_exit(slot: u16) -> [u8; 40] {
+    let mut out = [0u8; 40];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::movz_x(1, b'H' as u16));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
+    push_word(&mut out, &mut i, a64::movz_x(2, b'H' as u16));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
-    push_word(&mut out, &mut i, a64::movz_x(1, b'!' as u16));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
+    push_word(&mut out, &mut i, a64::movz_x(2, b'!' as u16));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
     out
@@ -224,20 +242,34 @@ pub const fn encode_spin_exit(iters: u16) -> [u8; 20] {
 }
 
 /// PL011 RX poll once at `USER_PL011_VA` (`0x5000_0000`):
-/// if RX not empty, `SYS_PUTC` the byte; always `SYS_EXIT`.
+/// if RX not empty, `SYS_SEND` the byte to the console; always `SYS_EXIT`.
 ///
-/// Empty FIFO → zero putcs (honest “no data” path). A pending character → one
-/// putc. Does not invent receive data.
-pub const fn encode_pl011_rx_poll_exit(console_slot: u16) -> [u8; 32] {
-    let mut out = [0u8; 32];
+/// Empty FIFO → zero sends (honest “no data” path). A pending character → one
+/// send. Does not invent receive data.
+///
+/// ```text
+/// movz x0, #0x5000, lsl #16
+/// ldr  w1, [x0, #0x18]
+/// tbnz w1, #4, +5          // empty → skip to SYS_EXIT
+/// ldrb w2, [x0]            // byte into w2 = Message.a
+/// movz x0, #console_slot
+/// movz x1, #CONSOLE_TAG
+/// svc  #3
+/// svc  #1
+/// b .
+/// ```
+pub const fn encode_pl011_rx_poll_exit(console_slot: u16) -> [u8; 36] {
+    let mut out = [0u8; 36];
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x_lsl16(0, 0x5000));
     push_word(&mut out, &mut i, a64::ldr_w_imm(1, 0, 0x18));
-    // RXFE (bit 4) set → empty → skip the load, the slot and the putc
-    push_word(&mut out, &mut i, a64::tbnz_w(1, 4, 4));
-    push_word(&mut out, &mut i, a64::ldrb_w(1, 0));
+    // RXFE set → empty → skip ldrb + movz×2 + send (4 insns) → land on exit.
+    // Offset is word count from the tbnz itself: +5 lands on `svc #1`.
+    push_word(&mut out, &mut i, a64::tbnz_w(1, 4, 5));
+    push_word(&mut out, &mut i, a64::ldrb_w(2, 0));
     push_word(&mut out, &mut i, a64::movz_x(0, console_slot));
-    push_word(&mut out, &mut i, a64::svc(syscall::SYS_PUTC));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
     out
@@ -354,25 +386,23 @@ mod tests {
         );
 
         assert_program(
-            "encode_putc_once_exit(1, b'X')",
-            &encode_putc_once_exit(1, b'X'),
-            "movz x0, #1\nmovz x1, #88\nsvc #2\nsvc #1\nb .\n",
+            "encode_console_once_exit(1, b'X')",
+            &encode_console_once_exit(1, b'X'),
+            "movz x0, #1\nmovz x1, #0\nmovz x2, #88\nsvc #3\nsvc #1\nb .\n",
         );
 
         assert_program(
-            "encode_putc_hi_exit(1)",
-            &encode_putc_hi_exit(1),
-            "movz x0, #1\nmovz x1, #72\nsvc #2\n\
-             movz x0, #1\nmovz x1, #33\nsvc #2\nsvc #1\nb .\n",
+            "encode_console_hi_exit(1)",
+            &encode_console_hi_exit(1),
+            "movz x0, #1\nmovz x1, #0\nmovz x2, #72\nsvc #3\n\
+             movz x0, #1\nmovz x1, #0\nmovz x2, #33\nsvc #3\nsvc #1\nb .\n",
         );
 
-        // The payload arrives in x2 and SYS_PUTC wants it in x1, under the
-        // console slot in x0 — two moves, because the two calls disagree about
-        // where a byte lives.
+        // RECV leaves a in x2; SEND wants tag in x1 and a in x2.
         assert_program(
-            "encode_recv_putc_exit(0, 1)",
-            &encode_recv_putc_exit(0, 1),
-            "movz x0, #0\nsvc #4\nmov x1, x2\nmovz x0, #1\nsvc #2\nsvc #1\nb .\n",
+            "encode_recv_console_exit(0, 1)",
+            &encode_recv_console_exit(0, 1),
+            "movz x0, #0\nsvc #4\nmovz x1, #0\nmovz x0, #1\nsvc #3\nsvc #1\nb .\n",
         );
 
         // `svc #5`, not `#4`: the two recvs are different calls, and an agent
@@ -399,26 +429,26 @@ mod tests {
 
     /// The one that earns the suite.
     ///
-    /// `tbnz` skips the load, the slot and the `putc` when the RX FIFO is empty
-    /// — three instructions, so the target is four words past the branch. That
-    /// offset was recomputed by hand the day `SYS_PUTC` grew a slot argument,
-    /// and a wrong value fails nothing: it prints `rx poll unexpected putcs=…`
-    /// on a board, which reads like a kernel bug.
+    /// `tbnz` skips the load, slot, tag and `SYS_SEND` when the RX FIFO is
+    /// empty — four instructions after the branch, so the target is five words
+    /// past the branch (`#20` bytes). A wrong offset prints
+    /// `rx poll unexpected sends=…` on a board, which reads like a kernel bug.
     #[cfg_attr(
         miri,
         ignore = "shells out to llvm-mc, which Miri cannot run; these encoders are pure and a64's unit tests cover the instruction words"
     )]
     #[test]
-    fn the_rx_poll_branch_skips_exactly_the_putc_path() {
+    fn the_rx_poll_branch_skips_exactly_the_console_send_path() {
         assert_program(
             "encode_pl011_rx_poll_exit(1)",
             &encode_pl011_rx_poll_exit(1),
             "movz x0, #0x5000, lsl #16\n\
              ldr w1, [x0, #24]\n\
-             tbnz w1, #4, #16\n\
-             ldrb w1, [x0]\n\
+             tbnz w1, #4, #20\n\
+             ldrb w2, [x0]\n\
              movz x0, #1\n\
-             svc #2\n\
+             movz x1, #0\n\
+             svc #3\n\
              svc #1\n\
              b .\n",
         );

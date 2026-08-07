@@ -7,7 +7,7 @@
 //! Sessions support **SVC resume** and **IRQ resume** (architectural):
 //! - `svc #0` ([`kernel_core::syscall::SYS_PING`]) — count and resume
 //! - `svc #1` ([`kernel_core::syscall::SYS_EXIT`]) — end session
-//! - `svc #2` ([`kernel_core::syscall::SYS_PUTC`]) — TX low 8 bits of saved `x0`
+//! - `svc #3` ([`kernel_core::syscall::SYS_SEND`]) — message through a slot (console = M8)
 //! - [`el0::El0Outcome::Irq`] — [`crate::irq::handle_cpu_irq`], then resume at
 //!   the interrupted insn (no software ELR skip)
 //!
@@ -45,7 +45,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use kernel_core::syscall::{self, Status, Syscall};
 
 use crate::arch::{cpu, el0};
-use crate::console;
+
 use crate::ipc;
 use crate::irq;
 use crate::mm::{self, AddressSpace, AsError};
@@ -118,7 +118,6 @@ pub fn fault_count() -> u32 {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SessionStats {
     pub pings: u32,
-    pub putcs: u32,
     pub irqs: u32,
     /// Messages the agent sent through a slot it holds.
     pub sends: u32,
@@ -267,7 +266,7 @@ impl Agent {
         Ok(outcome)
     }
 
-    /// Multi-event session: resume after Ping / Putc / Irq; stop on Exit / fault.
+    /// Multi-event session: resume after Ping / Send / Recv / Irq; stop on Exit / fault.
     ///
     /// IRQ resume re-executes the interrupted instruction (architectural). User
     /// text must make forward progress itself (e.g. a finite spin whose GPRs
@@ -315,35 +314,6 @@ impl Agent {
                             // SAFETY: the outcome being matched is `Svc`, which
                             // is resumable by definition; IRQs are still masked
                             // by the enclosing `without_irqs`.
-                            event = resume_step(session);
-                        }
-                        Syscall::Putc => {
-                            // The console is an ordinary capability in a slot
-                            // (ADR-0017 §3). Two questions, asked in order and
-                            // kept apart: does the agent *hold* what it named,
-                            // and is what it named *this console*.
-                            let slot = el0::saved_gpr(session, 0) as usize;
-                            let status = match sched::my_cap_slot(slot) {
-                                Ok(cap) if console::is_console_cap(cap) => {
-                                    let byte = (el0::saved_gpr(session, 1) & 0xFF) as u8;
-                                    let _ = console::with_tx(|uart| uart.write_byte(byte));
-                                    stats.putcs = stats.putcs.saturating_add(1);
-                                    Status::Ok
-                                }
-                                _ => {
-                                    // A slot it does not hold, and a slot
-                                    // holding something that is not the
-                                    // console, are the same answer: it asked
-                                    // for authority it was not granted.
-                                    ipc::note_authority_refusal();
-                                    stats.authority_refusals =
-                                        stats.authority_refusals.saturating_add(1);
-                                    Status::Authority
-                                }
-                            };
-                            el0::set_saved_gpr(session, 0, status.as_u64());
-                            // SAFETY: as `Ping` — a resumable `Svc` outcome
-                            // with IRQs masked.
                             event = resume_step(session);
                         }
                         Syscall::Send => {
@@ -457,7 +427,6 @@ pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
         el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
             Syscall::Ping => crate::kprintln!("{prefix}: svc ping"),
             Syscall::Exit => crate::kprintln!("{prefix}: svc exit"),
-            Syscall::Putc => crate::kprintln!("{prefix}: svc putc"),
             Syscall::Send => crate::kprintln!("{prefix}: svc send"),
             Syscall::Recv => crate::kprintln!("{prefix}: svc recv"),
             Syscall::TryRecv => crate::kprintln!("{prefix}: svc try-recv"),

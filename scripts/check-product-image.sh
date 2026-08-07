@@ -121,13 +121,26 @@ unreachable="$(cargo build --target "${TARGET}" --release --no-default-features 
 cargo build --target "${TARGET}" --release >/dev/null
 llvm-objcopy -O binary "${OUT}/harbor-kernel" "${OUT}/kernel8.img"
 
+# M8 product gate: the product image must create the beacon agent and the
+# console server. Format strings are split (`loader: {} loaded…` + name
+# `"beacon"`), so assert the pieces that actually land in .rodata.
+for marker in "console-server: up" "beacon" "loader: "; do
+	grep -qaF -- "${marker}" "${OUT}/kernel8-product.img" || {
+		echo "product-builds: FAIL — product image lacks '${marker}'" >&2
+		echo "  M8 requires a non-empty product path (console server + beacon)." >&2
+		exit 1
+	}
+done
+
+# Product must be larger than the empty-manifest era (~54 KiB): beacon + server.
+readonly PRODUCT_MIN_BYTES=56000
+if [[ "${product_size}" -lt "${PRODUCT_MIN_BYTES}" ]]; then
+	echo "product-builds: FAIL — product image is ${product_size} B (< ${PRODUCT_MIN_BYTES})" >&2
+	echo "  Expected growth from the empty-manifest size after M8 beacon." >&2
+	exit 1
+fi
+
 printf 'product-builds: clean (no demo symbols; image %s B without the oracle, %s B with, +%s B)\n' \
 	"${product_size}" "${oracle_size}" "$((oracle_size - product_size))"
-printf '  %s items unreachable without it. This was 95 before the loader landed:\n' "${unreachable}"
-printf '  bootstrap::loader is product code and calls spawn_with_slots,\n'
-printf '  AddressSpace, Agent and the EL0 session, so they now have a\n'
-printf '  product-path caller.\n'
-printf '  What has NOT changed is the product image size — the manifest is empty\n'
-printf '  without the oracle, so the loader loads nothing and the linker keeps\n'
-printf '  nothing. Reachable in the source, absent from the image, until M8 gives\n'
-printf '  the product an agent to run (ADR-0021 consequences).\n'
+printf '  %s items unreachable without the oracle.\n' "${unreachable}"
+printf '  Product carries console-server + beacon (M8); mute stays oracle-only.\n'

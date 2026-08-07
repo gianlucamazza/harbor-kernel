@@ -5,14 +5,17 @@
 //! An agent names a capability by **slot index into its own table**, never by
 //! `CapId`: there is nothing outside that array for it to name (ADR-0017 §2).
 //!
-//! | call        | `x0` in | `x1` in | `x2` in | `x3` in | `x0` out   | `x1..x3` out  |
-//! | ----------- | ------- | ------- | ------- | ------- | ---------- | ------------- |
-//! | `SYS_PING`  | —       | —       | —       | —       | unchanged  | unchanged     |
-//! | `SYS_EXIT`  | —       | —       | —       | —       | —          | —             |
-//! | `SYS_PUTC`  | slot    | byte    | —       | —       | [`Status`] | unchanged     |
-//! | `SYS_SEND`  | slot    | tag     | a       | b       | [`Status`] | unchanged     |
-//! | `SYS_RECV`  | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
-//! | `SYS_TRY_RECV` | slot | —       | —       | —       | [`Status`] | tag, a, b     |
+//! | call           | `x0` in | `x1` in | `x2` in | `x3` in | `x0` out   | `x1..x3` out  |
+//! | -------------- | ------- | ------- | ------- | ------- | ---------- | ------------- |
+//! | `SYS_PING`     | —       | —       | —       | —       | unchanged  | unchanged     |
+//! | `SYS_EXIT`     | —       | —       | —       | —       | —          | —             |
+//! | `SYS_SEND`     | slot    | tag     | a       | b       | [`Status`] | unchanged     |
+//! | `SYS_RECV`     | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
+//! | `SYS_TRY_RECV` | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
+//!
+//! Imm 2 is **unused** (formerly transitional `SYS_PUTC`, removed in M8). It
+//! decodes as [`Syscall::Unknown`] so a stale agent image that still issues
+//! `svc #2` is refused rather than aliased onto `SYS_SEND`.
 //!
 //! The kernel writes `x0..x3` and nothing else: those four are the reply, and
 //! any other register is the agent's own context, which answering a syscall has
@@ -30,18 +33,14 @@ pub const SYS_PING: u16 = 0;
 /// `svc #1` — cooperative exit from an EL0 multi-SVC session (no resume).
 pub const SYS_EXIT: u16 = 1;
 
-/// `svc #2` — write the low 8 bits of `x1` to the console named by slot `x0`.
-///
-/// Requires a console capability, and is **denied by default**: an agent that
-/// was not granted one is refused and the refusal is counted as an authority
-/// violation (ADR-0017 §3).
-///
-/// **Transitional** (ADR-0017 §4). M8 replaces it with `SYS_SEND` on a console
-/// endpoint: the agent-side ABI does not change — the slot already names the
-/// right capability — only who drains the message.
-pub const SYS_PUTC: u16 = 2;
+// Imm 2 was `SYS_PUTC` (transitional, ADR-0017 §4). M8 removed it: console
+// output is `SYS_SEND` on a console endpoint. The number is left unassigned so
+// a binary still using `svc #2` hits [`Syscall::Unknown`] rather than SEND.
 
 /// `svc #3` — send a message through the capability in slot `x0`.
+///
+/// Console output uses this with [`crate::prog::CONSOLE_TAG_BYTE`] and the byte
+/// in `a` (M8).
 pub const SYS_SEND: u16 = 3;
 
 /// `svc #4` — take a message from the capability in slot `x0`, **waiting** if
@@ -103,8 +102,6 @@ pub enum Syscall {
     Ping,
     /// End the EL0 session cleanly.
     Exit,
-    /// Emit one byte from saved `x0` via kernel TX; session may resume.
-    Putc,
     /// Send through the capability named by the slot in `x0`.
     Send,
     /// Take a message from the capability named by the slot in `x0`, waiting
@@ -122,7 +119,6 @@ pub const fn decode(imm: u16) -> Syscall {
     match imm {
         SYS_PING => Syscall::Ping,
         SYS_EXIT => Syscall::Exit,
-        SYS_PUTC => Syscall::Putc,
         SYS_SEND => Syscall::Send,
         SYS_RECV => Syscall::Recv,
         SYS_TRY_RECV => Syscall::TryRecv,
@@ -138,10 +134,15 @@ mod tests {
     fn known_imms() {
         assert_eq!(decode(0), Syscall::Ping);
         assert_eq!(decode(1), Syscall::Exit);
-        assert_eq!(decode(2), Syscall::Putc);
         assert_eq!(decode(3), Syscall::Send);
         assert_eq!(decode(4), Syscall::Recv);
         assert_eq!(decode(5), Syscall::TryRecv);
+    }
+
+    #[test]
+    fn former_putc_imm_is_unknown() {
+        // M8: imm 2 is unassigned. A stale `svc #2` must not alias SEND.
+        assert_eq!(decode(2), Syscall::Unknown { imm: 2 });
     }
 
     #[test]
@@ -154,11 +155,10 @@ mod tests {
 
     #[test]
     fn unknown_is_refused_not_aliased() {
-        // The first immediate past the table. It used to be 3, then 5; every
+        // The first immediate past the table. It used to be 3, then 6; every
         // call added moves it, and an ABI that grows must not grow by accident
         // — an unimplemented call ends the session rather than aliasing a real
-        // one. This assertion is the reason `SYS_TRY_RECV = 5` was seen to
-        // break a test before it was believed.
+        // one.
         assert_eq!(decode(6), Syscall::Unknown { imm: 6 });
         assert_eq!(decode(0xffff), Syscall::Unknown { imm: 0xffff });
     }

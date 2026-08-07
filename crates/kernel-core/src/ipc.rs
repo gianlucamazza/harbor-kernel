@@ -67,6 +67,16 @@ pub enum RecvError {
     Empty,
 }
 
+/// Why a depth observation failed.
+///
+/// Distinct from send/recv errors: a failed observation does **not** bump any
+/// refusal counter. It is a creator-side helper for the console drain barrier
+/// (M8), not an agent syscall.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueuedError {
+    BadCap,
+}
+
 /// Refusal counts, kept apart by what they mean.
 ///
 /// One number used to cover all three. The M4 gate asserts a refusal happened
@@ -339,6 +349,28 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
         Ok(mbox.pop())
     }
 
+    /// Messages currently queued on the mailbox named by `cap`.
+    ///
+    /// Resolves if `cap` is a live endpoint with **either** [`CapRights::SEND`]
+    /// **or** [`CapRights::RECV`]. Do not pass `SEND | RECV` as a single `need`
+    /// to [`Self::lookup`]: `contains` means “has all bits,” and no endpoint
+    /// holds both rights.
+    ///
+    /// Successful observation does **not** touch refusal counters. Dead /
+    /// wrong-generation / wrong-rights → [`QueuedError::BadCap`] with no
+    /// authority-counter bump (this is not a send/recv attempt).
+    pub fn queued(&self, cap: CapId) -> Result<usize, QueuedError> {
+        let mb = self
+            .lookup(cap, CapRights::SEND)
+            .or_else(|| self.lookup(cap, CapRights::RECV))
+            .ok_or(QueuedError::BadCap)?;
+        let mbox = &self.mailboxes[mb];
+        if !mbox.live {
+            return Err(QueuedError::BadCap);
+        }
+        Ok(mbox.len)
+    }
+
     /// Claim the waiter slot for `me`, unless a message arrived first.
     ///
     /// The re-check matters: between a failed [`Self::try_recv`] and this call
@@ -389,6 +421,24 @@ mod tests {
             a: u64::from(tag) * 2,
             b: 0,
         }
+    }
+
+    #[test]
+    fn queued_depth_is_visible_from_either_end_without_counting_refusals() {
+        let mut t = T::new();
+        let ch = t.create_channel().unwrap();
+        assert_eq!(t.queued(ch.send), Ok(0));
+        assert_eq!(t.queued(ch.recv), Ok(0));
+        assert_eq!(t.send(ch.send, msg(1)), Ok(None));
+        assert_eq!(t.queued(ch.send), Ok(1));
+        assert_eq!(t.queued(ch.recv), Ok(1));
+        assert_eq!(t.refusals().authority, 0);
+        assert_eq!(t.queued(CapId::new(99, 1)), Err(QueuedError::BadCap));
+        assert_eq!(
+            t.refusals().authority,
+            0,
+            "observation must not count as a refusal"
+        );
     }
 
     #[test]

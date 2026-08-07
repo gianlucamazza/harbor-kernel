@@ -20,12 +20,11 @@ bounded components operate and talk over controlled channels
 **Today** it is a single-core bare-metal AArch64 kernel in Rust (`no_std`),
 booting under the platform firmware. It runs cooperative EL1 tasks, IPC with
 unforgeable caps, and EL0 agents in private address spaces whose authority is
-named by capability slot. An agent can **wait** for a message, and a **loader**
-creates agents from a manifest rather than from code compiled beside them. It is
-**not** a finished agent OS: an agent cannot wait on an interrupt as a
-first-class wake, it is not preempted, and the manifest a product image carries
-is empty — the loader is real, and so far it is the boot oracle that gives it
-something to load. Full product surface:
+named by capability slot. An agent can **wait** for a message, a **loader**
+creates agents from a manifest, and console output is **`SYS_SEND` on a console
+endpoint** drained by an EL1 server (M8). The product manifest carries a
+**beacon** agent. It is **not** a finished agent OS: an agent cannot wait on an
+interrupt as a first-class wake and is not preempted. Full product surface:
 [`docs/architecture.md`](docs/architecture.md).
 
 _Verified_ means claims in this README are backed by host tests, Miri on the
@@ -51,18 +50,20 @@ surface on top of that boundary, not another foundation milestone.
 | M7           | EL0 authority by capability slot; console cap denied by default; creator-handled agent fault | **done (HW)** 2026-08-07 |
 | ADR-0022     | Blocking `SYS_RECV`: an agent waits; the masked region is one session step, not the session  | **done (HW)** 2026-08-07 |
 | ADR-0021     | Agents as data: a manifest binds grants by index; the loader creates them                    | **done (HW)** 2026-08-07 |
+| M8           | Console as endpoint: EL1 server + product beacon; `SYS_PUTC` removed                         | **done (QEMU)** — HW stamp open |
 
-Post-M6 product slices (EL0 IRQ resume, `SYS_PUTC`, PL011 RX-owned agent) closed
+Post-M6 product slices (EL0 IRQ resume, transitional `SYS_PUTC`, PL011 RX-owned agent) closed
 [issue #1](https://github.com/gianlucamazza/harbor-kernel/issues/1) on silicon
 2026-08-06. M7 closed in one boot the next day, and the loader and the park in
 one boot after that — evidence in
 [`docs/verification.md`](docs/verification.md#hardware-evidence-the-loader-and-the-park-on-silicon-2026-08-07).
+M8 retires `SYS_PUTC` and gives the product manifest its first inhabitant
+(beacon); QEMU-gated, silicon stamp still open.
 
 ### Next
 
-The next work is **M8: the console as an endpoint** ([#12](https://github.com/gianlucamazza/harbor-kernel/issues/12)), which
-retires the transitional `SYS_PUTC` — and gives the product manifest its first
-inhabitant. Current state and what is open: [#15](https://github.com/gianlucamazza/harbor-kernel/issues/15).
+Availability residual: **parked agent forever** ([#13](https://github.com/gianlucamazza/harbor-kernel/issues/13)).
+Optional IRQ-wake RX and P-pass Device windows. Tracking: [#15](https://github.com/gianlucamazza/harbor-kernel/issues/15).
 
 The ordered list, with the done-when criterion for each item, lives in
 [`docs/architecture.md#roadmap`](docs/architecture.md#roadmap). It is not
@@ -88,10 +89,11 @@ interactive serial console.
 | Allocation     | Free-list allocator behind `GlobalAlloc` — `Box`/`Vec` work                                                                                                                                               |
 | Frames (M5)    | Named phys pool (ADR-0012); `AddressSpace` clone + user VA window sized **per agent** (`text_pages` executable, the rest stack); destroy returns frames                                                    |
 | EL0 (M5)       | `enter`/`resume`/`end_session`, own `TTBR0`, SVC + fault probes (**done HW**) — ADR-0014                                                                                                                  |
-| Agent shell    | `src/agent::Agent` owns AS; scheduled multi-SVC; concurrent dual-TCB (**done HW**); `SYS_PUTC` + IRQ resume (**done HW**); the EL1 mask is one enter/resume step, never the session (ADR-0022)            |
+| Agent shell    | `src/agent::Agent` owns AS; scheduled multi-SVC; concurrent dual-TCB (**done HW**); console via `SYS_SEND` + IRQ resume (**done HW**); the EL1 mask is one enter/resume step, never the session (ADR-0022) |
+| Console (M8)   | EL1 server drains console mailbox; product **beacon** is first manifest inhabitant; `SYS_PUTC` removed; denied-by-default remains (**done QEMU**)                                                           |
 | Loader         | `kernel_core::manifest` + `src/bootstrap/loader.rs`: an agent is an image, a window geometry and a slot table; a slot names an **index** into the loader's caps, never a `CapId` (**done HW**) — ADR-0021 |
 | Waiting        | `SYS_RECV` parks the agent and a peer's send wakes it; `SYS_TRY_RECV` is the non-blocking half and the only producer of `Status::Empty` (**done HW**) — ADR-0022                                          |
-| Authority (M7) | Slot-indexed caps; console behind a cap denied by default; agent fault ends the session, creator decides the task (**done HW**)                                                                           |
+| Authority (M7) | Slot-indexed caps; console denied by default (send on empty slot); agent fault ends the session, creator decides the task (**done HW**)                                                                    |
 | PL011 agent    | Page map (ADR-0013); FR; RX own (drain off, LBE inject, poll, kill restores) — M6 **done HW**                                                                                                             |
 | Tasks (M3)     | Cooperative EL1 tasks, heap stacks with unmapped guards, voluntary yield, idle = console loop (ADR-0006)                                                                                                  |
 | IPC (M4)       | Mailboxes + CapId send/recv; refuse counter; IRQ wake queue (ADR-0008); demo sender/receiver/forger                                                                                                       |
@@ -99,18 +101,13 @@ interactive serial console.
 | RNG            | Polled SoC RNG200 (raw FIFO words; no CSPRNG claim); soft bring-up line after MMU                                                                                                                         |
 | Console        | Kernel TX shared; RX ring when kernel owns drain; agent may suspend drain + poll `DR`; idle `WFI`                                                                                                         |
 | TFT (lab)      | Optional `--features debug-display`: SPI0 + ILI9486 status surface (regwidth-16 SKU; UART stays primary)                                                                                                  |
-| Verification   | 284 host tests (unit, integration, doc), **bounded model checking** of the scheduler and authority core, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware |
+| Verification   | 288 host tests (unit, integration, doc), **bounded model checking** of the scheduler and authority core, Miri over the `unsafe`, layout validator, build gates, QEMU boot-check, fault-probed on hardware |
 
 ## What is not there yet
 
-**Product path (next, above):** console-as-endpoint (M8), optional IRQ-wake RX.
-An agent cannot yet treat an IRQ as a first-class wait, and UART RX ownership is
-poll-based rather than the steady console path.
-
-**The manifest a product image carries is empty.** Every entry is behind the
-`oracle` feature, so the loader exists and loads nothing without it — `make
-product-builds` prints the number rather than letting the loader's presence read
-as a product that runs agents. M8's console endpoint is its first inhabitant.
+**Still open:** optional IRQ-wake RX; an agent cannot yet treat an IRQ as a
+first-class wait, and UART RX ownership is poll-based rather than the steady
+console path.
 
 **A parked agent is parked forever.** There is no timeout on `SYS_RECV` and
 nothing reclaims a task waiting on an endpoint nobody holds the send end of;
@@ -167,9 +164,9 @@ src/
                   (+ delay/pin) behind debug-display
   bsp/            board feature select → `board` re-export
   bsp/rpi4/       memmap, GPIO, console, IRQ bind, RNG bind, pm bind; display bind (feature)
-  bootstrap/      mod: boot sequence · loader: the manifest loop (product; the
-                  table it reads is oracle-only) · console_loop: idle body ·
-                  demos: smokes · selftest: gates
+  bootstrap/      mod: boot sequence · console_server: EL1 drain of console
+                  mailbox (M8) · loader: manifest loop (product beacon + oracle
+                  mute) · console_loop: idle body · demos: smokes · selftest: gates
   sched/          TCBs, stacks, context switch, wake queue — the state machine is
                   `kernel_core::tasks` (ADR-0006/0008)
   ipc/            global, mask, hold check, wake — the authority surface is
@@ -208,7 +205,7 @@ is fine.
 
 ```bash
 make              # → target/aarch64-unknown-none-softfloat/release/kernel8.img
-make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs, then clippy
+make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs, then clippy
 make test         # host unit tests only
 make fmt
 ```

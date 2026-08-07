@@ -41,7 +41,7 @@ allowed_for() {
 	bsp*) echo "arch bsp console drivers irq time" ;;
 	# Policy sits on top of everything and is allowed to.
 	bootstrap* | main) echo "agent arch bsp console drivers ipc irq mm sched status time" ;;
-	# Agent shell: AS + EL0 sessions; SYS_PUTC via console TX; Irq → irq::handle_cpu_irq.
+	# Agent shell: AS + EL0 sessions; SYS_SEND/RECV via ipc; Irq → irq::handle_cpu_irq.
 	# No drivers/board (device PA/VA come from bootstrap demos / BSP constants via mm).
 	#
 	# `ipc` was added when `SYS_SEND`/`SYS_RECV` arrived (M7 slice 2, ADR-0017 §2):

@@ -15,10 +15,8 @@ agents from a manifest instead of from code (ADR-0021) — all **done on Pi 4B**
 the last of them 2026-08-07.
 
 What that does _not_ mean: an agent cannot wait on an interrupt and cannot be
-preempted; the console is a capability but the kernel is still what drains it;
-and the manifest a product image carries is **empty** — the loader is real, and
-so far it is the oracle that gives it something to load. See
-[Roadmap](#roadmap).
+preempted. Console output is drained by an EL1 server (M8); the product
+manifest carries a **beacon** agent. See [Roadmap](#roadmap).
 
 ## Layering
 
@@ -104,18 +102,13 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
    calls `sched::spawn_with_slots`, `AddressSpace`, `Agent` and the EL0 session, so
    they finally have a product-path caller (ADR-0021).
 
-   What did **not** change is the product image size — 54496 B before the loader
-   and after it. The manifest is `cfg(oracle)`, so without it the loader has
-   nothing to load and the linker keeps nothing. Reachable in the source, absent
-   from the image. It stays that way until M8 gives the product an agent to run,
-   and ADR-0021's consequences say so rather than letting "the loader is product
-   code" be read as "the product loads something".
+   M8 gives the product a **beacon** agent and an always-on EL1 console server.
+   The product image creates tasks; `make product-builds` reports size and
+   unreachable counts. Oracle adds **mute** only (same image, no grant).
 
-   The number moves with the kernel — 88, then 95 when `SYS_RECV` learned to
-   wait, then 37 when the loader landed, then 36 when the manifest index left
-   the scheduler. `make product-builds` prints the
-   current one, and this paragraph is the only place that repeats it: no gate
-   compares the two, so a stale figure here is drift a reader has to catch.
+   `make product-builds` prints the current unreachable count, and this
+   paragraph is the only place that used to hard-code it: no gate compares the
+   two, so a stale figure here is drift a reader has to catch.
 
 10. **Facade isolation (ADR-0015).** Outside `src/arch/`, import only
     `crate::arch::{…}` — never `crate::arch::<isa>`. Outside a board package,
@@ -132,7 +125,7 @@ is not an import (a shared constant, an agreed register value) is still
 review-only — see [`verification.md`](verification.md).
 
 **Agent shell imports** (policy, not a lower layer): `arch`, `mm`, `sched`, plus
-`console` (`SYS_PUTC` TX), `irq` (lower-EL IRQ → `handle_cpu_irq` then resume)
+`ipc` (slot send/recv; console is a send cap), `irq` (lower-EL IRQ → `handle_cpu_irq` then resume)
 and `ipc` (`SYS_SEND`/`SYS_RECV` by slot — the translation lives in `ipc`
 because the authority counter is `ipc`'s to maintain). No `drivers` / `bsp`
 from `agent` — board PA/VA for demos live in bootstrap.
@@ -160,7 +153,7 @@ from `agent` — board PA/VA for demos live in bootstrap.
 | Concept    | Role                                                                                    | Status                           |
 | ---------- | --------------------------------------------------------------------------------------- | -------------------------------- |
 | Task (M3)  | Schedulable EL1 entity + private stack                                                  | **done (HW)**                    |
-| Agent      | A **pair**: an EL1 driver task and the EL0 program it drives ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)). Multi-SVC, IRQ resume, `SYS_PUTC`, PL011 RX own, and a recv it can wait on | **done (HW)** |
+| Agent      | A **pair**: an EL1 driver task and the EL0 program it drives ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)). Multi-SVC, IRQ resume, console via `SYS_SEND`, PL011 RX own, and a recv it can wait on | **done (HW)** |
 | Message    | Sole interaction channel (M4)                                                           | **done (HW)**                    |
 | Capability | Unforgeable handle (send/recv; future: IRQ notification)                                | **done (HW)** (IRQ caps later)   |
 | Manifest   | The table that says which agents exist and what each is granted ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)) | **done (HW)** |
@@ -352,7 +345,7 @@ Tracking issue: [#15](https://github.com/gianlucamazza/harbor-kernel/issues/15).
 
 | #   | Work | Done when | Issue |
 | --- | ---- | --------- | ----- |
-| 1   | **M8: console endpoint** — retire the transitional `SYS_PUTC` | Same slot ABI; a server drains the mailbox; boot-check still asserts denied-by-default; **and the product manifest stops being empty** — this is its first inhabitant | [#12](https://github.com/gianlucamazza/harbor-kernel/issues/12) |
+| 1   | **M8: console endpoint** — retire the transitional `SYS_PUTC` | Same slot ABI; EL1 server drains the mailbox; beacon is first **product** manifest inhabitant; boot-check asserts denied-by-default | [#12](https://github.com/gianlucamazza/harbor-kernel/issues/12) — **done (QEMU)** |
 | 2   | **The parked agent** — no timeout, no reclaim | An ADR decides between a deadline queue, creator-side reaping, endpoint release, or simply reporting it. Availability surface [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md) opened and deliberately did not close | [#13](https://github.com/gianlucamazza/harbor-kernel/issues/13) |
 | 3   | **Optional: IRQ-wake RX** | UART SPI → EL0 `Irq` without the kernel draining `DR` | — |
 | 4   | **Optional P-pass** | Tighten the kernel's EL1 Device blankets (not required for M6 v1) | [#2](https://github.com/gianlucamazza/harbor-kernel/issues/2) |

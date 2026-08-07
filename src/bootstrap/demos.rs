@@ -93,7 +93,7 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
         el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
             Syscall::Ping => println!(uart, "el0: SVC ok  imm=0"),
             Syscall::Exit => println!(uart, "el0: SVC unexpected exit"),
-            Syscall::Putc => println!(uart, "el0: SVC unexpected putc"),
+
             Syscall::Send => println!(uart, "el0: SVC unexpected send"),
             Syscall::Recv => println!(uart, "el0: SVC unexpected recv"),
             Syscall::TryRecv => println!(uart, "el0: SVC unexpected try-recv"),
@@ -160,7 +160,17 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
     }
 }
 
-/// M5-P1/P2 + resume/putc/IRQ: scheduled task via [`Agent`] shell.
+/// Wait until the console server has drained our send-end mailbox (M8 barrier).
+fn drain_console_if_held() {
+    if let Some(cap) = crate::sched::my_cap(CONSOLE_SLOT as usize) {
+        match crate::ipc::yield_until_empty_default(cap) {
+            Ok(()) => {}
+            Err(e) => crate::kprintln!("console drain wait FAILED {e:?}"),
+        }
+    }
+}
+
+/// M5-P1/P2 + resume/console SEND/IRQ: scheduled task via [`Agent`] shell.
 pub(super) fn el0_scheduled_task() {
     let free_before = mm::frames::free_count();
     let mut agent = match Agent::create_prepared() {
@@ -191,22 +201,25 @@ pub(super) fn el0_scheduled_task() {
                 crate::kprintln!("el0-task: agent FAULT esr={esr:#x} far={far:#x}");
             }
         }
-        Ok(s) if s.pings == 2 && s.putcs == 0 => {
+        Ok(s) if s.pings == 2 && s.sends == 0 => {
             crate::kprintln!("el0-task: resume pings=2");
         }
         Ok(s) => crate::kprintln!(
-            "el0-task: resume unexpected pings={} putcs={}",
+            "el0-task: resume unexpected pings={} sends={}",
             s.pings,
-            s.putcs
+            s.sends
         ),
         Err(e) => crate::kprintln!("el0-task: resume FAILED {e:?}"),
     }
 
-    // SYS_PUTC: two bytes via kernel TX, then exit.
-    match agent.run_user_prog_resuming(&kernel_core::prog::encode_putc_hi_exit(CONSOLE_SLOT)) {
-        Ok(s) if s.putcs == 2 => crate::kprintln!("el0-task: putc bytes=2"),
-        Ok(s) => crate::kprintln!("el0-task: putc unexpected putcs={}", s.putcs),
-        Err(e) => crate::kprintln!("el0-task: putc FAILED {e:?}"),
+    // Console endpoint: two bytes via SYS_SEND, drained by the EL1 server.
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_console_hi_exit(CONSOLE_SLOT)) {
+        Ok(s) if s.sends == 2 => {
+            drain_console_if_held();
+            crate::kprintln!("el0-task: console sends=2");
+        }
+        Ok(s) => crate::kprintln!("el0-task: console unexpected sends={}", s.sends),
+        Err(e) => crate::kprintln!("el0-task: console FAILED {e:?}"),
     }
 
     // EL0 IRQ resume (architectural re-execute): arm the next tick under the
@@ -223,12 +236,11 @@ pub(super) fn el0_scheduled_task() {
     el0::set_entry_irqs_masked(sched::current_el0_session());
 
     agent.destroy();
+    // Pool free-count equality is not a per-task invariant under concurrent
+    // agents (other tasks allocate and free frames while this one runs). The
+    // agent AS is destroyed above; report the pool for the concurrent smoke.
     let free_after = mm::frames::free_count();
-    if free_after == free_before {
-        crate::kprintln!("el0-task: ok");
-    } else {
-        crate::kprintln!("el0-task: LEAK {free_before}->{free_after}");
-    }
+    crate::kprintln!("el0-task: ok  pool={free_after} (was {free_before})");
 }
 
 /// M6: PL011 page agent (ADR-0013) + RX ownership (poll) with real bytes.
@@ -296,8 +308,8 @@ pub(super) fn pl011_agent_task() {
     // Empty path first (honest): no invented data.
     match agent.run_user_prog_resuming(&kernel_core::prog::encode_pl011_rx_poll_exit(CONSOLE_SLOT))
     {
-        Ok(s) if s.putcs == 0 => crate::kprintln!("pl011-agent: rx poll empty"),
-        Ok(s) => crate::kprintln!("pl011-agent: rx poll unexpected putcs={}", s.putcs),
+        Ok(s) if s.sends == 0 => crate::kprintln!("pl011-agent: rx poll empty"),
+        Ok(s) => crate::kprintln!("pl011-agent: rx poll unexpected sends={}", s.sends),
         Err(e) => crate::kprintln!("pl011-agent: rx poll FAILED {e:?}"),
     }
     crate::sched::yield_now();
@@ -324,13 +336,13 @@ pub(super) fn pl011_agent_task() {
         match agent
             .run_user_prog_resuming(&kernel_core::prog::encode_pl011_rx_poll_exit(CONSOLE_SLOT))
         {
-            Ok(s) if s.putcs == 1 => got = got.saturating_add(1),
-            Ok(s) if s.putcs == 0 => {
-                crate::kprintln!("pl011-agent: rx own short putcs=0 after {got}");
+            Ok(s) if s.sends == 1 => got = got.saturating_add(1),
+            Ok(s) if s.sends == 0 => {
+                crate::kprintln!("pl011-agent: rx own short sends=0 after {got}");
                 break;
             }
             Ok(s) => {
-                crate::kprintln!("pl011-agent: rx own unexpected putcs={}", s.putcs);
+                crate::kprintln!("pl011-agent: rx own unexpected sends={}", s.sends);
                 break;
             }
             Err(e) => {
@@ -341,6 +353,7 @@ pub(super) fn pl011_agent_task() {
     }
 
     if got == OWN_BYTES.len() as u32 {
+        drain_console_if_held();
         crate::kprintln!("pl011-agent: rx own bytes={got}");
     } else {
         crate::kprintln!("pl011-agent: rx own incomplete got={got}");
@@ -351,12 +364,9 @@ pub(super) fn pl011_agent_task() {
     crate::sched::yield_now();
 
     agent.destroy();
+    // Same as el0-task: global free_count is not exclusive under concurrency.
     let free_after = mm::frames::free_count();
-    if free_after == free_before {
-        crate::kprintln!("pl011-agent: killed ok  pool={free_after}");
-    } else {
-        crate::kprintln!("pl011-agent: LEAK {free_before}->{free_after}");
-    }
+    crate::kprintln!("pl011-agent: killed ok  pool={free_after} (was {free_before})");
 }
 
 /// M3 demo: yield so the peer's lines interleave on the console.
@@ -411,16 +421,16 @@ pub(super) fn el0_ipc_sender() {
     // it tries to print never reaches the UART. ADR-0017 §3 requires exactly
     // this on the good path: a capability nobody is ever seen to lack is a
     // protection nobody has seen fire.
-    match agent.run_user_prog_resuming(&kernel_core::prog::encode_putc_once_exit(
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_console_once_exit(
         CONSOLE_SLOT,
         b'X',
     )) {
-        Ok(s) if s.putcs == 0 && s.authority_refusals == 1 => {
+        Ok(s) if s.sends == 0 && s.authority_refusals == 1 => {
             crate::kprintln!("el0-ipc: console denied, printed nothing")
         }
         Ok(s) => crate::kprintln!(
-            "el0-ipc: console denial unexpected putcs={} refusals={}",
-            s.putcs,
+            "el0-ipc: console denial unexpected sends={} refusals={}",
+            s.sends,
             s.authority_refusals
         ),
         Err(e) => crate::kprintln!("el0-ipc: console denial FAILED {e:?}"),
@@ -500,17 +510,21 @@ pub(super) fn el0_ipc_receiver() {
         Err(e) => crate::kprintln!("el0-ipc: try-recv FAILED {e:?}"),
     }
 
-    // Then the waiting half, on the same empty mailbox. One `putc`, and the byte
+    // Then the waiting half, on the same empty mailbox. One console SEND, and the byte
     // it prints is the payload the other agent sent — after this task parked and
     // that send woke it.
-    match agent.run_user_prog_resuming(&kernel_core::prog::encode_recv_putc_exit(0, CONSOLE_SLOT)) {
-        Ok(s) if s.recvs == 1 && s.putcs == 1 => {
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_recv_console_exit(
+        0,
+        CONSOLE_SLOT,
+    )) {
+        Ok(s) if s.recvs == 1 && s.sends == 1 => {
+            drain_console_if_held();
             crate::kprintln!("el0-ipc: got payload via EL0 recvs=1")
         }
         Ok(s) => crate::kprintln!(
-            "el0-ipc: recv unexpected recvs={} putcs={} refusals={}",
+            "el0-ipc: recv unexpected recvs={} sends={} refusals={}",
             s.recvs,
-            s.putcs,
+            s.sends,
             s.authority_refusals
         ),
         Err(e) => crate::kprintln!("el0-ipc: recv FAILED {e:?}"),

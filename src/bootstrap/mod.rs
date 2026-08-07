@@ -7,6 +7,7 @@
 //! has to be read in order: every line here depends on the ones above it.
 
 mod console_loop;
+mod console_server;
 #[cfg(feature = "oracle")]
 mod demos;
 mod loader;
@@ -384,21 +385,16 @@ pub fn run() -> ! {
     // Shared TX for idle + worker tasks (cooperative only; serialized in with_tx).
     console::install_tx(uart);
 
-    // The console stops being something an agent obtains by asking (ADR-0017
-    // §3). It is a channel's send capability from here on: the kernel drains it
-    // today, an EL1 console server drains it in M8, and the agent-side ABI does
-    // not change when that happens.
-    //
-    // `None` here is not fatal for the kernel — EL1 printing does not go
-    // through capabilities — but every EL0 agent that prints will be refused,
-    // and the boot oracle will say so rather than going quiet.
-    // Bound only by the oracle: nothing in the product creates an agent, so
-    // nothing holds a console capability. That is the loader gap, not an
-    // oversight — see `make product-builds`.
-    #[cfg_attr(not(feature = "oracle"), allow(unused_variables))]
+    // Console channel (M8): send end is what agents (and the loader's `held`
+    // list) receive; recv end is held by the resident EL1 console server.
+    // Authority is ordinary `CapRights::SEND` — there is no special console
+    // capability type after SYS_PUTC's removal.
     let console_cap = match crate::ipc::create_channel() {
         Ok(ch) => {
-            console::grant_console_cap(ch.send);
+            match crate::sched::spawn_with_caps(console_server::run, &[ch.recv]) {
+                Ok(_) => crate::kprintln!("console-server: up"),
+                Err(e) => crate::kprintln!("console-server: spawn FAILED {e:?}"),
+            }
             crate::kprintln!("console: capability minted");
             Some(ch.send)
         }
@@ -413,11 +409,7 @@ pub fn run() -> ! {
     // of what any manifest agent can be given, and an entry naming anything
     // else is refused by arithmetic rather than by a check.
     //
-    // This call is product code. The table it reads is empty without the
-    // oracle, which `make product-builds` reports as a number.
-    // A loader that minted nothing holds nothing, and every entry naming a
-    // capability is refused. That is the right failure: an agent granted a
-    // console that does not exist would be worse than one refused.
+    // Product path carries the beacon agent; oracle adds mute. See loader.
     let one;
     let held: &[kernel_core::cap::CapId] = match console_cap {
         Some(cap) => {

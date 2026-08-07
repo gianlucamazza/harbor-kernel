@@ -114,10 +114,11 @@ Defined by [ADR-0017](docs/adr/0017-el0-capability-abi.md) and
 | --- | ---- | ------------------ |
 | 0 | `SYS_PING` | none |
 | 1 | `SYS_EXIT` | none |
-| 2 | `SYS_PUTC` | console capability in slot (**denied by default**, transitional → M8) |
-| 3 | `SYS_SEND` | `CapRights::SEND` on endpoint in slot |
+| 3 | `SYS_SEND` | `CapRights::SEND` on endpoint in slot (console output uses this with tag 0 and the byte in `a` — M8) |
 | 4 | `SYS_RECV` | `CapRights::RECV` on endpoint in slot — **waits** if the mailbox is empty ([ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md)) |
 | 5 | `SYS_TRY_RECV` | `CapRights::RECV` on endpoint in slot, **never waits** — answers `Empty` |
+
+Imm 2 is unassigned (formerly transitional `SYS_PUTC`); `decode(2)` is `Unknown`.
 
 **Structural property:** EL0 passes a **slot index** into its own
 `Tcb.caps[MAX_CAPS_PER_TASK]` (`MAX_CAPS_PER_TASK = 4`). It cannot form a
@@ -132,7 +133,7 @@ Defined by [ADR-0017](docs/adr/0017-el0-capability-abi.md) and
 
 Constants load-bearing for the model: mailboxes **8**, endpoints **16**, mailbox
 depth **4** (ADR-0017); capability slots per task **4**; concurrent tasks
-including idle **14** (`sched::MAX_TASKS` — it bounds how many agents can be
+including idle **16** (`sched::MAX_TASKS` — it bounds how many agents can be
 parked at once, see the residual risk below); executable pages an agent may
 declare **16** (`mm::MAX_TEXT_PAGES`, 64 KiB).
 
@@ -171,7 +172,7 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | The scheduler's invariants hold in every reachable state | `tests/model_sched.rs` — 2 396 745 sequences over `Tasks<3>`, five invariants after every step |
 | Softfloat / no FP in image | `make no-simd` |
 | Layering (no driver→board, arch≠drivers) | `make layering` / `arch-board-free` |
-| A manifest entry cannot name authority the loader lacks | Host tests in `kernel_core::manifest`; on silicon, `loader: mute ran putcs=0 refusals=2` beside `loader: echo ran putcs=2 refusals=0` — **the same image**, differing only in the table |
+| A manifest entry cannot name authority the loader lacks | Host tests in `kernel_core::manifest`; on silicon, `loader: mute ran sends=0 refusals=2` beside `loader: beacon ran sends=2 refusals=0` — **the same image**, differing only in the table |
 | A `DAIF` save/restore pair never spans a task switch | `make irq-scope`, seen red on a planted `yield_now` |
 | The syscall ABI here matches the kernel's | `make doc-claims` compares this table's immediates with `kernel_core::syscall` — the set only; whether a row's *description* is true is still review's job |
 
@@ -183,11 +184,12 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | ----- | ------ |
 | **Preemption** | None. Hostile infinite loop at EL0 or EL1 is DoS. |
 | **Wait-on-IRQ** | Not implemented; an agent that wants an interrupt polls or yields cooperatively. Blocking recv *is* implemented (ADR-0022). |
-| **A parked agent is parked forever** | `SYS_RECV` has **no timeout**, and nothing reclaims a task that waits on an endpoint whose send capability nobody holds. It keeps its task slot, its address space and its frames until reset, and no counter reports it — `sched::MAX_TASKS` is 14, so fourteen such agents and the machine creates no more tasks. This is availability surface **introduced by ADR-0022**, named here rather than discovered: the ADR rejected a timeout as a decision needing its own deadline queue and its own second reason to leave `Blocked`. Not reachable by a hostile agent *alone* — parking requires a `RECV` capability the creator granted — but reachable by a buggy one. |
+| **A parked agent is parked forever** | `SYS_RECV` has **no timeout**, and nothing reclaims a task that waits on an endpoint whose send capability nobody holds. It keeps its task slot, its address space and its frames until reset, and no counter reports it — `sched::MAX_TASKS` is 16, so sixteen such agents and the machine creates no more tasks. This is availability surface **introduced by ADR-0022**, named here rather than discovered: the ADR rejected a timeout as a decision needing its own deadline queue and its own second reason to leave `Blocked`. Not reachable by a hostile agent *alone* — parking requires a `RECV` capability the creator granted — but reachable by a buggy one. |
+| **Console TX depends on the server task** | After M8, agent console output is drained by an EL1 server. If that task exits or never runs, agents get `Full` / silent loss; kernel `kprintln` and panic steal still work. |
 | **Capability transfer / revocation** | Not implemented. |
 | **Endpoint release / generation recycle** | No kernel path releases an endpoint, so no kernel path mints a stale handle. The *check* is no longer unexercised: `tests/model_ipc.rs` offers a stale `CapId` — same index, previous generation — at every step of every sequence, and removing the generation comparison from `lookup` is caught in two operations. What stays untested is release itself, which does not exist. |
 | **IRQ notification capabilities** | Cookie shape exists; cookie unread; no cap_irq. |
-| **SYS_PUTC** | Transitional; not a pure message-passing console. |
+
 | **Creator lifecycle** | Bootstrap outlives agents; reaping undefined. |
 | **Heap wild free** | Double-free refused; adversarial pointer that looks like a header can still corrupt. |
 | **DTB** | Mapped RO; board truth is compiled-in (ADR-0011). |

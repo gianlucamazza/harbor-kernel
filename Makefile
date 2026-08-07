@@ -124,7 +124,7 @@ img: elf
 # there, or it is not worth running locally. Every CI job has a target here —
 # including `miri`, which skips loudly when nightly is absent rather than
 # letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs
+check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -241,6 +241,10 @@ irq-scope:
 # marker list passed a real leak twice while this was being written.
 product-builds:
 	./scripts/check-product-image.sh
+
+# M8: product image (no oracle) must actually run beacon + console server.
+product-boot-check: product-builds
+	./scripts/qemu-product-boot-check.sh
 
 # Miri interprets the host tests and checks the aliasing and provenance rules
 # that running the code cannot sample. It covers the only `unsafe` in

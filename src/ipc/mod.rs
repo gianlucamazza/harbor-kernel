@@ -46,7 +46,20 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use kernel_core::cap::CapId;
 use kernel_core::ipc::{Refusals, Table};
 
-pub use kernel_core::ipc::{Channel, CreateError, Message, RecvError, SendError};
+pub use kernel_core::ipc::{Channel, CreateError, Message, QueuedError, RecvError, SendError};
+
+/// Default yield budget for [`yield_until_empty`] (M8 creator drain barrier).
+///
+/// Mailbox depth is 4; empty should appear in a few yields if the console
+/// server is live. Bound avoids spinning forever if the server never runs.
+pub const YIELD_UNTIL_EMPTY_DEFAULT: u32 = 64;
+
+/// Why a cooperative drain wait failed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DrainError {
+    BadCap,
+    Timeout,
+}
 
 use crate::arch::cpu;
 use crate::sched;
@@ -146,15 +159,43 @@ pub fn send(cap: CapId, msg: Message) -> Result<(), SendError> {
     Ok(())
 }
 
-/// Count an authority violation detected outside this module.
+/// Messages currently queued on the mailbox named by `cap`.
 ///
-/// `SYS_PUTC` is the one authority check that is not about a mailbox — the
-/// console is named by a capability but drained by the kernel — so `agent`
-/// performs it. The *number* still belongs here, for the reason the atomics
-/// carry in their doc-comment: one definition of "authority violation", one
-/// writer, and a counter nobody else can move.
-pub fn note_authority_refusal() {
-    with_table(|t| t.note_authority_refusal());
+/// # Hold check
+/// Caller must hold `cap` (same structural gate as send/recv). Not held →
+/// [`QueuedError::BadCap`] **without** an authority-counter bump — this is an
+/// EL1 observation helper for the creator drain barrier, not an agent syscall.
+///
+/// On hold: resolves if the cap is a live SEND **or** RECV end of a channel.
+pub fn queued(cap: CapId) -> Result<usize, QueuedError> {
+    if !sched::current_holds(cap) {
+        return Err(QueuedError::BadCap);
+    }
+    with_table(|t| t.queued(cap))
+}
+
+/// Cooperative wait until the mailbox named by `cap` is empty.
+///
+/// # Ordering / IRQs
+/// Each observation takes the IPC mask briefly via `with_table` and **drops it**
+/// before [`sched::yield_now`]. Must **not** be called from inside
+/// `without_irqs` or any DAIF save/restore that would span the yield
+/// (architecture rule 7 / ADR-0022 / `make irq-scope`).
+pub fn yield_until_empty(cap: CapId, max_yields: u32) -> Result<(), DrainError> {
+    for _ in 0..=max_yields {
+        match queued(cap) {
+            Ok(0) => return Ok(()),
+            Ok(_) => sched::yield_now(),
+            Err(QueuedError::BadCap) => return Err(DrainError::BadCap),
+        }
+    }
+    Err(DrainError::Timeout)
+}
+
+/// Same as `yield_until_empty(cap, YIELD_UNTIL_EMPTY_DEFAULT)`.
+#[inline]
+pub fn yield_until_empty_default(cap: CapId) -> Result<(), DrainError> {
+    yield_until_empty(cap, YIELD_UNTIL_EMPTY_DEFAULT)
 }
 
 /// Send through the capability in `slot` of the calling task's own table.

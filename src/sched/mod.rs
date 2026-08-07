@@ -41,11 +41,11 @@ use crate::sync::SyncCell;
 /// agent peers + the manifest's two + bringup probe margin. Slots are not
 /// reused before exit, so this is a boot-time total and not a high-water mark.
 ///
-/// It went 12 → 14 when the loader landed: the oracle was already at exactly
+/// It went 12 → 14 when the loader landed, then 14 → 16 for M8 console server + product beacon: the oracle was already at exactly
 /// 12, and the first manifest entry reported `spawn FAILED Full` rather than
 /// running. Raising it costs two task stacks and two entries of the page-table
 /// reserve, both derived from this constant.
-pub const MAX_TASKS: usize = 14;
+pub const MAX_TASKS: usize = 16;
 
 /// Caps a task may hold (M4 local table — not shared globals).
 pub const MAX_CAPS_PER_TASK: usize = 4;

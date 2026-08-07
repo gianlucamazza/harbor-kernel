@@ -204,8 +204,8 @@ grep -qa 'el0-task: svc refuse imm=0x99' "${log}" ||
 	fail "scheduled el0-task did not refuse unknown svc imm"
 grep -qa 'el0-task: resume pings=2' "${log}" ||
 	fail "EL0 SVC resume session did not complete two pings + exit"
-grep -qa 'el0-task: putc bytes=2' "${log}" ||
-	fail "EL0 SYS_PUTC session did not emit two bytes"
+grep -qa 'el0-task: console sends=2' "${log}" ||
+	fail "EL0 console SYS_SEND session did not emit two bytes"
 grep -qaE 'el0-task: irq resume irqs=[1-9]' "${log}" ||
 	fail "EL0 IRQ save/resume path did not handle at least one IRQ"
 grep -qa 'el0-task: ok' "${log}" ||
@@ -245,8 +245,8 @@ grep -qa 'ipc: got tag=1 a=42' "${log}" ||
 #   1. the M4 forger, with a capability it does not hold
 #   2. the EL0 agent naming a slot it was not granted
 #   3. the EL0 agent denied the console
-#   4-5. the manifest's `mute`, twice — it runs the same image as `echo` and was
-#        granted no console slot, so both of its `SYS_PUTC` calls are refused
+#   4-5. the manifest's `mute`, twice — it runs the same image as `beacon` and was
+#        granted no console slot, so both of its console SYS_SEND calls are refused
 #
 # A range would let any one of them satisfy the assertion for the others; it
 # already did, while a bug had the counter reset by any successful send in
@@ -257,25 +257,27 @@ grep -qaE 'ipc: refuse count=5 ' "${log}" ||
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #
-# `echo` and `mute` run the **same bytes** — one `const [u8; 32]` in `.rodata`,
+# `beacon` and `mute` run the **same bytes** — one `const` image in `.rodata`,
 # built by the same encoder the assembler oracle checks. The only difference
 # between them is whether the manifest gave slot 1 the loader's console
-# capability. So `echo` printing `H!` and `mute` being refused twice is the
-# claim in its smallest form: nothing in the program and nothing in the code
-# that spawns it decides the authority.
+# send capability. So `beacon` printing `H!` and `mute` being refused twice is
+# the claim in its smallest form: nothing in the program and nothing in the
+# code that spawns it decides the authority.
 #
-# `mute` also declares two text pages against `echo`'s one, so a boot exercises
+# `mute` also declares two text pages against `beacon`'s one, so a boot exercises
 # a window the BSP no longer fixes — and a multi-page text is the reason
 # `poke_user` walks pages instead of assuming one contiguous run.
-grep -qa 'loader: echo loaded text=1 stack=3' "${log}" ||
+grep -qa 'console-server: up' "${log}" ||
+	fail "the EL1 console server did not spawn"
+grep -qa 'loader: beacon loaded text=1 stack=3' "${log}" ||
 	fail "the loader did not create the granted manifest agent"
 grep -qa 'loader: mute loaded text=2 stack=3' "${log}" ||
 	fail "the loader did not create an agent with a multi-page text window"
-grep -qa 'loader: echo ran putcs=2 refusals=0' "${log}" ||
+grep -qa 'loader: beacon ran sends=2 refusals=0' "${log}" ||
 	fail "the granted manifest agent did not use the console it was given"
-grep -qa 'loader: mute ran putcs=0 refusals=2' "${log}" ||
+grep -qa 'loader: mute ran sends=0 refusals=2' "${log}" ||
 	fail "the ungranted manifest agent was not refused the console"
-grep -qa 'H!loader: echo ran' "${log}" ||
+grep -qa 'H!loader: beacon ran' "${log}" ||
 	fail "the manifest agent's bytes did not reach the console before its report"
 
 # Neither of the other two should move in a healthy boot: nothing here fills a
@@ -336,8 +338,8 @@ grep -qaE 'el0-ipc: agent faulted esr=0x[0-9a-f]+ far=0x[0-9a-f]+ faults=[1-9]' 
 grep -qa 'el0-ipc: creator alive after fault' "${log}" ||
 	fail "the creator did not survive its agent's fault"
 
-# The payload crossing EL0 → kernel → EL0. The receiving agent moves the
-# message field into the putc argument itself, so the `*` on the console is the
+# The payload crossing EL0 → kernel → EL0. The receiving agent SYS_SENDs the
+# message field to the console endpoint, so the `*` on the console is the
 # byte the *other* agent sent (42), not a status code.
 grep -qa 'el0-ipc: got payload via EL0 recvs=1' "${log}" ||
 	fail "EL0 agent did not receive the message through its slot"

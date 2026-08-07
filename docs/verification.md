@@ -1489,3 +1489,21 @@ unplug the adapter from USB as part of each cycle.
 The kernel only drives PL011 on GPIO 14/15; bare metal has no USB host/CDC.
 Keep the lab path as PC adapter ↔ header UART ([`hardware.md`](hardware.md#serial-console)).
 The on-Pi dongle is for Linux-side work only.
+
+
+## Hardware evidence: M8 console endpoint (QEMU; silicon open)
+
+M8 retires `SYS_PUTC`. Console output is `SYS_SEND` with `CONSOLE_TAG_BYTE` (0)
+and the byte in `Message.a`. An EL1 `console_server` holds the recv end and
+drains via `console::with_tx`. Creators call `ipc::yield_until_empty` before
+report lines so `H!loader: beacon ran…` adjacency holds.
+
+| Claim | Gate |
+| ----- | ---- |
+| Server up | `console-server: up` in boot-check and product-boot-check |
+| Product beacon | `loader: beacon ran sends=2 refusals=0` + `H!loader: beacon ran` |
+| Mute denial (oracle) | `loader: mute ran sends=0 refusals=2`; refuse count=5 |
+| `SYS_PUTC` gone | `decode(2) == Unknown`; no `SYS_PUTC` in SECURITY table |
+| Product image | `make product-builds` markers + size; `make product-boot-check` |
+
+Silicon stamp: open (record a Pi 4B transcript here when available).
