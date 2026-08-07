@@ -3,20 +3,31 @@
 Map of the docs. The [root README](../README.md) is the public story; this page
 says **which document owns which fact**.
 
-## Start here
+## The 5-minute path
 
-1. [**README**](../README.md) — what Harbor is, status, quick start  
-2. [**Roadmap**](roadmap.md) — mission, H0–H2 product path, K/P status SSOT  
-3. [**Architecture**](architecture.md) — model, layering, foundation history  
-4. [**Vision**](vision.md) — product OS shape and use cases  
+For a first visit, in this order — you can stop at any step and still have a
+correct picture:
 
-Then, as needed: [`SECURITY.md`](../SECURITY.md) · [`verification.md`](verification.md) ·
-[`CONTRIBUTING.md`](../CONTRIBUTING.md).
+| # | Question | Read | Minutes |
+| --- | --- | --- | --- |
+| 1 | Mission, objectives, stack | [root README](../README.md) | 2 |
+| 2 | What is an *agent* here (it is not an LLM) | [glossary](glossary.md), then [architecture § How Harbor differs](architecture.md#how-harbor-differs-from-a-traditional-kernel) | 2 |
+| 3 | Where it is going, and what is actually done | [roadmap § H1 working order](roadmap.md#h1-working-order-product-critical-path) | 1 |
+| 4 | Why any of it should be believed | [verification](verification.md) — **index only**, do not read it through | — |
+
+Depth after that: [`architecture.md`](architecture.md) (normative model),
+[`vision.md`](vision.md) (product shape and use cases),
+[`stack.md`](stack.md) (what it is built with),
+[`SECURITY.md`](../SECURITY.md) (threat model),
+[`CONTRIBUTING.md`](../CONTRIBUTING.md) (how to add work),
+[`adr/`](adr/README.md) (why the boundaries are where they are).
 
 ## By goal
 
 | Goal | Start | Then |
 | --- | --- | --- |
+| Understand a term | [glossary](glossary.md) | the owning document named in its row |
+| Know the toolchain / platform | [stack](stack.md) | [porting](porting.md), [blobs](blobs.md) |
 | Build and boot | [README](../README.md) | [boot-chain](boot-chain.md), [hardware](hardware.md) |
 | Completeness + product path (K/P) | [roadmap](roadmap.md) | [ADR-0026](adr/0026-kernel-and-product-completeness.md), [vision](vision.md) |
 | Understand the agent model | [architecture](architecture.md) | [differs §](architecture.md#how-harbor-differs-from-a-traditional-kernel), [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) |
@@ -31,10 +42,13 @@ Then, as needed: [`SECURITY.md`](../SECURITY.md) · [`verification.md`](verifica
 
 | Document | Owns | Does not own |
 | --- | --- | --- |
-| `README.md` | Public story, status snapshot, quick start | Full K/P tables, evidence transcripts |
-| [`roadmap.md`](roadmap.md) | **Mission, H0–H2 outcomes, H1 order, K/P status** (SSOT) | Per-track design ADRs |
-| `docs/architecture.md` | Normative model, layering, foundation history | Live K/P table copies |
-| `docs/vision.md` | Product shape, horizons, use cases | Silicon status claims |
+| `README.md` | Public story, status snapshot, quick start | Full K/P tables, evidence transcripts, the mission wording |
+| [`roadmap.md`](roadmap.md) | **H0–H2 outcomes, H1 order, K/P status** (SSOT) | Per-track design ADRs, the mission wording |
+| `docs/architecture.md` | Normative model **as it is today**, layering | Live K/P table copies, foundation history |
+| `docs/vision.md` | **The mission sentence**, product shape, horizons, use cases, audience | Silicon status claims |
+| [`docs/stack.md`](stack.md) | Language, target, toolchain, features, verification stack | Status, model, evidence |
+| [`docs/glossary.md`](glossary.md) | One-line definitions + which document owns each term | Any definition of record |
+| [`docs/foundation-history.md`](foundation-history.md) | M0–M8 milestone record, closed slices, foundation findings | Live planning, current status |
 | [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness as goal | Per-track design |
 | `SECURITY.md` | Threat model, authority surface, residuals | Roadmap ordering |
 | `docs/verification.md` | Gates, transcripts, blind spots | Normative design |
@@ -103,7 +117,7 @@ Do **not** treat this block as a second status table — it only steers readers.
 [`adr/README.md`](adr/README.md) — ADR lifecycle. Accepted ADRs are immutable;
 change requires a successor. [`reviews/`](reviews/) — dated findings, not live
 status. Active work: [roadmap](roadmap.md); foundation history:
-[architecture § roadmap](architecture.md#roadmap).
+[foundation-history.md](foundation-history.md).
 
 ## Documentation checks
 

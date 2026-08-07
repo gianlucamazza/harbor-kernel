@@ -31,6 +31,8 @@ readonly DOCS=(
 	README.md
 	SECURITY.md
 	docs/architecture.md
+	docs/stack.md
+	docs/glossary.md
 	docs/mmu.md
 	docs/interrupts.md
 	docs/hardware.md

@@ -206,10 +206,52 @@ if [[ -n "${abi_missing}" || -n "${abi_extra}" ]]; then
 fi
 abi_calls="$(wc -l <<<"${security_imms}")"
 
+# 7. The mission sentence, which is the one piece of prose the project asks
+#    several documents to carry. It was written five slightly different ways —
+#    README, vision, roadmap, architecture's Purpose, ADR-0026 — and a reader
+#    meeting two of them cannot tell which is the official one, or whether the
+#    difference is deliberate.
+#
+#    So it has an owner (`docs/vision.md`) and the others *quote* it between
+#    markers. This is a set comparison like the rest of this file: the text
+#    between `<!-- mission:begin -->` and `<!-- mission:end -->`, with the
+#    blockquote marker and line wrapping normalised away, must be byte-identical.
+#    A rewording is then a deliberate edit in one place, not a drift in four.
+#
+#    What it cannot see, and the limit is the same one as everywhere else here:
+#    whether the sentence is *true*, or whether the surrounding paragraphs still
+#    agree with it. Those stay review's job.
+mission_of() {
+	awk '/<!-- mission:begin -->/ { inside = 1; next }
+		/<!-- mission:end -->/ { inside = 0 }
+		inside' "$1" |
+		sed 's/^>[[:space:]]*//' |
+		tr '\n' ' ' | tr -s '[:space:]' ' ' | sed 's/^ *//; s/ *$//'
+}
+
+canonical="$(mission_of docs/vision.md)"
+[[ -n "${canonical}" ]] ||
+	fail "docs/vision.md owns the mission but has no <!-- mission:begin --> … <!-- mission:end --> block"
+
+readonly QUOTING=(README.md docs/roadmap.md)
+for quoting_doc in "${QUOTING[@]}"; do
+	quoted="$(mission_of "${quoting_doc}")"
+	[[ -n "${quoted}" ]] ||
+		fail "${quoting_doc} has no mission block; it must quote docs/vision.md between the markers"
+	if [[ "${quoted}" != "${canonical}" ]]; then
+		echo "doc-claims: ${quoting_doc} restates the mission instead of quoting it" >&2
+		echo "  docs/vision.md: ${canonical}" >&2
+		echo "  ${quoting_doc}: ${quoted}" >&2
+		echo "  One sentence, one owner. Edit docs/vision.md and copy it." >&2
+		exit 1
+	fi
+done
+
 core_modules="$(sed -n 's/^pub mod \([a-z0-9_]*\);$/\1/p' crates/kernel-core/src/lib.rs | wc -l)"
 
 echo "doc-claims: clean (${actual} tests = ${unit}+${integration}+${doc}, ${#makefile_gates} chars of gate list agree, \
 $(wc -l <<<"${facade}") facade modules in the contract, \
 	${core_modules} kernel-core modules in docs/README.md, \
 ${abi_calls} syscalls in the threat model, \
-$(grep -lc '^status: accepted' docs/adr/0*.md | wc -l) ADRs dated)"
+$(grep -lc '^status: accepted' docs/adr/0*.md | wc -l) ADRs dated, \
+mission quoted verbatim in ${#QUOTING[@]} documents)"
