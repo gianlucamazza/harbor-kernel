@@ -15,10 +15,17 @@
 //! were written by the same person on the same day.
 //!
 //! So the specification is the **assembly in plain text**, sitting beside each
-//! test, and the oracle is `llvm-mc --disassemble`. Nobody transcribes hex in
-//! either direction. When the tool is missing the tests **fail** rather than
-//! skip — the lesson of `make no-simd`, which once reported `clean` having
-//! disassembled nothing.
+//! test, and the oracle is `llvm-mc`: the intended assembly goes *through the
+//! assembler* and the comparison is on bytes. Nobody transcribes hex in either
+//! direction. When the tool is missing the tests **fail** rather than skip — the
+//! lesson of `make no-simd`, which once reported `clean` having disassembled
+//! nothing.
+//!
+//! The first version went the other way — disassemble the encoder's bytes,
+//! compare the printed mnemonics — and CI killed it on the first push: the
+//! runner's `llvm-mc` prints a `.text` directive that the development machine's
+//! does not. Disassembly output is a *rendering*, and a rendering is not an
+//! interface. Assembly input is.
 //!
 //! The one that earns its keep is [`encode_pl011_rx_poll_exit`]: its `tbnz`
 //! skips three instructions, and the branch offset had to be recomputed by hand
@@ -216,166 +223,170 @@ mod tests {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    /// Disassemble `bytes` with `llvm-mc`, one mnemonic per line.
+    /// Assemble `asm` for AArch64 and return the bytes of `.text`.
+    ///
+    /// The direction matters. The first version of these tests **disassembled**
+    /// the encoder's bytes and compared the printed mnemonics, and CI killed it
+    /// on the first push: the runner's `llvm-mc` emits a `.text` directive line
+    /// that the development machine's does not. Disassembly output is a
+    /// *rendering* — directives, `#2` versus `#0x2`, trailing `// =0x…`
+    /// annotations — and none of that is a stable interface.
+    ///
+    /// Assembly *input* is. So the intended program is written as assembly, the
+    /// assembler turns it into bytes, and the comparison is on bytes. Nothing a
+    /// future LLVM chooses to print can move it.
     ///
     /// # Panics
-    /// If `llvm-mc` is not on the PATH. Deliberately: a check that cannot run
-    /// must not report clean. `make no-simd` learned this the hard way — it
-    /// once printed `clean` having disassembled nothing, because an empty
-    /// pipeline made its `grep` fail and `!` inverted that into success.
-    fn disassemble(bytes: &[u8]) -> Vec<String> {
-        let hex: Vec<String> = bytes.iter().map(|b| format!("0x{b:02x}")).collect();
-        let mut child = Command::new("llvm-mc")
-            .args(["--disassemble", "--triple=aarch64"])
+    /// If the LLVM tools are missing, or either step fails. Deliberately: a
+    /// check that cannot run must not report clean — `make no-simd` once printed
+    /// `clean` having disassembled nothing.
+    fn assemble(asm: &str) -> Vec<u8> {
+        let dir = std::env::temp_dir().join(format!(
+            "harbor-prog-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        let obj = dir.join("prog.o");
+        let bin = dir.join("prog.bin");
+
+        let mut mc = Command::new("llvm-mc")
+            .args(["--assemble", "--triple=aarch64", "-filetype=obj", "-o"])
+            .arg(&obj)
             .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .expect(
                 "llvm-mc is required to check the EL0 programs and is not on the PATH. \
-                 It ships with the same LLVM tools the Makefile already needs for \
-                 llvm-objcopy and llvm-objdump. Refusing to pass without disassembling.",
+                 It ships with the LLVM tools the Makefile already needs for llvm-objcopy \
+                 and llvm-objdump. Refusing to pass without assembling.",
             );
-        child
-            .stdin
+        mc.stdin
             .take()
             .expect("stdin")
-            .write_all(hex.join(" ").as_bytes())
-            .expect("write hex to llvm-mc");
-        let out = child.wait_with_output().expect("llvm-mc output");
+            .write_all(asm.as_bytes())
+            .expect("write asm to llvm-mc");
+        let out = mc.wait_with_output().expect("llvm-mc output");
         assert!(
             out.status.success(),
-            "llvm-mc failed: {}",
+            "llvm-mc failed on:\n{asm}\n{}",
             String::from_utf8_lossy(&out.stderr)
         );
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            // The trailing `// =0x…` llvm-mc prints beside an immediate is an
-            // annotation, not part of the instruction. Whitespace is collapsed
-            // for the same reason: the tool aligns with tabs.
-            .map(|l| l.split("//").next().unwrap_or(l))
-            .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
-            .filter(|l| !l.is_empty())
-            .collect()
+
+        let out = Command::new("llvm-objcopy")
+            .args(["-O", "binary", "--only-section=.text"])
+            .arg(&obj)
+            .arg(&bin)
+            .output()
+            .expect("llvm-objcopy is required and is not on the PATH");
+        assert!(
+            out.status.success(),
+            "llvm-objcopy failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+
+        let bytes = std::fs::read(&bin).expect("read .text");
+        let _ = std::fs::remove_dir_all(&dir);
+        bytes
     }
 
-    /// Compare a program against the assembly it is meant to be.
-    fn assert_program(bytes: &[u8], expected: &[&str]) {
-        let actual = disassemble(bytes);
+    /// Compare an encoder's output against the assembly it is meant to be.
+    fn assert_program(name: &str, bytes: &[u8], asm: &str) {
+        let expected = assemble(asm);
         assert_eq!(
-            actual, expected,
-            "\n  intended: {expected:#?}\n  assembled: {actual:#?}\n"
+            bytes,
+            expected.as_slice(),
+            "\n{name} does not match the assembly it documents:\n{asm}\n\
+             encoder:   {bytes:02x?}\n assembler: {expected:02x?}\n"
         );
     }
 
     #[cfg_attr(
         miri,
-        ignore = "shells out to llvm-mc, which Miri cannot run; these encoders are pure and the unit tests of a64 cover the words"
+        ignore = "shells out to llvm-mc, which Miri cannot run; these encoders are pure and a64's unit tests cover the instruction words"
     )]
     #[test]
     fn every_el0_program_assembles_to_the_instructions_it_documents() {
-        assert_program(&encode_svc_imm(0), &["svc #0", "b #0"]);
+        assert_program("encode_svc_imm(0)", &encode_svc_imm(0), "svc #0\nb .\n");
 
         assert_program(
+            "encode_ping_ping_exit",
             &encode_ping_ping_exit(),
-            &["svc #0", "svc #0", "svc #0x1", "b #0"],
+            "svc #0\nsvc #0\nsvc #1\nb .\n",
         );
 
         assert_program(
+            "encode_send_exit(0, 7, 42)",
             &encode_send_exit(0, 7, 42),
-            &[
-                "mov x0, #0",
-                "mov x1, #7",
-                "mov x2, #42",
-                "svc #0x3",
-                "svc #0x1",
-                "b #0",
-            ],
+            "movz x0, #0\nmovz x1, #7\nmovz x2, #42\nsvc #3\nsvc #1\nb .\n",
         );
 
         assert_program(
+            "encode_send_bare_exit(1)",
             &encode_send_bare_exit(1),
-            &["mov x0, #1", "svc #0x3", "svc #0x1", "b #0"],
+            "movz x0, #1\nsvc #3\nsvc #1\nb .\n",
         );
 
         assert_program(
+            "encode_putc_once_exit(1, b'X')",
             &encode_putc_once_exit(1, b'X'),
-            &["mov x0, #1", "mov x1, #88", "svc #0x2", "svc #0x1", "b #0"],
+            "movz x0, #1\nmovz x1, #88\nsvc #2\nsvc #1\nb .\n",
         );
 
         assert_program(
+            "encode_putc_hi_exit(1)",
             &encode_putc_hi_exit(1),
-            &[
-                "mov x0, #1",
-                "mov x1, #72",
-                "svc #0x2",
-                "mov x0, #1",
-                "mov x1, #33",
-                "svc #0x2",
-                "svc #0x1",
-                "b #0",
-            ],
+            "movz x0, #1\nmovz x1, #72\nsvc #2\n\
+             movz x0, #1\nmovz x1, #33\nsvc #2\nsvc #1\nb .\n",
         );
 
         // The payload arrives in x2 and SYS_PUTC wants it in x1, under the
-        // console slot in x0 — two moves because the two calls disagree about
+        // console slot in x0 — two moves, because the two calls disagree about
         // where a byte lives.
         assert_program(
+            "encode_recv_putc_exit(0, 1)",
             &encode_recv_putc_exit(0, 1),
-            &[
-                "mov x0, #0",
-                "svc #0x4",
-                "mov x1, x2",
-                "mov x0, #1",
-                "svc #0x2",
-                "svc #0x1",
-                "b #0",
-            ],
+            "movz x0, #0\nsvc #4\nmov x1, x2\nmovz x0, #1\nsvc #2\nsvc #1\nb .\n",
         );
 
         // Writes to a kernel address the agent does not have: a data abort.
         assert_program(
+            "encode_fault_exit",
             &encode_fault_exit(),
-            &["mov x0, #524288", "str xzr, [x0]", "svc #0x1", "b #0"],
+            "movz x0, #8, lsl #16\nstr xzr, [x0]\nsvc #1\nb .\n",
         );
 
         assert_program(
+            "encode_spin_exit(0x800)",
             &encode_spin_exit(0x800),
-            &[
-                "mov x0, #2048",
-                "sub x0, x0, #1",
-                "cbnz x0, #-4",
-                "svc #0x1",
-                "b #0",
-            ],
+            "movz x0, #2048\nsub x0, x0, #1\ncbnz x0, #-4\nsvc #1\nb .\n",
         );
     }
 
     /// The one that earns the suite.
     ///
     /// `tbnz` skips the load, the slot and the `putc` when the RX FIFO is empty
-    /// — three instructions, so the target is four words ahead of the branch.
-    /// That offset was recomputed by hand the day `SYS_PUTC` grew a slot
-    /// argument, and a wrong value does not fail anything: it produces
-    /// `rx poll unexpected putcs=…` on a board, which reads like a kernel bug.
+    /// — three instructions, so the target is four words past the branch. That
+    /// offset was recomputed by hand the day `SYS_PUTC` grew a slot argument,
+    /// and a wrong value fails nothing: it prints `rx poll unexpected putcs=…`
+    /// on a board, which reads like a kernel bug.
     #[cfg_attr(
         miri,
-        ignore = "shells out to llvm-mc, which Miri cannot run; these encoders are pure and the unit tests of a64 cover the words"
+        ignore = "shells out to llvm-mc, which Miri cannot run; these encoders are pure and a64's unit tests cover the instruction words"
     )]
     #[test]
     fn the_rx_poll_branch_skips_exactly_the_putc_path() {
         assert_program(
+            "encode_pl011_rx_poll_exit(1)",
             &encode_pl011_rx_poll_exit(1),
-            &[
-                "mov x0, #1342177280", // PL011 window at 0x5000_0000
-                "ldr w1, [x0, #24]",   // FR
-                "tbnz w1, #4, #16",    // RXFE set → skip ldrb, movz, svc: 4 words
-                "ldrb w1, [x0]",       // DR
-                "mov x0, #1",          // console slot
-                "svc #0x2",
-                "svc #0x1",
-                "b #0",
-            ],
+            "movz x0, #0x5000, lsl #16\n\
+             ldr w1, [x0, #24]\n\
+             tbnz w1, #4, #16\n\
+             ldrb w1, [x0]\n\
+             movz x0, #1\n\
+             svc #2\n\
+             svc #1\n\
+             b .\n",
         );
     }
 }
