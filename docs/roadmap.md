@@ -11,7 +11,9 @@ Order below is a **working plan** for product coherence — not a ship calendar.
 **Design ADR before any boundary move** ([ADR-0001](adr/0001-multi-role-analysis.md)).
 
 Foundation M0–M8 is **closed on Pi 4B**. Historical milestone narrative stays in
-[architecture § roadmap](architecture.md#roadmap).
+[foundation-history.md](foundation-history.md) — note that its **M/P** milestone
+letters are the foundation-era vocabulary and are unrelated to the **K/P** tracks
+below.
 
 <a id="completeness-roadmap"></a>
 
@@ -19,7 +21,18 @@ Foundation M0–M8 is **closed on Pi 4B**. Historical milestone narrative stays 
 
 ## Mission (why this roadmap exists)
 
-Harbor finishes an OS where:
+Quoted from its owner, [`vision.md`](vision.md) — `make doc-claims` compares the
+two copies:
+
+<!-- mission:begin -->
+
+> Harbor is an OS where software arrives as **agents**, authority arrives as
+> **grants**, and every boundary can be **shown to hold** — and the project
+> **finishes** that OS, mechanism by mechanism and service by service.
+
+<!-- mission:end -->
+
+What each word buys, and why this file exists to track it:
 
 | Pillar | Meaning |
 | --- | --- |

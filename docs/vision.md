@@ -1,8 +1,19 @@
 # Vision — Harbor as a capability composition OS
 
+## Mission (canonical)
+
+This document **owns** the mission sentence. Everywhere else — the root README,
+[`roadmap.md`](roadmap.md) — quotes it verbatim between the same markers, and
+`make doc-claims` fails the build if a copy drifts. Reword it here, or not at
+all.
+
+<!-- mission:begin -->
+
 > Harbor is an OS where software arrives as **agents**, authority arrives as
 > **grants**, and every boundary can be **shown to hold** — and the project
 > **finishes** that OS, mechanism by mechanism and service by service.
+
+<!-- mission:end -->
 
 That is a **goal**, not a claim that the product is finished today.
 
@@ -26,6 +37,26 @@ tool-limited software inside an agent is a future *use* of that unit.
 Dropping completeness as the project goal needs a successor to ADR-0026.
 Horizon narrative may change without an ADR; structural boundaries become
 design ADRs.
+
+---
+
+## Who this is for
+
+| Written for | What they get |
+| --- | --- |
+| Systems contributors on bare metal | A small AArch64 kernel where every boundary has a gate and an ADR behind it |
+| Capability / isolation researchers | A working slot-indexed authority model on real silicon, with the residuals named ([`SECURITY.md`](../SECURITY.md)) |
+| Anyone building a composable appliance on a Pi 4 | Agents + a grant graph instead of a distro to strip down |
+| Anyone evaluating the project | Status that distinguishes `done (QEMU)` from `done (HW)`, and open work called open |
+
+**Not written for** people who want Linux/POSIX or a distro, a cloud
+hypervisor, an LLM/agent chat framework, or a board other than the Raspberry
+Pi 4B today. Those are refusals or open ports, not oversights — see
+[what this vision refuses](#what-this-vision-refuses) and
+[`porting.md`](porting.md).
+
+If a word here does not mean what you expect — **agent** most of all — start at
+[`glossary.md`](glossary.md).
 
 ---
 

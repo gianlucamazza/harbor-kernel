@@ -4,6 +4,23 @@ What is checked, by what, and — the part that matters — what each check cann
 see. A gate whose blind spots are undocumented gets trusted for things it never
 covered.
 
+## How to read this file
+
+It is an **index of evidence**, not onboarding, and it is long because
+transcripts are kept rather than summarised. Nobody should read it end to end.
+
+| If you want… | Go to |
+| --- | --- |
+| What each layer of checking covers **and is blind to** | [The layers](#the-layers) — the one section worth reading in full |
+| Why `done (QEMU)` is weaker than `done (HW)` | [What emulation cannot catch](#what-emulation-cannot-catch-with-the-example-that-proved-it) |
+| The evidence behind one specific claim | Follow the link from the claim; the section headings are dated |
+| Where the gates are still blind | [Checks that have been seen to fail](#checks-that-have-been-seen-to-fail), [Four defects no gate caught](#four-defects-no-gate-caught-2026-08-05), [Mutation testing](#mutation-testing-what-the-tests-actually-cover-2026-08-06) |
+| What is *done*, rather than how it was shown | [`roadmap.md`](roadmap.md) — status lives there, not here |
+
+Just arriving at the project: the [root README](../README.md) and the
+[5-minute path](README.md#the-5-minute-path) come first. This file answers
+"why should I believe it", which is the fourth question, not the first.
+
 ## The layers
 
 | Layer                                     | Runs                                                  | Covers                                                                                                                                                                  | Blind to                                                                                                                                                                                                                                                                                                                                                         |

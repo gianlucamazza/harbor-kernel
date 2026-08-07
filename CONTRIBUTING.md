@@ -2,6 +2,12 @@
 
 ## Principles
 
+**Before proposing work**, read the [mission and objectives](README.md#mission)
+in the root README and [`docs/stack.md`](docs/stack.md) — what the project is
+built with, and what is deliberately absent. Unfamiliar vocabulary:
+[`docs/glossary.md`](docs/glossary.md). Work that contradicts either is a
+successor ADR, not a patch.
+
 1. **Boundary before code.** Structural changes need an ADR first
    ([ADR-0001](docs/adr/0001-multi-role-analysis.md)). Accepted ADRs are
    immutable; change them only via a successor.
@@ -20,9 +26,12 @@
 ```
 docs/
   README.md          documentation map + ownership
+  glossary.md        the words, and who owns each one
+  stack.md           language, target, toolchain, features
   roadmap.md         K/P completeness SSOT
-  architecture.md    model, layering, foundation history
-  vision.md          product shape / horizons
+  architecture.md    model and layering, as it is today
+  vision.md          mission sentence, product shape / horizons
+  foundation-history.md  M0–M8 record (closed, not planning)
   adr/               immutable decisions
   design/            design contracts (not “done” claims)
   reviews/           dated findings
@@ -44,6 +53,8 @@ Details: [`docs/README.md`](docs/README.md), [`scripts/README.md`](scripts/READM
 | Kind of change | Steps |
 | --- | --- |
 | Completeness track | Row in `docs/roadmap.md` → design ADR → code + gate → status flip |
+| Stack assumption (toolchain, target, feature, host tool) | `docs/stack.md` in the same commit; a boundary move needs its ADR first |
+| New term a reader will guess wrong | Row in `docs/glossary.md` pointing at the owning document |
 | Gate | Script under `scripts/check/` or `scripts/boot/` → `Makefile` → README `make check` line stays in sync (`doc-claims`) |
 | Agent composition | `scripts/agent/pack-store.py` + inject in product image path |
 | Port (ISA/board) | [`docs/porting.md`](docs/porting.md), [`docs/arch-contract.md`](docs/arch-contract.md) |
