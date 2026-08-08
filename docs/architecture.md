@@ -275,10 +275,10 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 
 | Snapshot | Tracks |
 | --- | --- |
-| **done (QEMU)** | H1 entry + K5 thin stacks + P2 durable + K4 budget + lifecycle residuals |
-| **H1 next** | HW stamps · P3\|P4 only with composition (deferred) |
+| **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
+| **H1 next** | P3\|P4 only with composition (deferred) · SD power-cycle · IRQ preemption |
 | **H2 depth** | K4 IRQ preemption residual; K7/K8 code after design ADRs |
-| **open (kernel)** | K4 preemption, K7/K8 code, peer transfer, resolve grant |
+| **open (kernel)** | K4 IRQ preemption, K7/K8 code, peer transfer, resolve grant |
 | **open (product)** | P2 SD residual, P3/P4 deferred (ADR-0049) |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full

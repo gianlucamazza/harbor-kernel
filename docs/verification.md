@@ -546,6 +546,48 @@ instead.
 The W^X probe needs no re-run: `.text` and `.rodata` were not touched by the
 split, and its recorded ESR does not depend on an address that moved.
 
+## Hardware evidence: H1 depth stamps on silicon (2026-08-08)
+
+Pi 4B, PL011 via CP2104-class USB-TTL @ 115200, `.serial-log/20260808-030219.log`,
+image `kernel8.img` 141108 B from commit `a7ff8d8` (headless). Deployed with
+`make deploy SD_MOUNT=/run/media/gianluca/bootfs`.
+
+Silicon markers (not TCG): `CNTFRQ=54000000 Hz`, `rng200: ok word=0x1c11a56a`.
+
+One cold boot exercised the H1 entry oracles **and** the 2026-08-08 depth
+slices that had been QEMU-only:
+
+| Claim | Serial evidence |
+| --- | --- |
+| K5 thin stacks | `density: thin n=3 bytes_each=8192` |
+| P2 durable section | `durable: reloaded` |
+| K4 cooperative budget | `budget: rotated` |
+| K9 IRQ-cap device wait | `irq-device: woke wait_irqs=1` (with `el0-irq: woke`) |
+| K3 EL0 transfer | `el0-xfer: ok` / `el0-xfer: refused` |
+| K2 EL0 recv timeout | `el0-timeout: cancelled` |
+| K2 EL1 park timeout | `ipc: timed-out cancelled` |
+| P5 names / P2 RAM store | `name: resolved` / `store: got` |
+| K3 revoke | `ipc: release stale refused` |
+| K10 cascade / auto-reap | `cascade: cancelled` / `ipc: auto-reaped cancelled` |
+| Steady timer | `ticks=10` … (CNTFRQ path) |
+
+Representative lines (host timestamps from `serial-capture`):
+
+```
+03:03:01.251539 rng200: ok word=0x1c11a56a
+03:03:01.251803 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+03:03:01.316487 density: thin n=3 bytes_each=8192
+03:03:01.316593 durable: reloaded
+03:03:02.137115 irq-device: woke wait_irqs=1
+03:03:02.137201 budget: rotated
+03:03:02.214337 ticks=10
+```
+
+**Blind spots of this stamp:** no SPI TFT (`FEATURES` none); PL011 RX-own
+handshake incomplete on this boot (`rx own short` / incomplete — not a reopen
+of M6 if prior stamps hold); true SD power-cycle of the durable section not
+re-read after power loss; peer transfer / resolve-grant still residual.
+
 ## Hardware evidence: the loader and the park, on silicon (2026-08-07)
 
 Pi 4B, 2026-08-07 12:10, `.serial-log/20260807-120838.log`, image

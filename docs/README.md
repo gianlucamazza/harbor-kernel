@@ -110,8 +110,8 @@ Do **not** treat this block as a second status table — it only steers readers.
 | Layer | State (2026-08-07) |
 | --- | --- |
 | **H0 foundation** | **done (HW)** on Pi 4B (M0–M8 + parked cancel) |
-| **H1 entry + depth** | **paid (QEMU)** — bar, K5 thin, durable, K4 budget |
-| **H1 next** | HW stamps · P3\|P4 if composition |
+| **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification) |
+| **H1 next** | P3\|P4 if composition · SD power-cycle · IRQ preemption |
 | **H2** | K7/K8 design accepted; preemption/SMP code open |
 | **Standing watch** | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020 |
 
