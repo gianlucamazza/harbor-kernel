@@ -360,6 +360,11 @@ grep -qa 'xfer-peer: band refused' "${log}" ||
 # empty-slot refusal above cannot discriminate it.
 grep -qa 'xfer-peer: stale refused' "${log}" ||
 	fail "stale task-cap did not refuse after target exit (ADR-0057)"
+# The invariant beacon prints in both images; here only presence is asserted —
+# the oracle image legitimately takes EL0 faults (the fault demo), so the
+# product check owns the zero assertions.
+grep -qa 'invariants: overwrites=' "${log}" ||
+	fail "invariant beacon did not print"
 # Three lines that must never appear: silent mint exhaustion on the boot path,
 # a moved stale cap, and a leaked task-cap observed at slot reuse.
 if grep -qa 'mint FAILED' "${log}"; then

@@ -30,8 +30,35 @@ while IFS= read -r file; do
 	done < <(grep -nE "(^|[^'])static[[:space:]]+mut[[:space:]]+[A-Za-z_]" <<<"${stripped}" || true)
 done < <(find src crates -type f -name '*.rs')
 
+# The keyword pair is not the only way to get `static mut`'s ergonomics back:
+# a `fn … -> &'static mut T` accessor mints the same unbounded aliasable
+# borrow from an innocent-looking call (excellence review F-26 — two such
+# accessors existed and this gate certified a property the code did not
+# have). Refuse the shape outside the one argued exception: `el0::current`,
+# whose `AtomicPtr` publish/assert machinery is ADR-0019's own replacement
+# for the last `static mut` and is audited in place.
+allowed_static_mut_fns='src/arch/aarch64/el0.rs'
+while IFS= read -r hit; do
+	[[ -z "${hit}" ]] && continue
+	file="${hit%%:*}"
+	rest="${hit#*:}"
+	line="${rest%%:*}"
+	content="${rest#*:}"
+	content="${content%%//*}"
+	[[ "${content}" == *"-> &'static mut"* ]] || continue
+	case " ${allowed_static_mut_fns} " in
+	*" ${file} "*) ;;
+	*)
+		echo "no-static-mut: ${file}:${line}: fn returning &'static mut — static mut ergonomics without the keyword" >&2
+		echo "  Scope the borrow to a closure (with_region / with_state pattern)," >&2
+		echo "  or add the file here with its argument." >&2
+		violations=$((violations + 1))
+		;;
+	esac
+done < <(grep -rn --include='*.rs' -e "-> &'static mut" src crates || true)
+
 if [[ "${violations}" -ne 0 ]]; then
-	echo "no-static-mut: ${violations} declaration(s) under src/ crates/" >&2
+	echo "no-static-mut: ${violations} violation(s) under src/ crates/" >&2
 	echo "  Rule 7 forbids static mut; shared state is Atomic* or SyncCell." >&2
 	echo "  See docs/adr/0019-no-static-mut.md." >&2
 	exit 1

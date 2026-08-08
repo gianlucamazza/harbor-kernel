@@ -98,19 +98,18 @@ pub fn counters() -> Counters {
     }
 }
 
-/// Read-only view of the state, for the IRQ path and the safe accessors.
+/// Run `f` over a shared view of the state; the borrow ends with the closure.
 ///
-/// # Safety
-/// Caller must not hold a `&mut` to `STATE` at the same time. Before [`seal`]
-/// that is guaranteed by every mutator running inside `cpu::without_irqs`;
-/// after it, by there being no mutator at all.
+/// This used to be `unsafe fn state() -> &'static IrqState` — an unbounded
+/// shared borrow a caller could legally hold across a `register`, with only
+/// prose stopping it (excellence review F-26). The closure scope makes that
+/// unwritable: before [`seal`], every mutator runs inside `cpu::without_irqs`;
+/// after it, there is no mutator at all, and either way no reference outlives
+/// `f`.
 #[inline]
-unsafe fn state() -> &'static IrqState {
-    // SAFETY: a shared reference to the dispatch table, whose immutability is
-    // the caller's obligation stated above — before `seal`, every mutator runs
-    // inside `cpu::without_irqs`; after it, there is no mutator at all. That is
-    // what makes a `'static` shared borrow sound while an IRQ can arrive.
-    unsafe { &*STATE.get() }
+fn with_state<R>(f: impl FnOnce(&IrqState) -> R) -> R {
+    // SAFETY: shared borrow scoped to `f`, immutability per the note above.
+    f(unsafe { &*STATE.get() })
 }
 
 /// Freeze the dispatch table. Call once bring-up has registered everything.
@@ -132,8 +131,7 @@ pub fn seal() {
 /// How many lines have a handler. Reported at bring-up, so a boot that
 /// registered nothing is visible before the first interrupt rather than after.
 pub fn registered() -> usize {
-    // SAFETY: shared read; mutation only happens with IRQs masked.
-    unsafe { state() }.table.registered()
+    with_state(|s| s.table.registered())
 }
 
 /// Install the platform irqchip. Call once before [`register`] / [`enable`].
@@ -177,8 +175,7 @@ pub unsafe fn register(irq: u32, handler: Handler, cookie: IrqCookie) -> Result<
 
 /// Enable `irq` on the platform chip. No-op if no chip is installed.
 pub fn enable(irq: u32) {
-    // SAFETY: shared read; mutation only happens with IRQs masked.
-    if let Some(chip) = unsafe { state() }.chip {
+    if let Some(chip) = with_state(|s| s.chip) {
         chip.enable(irq);
     }
 }
@@ -189,8 +186,7 @@ pub fn enable(irq: u32) {
 /// enables its interrupts once and leaves them enabled.
 #[cfg(feature = "bringup")]
 pub fn disable(irq: u32) {
-    // SAFETY: shared read; mutation only happens with IRQs masked.
-    if let Some(chip) = unsafe { state() }.chip {
+    if let Some(chip) = with_state(|s| s.chip) {
         chip.disable(irq);
     }
 }
@@ -204,34 +200,37 @@ pub fn handle_cpu_irq() {
 
 /// Same as [`handle_cpu_irq`], returns how many interrupts were claimed.
 pub fn handle_cpu_irq_counted() -> u32 {
-    // SAFETY: shared read; the table is only mutated with IRQs masked.
-    let state = unsafe { state() };
-    let Some(chip) = state.chip else {
-        return 0;
-    };
-
-    let mut claimed = 0u32;
-
-    while claimed < MAX_CLAIMS_PER_ENTRY {
-        let Some(ack) = chip.claim() else {
-            return claimed;
+    // The whole claim/dispatch loop runs under one scoped shared borrow: the
+    // table is sealed before interrupts enable, so handlers dispatched inside
+    // it cannot mutate the state they were dispatched from.
+    with_state(|state| {
+        let Some(chip) = state.chip else {
+            return 0;
         };
-        claimed += 1;
 
-        match state.table.lookup(ack.interrupt_id()) {
-            Dispatch::Handle { handler, cookie } => handler(cookie),
-            Dispatch::Unhandled => {
-                UNHANDLED.fetch_add(1, Ordering::Relaxed);
+        let mut claimed = 0u32;
+
+        while claimed < MAX_CLAIMS_PER_ENTRY {
+            let Some(ack) = chip.claim() else {
+                return claimed;
+            };
+            claimed += 1;
+
+            match state.table.lookup(ack.interrupt_id()) {
+                Dispatch::Handle { handler, cookie } => handler(cookie),
+                Dispatch::Unhandled => {
+                    UNHANDLED.fetch_add(1, Ordering::Relaxed);
+                }
+                Dispatch::OutOfRange => {
+                    OUT_OF_RANGE.fetch_add(1, Ordering::Relaxed);
+                }
             }
-            Dispatch::OutOfRange => {
-                OUT_OF_RANGE.fetch_add(1, Ordering::Relaxed);
-            }
+
+            chip.end(ack);
         }
 
-        chip.end(ack);
-    }
-
-    // Left the loop with the budget spent rather than with nothing to claim.
-    LOOP_EXHAUSTED.fetch_add(1, Ordering::Relaxed);
-    claimed
+        // Left the loop with the budget spent rather than nothing to claim.
+        LOOP_EXHAUSTED.fetch_add(1, Ordering::Relaxed);
+        claimed
+    })
 }

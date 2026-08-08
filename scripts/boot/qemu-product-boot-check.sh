@@ -61,4 +61,11 @@ if grep -qa 'sched: spawned task-a' "${log}"; then
 	fail "product image ran oracle demos"
 fi
 
+# The invariant beacon (excellence review C-6): the shipped image asserts its
+# own must-stay-zero set, instead of those invariants being exercised only in
+# the oracle configuration. `blocked`/`frames_free` are load-dependent and
+# deliberately not pinned; the three zeros are the claim.
+grep -qaE 'invariants: overwrites=0 abandoned=0 faults=0 ' "${log}" ||
+	fail "invariant beacon missing or non-zero (overwrites/abandoned/faults)"
+
 echo "product-boot-check: clean"

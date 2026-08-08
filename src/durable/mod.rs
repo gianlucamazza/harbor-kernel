@@ -11,12 +11,20 @@ unsafe extern "C" {
     safe static __durable_store_end: u8;
 }
 
-fn region() -> &'static mut [u8] {
+/// Run `f` over the durable window; the borrow ends with the closure.
+///
+/// This used to be `fn region() -> &'static mut [u8]` — an unbounded aliasable
+/// `&mut` from an innocent-looking call, the exact shape the no-static-mut
+/// gate cannot see (excellence review F-26). Scoping the borrow to a closure
+/// makes two overlapping calls impossible to write, and is the SMP-ready
+/// shape: at K8 this runner becomes a lock acquisition and no call site moves.
+fn with_region<R>(f: impl FnOnce(&mut [u8]) -> R) -> R {
     let start = core::ptr::addr_of!(__durable_store_start) as *mut u8;
     let end = core::ptr::addr_of!(__durable_store_end) as usize;
     let len = end.saturating_sub(start as usize).min(REGION_SIZE);
-    // SAFETY: single-core; exclusive durable writer; region is RW-mapped data.
-    unsafe { core::slice::from_raw_parts_mut(start, len) }
+    // SAFETY: single-core; exclusive durable writer; region is RW-mapped data;
+    // the borrow is scoped to `f`, so no second `&mut` can coexist.
+    f(unsafe { core::slice::from_raw_parts_mut(start, len) })
 }
 
 /// Put `key`/`payload` into the durable region (read-modify-write).
@@ -25,11 +33,12 @@ pub fn put(key: &[u8], payload: &[u8]) -> Result<(), EncodeError> {
     let mut kl = [0usize; durable::MAX_BLOBS];
     let mut payloads = [[0u8; durable::MAX_PAYLOAD]; durable::MAX_BLOBS];
     let mut pl = [0usize; durable::MAX_BLOBS];
-    let mut n = match durable::decode(region(), &mut keys, &mut kl, &mut payloads, &mut pl) {
-        Ok(n) => n,
-        Err(DecodeError::BadMagic | DecodeError::TooShort | DecodeError::BadVersion) => 0,
-        Err(_) => 0,
-    };
+    let mut n =
+        match with_region(|r| durable::decode(r, &mut keys, &mut kl, &mut payloads, &mut pl)) {
+            Ok(n) => n,
+            Err(DecodeError::BadMagic | DecodeError::TooShort | DecodeError::BadVersion) => 0,
+            Err(_) => 0,
+        };
     // Replace or append.
     let mut found = false;
     for i in 0..n {
@@ -69,7 +78,7 @@ pub fn put(key: &[u8], payload: &[u8]) -> Result<(), EncodeError> {
             payload: &payloads[i][..pl[i]],
         };
     }
-    durable::encode(&blobs[..n], region()).map(|_| ())
+    with_region(|r| durable::encode(&blobs[..n], r).map(|_| ()))
 }
 
 /// Read `key` from the durable region into `out`.
@@ -78,7 +87,7 @@ pub fn get(key: &[u8], out: &mut [u8]) -> Result<usize, DecodeError> {
     let mut kl = [0usize; durable::MAX_BLOBS];
     let mut payloads = [[0u8; durable::MAX_PAYLOAD]; durable::MAX_BLOBS];
     let mut pl = [0usize; durable::MAX_BLOBS];
-    let n = durable::decode(region(), &mut keys, &mut kl, &mut payloads, &mut pl)?;
+    let n = with_region(|r| durable::decode(r, &mut keys, &mut kl, &mut payloads, &mut pl))?;
     for i in 0..n {
         if kl[i] == key.len() && keys[i][..kl[i]] == key[..] {
             let len = pl[i];

@@ -265,6 +265,24 @@ pub fn run() -> ! {
                 let _ = console::with_tx(|uart| {
                     println!(uart, "ticks={report}");
                 });
+                // Invariant beacon, in BOTH images (excellence review C-6):
+                // the subsystem counters already exist as cheap reads, and
+                // printing them here — the idle loop, product code — is what
+                // lets `qemu-product-boot-check.sh` assert the must-stay-zero
+                // set in the image we actually ship, not only in the oracle
+                // one. One line, machine-readable, rate-limited by the tick
+                // report above.
+                let _ = console::with_tx(|uart| {
+                    println!(
+                        uart,
+                        "invariants: overwrites={} abandoned={} faults={} blocked={} frames_free={}",
+                        crate::sched::pending_overwrites(),
+                        crate::mm::task_stack::abandoned_stacks(),
+                        crate::agent::fault_count(),
+                        crate::sched::blocked_count(),
+                        crate::mm::frames::free_count(),
+                    );
+                });
                 last_printed = report;
 
                 let counters = irq::counters();
