@@ -640,6 +640,16 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("el0-xfer: refuse spawn FAILED {e:?}"),
         }
 
+        // ADR-0054 / K3 residual: EL0 peer transfer via task-cap.
+        match crate::sched::spawn(demos::el0_peer_xfer_parent_task) {
+            Ok(_) => crate::kprintln!("el0-xfer-peer: parent spawned"),
+            Err(e) => crate::kprintln!("el0-xfer-peer: parent spawn FAILED {e:?}"),
+        }
+        match crate::sched::spawn(demos::el0_peer_xfer_refuse_task) {
+            Ok(_) => crate::kprintln!("el0-xfer-peer: refuse spawned"),
+            Err(e) => crate::kprintln!("el0-xfer-peer: refuse spawn FAILED {e:?}"),
+        }
+
         // ADR-0042 / K2 residual: EL0 SYS_RECV_TIMEOUT.
         match crate::ipc::create_channel() {
             Ok(ch) => {

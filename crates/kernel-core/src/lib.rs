@@ -65,6 +65,7 @@ pub mod rxline;
 pub mod spi;
 pub mod storage;
 pub mod syscall;
+pub mod taskcap;
 pub mod tasks;
 pub mod textgrid;
 pub mod timer;

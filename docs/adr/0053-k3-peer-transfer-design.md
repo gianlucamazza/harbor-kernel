@@ -7,12 +7,13 @@ accepted: 2026-08-08
 related: [0017, 0037, 0041, 0049]
 ---
 
-# ADR-0053: Peer EL0 transfer design (K3 residual — design accepted, code deferred)
+# ADR-0053: Peer EL0 transfer design (K3 residual)
 
 ## Acceptance status
 
-**Accepted as design** (2026-08-08). Does not implement peer transfer.
-[ADR-0041](0041-el0-cap-transfer.md) remains the product path (self / creator).
+**Accepted as design** (2026-08-08). First code slice landed in
+[ADR-0054](0054-k3-peer-transfer-first-slice.md). Self / creator path remains
+[ADR-0041](0041-el0-cap-transfer.md).
 
 ## Context
 
@@ -30,18 +31,19 @@ ambient authority.
 | Lifecycle | Task-cap invalid on child exit (generation bump); creator may drop without killing child |
 | Evidence (when coded) | Host table model; QEMU `el0-xfer-peer: ok` / refuse stale task-cap |
 
-### First implementation slice (future)
+### First implementation slice
+
+Landed in [ADR-0054](0054-k3-peer-transfer-first-slice.md):
 
 1. Pure `taskcap` table (mint / lookup / revoke-on-exit).  
-2. Creator auto-mint on spawn into a reserved slot or side channel.  
+2. EL1 `mint` (explicit; auto-install on spawn is residual).  
 3. `SYS_TRANSFER` mode 2 wiring.  
 4. Oracle: A transfers to B only with B's task-cap.
 
 ### Non-goals of this document
 
 - Force-kill / remote AS destroy via task-cap.  
-- Delegation chains / attenuation.  
-- Implementing peer transfer now.
+- Delegation chains / attenuation.
 
 ## Alternatives rejected
 
@@ -52,5 +54,4 @@ ambient authority.
 
 ## Deferral
 
-Code waits for CapId namespace discipline (endpoint vs IRQ vs task) to stay
-readable; irqcap is the template.
+Further depth (auto-mint on spawn, control rights) waits for product need.

@@ -337,6 +337,11 @@ grep -qa 'el0-xfer: ok' "${log}" ||
 	fail "EL0 transfer did not return cap to creator (ADR-0041)"
 grep -qa 'el0-xfer: refused' "${log}" ||
 	fail "EL0 transfer did not refuse a bad move (ADR-0041)"
+# ADR-0054 / K3 residual: peer transfer via task-cap.
+grep -qa 'el0-xfer-peer: ok' "${log}" ||
+	fail "EL0 peer transfer did not deliver cap to peer (ADR-0054)"
+grep -qa 'el0-xfer-peer: refused' "${log}" ||
+	fail "EL0 peer transfer did not refuse without task-cap (ADR-0054)"
 # ADR-0042 / K2 residual: EL0 recv timeout.
 grep -qa 'el0-timeout: cancelled' "${log}" ||
 	fail "EL0 recv timeout did not cancel (ADR-0042)"

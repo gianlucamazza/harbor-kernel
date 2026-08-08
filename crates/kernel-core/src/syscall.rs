@@ -14,7 +14,7 @@
 //! | `SYS_TRY_RECV` | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
 //! | `SYS_WAIT_IRQ` | slot    | —       | —       | —       | [`Status`] | unchanged     |
 //! | `SYS_RESOLVE`  | slot    | name_len| name_le | —       | [`Status`] | unchanged     |
-//! | `SYS_TRANSFER` | from    | to_slot | dest    | —       | [`Status`] | unchanged     |
+//! | `SYS_TRANSFER` | from    | to_slot | dest    | peer_slot*| [`Status`] | unchanged     |
 //! | `SYS_RECV_TIMEOUT` | slot | ticks  | —       | —       | [`Status`] | tag, a, b     |
 //!
 //! Imm 2 is **unused** (formerly transitional `SYS_PUTC`, removed in M8). It
@@ -78,9 +78,11 @@ pub const SYS_WAIT_IRQ: u16 = 6;
 /// Success installs a `CapId` into the slot; the agent never sees the raw id.
 pub const SYS_RESOLVE: u16 = 7;
 
-/// `svc #8` — move a held cap to an empty slot (self or creator) (ADR-0041).
+/// `svc #8` — move a held cap to an empty slot (ADR-0041 / ADR-0054).
 ///
-/// `x0` = source slot; `x1` = dest slot; `x2` = 0 self / 1 creator.
+/// `x0` = source slot; `x1` = dest slot on target;
+/// `x2` = 0 self / 1 creator / 2 peer;
+/// `x3` = slot holding task-cap of peer (only when `x2` = 2).
 pub const SYS_TRANSFER: u16 = 8;
 
 /// `svc #9` — blocking recv with tick timeout (ADR-0042).

@@ -217,14 +217,21 @@ fn wait_irq_reply(slot: usize, stats: &mut SessionStats) -> Status {
     }
 }
 
-/// ADR-0041: transfer held cap (self or creator).
-fn transfer_reply(from: usize, to_slot: usize, dest: u64, stats: &mut SessionStats) -> Status {
+/// ADR-0041 / ADR-0054: transfer held cap (self, creator, or peer via task-cap).
+fn transfer_reply(
+    from: usize,
+    to_slot: usize,
+    dest: u64,
+    peer_cap_slot: usize,
+    stats: &mut SessionStats,
+) -> Status {
     let result = match dest {
         0 => {
             let me = sched::current_task_id();
             sched::transfer_held(from, me, to_slot)
         }
         1 => sched::transfer_held_to_creator(from, to_slot),
+        2 => sched::transfer_held_to_peer(from, to_slot, peer_cap_slot),
         _ => {
             stats.authority_refusals = stats.authority_refusals.saturating_add(1);
             return Status::Authority;
@@ -493,11 +500,13 @@ impl Agent {
                             event = resume_step(session);
                         }
                         Syscall::Transfer => {
-                            // ADR-0041: move held cap self or to creator.
+                            // ADR-0041 / ADR-0054: self / creator / peer (task-cap).
                             let from = el0::saved_gpr(session, 0) as usize;
                             let to_slot = el0::saved_gpr(session, 1) as usize;
                             let dest = el0::saved_gpr(session, 2);
-                            let status = transfer_reply(from, to_slot, dest, &mut stats);
+                            let peer_cap_slot = el0::saved_gpr(session, 3) as usize;
+                            let status =
+                                transfer_reply(from, to_slot, dest, peer_cap_slot, &mut stats);
                             el0::set_saved_gpr(session, 0, status.as_u64());
                             event = resume_step(session);
                         }

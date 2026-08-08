@@ -24,6 +24,7 @@ mod sched;
 mod status;
 mod storage;
 mod sync;
+mod taskcap;
 mod time;
 
 // Boot assembly is owned by the active ISA module (`arch`); see `arch/mod.rs`.

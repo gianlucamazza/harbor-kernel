@@ -69,7 +69,8 @@ the code that follows.
 | [0050](0050-k7-asid-first-slice.md)                          | K7 first slice — ASID pool, CONTEXTIDR, nG user leaves                                              | accepted   |
 | [0051](0051-k4-irq-preemption-design.md)                     | K4 design — IRQ-side preemption (code deferred)                                                     | accepted   |
 | [0052](0052-p5-resolve-grant.md)                             | P5 residual — resolve grant (non-ambient SYS_RESOLVE)                                               | accepted   |
-| [0053](0053-k3-peer-transfer-design.md)                      | K3 design — peer transfer via task-cap (code deferred)                                              | accepted   |
+| [0053](0053-k3-peer-transfer-design.md)                      | K3 design — peer transfer via task-cap                                                              | accepted   |
+| [0054](0054-k3-peer-transfer-first-slice.md)                 | K3 first slice — peer transfer via task-cap                                                         | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

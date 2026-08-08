@@ -77,7 +77,7 @@ not every symbol.
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
   a64, agentstore, asid, budget, bump, cap, delay, density, display, durable, font8x8, frame, gic, heap, ipc,
   irqcap, irqtable, irqwait, layout, manifest, naming, paging, parktime, poll, prog, reset, ring, rng,
-  runqueue, rxline, spi, storage, syscall, tasks, textgrid, timer, uart, wake
+  runqueue, rxline, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, wake
   tests/ public_api, model_sched, model_ipc
 src/
   arch/           ISA facade and AArch64 entry, exceptions, MMU, switch, EL0
@@ -89,6 +89,7 @@ src/
   sched/          TCBs, stacks, context switching and wake drain
   ipc/            kernel IPC policy and capability translation
   naming/         EL1 name registry (ADR-0035)
+  taskcap/        task capabilities for peer transfer (ADR-0054)
   storage/        EL1 keyed blob store (ADR-0036)
   durable/        durable section store (ADR-0045)
   mm/             heap, address spaces, frames, layout and task stacks
@@ -111,8 +112,8 @@ Do **not** treat this block as a second status table — it only steers readers.
 | --- | --- |
 | **H0 foundation** | **done (HW)** on Pi 4B (M0–M8 + parked cancel) |
 | **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification) |
-| **H1 next** | P3\|P4 if composition · SD power-cycle · IRQ preemption |
-| **H2** | K7/K8 design accepted; preemption/SMP code open |
+| **H1 next** | P3\|P4 if composition · SD power-cycle · IRQ preemption code |
+| **H2** | K7 first slice QEMU; K4/K8 design; preemption/SMP code open |
 | **Standing watch** | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020 |
 
 ## Decision records and reviews

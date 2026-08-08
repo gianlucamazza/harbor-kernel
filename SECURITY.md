@@ -119,7 +119,7 @@ Defined by [ADR-0017](docs/adr/0017-el0-capability-abi.md) and
 | 5 | `SYS_TRY_RECV` | `CapRights::RECV` on endpoint in slot, **never waits** — answers `Empty` |
 | 6 | `SYS_WAIT_IRQ` | IRQ notification in slot (`CapRights::IRQ` object, high-half `CapId` — [ADR-0030](docs/adr/0030-el0-irq-capability.md)); **waits** for cookie signal |
 | 7 | `SYS_RESOLVE` | Empty slot + short name; requires per-task resolve grant ([ADR-0052](docs/adr/0052-p5-resolve-grant.md)); install resolved `CapId` ([ADR-0039](docs/adr/0039-p5-el0-resolve.md)); missing/bad/no-grant → `Authority` |
-| 8 | `SYS_TRANSFER` | Move held cap: `x0` from, `x1` to empty slot, `x2` = 0 self / 1 creator ([ADR-0041](docs/adr/0041-el0-cap-transfer.md)) |
+| 8 | `SYS_TRANSFER` | Move held cap: `x0` from, `x1` to empty slot, `x2` = 0 self / 1 creator / 2 peer; `x3` = task-cap slot when peer ([ADR-0041](docs/adr/0041-el0-cap-transfer.md) / [ADR-0054](docs/adr/0054-k3-peer-transfer-first-slice.md)) |
 | 9 | `SYS_RECV_TIMEOUT` | Blocking recv with tick timeout in `x1` ([ADR-0042](docs/adr/0042-el0-recv-timeout.md)); timeout → `Cancelled` |
 
 Reply statuses include `Cancelled` (5) when a parked `SYS_RECV` is aborted by

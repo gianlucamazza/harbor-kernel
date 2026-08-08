@@ -199,6 +199,22 @@ pub const fn encode_transfer_exit(from: u16, to_slot: u16, dest: u16) -> [u8; 24
     out
 }
 
+/// A64: peer transfer via task-cap slot, then exit (ADR-0054).
+///
+/// `dest` is forced to 2; `peer_cap_slot` is the local slot holding the task-cap.
+pub const fn encode_transfer_peer_exit(from: u16, to_slot: u16, peer_cap_slot: u16) -> [u8; 28] {
+    let mut out = [0u8; 28];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, from));
+    push_word(&mut out, &mut i, a64::movz_x(1, to_slot));
+    push_word(&mut out, &mut i, a64::movz_x(2, 2)); // peer
+    push_word(&mut out, &mut i, a64::movz_x(3, peer_cap_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_TRANSFER));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// A64: recv with timeout ticks, then exit (ADR-0042).
 pub const fn encode_recv_timeout_exit(slot: u16, timeout_ticks: u16) -> [u8; 20] {
     let mut out = [0u8; 20];

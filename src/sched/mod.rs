@@ -462,6 +462,24 @@ pub fn transfer_held_to_creator(from_slot: usize, to_slot: usize) -> Result<(), 
     transfer_held(from_slot, creator, to_slot)
 }
 
+/// Move `from_slot` into a peer named by a held task-cap (ADR-0054).
+///
+/// `task_cap_slot` must hold a live task-cap for the destination task.
+/// The moved object may be any CapId (endpoint, IRQ, even another task-cap).
+pub fn transfer_held_to_peer(
+    from_slot: usize,
+    to_slot: usize,
+    task_cap_slot: usize,
+) -> Result<(), TransferError> {
+    let peer_cap = my_cap(task_cap_slot).ok_or(TransferError::BadToTask)?;
+    let to = crate::taskcap::lookup(peer_cap).map_err(|_| TransferError::BadToTask)?;
+    if to == current_task_id() {
+        return Err(TransferError::BadToTask);
+    }
+    // Peer id is resolved before the move; moving the task-cap itself is allowed.
+    transfer_held(from_slot, to, to_slot)
+}
+
 /// Why [`install_cap`] refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InstallError {
@@ -886,6 +904,8 @@ fn switch_with(kind: Switch) {
 
     if let Some(caps) = exit_caps {
         ipc::release_holds_and_reap(&caps);
+        // ADR-0054: task-caps naming this task become stale.
+        let _ = crate::taskcap::revoke_task(from);
         // ADR-0038: cancel Blocked direct children of the exiting task.
         let mut kids = [TaskId(0); MAX_TASKS];
         let mut n = 0usize;

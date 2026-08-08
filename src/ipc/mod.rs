@@ -73,8 +73,10 @@ use crate::sync::SyncCell;
 /// mailbox is a refusal rather than unbounded growth. These are **part of the
 /// EL0 ABI** (ADR-0017 §4), not implementation detail: an agent that assumes a
 /// deeper mailbox breaks when it fills, and it has no way to ask.
-pub const MAX_MAILBOXES: usize = 12;
-pub const MAX_ENDPOINTS: usize = 24;
+// 12 → 16 when peer-transfer oracles (ADR-0054) needed two more channels on
+// the oracle boot path without revoking earlier demos.
+pub const MAX_MAILBOXES: usize = 16;
+pub const MAX_ENDPOINTS: usize = 32;
 pub const MAILBOX_DEPTH: usize = 4;
 
 static IPC: SyncCell<Table<MAX_MAILBOXES, MAX_ENDPOINTS, MAILBOX_DEPTH>> =

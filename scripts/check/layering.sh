@@ -38,12 +38,15 @@ allowed_for() {
 	# ADR-0028: drains irq::wait and exposes wait_for_irq.
 	# ADR-0031: spawn/exit register SEND holds via ipc (K2 last-hold auto-reap).
 	# ADR-0040: park timeout polls time::ticks on the voluntary path.
-	sched*) echo "arch mm irq ipc time" ;;
+	# ADR-0054: revoke task-caps on exit; peer transfer resolves task-caps.
+	sched*) echo "arch mm irq ipc time taskcap" ;;
 	# M4 IPC: mailboxes + caps; parks/wakes via sched only.
 	# ADR-0040: recv_with_timeout reads time::ticks for the deadline.
 	ipc*) echo "arch sched time" ;;
 	# ADR-0035 / P5: name → CapId registry (trusted EL1).
 	naming*) echo "arch" ;;
+	# ADR-0054 / K3: task capabilities for peer transfer (trusted EL1).
+	taskcap*) echo "arch" ;;
 	# ADR-0036 / P2: keyed blob store (trusted EL1).
 	storage*) echo "arch" ;;
 	# ADR-0045 / P2 durable region (trusted EL1).
@@ -51,7 +54,7 @@ allowed_for() {
 	# The board binds protocols together; that is its job (rule 2).
 	bsp*) echo "arch bsp console drivers irq time" ;;
 	# Policy sits on top of everything and is allowed to.
-	bootstrap* | main) echo "agent arch bsp console drivers durable ipc irq mm naming sched status storage time" ;;
+	bootstrap* | main) echo "agent arch bsp console drivers durable ipc irq mm naming sched status storage taskcap time" ;;
 	# Agent shell: AS + EL0 sessions; SYS_SEND/RECV via ipc; Irq → irq::handle_cpu_irq.
 	# No drivers/board (device PA/VA come from bootstrap demos / BSP constants via mm).
 	#

@@ -18,7 +18,7 @@ does not invent product or ambient authority.
 
 | Item | Why deferred | Unblock when |
 | --- | --- | --- |
-| **Peer EL0 transfer** (implementation) | Design accepted ([ADR-0053](0053-k3-peer-transfer-design.md)); code deferred | Follow-on code ADR + taskcap table |
+| **Peer transfer residuals** | First slice **done (QEMU)** ([ADR-0054](0054-k3-peer-transfer-first-slice.md)); auto-mint on spawn / control rights open | Product need |
 | **P3 network** | No named composition target this cycle | Edge-gateway composition + virtio/net ADR |
 | **P4 product display** | `debug-display` remains lab; no product UI composition | Product UI ADR graduating debug-display |
 | **#14 SpiDevice** | Watch only; XPT2046 not in scope | Touch driver or supersede ADR-0020 |

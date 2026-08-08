@@ -1084,6 +1084,100 @@ pub(super) fn el0_transfer_parent_task() {
     }
 }
 
+/// ADR-0054: wait until peer transfer fills slot 0.
+pub(super) fn el0_peer_xfer_recipient_task() {
+    for _ in 0..64 {
+        if crate::sched::my_cap(0).is_some() {
+            crate::kprintln!("el0-xfer-peer: ok");
+            return;
+        }
+        crate::sched::yield_now();
+    }
+    crate::kprintln!("el0-xfer-peer: timeout");
+}
+
+/// ADR-0054: EL0 peer transfer — slot 0 SEND → peer slot 0 via task-cap in slot 1.
+pub(super) fn el0_peer_xfer_donor_task() {
+    let mut agent = match crate::agent::Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-xfer-peer: create FAILED {e:?}");
+            return;
+        }
+    };
+    // from 0 → peer to_slot 0; task-cap in local slot 1.
+    let prog = kernel_core::prog::encode_transfer_peer_exit(0, 0, 1);
+    match agent.run_user_prog_resuming(&prog) {
+        Ok(stats) if matches!(stats.end, crate::agent::SessionEnd::Exit) => {
+            if crate::sched::my_cap(0).is_none() && crate::sched::my_cap(1).is_some() {
+                crate::kprintln!("el0-xfer-peer: donor emptied");
+            } else {
+                crate::kprintln!(
+                    "el0-xfer-peer: donor unexpected holds send={} taskcap={}",
+                    crate::sched::my_cap(0).is_some(),
+                    crate::sched::my_cap(1).is_some()
+                );
+            }
+            let _ = stats;
+        }
+        Ok(stats) => crate::kprintln!(
+            "el0-xfer-peer: unexpected end={:?} refusals={}",
+            stats.end,
+            stats.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-xfer-peer: run FAILED {e:?}"),
+    }
+    agent.destroy();
+}
+
+/// ADR-0054 parent: mint task-cap for recipient, spawn donor with SEND + task-cap.
+pub(super) fn el0_peer_xfer_parent_task() {
+    match crate::ipc::create_channel() {
+        Ok(ch) => match crate::sched::spawn(el0_peer_xfer_recipient_task) {
+            Ok(to) => match crate::taskcap::mint(to) {
+                Ok(tcap) => {
+                    match crate::sched::spawn_with_caps(el0_peer_xfer_donor_task, &[ch.send, tcap])
+                    {
+                        Ok(_) => crate::kprintln!("el0-xfer-peer: spawned"),
+                        Err(e) => crate::kprintln!("el0-xfer-peer: donor FAILED {e:?}"),
+                    }
+                }
+                Err(e) => crate::kprintln!("el0-xfer-peer: mint FAILED {e:?}"),
+            },
+            Err(e) => crate::kprintln!("el0-xfer-peer: recipient FAILED {e:?}"),
+        },
+        Err(e) => crate::kprintln!("el0-xfer-peer: channel FAILED {e:?}"),
+    }
+}
+
+/// ADR-0054 refuse: mode 2 without a valid task-cap in the key slot.
+pub(super) fn el0_peer_xfer_refuse_task() {
+    // No channel needed: empty peer-cap slot is enough for Authority.
+    let mut agent = match crate::agent::Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("el0-xfer-peer-refuse: create FAILED {e:?}");
+            return;
+        }
+    };
+    let prog = kernel_core::prog::encode_transfer_peer_exit(0, 0, 1);
+    match agent.run_user_prog_resuming(&prog) {
+        Ok(stats) if stats.authority_refusals >= 1 => {
+            crate::kprintln!(
+                "el0-xfer-peer: refused refusals={}",
+                stats.authority_refusals
+            );
+        }
+        Ok(stats) => crate::kprintln!(
+            "el0-xfer-peer-refuse: unexpected end={:?} refusals={}",
+            stats.end,
+            stats.authority_refusals
+        ),
+        Err(e) => crate::kprintln!("el0-xfer-peer-refuse: run FAILED {e:?}"),
+    }
+    agent.destroy();
+}
+
 /// ADR-0042: EL0 SYS_RECV_TIMEOUT without sender.
 pub(super) fn el0_timeout_task() {
     let mut agent = match crate::agent::Agent::create_prepared() {
