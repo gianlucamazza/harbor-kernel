@@ -454,12 +454,11 @@ pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(),
             Some(c) => c,
             None => return Err(TransferError::BadFromSlot),
         };
-        // ADR-0055: only IPC endpoint caps move. A task-cap (0x4000 band) as
-        // the moved object is delegation — a declared non-goal — and an IRQ
-        // cap (0x8000 band) would hand off ADR-0030's single-armer identity.
-        let idx = cap.index();
-        if idx & kernel_core::taskcap::INDEX_BASE != 0 || idx & kernel_core::irqcap::INDEX_BASE != 0
-        {
+        // ADR-0055: only IPC endpoint caps move. A task-cap as the moved
+        // object is delegation — a declared non-goal — and an IRQ cap would
+        // hand off ADR-0030's single-armer identity. The class decode is
+        // ADR-0059's, so this site cannot drift from the tables' own checks.
+        if !matches!(cap.classify(), kernel_core::cap::CapClass::Endpoint(_)) {
             return Err(TransferError::Untransferable);
         }
         if sched.tcbs[to_i].caps[to_slot].is_some() {

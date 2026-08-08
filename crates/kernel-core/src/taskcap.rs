@@ -15,8 +15,9 @@ pub const MAX_TASK_CAPS: usize = 32;
 
 /// Index band: `INDEX_BASE | local` (local < MAX_TASK_CAPS).
 ///
-/// Chosen below IRQ ([`irqcap::INDEX_BASE`]) and above typical endpoint counts.
-pub const INDEX_BASE: u16 = 0x4000;
+/// Restates [`crate::cap::TASK_BAND`] — the class encoding is ADR-0059's, and
+/// [`crate::cap::CapId::classify`] is the one decoder.
+pub const INDEX_BASE: u16 = crate::cap::TASK_BAND;
 
 // The bands must never share a bit: a forged id carrying both would otherwise
 // be decodable by two tables. Checked here so a moved band fails the build,
@@ -94,12 +95,13 @@ impl Table {
 
     /// Resolve a CapId to the named task id if live and generation matches.
     pub fn lookup(&self, cap: CapId) -> Result<u32, LookupError> {
-        let idx = cap.index();
-        if idx & INDEX_BASE == 0 || idx & irqcap::INDEX_BASE != 0 {
-            // Not in the task-cap band (or carries the IRQ band bit).
-            return Err(LookupError::BadCap);
-        }
-        let local = (idx & !INDEX_BASE) as usize;
+        // ADR-0059: the class decode is total; anything that is not a
+        // task-cap — endpoint, IRQ, or the invalid both-bands quadrant —
+        // refuses here.
+        let local = match cap.classify() {
+            crate::cap::CapClass::Task(local) => local as usize,
+            _ => return Err(LookupError::BadCap),
+        };
         if local >= MAX_TASK_CAPS {
             return Err(LookupError::BadCap);
         }

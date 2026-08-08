@@ -74,11 +74,13 @@ impl Table {
 
     /// Resolve a CapId to its cookie if the entry is live and generation matches.
     pub fn lookup(&self, cap: CapId) -> Result<u32, LookupError> {
-        let idx = cap.index();
-        if idx & INDEX_BASE == 0 {
-            return Err(LookupError::BadCap);
-        }
-        let local = (idx & !INDEX_BASE) as usize;
+        // ADR-0059: class decode, not a band mask — the both-bands quadrant
+        // used to fall through to the local-bound check and now refuses as
+        // what it is.
+        let local = match cap.classify() {
+            crate::cap::CapClass::Irq(local) => local as usize,
+            _ => return Err(LookupError::BadCap),
+        };
         if local >= MAX_IRQ_CAPS {
             return Err(LookupError::BadCap);
         }

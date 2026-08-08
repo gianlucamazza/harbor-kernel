@@ -86,6 +86,47 @@ impl CapId {
     pub const fn from_raw(raw: u32) -> Self {
         Self(raw)
     }
+
+    /// Decode the index's class bits (ADR-0059).
+    ///
+    /// Bits 15:14 are the class, bits 13:0 the local payload. This is the one
+    /// decoder: consumers match on the class instead of re-deriving band
+    /// masks, so a new object kind is a new variant and every non-exhaustive
+    /// `match` fails the build.
+    #[inline]
+    pub const fn classify(self) -> CapClass {
+        let idx = self.index();
+        let payload = idx & CLASS_PAYLOAD_MASK;
+        match (idx & IRQ_BAND != 0, idx & TASK_BAND != 0) {
+            (false, false) => CapClass::Endpoint(payload),
+            (false, true) => CapClass::Task(payload),
+            (true, false) => CapClass::Irq(payload),
+            (true, true) => CapClass::Invalid,
+        }
+    }
+}
+
+/// Band bit for task-caps (bit 14). ADR-0059 owns the class encoding;
+/// `taskcap::INDEX_BASE` restates this constant rather than a literal.
+pub const TASK_BAND: u16 = 1 << 14;
+
+/// Band bit for IRQ caps (bit 15). `irqcap::INDEX_BASE` restates it.
+pub const IRQ_BAND: u16 = 1 << 15;
+
+/// Local payload below the class bits (13:0).
+pub const CLASS_PAYLOAD_MASK: u16 = TASK_BAND - 1;
+
+/// What a CapId's index names, by its class bits (ADR-0059).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CapClass {
+    /// No band bit: an IPC endpoint index.
+    Endpoint(u16),
+    /// [`TASK_BAND`]: a task-cap local index.
+    Task(u16),
+    /// [`IRQ_BAND`]: an IRQ-cap local index.
+    Irq(u16),
+    /// Both band bits: decodable by no table, refused everywhere.
+    Invalid,
 }
 
 /// Endpoint rights (bit flags).
@@ -166,6 +207,32 @@ pub const fn from_slot(caps: &[Option<CapId>], slot: usize) -> Result<CapId, Slo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classify_decodes_all_four_quadrants() {
+        assert_eq!(CapId::new(0, 1).classify(), CapClass::Endpoint(0));
+        assert_eq!(CapId::new(31, 1).classify(), CapClass::Endpoint(31));
+        assert_eq!(CapId::new(TASK_BAND | 5, 1).classify(), CapClass::Task(5));
+        assert_eq!(CapId::new(IRQ_BAND | 3, 1).classify(), CapClass::Irq(3));
+        assert_eq!(
+            CapId::new(TASK_BAND | IRQ_BAND | 7, 1).classify(),
+            CapClass::Invalid
+        );
+    }
+
+    #[test]
+    fn classify_payload_is_bounded_by_the_class_bits() {
+        // The payload never carries a band bit back out: the top of the
+        // payload range still decodes to its own class.
+        assert_eq!(
+            CapId::new(CLASS_PAYLOAD_MASK, 1).classify(),
+            CapClass::Endpoint(CLASS_PAYLOAD_MASK)
+        );
+        assert_eq!(
+            CapId::new(TASK_BAND | CLASS_PAYLOAD_MASK, 1).classify(),
+            CapClass::Task(CLASS_PAYLOAD_MASK)
+        );
+    }
 
     #[test]
     fn the_last_slot_is_in_range_and_the_next_one_is_not() {
