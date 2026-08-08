@@ -189,7 +189,7 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 
 | Topic | Status |
 | ----- | ------ |
-| **Preemption** | None today (**open K4**). Hostile infinite loop at EL0 or EL1 is DoS until a successor to ADR-0006 lands. |
+| **Preemption** | **Cooperative budget done (QEMU)** ([ADR-0046](docs/adr/0046-k4-cooperative-cpu-budget.md) tick quantum). Residual: **IRQ-side preemption** (true interrupt switch) — still open; not a permanent non-goal ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)). |
 | **Wait-on-IRQ** | **Done (QEMU):** EL1 `wait_for_irq` ([ADR-0028](docs/adr/0028-wait-on-irq.md)); EL0 `SYS_WAIT_IRQ` via IRQ notification cap ([ADR-0030](docs/adr/0030-el0-irq-capability.md)). Residual: no multi-waiter, no dynamic register, no cancel of IRQ parks. |
 | **A parked task may wait until cancelled** | **Reaping (ADR-0025, done HW):** supervisor `ipc::cancel_blocked`. **Last-SEND-hold auto-reap (ADR-0031, done QEMU):** ephemeral channels. **Park timeout (ADR-0040, done QEMU):** `recv_with_timeout` cancels on tick deadline. **Visibility (ADR-0024).** Residual: no EL0 recv timeout yet; frames free only when the task exits and destroys its AS. |
 | **Console TX depends on the server task** | After M8, agent console output is drained by an EL1 server. If that task exits or never runs, agents get `Full` / silent loss; kernel `kprintln` and panic steal still work. |

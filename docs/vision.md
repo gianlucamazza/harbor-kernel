@@ -84,14 +84,16 @@ If a word here does not mean what you expect — **agent** most of all — start
 | Authority is enumerable | Audit reads a grant table |
 | Evidence ≠ compile | Boundaries stay claims with gates |
 
-Open work that realises these at scale (design ADR before code): cap **transfer**
-(K3 residual), denser agents (**K5**),
-preemption/budget (**K4**), SMP (**K8**), product network/display and storage
-media residuals (**P3**, **P4**, P2 media/EL0), K2 timeout residual. First slices
-paid: external load (**K6**), IRQ wait EL1+EL0 (**K1**), last-SEND-hold auto-reap
-(**K2**), channel revoke (**K3**), multi-agent product store (**P1**), on-target
-blob store (**P2**), name registry (**P5**), compose tools (**P6**). Status and
-H1 order: [roadmap](roadmap.md).
+Open work that realises these at scale (design ADR before code): **peer** cap
+transfer (K3 residual), **K5** driver-half collapse residual (thin stacks done
+QEMU), **K4** IRQ-side preemption residual (cooperative budget done QEMU),
+SMP code (**K8**, design accepted), product network/display only with a
+composition target (**P3**, **P4** deferred), P2 SD/power-cycle residual. First
+slices paid: external load (**K6**), IRQ wait EL1+EL0 (**K1**), last-SEND-hold
+auto-reap + park timeout (**K2**), channel revoke + EL1/EL0 transfer (**K3**),
+multi-agent product store (**P1**), on-target + durable blobs (**P2**), name
+registry + EL0 resolve (**P5**), compose tools (**P6**), thin stacks (**K5**),
+cooperative budget (**K4**). Status and H1 order: [roadmap](roadmap.md).
 
 ---
 
