@@ -76,6 +76,7 @@ the code that follows.
 | [0057](0057-taskcap-lifecycle.md)                            | K3 — task-cap lifecycle invariants                                                           | accepted   |
 | [0058](0058-adr-amendments-and-mutation-freshness.md)        | Process — ADR amendments and mutation freshness                                              | accepted   |
 | [0059](0059-typed-cap-classification.md) | Typed capability classification (CapClass) | accepted |
+| [0060](0060-syscall-reply-layer.md) | Syscall reply layer as a pure machine | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

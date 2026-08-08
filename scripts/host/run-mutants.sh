@@ -56,7 +56,7 @@ fi
 # One name per line; every module that decides authority belongs here.
 readonly FILES=(
 	ipc tasks layout irqtable rxline reset cap syscall prog manifest
-	taskcap irqcap
+	taskcap irqcap reply
 )
 file_args=()
 for f in "${FILES[@]}"; do

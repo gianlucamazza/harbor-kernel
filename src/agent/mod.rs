@@ -42,7 +42,10 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use kernel_core::syscall::{self, Status, Syscall};
+use kernel_core::reply::{
+    self, RecvOutcome, Reply, ResolveOutcome, SendOutcome, TransferOutcome, WaitIrqOutcome,
+};
+use kernel_core::syscall::{self, Syscall};
 
 use crate::arch::{cpu, el0};
 
@@ -187,44 +190,55 @@ fn end_step(session: *mut el0::El0Session) {
     cpu::without_irqs(|| unsafe { el0::end_session(session) });
 }
 
-/// Resolve slot → IRQ cookie → park (ADR-0030). No payload registers.
-fn wait_irq_reply(slot: usize, stats: &mut SessionStats) -> Status {
-    let cap = match sched::my_cap_slot(slot) {
-        Ok(c) => c,
-        Err(_) => {
-            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-            return Status::Authority;
-        }
+/// Write a pure [`Reply`] into the session and the stats (ADR-0060).
+///
+/// The mapping — which outcome becomes which status, payload and counter —
+/// lives host-tested in [`kernel_core::reply`]; this is the only place a
+/// reply touches kernel state, and it does exactly three things: payload
+/// registers when present, saturating counter bumps, `x0`.
+fn apply_reply(session: *mut el0::El0Session, stats: &mut SessionStats, r: Reply) {
+    if let Some([x1, x2, x3]) = r.payload {
+        el0::set_saved_gpr(session, 1, x1);
+        el0::set_saved_gpr(session, 2, x2);
+        el0::set_saved_gpr(session, 3, x3);
+    }
+    let d = r.delta;
+    stats.sends = stats.sends.saturating_add(d.sends);
+    stats.recvs = stats.recvs.saturating_add(d.recvs);
+    stats.recv_empties = stats.recv_empties.saturating_add(d.recv_empties);
+    stats.wait_irqs = stats.wait_irqs.saturating_add(d.wait_irqs);
+    stats.authority_refusals = stats
+        .authority_refusals
+        .saturating_add(d.authority_refusals);
+    el0::set_saved_gpr(session, 0, r.status.as_u64());
+}
+
+/// Slot → IRQ cookie → park (ADR-0030): the kernel lookups; the mapping is
+/// [`reply::wait_irq`]'s.
+fn wait_irq_outcome(slot: usize) -> WaitIrqOutcome {
+    let Ok(cap) = sched::my_cap_slot(slot) else {
+        return WaitIrqOutcome::NoAuthority;
     };
     if !sched::current_holds(cap) {
-        stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-        return Status::Authority;
+        return WaitIrqOutcome::NoAuthority;
     }
-    let cookie = match irq::cap::lookup(cap) {
-        Ok(c) => c,
-        Err(_) => {
-            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-            return Status::Authority;
-        }
+    let Ok(cookie) = irq::cap::lookup(cap) else {
+        return WaitIrqOutcome::NoAuthority;
     };
     match sched::wait_for_irq(cookie) {
-        Ok(()) => {
-            stats.wait_irqs = stats.wait_irqs.saturating_add(1);
-            Status::Ok
-        }
+        Ok(()) => WaitIrqOutcome::Woken,
         // Cookie or task already armed — not an authority failure (ADR-0028).
-        Err(sched::WaitIrqError::Busy) => Status::Busy,
+        Err(sched::WaitIrqError::Busy) => WaitIrqOutcome::Busy,
     }
 }
 
 /// ADR-0041 / ADR-0054: transfer held cap (self, creator, or peer via task-cap).
-fn transfer_reply(
+fn transfer_outcome(
     from: usize,
     to_slot: usize,
     dest: u64,
     peer_cap_slot: usize,
-    stats: &mut SessionStats,
-) -> Status {
+) -> TransferOutcome {
     let result = match dest {
         0 => {
             let me = sched::current_task_id();
@@ -232,101 +246,45 @@ fn transfer_reply(
         }
         1 => sched::transfer_held_to_creator(from, to_slot),
         2 => sched::transfer_held_to_peer(from, to_slot, peer_cap_slot),
-        _ => {
-            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-            return Status::Authority;
-        }
+        _ => return TransferOutcome::BadDest,
     };
     match result {
-        Ok(()) => Status::Ok,
-        Err(_) => {
-            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-            Status::Authority
-        }
+        Ok(()) => TransferOutcome::Moved,
+        Err(_) => TransferOutcome::Refused,
     }
 }
 
-/// ADR-0042: recv_with_timeout after slot resolve.
-fn recv_timeout_reply(
-    session: *mut el0::El0Session,
-    slot: usize,
-    ticks: u64,
-    stats: &mut SessionStats,
-) -> Status {
-    let cap = match sched::my_cap_slot(slot) {
-        Ok(c) => c,
-        Err(_) => {
-            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-            return Status::Authority;
-        }
-    };
-    recv_reply(session, ipc::recv_with_timeout(cap, ticks), stats)
-}
-
-/// ADR-0039 + ADR-0052: pack name from `x1`/`x2`, resolve, install into empty slot.
+/// ADR-0039 + ADR-0052: grant check, name unpack, resolve, install.
 ///
 /// Requires [`sched::may_resolve_current`] — resolve is not ambient.
-fn resolve_reply(slot: usize, name_len: usize, packed: u64, stats: &mut SessionStats) -> Status {
+fn resolve_outcome(slot: usize, name_len: usize, packed: u64) -> ResolveOutcome {
     if !sched::may_resolve_current() {
-        stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-        return Status::Authority;
+        return ResolveOutcome::NoGrant;
     }
-    if !(1..=8).contains(&name_len) {
-        stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-        return Status::Authority;
-    }
-    let mut name = [0u8; 8];
-    for (i, b) in name.iter_mut().enumerate().take(name_len) {
-        *b = ((packed >> (8 * i)) & 0xff) as u8;
-    }
-    let cap = match crate::naming::resolve(&name[..name_len]) {
-        Ok(c) => c,
-        Err(_) => {
-            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-            return Status::Authority;
-        }
+    let Some(name) = reply::unpack_name(name_len, packed) else {
+        return ResolveOutcome::BadNameLen;
+    };
+    let Ok(cap) = crate::naming::resolve(&name[..name_len]) else {
+        return ResolveOutcome::Missing;
     };
     match sched::install_cap(slot, cap) {
-        Ok(()) => Status::Ok,
-        Err(_) => {
-            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-            Status::Authority
-        }
+        Ok(()) => ResolveOutcome::Installed,
+        Err(_) => ResolveOutcome::BadSlot,
     }
 }
 
-/// Turn a recv result into the agent's `x0`, writing the payload on success.
-///
-/// Shared by the two recv calls because only the *waiting* differs. On anything
-/// but `Ok` the kernel writes no payload, so `x1..x3` keep whatever the agent
-/// itself left there: the reply registers are meaningful only when `x0` says
-/// `Ok`, and the kernel does not clear an agent's own registers to make a point.
-fn recv_reply(
-    session: *mut el0::El0Session,
-    result: Result<ipc::Message, ipc::RecvError>,
-    stats: &mut SessionStats,
-) -> Status {
+/// One arm per variant, nothing decided: the decisions are [`reply::recv`]'s.
+fn recv_outcome(result: Result<ipc::Message, ipc::RecvError>) -> RecvOutcome {
     match result {
-        Ok(msg) => {
-            stats.recvs = stats.recvs.saturating_add(1);
-            el0::set_saved_gpr(session, 1, u64::from(msg.tag));
-            el0::set_saved_gpr(session, 2, msg.a);
-            el0::set_saved_gpr(session, 3, msg.b);
-            Status::Ok
-        }
-        Err(ipc::RecvError::Empty) => {
-            stats.recv_empties = stats.recv_empties.saturating_add(1);
-            Status::Empty
-        }
-        // Someone else is already waiting on this endpoint. Not an authority
-        // violation — the agent holds what it named — so it does not touch the
-        // counter the boot check asserts exactly (ADR-0022 §4).
-        Err(ipc::RecvError::Busy) => Status::Busy,
-        Err(ipc::RecvError::Cancelled) => Status::Cancelled,
-        Err(ipc::RecvError::BadCap) => {
-            stats.authority_refusals = stats.authority_refusals.saturating_add(1);
-            Status::Authority
-        }
+        Ok(msg) => RecvOutcome::Got {
+            tag: msg.tag,
+            a: msg.a,
+            b: msg.b,
+        },
+        Err(ipc::RecvError::Empty) => RecvOutcome::Empty,
+        Err(ipc::RecvError::Busy) => RecvOutcome::Busy,
+        Err(ipc::RecvError::Cancelled) => RecvOutcome::Cancelled,
+        Err(ipc::RecvError::BadCap) => RecvOutcome::BadCap,
     }
 }
 
@@ -433,21 +391,14 @@ impl Agent {
                                 a: el0::saved_gpr(session, 2),
                                 b: el0::saved_gpr(session, 3),
                             };
-                            let status =
+                            let outcome =
                                 match ipc::send_from_slot(el0::saved_gpr(session, 0) as usize, msg)
                                 {
-                                    Ok(()) => {
-                                        stats.sends = stats.sends.saturating_add(1);
-                                        Status::Ok
-                                    }
-                                    Err(ipc::SendError::Full) => Status::Full,
-                                    Err(_) => {
-                                        stats.authority_refusals =
-                                            stats.authority_refusals.saturating_add(1);
-                                        Status::Authority
-                                    }
+                                    Ok(()) => SendOutcome::Sent,
+                                    Err(ipc::SendError::Full) => SendOutcome::Full,
+                                    Err(_) => SendOutcome::Refused,
                                 };
-                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            apply_reply(session, &mut stats, reply::send(outcome));
                             // SAFETY: as `Ping` — a resumable `Svc` outcome with
                             // IRQs masked. The reply is already in the saved
                             // register file, so the resume delivers it.
@@ -463,8 +414,8 @@ impl Agent {
                             // The agent's text never sees the wait. It resumes
                             // with `Ok` and the payload, whenever it next runs.
                             let slot = el0::saved_gpr(session, 0) as usize;
-                            let status = recv_reply(session, ipc::recv_from_slot(slot), &mut stats);
-                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            let outcome = recv_outcome(ipc::recv_from_slot(slot));
+                            apply_reply(session, &mut stats, reply::recv(outcome));
                             // SAFETY: as `Send`.
                             event = resume_step(session);
                         }
@@ -472,9 +423,8 @@ impl Agent {
                             // The non-blocking half (ADR-0022 §4), and the only
                             // producer of `Status::Empty` left in the kernel.
                             let slot = el0::saved_gpr(session, 0) as usize;
-                            let status =
-                                recv_reply(session, ipc::try_recv_from_slot(slot), &mut stats);
-                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            let outcome = recv_outcome(ipc::try_recv_from_slot(slot));
+                            apply_reply(session, &mut stats, reply::recv(outcome));
                             // SAFETY: as `Send`.
                             event = resume_step(session);
                         }
@@ -484,8 +434,11 @@ impl Agent {
                             // Must not run under a mask that spans the park
                             // (same discipline as SYS_RECV).
                             let slot = el0::saved_gpr(session, 0) as usize;
-                            let status = wait_irq_reply(slot, &mut stats);
-                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            apply_reply(
+                                session,
+                                &mut stats,
+                                reply::wait_irq(wait_irq_outcome(slot)),
+                            );
                             // SAFETY: as `Send`.
                             event = resume_step(session);
                         }
@@ -494,8 +447,8 @@ impl Agent {
                             let slot = el0::saved_gpr(session, 0) as usize;
                             let name_len = el0::saved_gpr(session, 1) as usize;
                             let packed = el0::saved_gpr(session, 2);
-                            let status = resolve_reply(slot, name_len, packed, &mut stats);
-                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            let outcome = resolve_outcome(slot, name_len, packed);
+                            apply_reply(session, &mut stats, reply::resolve(outcome));
                             // SAFETY: as `Send`.
                             event = resume_step(session);
                         }
@@ -505,17 +458,19 @@ impl Agent {
                             let to_slot = el0::saved_gpr(session, 1) as usize;
                             let dest = el0::saved_gpr(session, 2);
                             let peer_cap_slot = el0::saved_gpr(session, 3) as usize;
-                            let status =
-                                transfer_reply(from, to_slot, dest, peer_cap_slot, &mut stats);
-                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            let outcome = transfer_outcome(from, to_slot, dest, peer_cap_slot);
+                            apply_reply(session, &mut stats, reply::transfer(outcome));
                             event = resume_step(session);
                         }
                         Syscall::RecvTimeout => {
                             // ADR-0042: park with tick deadline.
                             let slot = el0::saved_gpr(session, 0) as usize;
                             let ticks = el0::saved_gpr(session, 1);
-                            let status = recv_timeout_reply(session, slot, ticks, &mut stats);
-                            el0::set_saved_gpr(session, 0, status.as_u64());
+                            let outcome = match sched::my_cap_slot(slot) {
+                                Ok(cap) => recv_outcome(ipc::recv_with_timeout(cap, ticks)),
+                                Err(_) => RecvOutcome::BadCap,
+                            };
+                            apply_reply(session, &mut stats, reply::recv(outcome));
                             event = resume_step(session);
                         }
                         Syscall::Exit => {
