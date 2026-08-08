@@ -579,6 +579,60 @@ mod tests {
     }
 
     #[test]
+    fn revoke_refuses_a_live_end_with_wrong_generation_and_counts_it() {
+        // The refusal must fire on EITHER dead-end OR stale-generation — a
+        // live endpoint with a forged generation is the half the || carries —
+        // and it must land on the authority counter, exactly once.
+        let mut t = T::new();
+        let ch = t.create_channel().unwrap();
+        let before = t.refusals().authority;
+        let forged = CapId::new(ch.send.index(), ch.send.generation().wrapping_add(1));
+        assert_eq!(t.revoke_channel(forged), Err(RevokeError::BadCap));
+        assert_eq!(t.refusals().authority, before + 1);
+        // The channel survived the refused revoke.
+        assert_eq!(t.send(ch.send, msg(9)), Ok(None));
+    }
+
+    #[test]
+    fn revoke_of_an_unknown_index_counts_an_authority_refusal() {
+        let mut t = T::new();
+        let before = t.refusals().authority;
+        assert_eq!(
+            t.revoke_channel(CapId::new(100, 1)),
+            Err(RevokeError::BadCap)
+        );
+        assert_eq!(t.refusals().authority, before + 1);
+    }
+
+    #[test]
+    fn revoke_kills_only_the_named_channel() {
+        let mut t = T::new();
+        let a = t.create_channel().unwrap();
+        let b = t.create_channel().unwrap();
+        assert_eq!(t.revoke_channel(a.send), Ok(None));
+        assert_eq!(t.send(b.send, msg(3)), Ok(None));
+        assert_eq!(t.try_recv(b.recv).map(|m| m.tag), Ok(3));
+    }
+
+    #[test]
+    fn one_release_call_returns_every_auto_reap_waiter() {
+        // Two ephemeral channels, one waiter each, both SEND holds dropped in
+        // a single release_holds call: BOTH waiters must come back, in their
+        // own slots. A waiter overwriting slot 0 (the `n += 1` mutant) or a
+        // dropped second waiter is a task parked forever.
+        let mut t = T::new();
+        let a = t.create_channel_ephemeral().unwrap();
+        let b = t.create_channel_ephemeral().unwrap();
+        let holds = [Some(a.send), Some(b.send), None, None];
+        t.register_holds(&holds);
+        assert_eq!(t.park(a.recv, TaskId(7)), Ok(None));
+        assert_eq!(t.park(b.recv, TaskId(8)), Ok(None));
+        let woken = t.release_holds(&holds);
+        assert_eq!(woken[0], Some(TaskId(7)));
+        assert_eq!(woken[1], Some(TaskId(8)));
+    }
+
+    #[test]
     fn revoke_returns_parked_waiter() {
         let mut t = T::new();
         let ch = t.create_channel().unwrap();

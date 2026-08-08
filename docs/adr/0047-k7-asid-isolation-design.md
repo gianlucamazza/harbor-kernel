@@ -4,6 +4,7 @@ title: K7 design — ASID / production isolation (design only)
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
+amended: 2026-08-08
 related: [0014, 0026]
 ---
 

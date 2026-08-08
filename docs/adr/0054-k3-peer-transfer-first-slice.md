@@ -4,6 +4,7 @@ title: K3 first slice — peer transfer via task-cap
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
+amended: 2026-08-08
 related: [0017, 0037, 0041, 0053]
 ---
 
@@ -26,6 +27,9 @@ related: [0017, 0037, 0041, 0053]
 ### 2. Kernel
 
 - `taskcap::{mint, lookup, revoke_task}` IRQ-masked owner.
+- Layering: enforced allow-list gains `sched→taskcap`, `bootstrap→taskcap`,
+  `taskcap→arch` (amended 2026-08-08 — the clause was omitted at acceptance;
+  ADR-0031 §5 is the template).
 - On task exit: `revoke_task(exiting)` so held task-caps go stale.
 - `sched::transfer_held_to_peer(from, to_slot, task_cap_slot)`.
 
@@ -44,7 +48,9 @@ task-cap. Self (`0`) and creator (`1`) unchanged ([ADR-0041](0041-el0-cap-transf
 
 - Auto-mint into creator slot at spawn (EL1 `mint` is explicit for this slice).
 - Force-kill / control rights on task-cap.
-- Delegation / attenuation.
+- Delegation / attenuation — **refused by band since
+  [ADR-0055](0055-transferable-cap-bands.md)**; lifting the refusal is a
+  successor's job (amended 2026-08-08).
 
 ## Gates
 

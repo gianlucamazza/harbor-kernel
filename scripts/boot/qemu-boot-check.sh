@@ -265,6 +265,12 @@ grep -qa 'ipc: got tag=1 a=42' "${log}" ||
 # already did, while a bug had the counter reset by any successful send in
 # between. It was three until the loader landed, five with the loader, six with
 # product-path revoke.
+#
+# "Machine-wide" means machine-wide *for IPC sends*: refusals raised by the
+# syscall reply mappers (wait-irq, resolve, transfer — including every
+# el0-xfer-peer refusal) land in per-session SessionStats and never in this
+# counter. Budgeting a new refusal against this number is the mistake this
+# sentence exists to prevent.
 grep -qaE 'ipc: refuse count=6 ' "${log}" ||
 	fail "authority refusals are not exactly the six the boot performs"
 # ADR-0024: parks leave a non-zero event count (console server parks repeatedly).
@@ -342,6 +348,29 @@ grep -qa 'el0-xfer-peer: ok' "${log}" ||
 	fail "EL0 peer transfer did not deliver cap to peer (ADR-0054)"
 grep -qa 'el0-xfer-peer: refused' "${log}" ||
 	fail "EL0 peer transfer did not refuse without task-cap (ADR-0054)"
+# The move invariant, not just the delivery: the donor lost the SEND and kept
+# the task-cap. A copy instead of a move would still print "ok" above.
+grep -qa 'el0-xfer-peer: donor emptied' "${log}" ||
+	fail "EL0 peer transfer did not move (donor still holds, or lost the task-cap)"
+# ADR-0055: moving the task-cap itself is delegation and refuses by band.
+grep -qa 'xfer-peer: band refused' "${log}" ||
+	fail "task-cap moved as an object — the ADR-0055 band filter is gone"
+# ADR-0057: after the target exits, its task-cap is stale and the move refuses.
+# This is the revoke-on-exit invariant made observable end to end; the
+# empty-slot refusal above cannot discriminate it.
+grep -qa 'xfer-peer: stale refused' "${log}" ||
+	fail "stale task-cap did not refuse after target exit (ADR-0057)"
+# Three lines that must never appear: silent mint exhaustion on the boot path,
+# a moved stale cap, and a leaked task-cap observed at slot reuse.
+if grep -qa 'mint FAILED' "${log}"; then
+	fail "task-cap mint exhausted on the boot path (ADR-0057 §2)"
+fi
+if grep -qa 'STALE MOVED' "${log}"; then
+	fail "a stale task-cap moved a cap into a recycled slot (ADR-0057 §1)"
+fi
+if grep -qa 'sched: STALE-TASKCAP' "${log}"; then
+	fail "a live task-cap survived its target's exit (ADR-0057 §1 cross-check)"
+fi
 # ADR-0042 / K2 residual: EL0 recv timeout.
 grep -qa 'el0-timeout: cancelled' "${log}" ||
 	fail "EL0 recv timeout did not cancel (ADR-0042)"

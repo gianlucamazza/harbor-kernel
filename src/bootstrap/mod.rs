@@ -650,6 +650,12 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("el0-xfer-peer: refuse spawn FAILED {e:?}"),
         }
 
+        // ADR-0055 / ADR-0057: band filter + stale task-cap refusal.
+        match crate::sched::spawn(demos::xfer_peer_stale_task) {
+            Ok(_) => crate::kprintln!("xfer-peer: stale spawned"),
+            Err(e) => crate::kprintln!("xfer-peer: stale spawn FAILED {e:?}"),
+        }
+
         // ADR-0042 / K2 residual: EL0 SYS_RECV_TIMEOUT.
         match crate::ipc::create_channel() {
             Ok(ch) => {

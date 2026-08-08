@@ -10,7 +10,9 @@ successor ADR, not a patch.
 
 1. **Boundary before code.** Structural changes need an ADR first
    ([ADR-0001](docs/adr/0001-multi-role-analysis.md)). Accepted ADRs are
-   immutable; change them only via a successor.
+   immutable; change them only via a successor — except narrow reconciliation
+   amendments with an `amended:` frontmatter bump
+   ([ADR-0058](docs/adr/0058-adr-amendments-and-mutation-freshness.md)).
 2. **Evidence before “done”.** Host test, QEMU gate, or Pi stamp — see
    [`docs/verification.md`](docs/verification.md). Status vocabulary lives in
    [`docs/README.md`](docs/README.md).

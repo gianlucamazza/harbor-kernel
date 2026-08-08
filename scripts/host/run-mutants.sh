@@ -3,31 +3,39 @@
 #
 # Not a `make check` prerequisite: a full run is around seven minutes, and the
 # value is in reading *which* mutants survived rather than in a number. The
-# cadence is the one ADR-0001 sets for the multi-role review — before a
-# milestone that moves a boundary.
+# cadence is ADR-0058's: a fresh run before any commit that moves a boundary
+# (new syscall/argument, new cap band, new authority module), and the file
+# list below must gain every module that decides authority — `taskcap.rs`
+# landed without joining it, which is how a new authority object went
+# unmutated for a day (excellence review 2026-08-08, F-7).
 #
-# `cargo-mutants` exits 3 whenever anything survived, and ten things do: nine on
-# two provably unreachable defensive branches, and one that is *equivalent* —
-# `1 << 0` and `1 >> 0` are the same value, so no test can tell them apart.
-# `docs/verification.md` argues each one. A target that is red every time is a
+# `cargo-mutants` exits 3 whenever anything survived, and seventeen things do:
+# unreachable defensive branches, boundary guards, model-check-guarded arms,
+# and a handful of *equivalent* mutants (`1 << 0` → `1 >> 0`; `|` → `^` on
+# disjoint bits). `docs/verification.md` argues each one. A target that is red every time is a
 # target nobody runs, so this compares against that documented baseline instead
 # of against zero, and fails only when the number moves the wrong way.
 set -uo pipefail
 
 cd "$(dirname "$0")/../.." || exit 1
 
-# Survivors justified in docs/verification.md § mutation testing:
-#   6 × the `!mbox.live` arm in ipc — no endpoint is ever released, so the
-#       branch cannot be taken; the mutants land on its `refusals.state += 1`
-#   3 × `Ok(None) if current != IDLE` in tasks — idle is always current or queued
+# Survivors justified in docs/verification.md § mutation testing (fourth run,
+# 2026-08-08 — cargo-mutants now emits TWO operators per `+=`, so one arm is
+# two mutants; the *sites* below are the same class as before, plus the new
+# modules' equivalents):
+#   6 × the `!mbox.live` arms in ipc send/try_recv/park (3 sites × -=/*=) —
+#       unreachable by exhaustion within the model-check bound
+#   2 × revoke_channel's `mb >= mailboxes.len()` state arm (-=/*=) — same
+#       defensive-unreachable class: a live endpoint always names a valid mb
+#   2 × release_holds boundaries: `send_holders > 0` at 0 (underflow guard)
+#       and `n < N` at N (a call cannot release more waiters than caps)
+#   3 × `Ok(None) if current != IDLE` in tasks — model-check-unreachable guard
+#   2 × `INDEX_BASE | i` → `^` in taskcap/irqcap mint — equivalent (bands and
+#       locals are disjoint bits; the const assert in taskcap.rs pins that)
+#   1 × irqcap mint's generation-0 skip — reachable only at u16 wrap, and
+#       irqcap has no revoke, so the generation never advances past first mint
 #   1 × `CapRights::SEND = 1 << 0` → `1 >> 0` in cap — equivalent, not untested
-#
-# The first nine are no longer justified by reading the code and agreeing with
-# it. `tests/model_sched.rs` and `tests/model_ipc.rs` walk every sequence of
-# operations up to a bound and never reach either branch, so they are
-# unreachable *by exhaustion within that bound* — see docs/verification.md
-# § bounded exhaustive model checking, which also states what the bound is.
-readonly BASELINE_MISSED=10
+readonly BASELINE_MISSED=17
 
 # `partition`'s loop counter mutated to a no-op never terminates. That is a
 # detected mutant, not a surviving one — the suite would hang rather than pass —
@@ -45,11 +53,17 @@ fi
 # target, and cargo-mutants builds in a scratch directory where `-- --target`
 # reaches `cargo test` but not the build before it — without this the run ends
 # in several hundred compile errors that look like mutants and are not.
-CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core \
-	--file '**/ipc.rs' --file '**/tasks.rs' --file '**/layout.rs' \
-	--file '**/irqtable.rs' --file '**/rxline.rs' --file '**/reset.rs' \
-	--file '**/cap.rs' --file '**/syscall.rs' --file '**/prog.rs' \
-	--file '**/manifest.rs'
+# One name per line; every module that decides authority belongs here.
+readonly FILES=(
+	ipc tasks layout irqtable rxline reset cap syscall prog manifest
+	taskcap irqcap
+)
+file_args=()
+for f in "${FILES[@]}"; do
+	file_args+=(--file "**/${f}.rs")
+done
+
+CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core "${file_args[@]}"
 status=$?
 
 # 0 = nothing survived, 3 = something did. Anything else is the tool failing.
@@ -57,6 +71,28 @@ if [[ "${status}" -ne 0 && "${status}" -ne 3 ]]; then
 	echo "mutants: cargo-mutants failed (exit ${status})" >&2
 	exit "${status}"
 fi
+
+# The artifact must cover the files this script asked for. Without this, a
+# scoped or interrupted run leaves a short missed.txt that passes the baselines
+# having verified nothing — the on-disk state this check was seen red against
+# (a manifest-only re-run posing as the full result). ADR-0058 §2.
+python3 - "${FILES[@]}" <<'PY'
+import json, sys
+
+want = {f"crates/kernel-core/src/{name}.rs" for name in sys.argv[1:]}
+got = {m["file"] for m in json.load(open("mutants.out/mutants.json"))}
+missing = sorted(want - got)
+if missing:
+    print("mutants: FAIL — the run did not cover:", ", ".join(missing), file=sys.stderr)
+    print("  A partial artifact must not grade itself. Re-run without --file", file=sys.stderr)
+    print("  narrowing, or fix the FILES list in this script.", file=sys.stderr)
+    sys.exit(1)
+extra = sorted(got - want)
+if extra:
+    print("mutants: run covered files the list does not name:", ", ".join(extra), file=sys.stderr)
+    print("  Add them to FILES so the scope stays a decision.", file=sys.stderr)
+    sys.exit(1)
+PY
 
 missed="$(wc -l <mutants.out/missed.txt)"
 timeout="$(wc -l <mutants.out/timeout.txt)"

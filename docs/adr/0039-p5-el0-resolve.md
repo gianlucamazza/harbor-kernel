@@ -4,6 +4,7 @@ title: P5 residual — EL0 SYS_RESOLVE into an empty slot
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
+amended: 2026-08-08
 related: [0017, 0035]
 ---
 

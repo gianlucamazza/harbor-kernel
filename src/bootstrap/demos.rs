@@ -1086,6 +1086,9 @@ pub(super) fn el0_transfer_parent_task() {
 
 /// ADR-0054: wait until peer transfer fills slot 0.
 pub(super) fn el0_peer_xfer_recipient_task() {
+    // 64 round-robin rounds bounds the wait: the donor has to be scheduled,
+    // build an EL0 session and run it, across ~40 boot tasks — comfortably
+    // inside 64 rounds; the boot-check timeout is the real ceiling.
     for _ in 0..64 {
         if crate::sched::my_cap(0).is_some() {
             crate::kprintln!("el0-xfer-peer: ok");
@@ -1176,6 +1179,70 @@ pub(super) fn el0_peer_xfer_refuse_task() {
         Err(e) => crate::kprintln!("el0-xfer-peer-refuse: run FAILED {e:?}"),
     }
     agent.destroy();
+}
+
+/// ADR-0057 child: exit immediately so the parent's task-cap goes stale.
+pub(super) fn xfer_peer_stale_child_task() {}
+
+/// ADR-0055 + ADR-0057: band filter and stale task-cap refusal, end to end.
+///
+/// Installs a SEND and a live task-cap into its own slots, then asserts two
+/// refusals the EL0 oracle cannot discriminate on its own:
+/// - moving the task-cap itself is `Untransferable` (ADR-0055 band filter);
+/// - after the child exits, the task-cap is stale and the move refuses
+///   (ADR-0057 §1 — the revoke-on-exit invariant made observable).
+pub(super) fn xfer_peer_stale_task() {
+    let ch = match crate::ipc::create_channel() {
+        Ok(c) => c,
+        Err(e) => {
+            crate::kprintln!("xfer-peer: stale channel FAILED {e:?}");
+            return;
+        }
+    };
+    let child = match crate::sched::spawn(xfer_peer_stale_child_task) {
+        Ok(id) => id,
+        Err(e) => {
+            crate::kprintln!("xfer-peer: stale child FAILED {e:?}");
+            return;
+        }
+    };
+    let tcap = match crate::taskcap::mint(child) {
+        Ok(c) => c,
+        Err(e) => {
+            crate::kprintln!("xfer-peer: mint FAILED {e:?}");
+            return;
+        }
+    };
+    if crate::sched::install_cap(0, ch.send).is_err() || crate::sched::install_cap(1, tcap).is_err()
+    {
+        crate::kprintln!("xfer-peer: stale install FAILED");
+        return;
+    }
+    // Live task-cap, but the moved object is the task-cap itself: delegation,
+    // refused by band (ADR-0055).
+    match crate::sched::transfer_held_to_peer(1, 0, 1) {
+        Err(crate::sched::TransferError::Untransferable) => {
+            crate::kprintln!("xfer-peer: band refused");
+        }
+        other => crate::kprintln!("xfer-peer: band UNEXPECTED {other:?}"),
+    }
+    // Wait for the child to exit; revoke-on-exit stales the cap.
+    let mut stale = false;
+    for _ in 0..64 {
+        if crate::taskcap::lookup(tcap).is_err() {
+            stale = true;
+            break;
+        }
+        crate::sched::yield_now();
+    }
+    if !stale {
+        crate::kprintln!("xfer-peer: stale timeout");
+        return;
+    }
+    match crate::sched::transfer_held_to_peer(0, 0, 1) {
+        Err(_) => crate::kprintln!("xfer-peer: stale refused"),
+        Ok(()) => crate::kprintln!("xfer-peer: STALE MOVED"),
+    }
 }
 
 /// ADR-0042: EL0 SYS_RECV_TIMEOUT without sender.

@@ -108,7 +108,7 @@ scripts/          check/ boot/ agent/ host/ lib/ — see scripts/README.md
 Do **not** treat this block as a second status table — it only steers readers.
 **Status lives in [roadmap.md](roadmap.md).**
 
-| Layer | State (2026-08-07) |
+| Layer | State (2026-08-08) |
 | --- | --- |
 | **H0 foundation** | **done (HW)** on Pi 4B (M0–M8 + parked cancel) |
 | **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification) |
@@ -119,7 +119,9 @@ Do **not** treat this block as a second status table — it only steers readers.
 ## Decision records and reviews
 
 [`adr/README.md`](adr/README.md) — ADR lifecycle. Accepted ADRs are immutable;
-change requires a successor. [`reviews/`](reviews/) — dated findings, not live
+change requires a successor — except narrow reconciliation amendments under
+[ADR-0058](adr/0058-adr-amendments-and-mutation-freshness.md)'s `amended:`
+convention. [`reviews/`](reviews/) — dated findings, not live
 status. Active work: [roadmap](roadmap.md); foundation history:
 [foundation-history.md](foundation-history.md).
 

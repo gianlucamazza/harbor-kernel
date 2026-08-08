@@ -153,6 +153,31 @@ pub const DEVICE_REGIONS: [(usize, usize, &str); 2] = [
     (0xFF84_0000, 0x0000_4000, "GIC"),
 ];
 
+// A bad row's runtime failure mode is a `LayoutError` on the boot path — i.e.
+// the panic path, the least-verified code in the tree. Validate the const data
+// at compile time instead: non-empty, page-aligned, ascending, disjoint.
+const _: () = {
+    let mut i = 0;
+    while i < DEVICE_REGIONS.len() {
+        assert!(DEVICE_REGIONS[i].1 > 0, "device region must be non-empty");
+        assert!(
+            DEVICE_REGIONS[i].0.is_multiple_of(FRAME_SIZE),
+            "device region base must be page-aligned"
+        );
+        assert!(
+            DEVICE_REGIONS[i].1.is_multiple_of(FRAME_SIZE),
+            "device region length must be page-aligned"
+        );
+        if i + 1 < DEVICE_REGIONS.len() {
+            assert!(
+                DEVICE_REGIONS[i].0 + DEVICE_REGIONS[i].1 <= DEVICE_REGIONS[i + 1].0,
+                "device regions must be ascending and disjoint"
+            );
+        }
+        i += 1;
+    }
+};
+
 // The 1 GiB block constants that used to live here are gone: RAM is no longer
 // mapped a gigabyte at a time. `mm::layout` derives the RAM regions from the
 // linker symbols so each one can carry its own permissions.

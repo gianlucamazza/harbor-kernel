@@ -4,6 +4,7 @@ title: K4 first slice — cooperative CPU budget (no IRQ preemption)
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
+amended: 2026-08-08
 related: [0006, 0023, 0026]
 ---
 
@@ -25,13 +26,15 @@ force until a true preemption successor).
 ### 2. Kernel
 
 - On switch-in, record `slice_start = time::ticks()`.
-- `sched::budget_expired()` / `sched::yield_if_budget_expired()` for workers.
+- `sched::budget_expired()` for workers, which hand-roll the yield loop (a
+  `yield_if_budget_expired` helper never landed — amended 2026-08-08 to match
+  the code, ADR-0058 convention).
 - Default quantum: 2 ticks (TIMER_HZ=10 → ~200 ms class).
 - **No** context switch from the timer IRQ.
 
 ### 3. Oracle
 
-Two thin tasks spin with `yield_if_budget_expired`; interleaved progress prints
+Two thin tasks spin checking `budget_expired`; interleaved progress prints
 `budget: rotated`.
 
 ### 4. Residuals

@@ -28,16 +28,16 @@ Pi 4B evidence ([`docs/verification.md`](docs/verification.md)) — “done” m
 more than “it compiles.”
 
 **Agent** here is the isolation unit, **not an LLM product**. Tool-limited
-software can live *inside* an agent later; Harbor is not a chat/runtime
+software can live _inside_ an agent later; Harbor is not a chat/runtime
 framework. Unfamiliar vocabulary: [`docs/glossary.md`](docs/glossary.md).
 
 ## Objectives
 
-| Horizon | Product outcome | State |
-| --- | --- | --- |
-| **H0 — Foundation** | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 driver-agent, blocking recv, console + beacon, cancel | **done (HW)** |
-| **H1 — Composition / appliance OS** | A multi-agent product you can compose and load, with an early device and supervisor story | **in progress** — first slices done (QEMU) |
-| **H2 — Boundary OS** | Fair execution, denser agents, production isolation, multi-core, remaining platform paths | later |
+| Horizon                             | Product outcome                                                                                      | State                                      |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| **H0 — Foundation**                 | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 driver-agent, blocking recv, console + beacon, cancel | **done (HW)**                              |
+| **H1 — Composition / appliance OS** | A multi-agent product you can compose and load, with an early device and supervisor story            | **in progress** — first slices done (QEMU) |
+| **H2 — Boundary OS**                | Fair execution, denser agents, production isolation, multi-core, remaining platform paths            | later                                      |
 
 Completeness of the kernel (**K**) and the product OS (**P**) is the goal, not a
 permanent demo: [ADR-0026](docs/adr/0026-kernel-and-product-completeness.md).
@@ -47,14 +47,14 @@ page carries a snapshot, never a second table. Product shape and use cases:
 
 ## Technology stack
 
-| Layer | Choice |
-| --- | --- |
-| Language | Rust, edition 2024, `no_std`, **zero dependencies** |
-| Target | `aarch64-unknown-none-softfloat` (pinned toolchain, `panic = "abort"`) |
-| Platform | Raspberry Pi 4B / BCM2711, AArch64, **single core** for now |
-| Build | `make` over `cargo`; `kernel8.img` at `0x80000`, EL2 → EL1h |
-| Model | Cooperative tasks · slot-indexed capabilities · agent = EL1 driver task + EL0 program |
-| Evidence | Host tests · Miri · QEMU oracles in `make check`; Pi 4B serial stamps by hand |
+| Layer    | Choice                                                                                |
+| -------- | ------------------------------------------------------------------------------------- |
+| Language | Rust, edition 2024, `no_std`, **zero dependencies**                                   |
+| Target   | `aarch64-unknown-none-softfloat` (pinned toolchain, `panic = "abort"`)                |
+| Platform | Raspberry Pi 4B / BCM2711, AArch64, **single core** for now                           |
+| Build    | `make` over `cargo`; `kernel8.img` at `0x80000`, EL2 → EL1h                           |
+| Model    | Cooperative tasks · slot-indexed capabilities · agent = EL1 driver task + EL0 program |
+| Evidence | Host tests · Miri · QEMU oracles in `make check`; Pi 4B serial stamps by hand         |
 
 Full stack, including what is deliberately **not** in it:
 [`docs/stack.md`](docs/stack.md).
@@ -88,38 +88,38 @@ Full contrast:
 
 ## Where we are
 
-Snapshot, 2026-08-07 — status of record is [`docs/roadmap.md`](docs/roadmap.md).
+Snapshot, 2026-08-08 — status of record is [`docs/roadmap.md`](docs/roadmap.md).
 
-| | |
-| --- | --- |
-| **Foundation** | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits |
-| **H1 first slices (QEMU)** | Store (**K6**), wait-on-IRQ (**K1**), auto-reap (**K2**), revoke (**K3**), RNG (**K9**), supervisor (**K10**), multi-agent (**P1**), names (**P5**), compose (**P6**) |
-| **H1 next** | Storage — [roadmap](docs/roadmap.md) |
-| **Not yet (later)** | IRQ preemption, SMP, ASID residuals (TTBR1/HW stamp), full product net/display depth, … |
+|                            |                                                                                                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Foundation**             | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits |
+| **H1 slices**              | done (HW): wait-on-IRQ (**K1**), auto-reap (**K2**), RNG (**K9**), supervisor (**K10**), names ambient era (**P5**) · done (QEMU): store (**K6**), revoke + peer transfer (**K3**), multi-agent (**P1**), resolve-grant (**P5**), compose (**P6**) |
+| **H1 next**                | Storage — [roadmap](docs/roadmap.md)                                                                                                                                    |
+| **Not yet (later)**        | IRQ preemption, SMP, ASID residuals (TTBR1/HW stamp), full product net/display depth, …                                                                                 |
 
 **What works today (short list):** cooperative tasks; message IPC; EL0 agents
 with private memory; least-privilege console; PL011 driver-agent; product
 composition via injected store (beacon + chirp); EL1+EL0 IRQ wait; last-SEND-hold
 auto-reap (ephemeral channels); channel revoke (stale CapId refused).
 
-| Area | State |
-| --- | --- |
-| Platform | Single-core AArch64, Pi 4B, early MMU, W^X, heap, guarded stacks |
-| Execution | Cooperative only — preemption/SMP **open** |
-| Authority | Slot caps, cancel, auto-reap, revoke, supervisor reap — transfer/timeout/creator-exit cascade **open** |
-| Product OS | Multi-agent store composition (QEMU); broader services **open** |
-| Verification | 353 host tests, model checks, Miri, QEMU and hardware stamps |
+| Area         | State                                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------ |
+| Platform     | Single-core AArch64, Pi 4B, early MMU, W^X, heap, guarded stacks                                       |
+| Execution    | Cooperative only — preemption/SMP **open**                                                             |
+| Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade |
+| Product OS   | Multi-agent store composition (QEMU); broader services **open**                                        |
+| Verification | 362 host tests, model checks, Miri, QEMU and hardware stamps                                           |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 
 ## What we are not
 
-| Out of model | Why |
-| --- | --- |
-| Linux / POSIX / glibc | Different ABI and ambient-authority world |
-| “Intentionally incomplete forever” | Gaps are **open work**, not identity |
-| Multi-tenant cloud hypervisor | Separate problem; needs its own design if ever |
-| Hiding platform firmware | Blobs stay explicit ([`docs/blobs.md`](docs/blobs.md)) |
+| Out of model                       | Why                                                    |
+| ---------------------------------- | ------------------------------------------------------ |
+| Linux / POSIX / glibc              | Different ABI and ambient-authority world              |
+| “Intentionally incomplete forever” | Gaps are **open work**, not identity                   |
+| Multi-tenant cloud hypervisor      | Separate problem; needs its own design if ever         |
+| Hiding platform firmware           | Blobs stay explicit ([`docs/blobs.md`](docs/blobs.md)) |
 
 ## Quick start
 
@@ -130,7 +130,7 @@ Toolchain: [`rust-toolchain.toml`](rust-toolchain.toml) · target
 make              # release kernel8.img
 make test         # host tests
 make qemu         # boot in QEMU
-make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs, then clippy
+make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence, then clippy
 ```
 
 On a Pi 4B (FAT boot partition + 3.3 V USB-serial):
@@ -146,18 +146,18 @@ Optional SPI TFT status panel: `FEATURES=debug-display` — see
 
 ## Documentation
 
-| I want to… | Read |
-| --- | --- |
-| Navigate all docs (5-minute path) | [`docs/README.md`](docs/README.md) |
-| Decode the vocabulary | [`docs/glossary.md`](docs/glossary.md) |
-| Know what it is built with | [`docs/stack.md`](docs/stack.md) |
-| Completeness tracks (K/P) | [`docs/roadmap.md`](docs/roadmap.md) |
-| Architecture and layering | [`docs/architecture.md`](docs/architecture.md) |
-| Product vision and use cases | [`docs/vision.md`](docs/vision.md) |
-| Threat model and authority | [`SECURITY.md`](SECURITY.md) |
-| What is actually proven | [`docs/verification.md`](docs/verification.md) |
-| How the foundation was closed | [`docs/foundation-history.md`](docs/foundation-history.md) |
-| How to contribute | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| I want to…                        | Read                                                       |
+| --------------------------------- | ---------------------------------------------------------- |
+| Navigate all docs (5-minute path) | [`docs/README.md`](docs/README.md)                         |
+| Decode the vocabulary             | [`docs/glossary.md`](docs/glossary.md)                     |
+| Know what it is built with        | [`docs/stack.md`](docs/stack.md)                           |
+| Completeness tracks (K/P)         | [`docs/roadmap.md`](docs/roadmap.md)                       |
+| Architecture and layering         | [`docs/architecture.md`](docs/architecture.md)             |
+| Product vision and use cases      | [`docs/vision.md`](docs/vision.md)                         |
+| Threat model and authority        | [`SECURITY.md`](SECURITY.md)                               |
+| What is actually proven           | [`docs/verification.md`](docs/verification.md)             |
+| How the foundation was closed     | [`docs/foundation-history.md`](docs/foundation-history.md) |
+| How to contribute                 | [`CONTRIBUTING.md`](CONTRIBUTING.md)                       |
 
 Hardware and boot: [`docs/boot-chain.md`](docs/boot-chain.md),
 [`docs/hardware.md`](docs/hardware.md). Decisions: [`docs/adr/`](docs/adr/README.md).

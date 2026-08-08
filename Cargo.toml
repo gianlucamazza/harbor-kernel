@@ -55,11 +55,11 @@ kernel-core = { path = "crates/kernel-core" }
 # in one pass, without re-deriving each invariant, produces decoration that
 # reads like verification. Each came off when the audit reached that module.
 #
-# **The list is empty as of 2026-08-06**: no `#[allow(…undocumented_unsafe_blocks)]`
-# remains, and the tree carries 181 SAFETY comments over 174 `unsafe` blocks.
-# The debt is paid, and saying so here is not bookkeeping — this comment
-# described an outstanding balance for a week after it was settled, which is
-# the same shape as every other fact this project keeps in two places.
+# **The list is empty**: no `#[allow(…undocumented_unsafe_blocks)]` remains,
+# and clippy holds the line — every `unsafe` block carries a SAFETY comment or
+# the build fails. No counts here on purpose: this comment once described an
+# outstanding balance for a week after it was settled, then carried stale
+# totals for two days more. A number nothing compares is drift waiting.
 undocumented_unsafe_blocks = "deny"
 
 # `panic = "abort"` in both profiles is not a size preference: there is no

@@ -484,6 +484,41 @@ mod tests {
             "movz x0, #0\nsvc #5\nsvc #1\nb .\n",
         );
 
+        assert_program(
+            "encode_wait_irq_exit(0)",
+            &encode_wait_irq_exit(0),
+            "movz x0, #0\nsvc #6\nsvc #1\nb .\n",
+        );
+
+        // 0x6261 = b"ab" little-endian, the shape the doc comment promises.
+        assert_program(
+            "encode_resolve_exit(2, 2, 0x6261)",
+            &encode_resolve_exit(2, 2, 0x6261),
+            "movz x0, #2\nmovz x1, #2\nmovz x2, #25185\nsvc #7\nsvc #1\nb .\n",
+        );
+
+        assert_program(
+            "encode_transfer_exit(0, 1, 1)",
+            &encode_transfer_exit(0, 1, 1),
+            "movz x0, #0\nmovz x1, #1\nmovz x2, #1\nsvc #8\nsvc #1\nb .\n",
+        );
+
+        // `movz x2, #2` is the peer dest hard-wired by the encoder (ADR-0054);
+        // x3 carries the task-cap slot. These two were the only encoders that
+        // shipped without a row here, and cargo-mutants proved it: both
+        // survived replacement by a constant array until this was written.
+        assert_program(
+            "encode_transfer_peer_exit(0, 0, 1)",
+            &encode_transfer_peer_exit(0, 0, 1),
+            "movz x0, #0\nmovz x1, #0\nmovz x2, #2\nmovz x3, #1\nsvc #8\nsvc #1\nb .\n",
+        );
+
+        assert_program(
+            "encode_recv_timeout_exit(0, 3)",
+            &encode_recv_timeout_exit(0, 3),
+            "movz x0, #0\nmovz x1, #3\nsvc #9\nsvc #1\nb .\n",
+        );
+
         // Writes to a kernel address the agent does not have: a data abort.
         assert_program(
             "encode_fault_exit",

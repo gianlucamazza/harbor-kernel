@@ -247,11 +247,36 @@ for quoting_doc in "${QUOTING[@]}"; do
 	fi
 done
 
+# 8. The IPC capacities are frozen EL0 ABI numbers, and they drifted twice
+#    (8/16 → 12/24 → 16/32) with no successor ADR — demo pressure silently
+#    reshaping a product ABI. ADR-0056 now owns the numbers; this compares its
+#    table to the constants the kernel compiles. Same shape as check 6: a set
+#    comparison, blind to prose, and says so.
+adr_cap() {
+	sed -n "s/^|[[:space:]]*\`\?$1\`\?[[:space:]]*|[[:space:]]*\([0-9]\+\)[[:space:]]*|.*/\1/p" \
+		docs/adr/0056-ipc-abi-capacities.md
+}
+code_cap() {
+	sed -n "s/^pub const $1: usize = \([0-9]\+\);\$/\1/p" src/ipc/mod.rs
+}
+for pair in "MAX_MAILBOXES:MAX_MAILBOXES" "MAX_ENDPOINTS:MAX_ENDPOINTS" "MAILBOX_DEPTH:Mailbox depth"; do
+	const_name="${pair%%:*}"
+	row_name="${pair#*:}"
+	in_code="$(code_cap "${const_name}")"
+	in_adr="$(adr_cap "${row_name}")"
+	[[ -n "${in_code}" ]] || fail "src/ipc/mod.rs has no 'pub const ${const_name}' to check"
+	[[ -n "${in_adr}" ]] || fail "ADR-0056 has no '${row_name}' capacity row to check"
+	if [[ "${in_code}" != "${in_adr}" ]]; then
+		fail "src/ipc/mod.rs sets ${const_name}=${in_code}, ADR-0056 says ${in_adr} — the ABI moved without its ADR"
+	fi
+done
+
 core_modules="$(sed -n 's/^pub mod \([a-z0-9_]*\);$/\1/p' crates/kernel-core/src/lib.rs | wc -l)"
 
 echo "doc-claims: clean (${actual} tests = ${unit}+${integration}+${doc}, ${#makefile_gates} chars of gate list agree, \
 $(wc -l <<<"${facade}") facade modules in the contract, \
 	${core_modules} kernel-core modules in docs/README.md, \
 ${abi_calls} syscalls in the threat model, \
+IPC capacities match ADR-0056, \
 $(grep -lc '^status: accepted' docs/adr/0*.md | wc -l) ADRs dated, \
 mission quoted verbatim in ${#QUOTING[@]} documents)"

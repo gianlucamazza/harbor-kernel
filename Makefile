@@ -122,11 +122,14 @@ img: elf
 	  ls -la $(CARGO_OUT)/kernel8-debug-display.img; \
 	fi
 
-# Deliberately a superset of what CI runs: a green here has to predict a green
-# there, or it is not worth running locally. Every CI job has a target here —
-# including `miri`, which skips loudly when nightly is absent rather than
-# letting the claim quietly become false.
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs
+# A superset of CI's *gates*: a green here has to predict a green there, or it
+# is not worth running locally. The one CI step with no prerequisite here is
+# `make blobs` — a network fetch of pinned firmware, deliberately kept out of a
+# target people run offline. Everything else CI runs has a target below, and
+# `miri`/`shellcheck` fail loudly when their tool is absent rather than letting
+# the claim quietly become false (skip only with ALLOW_MIRI_SKIP=1 /
+# ALLOW_SHELLCHECK_SKIP=1, same shape as boot-check's ALLOW_BOOT_SKIP).
+check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -141,8 +144,13 @@ check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-c
 # passes because it did not run is the failure `no-simd` was fixed for.
 shellcheck:
 	@if ! command -v shellcheck >/dev/null; then \
-	  echo "shellcheck: SKIPPED — not installed (pacman -S shellcheck)" >&2; \
-	  exit 0; \
+	  if [ "$${ALLOW_SHELLCHECK_SKIP:-}" = "1" ]; then \
+	    echo "shellcheck: SKIPPED — not installed (ALLOW_SHELLCHECK_SKIP=1)" >&2; \
+	    exit 0; \
+	  fi; \
+	  echo "shellcheck: FAIL — not installed; refusing to report clean" >&2; \
+	  echo "  install it (pacman -S shellcheck) or set ALLOW_SHELLCHECK_SKIP=1" >&2; \
+	  exit 1; \
 	fi; \
 	shellcheck -x -P scripts scripts/check/*.sh scripts/boot/*.sh scripts/host/*.sh scripts/lib/*.sh && echo "shellcheck: clean"
 
@@ -259,15 +267,25 @@ product-boot-check: product-builds
 # Not part of `make check`: it needs nightly, and the toolchain pin is
 # deliberately stable. Run it when touching the ring or the allocator.
 # Mutation testing. Not a `check` prerequisite: ~7 minutes, and the value is in
-# reading which mutants survived rather than in a threshold. See the script for
-# the baseline and why it is not zero.
+# reading which mutants survived rather than in a threshold. Cadence and scope
+# rules are ADR-0058's: run before a boundary-moving commit, and the script
+# refuses an artifact that did not cover its own file list.
 mutants:
 	./scripts/host/run-mutants.sh
 
+# Roadmap status flips must leave a trace in the evidence index.
+roadmap-evidence:
+	./scripts/check/roadmap-evidence.sh
+
 miri:
 	@if ! rustup toolchain list | grep -q nightly; then \
-	  echo "miri: SKIPPED — nightly not installed (rustup toolchain install nightly --component miri)" >&2; \
-	  exit 0; \
+	  if [ "$${ALLOW_MIRI_SKIP:-}" = "1" ]; then \
+	    echo "miri: SKIPPED — nightly not installed (ALLOW_MIRI_SKIP=1)" >&2; \
+	    exit 0; \
+	  fi; \
+	  echo "miri: FAIL — nightly not installed; refusing to report clean" >&2; \
+	  echo "  rustup toolchain install nightly --component miri, or set ALLOW_MIRI_SKIP=1" >&2; \
+	  exit 1; \
 	fi; \
 	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET)
 

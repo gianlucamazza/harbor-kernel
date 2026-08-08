@@ -102,6 +102,17 @@ mod tests {
     use crate::cap::CapId;
 
     #[test]
+    fn low_shaped_id_never_hits_a_live_entry() {
+        // Same local index and generation as a live entry, band bit stripped:
+        // the decode must refuse before the entry can match (the empty-table
+        // variant could not tell the two apart — cargo-mutants showed it).
+        let mut t = Table::new();
+        let cap = t.mint(42).unwrap();
+        let low = CapId::new(cap.index() & !INDEX_BASE, cap.generation());
+        assert_eq!(t.lookup(low), Err(LookupError::BadCap));
+    }
+
+    #[test]
     fn mint_lookup_round_trip() {
         let mut t = Table::new();
         let cap = t.mint(1).unwrap();

@@ -1,5 +1,10 @@
 # M8: The console becomes an endpoint
 
+> **Dated design record (2026-08-07).** Like an ADR, this describes the plan
+> as it was written; PR5 later removed `console::grant_console_cap` /
+> `console::is_console_cap`, so module paths here are historical and this file
+> is deliberately outside `doc-symbols`' descriptive set.
+
 | Field   | Value |
 | ------- | ----- |
 | Project | Harbor Kernel (`harbor-kernel`) |

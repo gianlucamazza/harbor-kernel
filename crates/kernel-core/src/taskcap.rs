@@ -5,14 +5,26 @@
 //! IPC endpoint indices or IRQ-cap indices (`0x8000`).
 
 use crate::cap::CapId;
+use crate::irqcap;
 
 /// Concurrent task-cap objects.
+///
+/// Deliberately below `MAX_TASKS` (ADR-0057 §2): a pressure bound, and entries
+/// are freed only by [`Table::revoke_task`] — there is no per-cap free.
 pub const MAX_TASK_CAPS: usize = 32;
 
 /// Index band: `INDEX_BASE | local` (local < MAX_TASK_CAPS).
 ///
-/// Chosen below IRQ (`0x8000`) and above typical endpoint counts.
+/// Chosen below IRQ ([`irqcap::INDEX_BASE`]) and above typical endpoint counts.
 pub const INDEX_BASE: u16 = 0x4000;
+
+// The bands must never share a bit: a forged id carrying both would otherwise
+// be decodable by two tables. Checked here so a moved band fails the build,
+// not a review.
+const _: () = assert!(
+    INDEX_BASE & irqcap::INDEX_BASE == 0,
+    "task-cap and IRQ-cap bands must be disjoint"
+);
 
 /// Why [`Table::mint`] failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,6 +68,12 @@ impl Table {
     }
 
     /// Mint a capability naming `task_id`.
+    ///
+    /// Trusted EL1 path: the pure table cannot check liveness, so the caller
+    /// guarantees `task_id` names a live task (ADR-0057 §2). The u16
+    /// generation wraps after 65 535 mint cycles on one local index, at which
+    /// point a stale handle re-validates — a decided bound (ADR-0057 §3),
+    /// unreachable from the current boot.
     pub fn mint(&mut self, task_id: u32) -> Result<CapId, MintError> {
         for i in 0..MAX_TASK_CAPS {
             if !self.entries[i].live {
@@ -77,8 +95,8 @@ impl Table {
     /// Resolve a CapId to the named task id if live and generation matches.
     pub fn lookup(&self, cap: CapId) -> Result<u32, LookupError> {
         let idx = cap.index();
-        if idx & INDEX_BASE == 0 || idx & 0x8000 != 0 {
-            // Not in the task-cap band (or looks like IRQ high bit).
+        if idx & INDEX_BASE == 0 || idx & irqcap::INDEX_BASE != 0 {
+            // Not in the task-cap band (or carries the IRQ band bit).
             return Err(LookupError::BadCap);
         }
         let local = (idx & !INDEX_BASE) as usize;
@@ -105,6 +123,11 @@ impl Table {
             }
         }
         n
+    }
+
+    /// Any live entry naming `task_id`? (ADR-0057 §1 spawn cross-check.)
+    pub fn has_live_for(&self, task_id: u32) -> bool {
+        self.entries.iter().any(|e| e.live && e.task == task_id)
     }
 }
 
@@ -162,5 +185,59 @@ mod tests {
         let cap = t.mint(1).unwrap();
         let stale = CapId::new(cap.index(), cap.generation().wrapping_add(1));
         assert_eq!(t.lookup(stale), Err(LookupError::BadCap));
+    }
+
+    #[test]
+    fn endpoint_shaped_id_never_hits_a_live_entry() {
+        // The band decode, not just the empty-table refusal: local index and
+        // generation MATCH a live entry, and the id must still refuse because
+        // it does not carry the band. cargo-mutants proved the older test
+        // (empty table) could not tell the decode from the entry check.
+        let mut t = Table::new();
+        let cap = t.mint(3).unwrap();
+        let low = CapId::new(cap.index() & !INDEX_BASE, cap.generation());
+        assert_eq!(t.lookup(low), Err(LookupError::BadCap));
+        let both_bands = CapId::new(cap.index() | irqcap::INDEX_BASE, cap.generation());
+        assert_eq!(t.lookup(both_bands), Err(LookupError::BadCap));
+    }
+
+    #[test]
+    fn revoke_task_leaves_other_tasks_caps_live() {
+        let mut t = Table::new();
+        let five = t.mint(5).unwrap();
+        let seven = t.mint(7).unwrap();
+        assert_eq!(t.revoke_task(5), 1);
+        assert_eq!(t.lookup(five), Err(LookupError::BadCap));
+        assert_eq!(t.lookup(seven), Ok(7));
+    }
+
+    #[test]
+    fn has_live_for_tracks_mint_and_revoke() {
+        let mut t = Table::new();
+        assert!(!t.has_live_for(5));
+        let _ = t.mint(5).unwrap();
+        assert!(t.has_live_for(5));
+        t.revoke_task(5);
+        assert!(!t.has_live_for(5));
+    }
+
+    #[test]
+    fn generation_wrap_revalidates_after_65535_cycles() {
+        // ADR-0057 §3: the u16 generation wraps (skipping 0) after 65 535 mint
+        // cycles on one local index, and the original stale handle validates
+        // again. This test *encodes the decided bound* rather than pretending
+        // the guarantee is unbounded.
+        let mut t = Table::new();
+        let first = t.mint(7).unwrap();
+        t.revoke_task(7);
+        assert_eq!(t.lookup(first), Err(LookupError::BadCap));
+        for _ in 0..65534 {
+            let c = t.mint(7).unwrap();
+            assert_eq!(c.index(), first.index());
+            t.revoke_task(7);
+        }
+        let wrapped = t.mint(7).unwrap();
+        assert_eq!(wrapped.generation(), first.generation());
+        assert_eq!(t.lookup(first), Ok(7));
     }
 }

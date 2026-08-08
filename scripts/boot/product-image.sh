@@ -79,8 +79,48 @@ product_size="$(stat -c %s "${OUT}/kernel8-product.img")"
 # characters out of `demos.rs`, confirm each one is really in the image that
 # *has* the oracle (a marker absent from both proves nothing), and require all
 # of them to be absent from the product image.
+# Oracle literals do not all live in demos.rs: the orchestration block in
+# `bootstrap/mod.rs` prints its own (`sched: spawned task-a`,
+# `el0-xfer-peer: parent spawned`, …) inside `#[cfg(feature = "oracle")]`
+# items. The first version of this gate read only demos.rs and was blind to
+# every one of them (excellence review 2026-08-08, F-14) — same lesson as the
+# two failures above, one file over. Extract the gated items brace-balanced
+# and harvest their literals too.
+oracle_items="$(
+	python3 - <<'PY'
+import io
+import re
+
+src = io.open("src/bootstrap/mod.rs", encoding="utf-8").read()
+out = []
+for m in re.finditer(r'#\[cfg\(feature = "oracle"\)\]', src):
+    i = m.end()
+    depth = 0
+    started = False
+    while i < len(src):
+        c = src[i]
+        if c == ";" and not started:
+            # A braceless gated item (`use …;`, a lone statement) ends here;
+            # walking on would swallow ungated code and its product strings.
+            break
+        if c == "{":
+            depth += 1
+            started = True
+        elif c == "}":
+            depth -= 1
+            if started and depth == 0:
+                break
+        i += 1
+    out.append(src[m.start():i + 1])
+print("\n".join(out))
+PY
+)"
+
 mapfile -t markers < <(
-	grep -oE '"[^"]{12,}"' src/bootstrap/demos.rs |
+	{
+		grep -oE '"[^"]{12,}"' src/bootstrap/demos.rs
+		grep -oE '"[^"]{12,}"' <<<"${oracle_items}"
+	} |
 		tr -d '"' |
 		grep -v "[{\\\\]" |
 		sort -u

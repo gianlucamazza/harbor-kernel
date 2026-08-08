@@ -22,6 +22,10 @@ does not invent product or ambient authority.
 | **P3 network** | No named composition target this cycle | Edge-gateway composition + virtio/net ADR |
 | **P4 product display** | `debug-display` remains lab; no product UI composition | Product UI ADR graduating debug-display |
 | **#14 SpiDevice** | Watch only; XPT2046 not in scope | Touch driver or supersede ADR-0020 |
+| **Panic-path oracle** | `src/panic.rs` has negative evidence only (excellence review F-24); a deliberate-panic boot variant is a new image flavour | Next bring-up/oracle work touching the panic path |
+| **Task-cap spawn epoch** | Generation guards the handle, not the slot binding ([ADR-0057](0057-taskcap-lifecycle.md) residual) | **Before K8 SMP** — the exit/revoke window becomes a race |
+| **Derived mutation file list** | `run-mutants.sh` list is hand-written; scope now validated but membership is still a decision ([ADR-0058](0058-adr-amendments-and-mutation-freshness.md)) | Marker-derived list, or the next membership miss |
+| **kernel-core extractions** | sched cap-slot table, agent reply mappers, loader plan, sched park/cancel composition (excellence review R1) — highest-value path to host-testing `src/` logic | Next slice touching each module |
 
 ## Not deferred (landed elsewhere)
 

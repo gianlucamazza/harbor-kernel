@@ -4,6 +4,7 @@ title: P2 residual — durable keyed store region (soft-reboot / reload path)
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
+amended: 2026-08-08
 related: [0036]
 ---
 

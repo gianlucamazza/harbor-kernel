@@ -36,3 +36,8 @@ pub fn lookup(cap: CapId) -> Result<TaskId, LookupError> {
 pub fn revoke_task(id: TaskId) -> u32 {
     with_table(|t| t.revoke_task(id.0))
 }
+
+/// Any live task-cap naming `id`? (ADR-0057 §1 spawn cross-check.)
+pub fn has_live_for(id: TaskId) -> bool {
+    with_table(|t| t.has_live_for(id.0))
+}

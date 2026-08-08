@@ -50,6 +50,9 @@ use crate::time;
 /// product beacon, 16 → 18 for the ADR-0025 reaping oracle, then 18 → 19 for the K1 irq-wait oracle (ADR-0028),
 /// 19 → 24 for K2/K3 oracles + K10 supervisor, 25 → 28 for transfer/cascade/resolve,
 /// 28 → 40 for density/budget/durable residual oracles (ADR-0044..0046).
+/// The four ADR-0054 peer-transfer oracle tasks landed without a bump: slot
+/// reuse after exit absorbs them, and the ADR-0057 §1 cross-check in `spawn`
+/// guards that reuse against a leaked task-cap.
 /// Raising it costs task stacks and page-table reserve derived from this constant.
 pub const MAX_TASKS: usize = 40;
 
@@ -278,6 +281,16 @@ fn spawn_inner(
         ipc::register_holds(&held);
         Ok(id)
     })
+    .inspect(|&id| {
+        // ADR-0057 §1: a freshly admitted slot must carry no live task-cap —
+        // exit revokes before the slot can be reused, so seeing one here is
+        // the escalation the cross-check exists to catch. Kill it and say so;
+        // the boot oracle asserts this line stays absent.
+        if crate::taskcap::has_live_for(id) {
+            let n = crate::taskcap::revoke_task(id);
+            crate::kprintln!("sched: STALE-TASKCAP slot={} revoked={}", id.0, n);
+        }
+    })
 }
 
 /// Running task id (including idle).
@@ -402,6 +415,8 @@ pub enum TransferError {
     ToSlotFull,
     /// Target slot index out of range.
     ToSlotOob,
+    /// Moved object is not in a transferable band (ADR-0055).
+    Untransferable,
 }
 
 /// Move the current task's cap at `from_slot` into `to`'s empty `to_slot` (ADR-0037).
@@ -439,6 +454,14 @@ pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(),
             Some(c) => c,
             None => return Err(TransferError::BadFromSlot),
         };
+        // ADR-0055: only IPC endpoint caps move. A task-cap (0x4000 band) as
+        // the moved object is delegation — a declared non-goal — and an IRQ
+        // cap (0x8000 band) would hand off ADR-0030's single-armer identity.
+        let idx = cap.index();
+        if idx & kernel_core::taskcap::INDEX_BASE != 0 || idx & kernel_core::irqcap::INDEX_BASE != 0
+        {
+            return Err(TransferError::Untransferable);
+        }
         if sched.tcbs[to_i].caps[to_slot].is_some() {
             return Err(TransferError::ToSlotFull);
         }
@@ -464,8 +487,9 @@ pub fn transfer_held_to_creator(from_slot: usize, to_slot: usize) -> Result<(), 
 
 /// Move `from_slot` into a peer named by a held task-cap (ADR-0054).
 ///
-/// `task_cap_slot` must hold a live task-cap for the destination task.
-/// The moved object may be any CapId (endpoint, IRQ, even another task-cap).
+/// `task_cap_slot` must hold a live task-cap for the destination task. The
+/// moved object must be an IPC endpoint cap: task-caps and IRQ caps are
+/// refused by [`transfer_held`]'s band filter (ADR-0055).
 pub fn transfer_held_to_peer(
     from_slot: usize,
     to_slot: usize,
@@ -476,7 +500,6 @@ pub fn transfer_held_to_peer(
     if to == current_task_id() {
         return Err(TransferError::BadToTask);
     }
-    // Peer id is resolved before the move; moving the task-cap itself is allowed.
     transfer_held(from_slot, to, to_slot)
 }
 

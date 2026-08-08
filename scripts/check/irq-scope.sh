@@ -52,6 +52,37 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
+# The walker below keys on `without_irqs(` — a hand-rolled `cpu::irq_save()` /
+# `irq_restore` pair is the same masked region without the name, and the walker
+# never opens it (excellence review 2026-08-08, F-13: `taskcap::revoke_task`
+# landed inside exactly such a region, benign but unwatched). The region cannot
+# be walked the same way — `switch_with` legitimately contains the switch — so
+# this refuses *new sites* instead. The two allowed files are the primitive's
+# own implementation and the scheduler's switch path, each argued in place.
+allowed_raw='src/arch/aarch64/cpu.rs src/sched/mod.rs'
+raw_violations=0
+while IFS= read -r hit; do
+	[[ -z "${hit}" ]] && continue
+	file="${hit%%:*}"
+	rest="${hit#*:}"
+	line="${rest%%:*}"
+	content="${rest#*:}"
+	content="${content%%//*}"
+	[[ "${content}" == *"irq_save()"* ]] || continue
+	case " ${allowed_raw} " in
+	*" ${file} "*) ;;
+	*)
+		echo "irq-scope: ${file}:${line}: raw cpu::irq_save outside the audited set" >&2
+		echo "  Use cpu::without_irqs so the scope walker can see inside the region," >&2
+		echo "  or add the file to allowed_raw here with its argument." >&2
+		raw_violations=$((raw_violations + 1))
+		;;
+	esac
+done < <(grep -rn 'irq_save()' src crates --include='*.rs' || true)
+if [[ "${raw_violations}" -ne 0 ]]; then
+	exit 1
+fi
+
 python3 - <<'PY'
 import io, re, subprocess, sys
 

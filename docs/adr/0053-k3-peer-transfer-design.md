@@ -4,6 +4,7 @@ title: K3 design — peer transfer via task capability (design only)
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
+amended: 2026-08-08
 related: [0017, 0037, 0041, 0049]
 ---
 
@@ -55,3 +56,9 @@ Landed in [ADR-0054](0054-k3-peer-transfer-first-slice.md):
 ## Deferral
 
 Further depth (auto-mint on spawn, control rights) waits for product need.
+
+**Amended 2026-08-08** (ADR-0058 convention): reconciled with the landed first
+slice — [ADR-0054](0054-k3-peer-transfer-first-slice.md), commit `0cee6e4`.
+Mint is explicit EL1; auto-mint on spawn demoted to residual. The evidence row
+"refuse stale task-cap" is now honoured end to end by `xfer-peer: stale
+refused` ([ADR-0057](0057-taskcap-lifecycle.md)).

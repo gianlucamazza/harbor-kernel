@@ -14,7 +14,11 @@ Host test, QEMU oracle, or Pi 4B transcript — and say which. "It compiles" is
 not evidence; `done (QEMU)` and `done (HW)` are different claims.
 -->
 
-- [ ] `make check` is green locally (it is a superset of CI)
+- [ ] `make check` is green locally (a superset of CI's gates; CI additionally
+      fetches firmware blobs)
+- [ ] Moves a **boundary** (new syscall/argument, cap band, authority module)?
+      → fresh `make mutants` run, and the module is in the script's file list
+      (ADR-0058)
 
 ## Documentation ownership
 

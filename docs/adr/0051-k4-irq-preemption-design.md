@@ -4,6 +4,7 @@ title: K4 design — IRQ-side preemption (design only)
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
+amended: 2026-08-08
 related: [0006, 0046, 0026]
 ---
 
@@ -74,3 +75,9 @@ discipline is named.
 
 Code deferred until trap-frame → TCB path is designed against `vectors.s` /
 `el0_run_finish` without breaking EL0 session invariants (ADR-0016/0017).
+
+**Must be re-audited when code lands** (amended 2026-08-08): every
+cooperative-atomicity assumption this design invalidates — the four separate
+masked regions of `sched::transfer_held_to_peer` (lookup → move is not atomic
+under preemption), and the `switch(Exit)` → `taskcap::revoke_task` window
+([ADR-0057](0057-taskcap-lifecycle.md) spawn-epoch residual).

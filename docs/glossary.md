@@ -18,6 +18,7 @@ needing a decoder.
 | **Session** | One enter → SVC → resume → end cycle of an EL0 program inside its driver task. A fault ends the *session*; the creator decides the *task* | A login or a connection | [ADR-0018](adr/0018-agent-fault-policy.md) |
 | **Capability** | An unforgeable kernel-side handle (send, recv, IRQ notification) | A permission bit or a POSIX capability | [ADR-0017](adr/0017-el0-capability-abi.md) |
 | **Slot** | The **index** EL0 code names when it uses authority. The raw `CapId` never leaves the kernel | A memory slot | [ADR-0017](adr/0017-el0-capability-abi.md) |
+| **Task-cap** | A capability naming a **task** (band `0x4000`), granting install-into-its-empty-slots via peer transfer. Goes stale on target exit; not itself transferable | A kill/control handle (that is a residual), or a thread id | [ADR-0053](adr/0053-k3-peer-transfer-design.md) / [ADR-0057](adr/0057-taskcap-lifecycle.md) |
 | **Grant** | An entry in a manifest that binds one of the loader's capabilities into an agent's slot table | An install-time permission prompt | [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md) |
 | **Manifest** | Data describing which agents exist, their image, their window and their slot table — "an agent is data" | A build script | [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md) |
 | **Composition** | A set of agents plus the grant graph that says who may name whom | A container image | [`vision.md`](vision.md) |

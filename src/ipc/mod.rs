@@ -71,10 +71,10 @@ use crate::sync::SyncCell;
 ///
 /// Fixed and small on purpose: no allocation on the IPC path, and a full
 /// mailbox is a refusal rather than unbounded growth. These are **part of the
-/// EL0 ABI** (ADR-0017 §4), not implementation detail: an agent that assumes a
-/// deeper mailbox breaks when it fills, and it has no way to ask.
-// 12 → 16 when peer-transfer oracles (ADR-0054) needed two more channels on
-// the oracle boot path without revoking earlier demos.
+/// EL0 ABI**: the canonical numbers live in ADR-0056 (successor to ADR-0017
+/// §4's originals), this file restates them, and `make doc-claims` compares
+/// the two. Changing them starts with a successor ADR, whatever the motive —
+/// the 12→16 bump for the ADR-0054 oracles is the drift that taught us.
 pub const MAX_MAILBOXES: usize = 16;
 pub const MAX_ENDPOINTS: usize = 32;
 pub const MAILBOX_DEPTH: usize = 4;

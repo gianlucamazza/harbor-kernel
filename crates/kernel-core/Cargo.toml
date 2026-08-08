@@ -11,9 +11,15 @@ publish = false
 [dependencies]
 
 [lints.rust]
-# `deny`, not `forbid`: the SPSC ring needs an `UnsafeCell` buffer and a `Sync`
-# assertion to offer a `&self` API, which is what keeps the IRQ producer and
-# the main-loop consumer from ever holding aliasing `&mut`. It is the only
-# `unsafe` in the crate, it carries a scoped `#[allow]`, and it is covered by
-# both single-threaded and two-thread host tests.
+# `deny`, not `forbid`: the SPSC ring and the wake queue need an `UnsafeCell`
+# buffer and a `Sync` assertion to offer a `&self` API, which is what keeps the
+# IRQ producer and the main-loop consumer from ever holding aliasing `&mut`.
+# Those two modules carry a module-scoped `#[allow]` each, and both are covered
+# by single-threaded and two-thread host tests under Miri.
 unsafe_code = "deny"
+
+[lints.clippy]
+# The kernel crate denies this workspace-wide; the allow-carrying modules here
+# must meet the same bar — an `unsafe` block without a SAFETY comment is a
+# build error, not a review note.
+undocumented_unsafe_blocks = "deny"

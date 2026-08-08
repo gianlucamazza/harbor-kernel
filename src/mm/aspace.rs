@@ -474,6 +474,12 @@ impl Drop for AddressSpace {
             let _ = frames::free(FrameId::from_index(index));
         }
         self.owned.clear();
+        // Mirror `destroy()`: a dropped AS must not leak its ASID or leave
+        // stale tagged TLB entries behind (ADR-0050). The two teardown paths
+        // diverged once — an early-return that skipped `destroy()` would have
+        // burned an ASID from an 8-bit pool in silence.
+        mmu::invalidate_asid(self.asid);
+        let _ = crate::mm::asid::free(self.asid);
     }
 }
 
