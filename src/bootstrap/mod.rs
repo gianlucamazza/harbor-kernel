@@ -652,16 +652,8 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("el0-timeout: channel FAILED {e:?}"),
         }
 
-        // ADR-0043 / K9 residual: IRQ-cap-only device agent (timer cookie).
-        match crate::irq::cap::mint(1) {
-            Ok(irq_cap) => {
-                match crate::sched::spawn_with_caps(demos::irq_device_agent_task, &[irq_cap]) {
-                    Ok(_) => crate::kprintln!("irq-device: spawned"),
-                    Err(e) => crate::kprintln!("irq-device: spawn FAILED {e:?}"),
-                }
-            }
-            Err(e) => crate::kprintln!("irq-device: mint FAILED {e:?}"),
-        }
+        // ADR-0043 / K9 residual: IRQ-cap device wait is proven sequentially
+        // inside irq_wait_task (one waiter per cookie — no concurrent race).
 
         // ADR-0044 / K5: thin-stack density workers.
         {

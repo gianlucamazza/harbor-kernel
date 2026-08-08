@@ -23,13 +23,16 @@ device-shaped task whose authority is the IRQ cap.
 
 ## Decision
 
-1. Bootstrap mints (or reuses) a timer IRQ notification into slot 0 of a
-   dedicated task.
-2. That task runs an EL0 program: `SYS_WAIT_IRQ` then `SYS_EXIT`.
-3. Oracle line: `irq-device: woke` (distinct from lab `el0-irq: woke`).
+1. The product path for an IRQ-cap-only wait is `SYS_WAIT_IRQ` on a granted
+   notification (timer cookie for this slice).
+2. Bootstrap proves it on the same sequential path as the K1 EL0 wait
+   (`irq_wait_task`): EL1 wait, then EL0 `SYS_WAIT_IRQ` — **one waiter per
+   cookie**, no concurrent second arm.
+3. Oracle lines: `el0-irq: woke` and `irq-device: woke` (same wake; the second
+   names the K9 residual product story).
 
-Cookie remains the arch timer (line already registered). A future slice may
-bind a non-timer SPI/UART cookie the same way.
+Cookie remains the arch timer. A future slice may bind a non-timer SPI/UART
+cookie and a dedicated task once multi-waiter IRQ tables exist.
 
 ### Non-goals
 

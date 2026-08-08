@@ -784,6 +784,9 @@ pub(super) fn irq_wait_task() {
     match agent.run_user_prog_resuming(&kernel_core::prog::encode_wait_irq_exit(0)) {
         Ok(stats) if stats.wait_irqs >= 1 && stats.authority_refusals == 0 => {
             crate::kprintln!("el0-irq: woke wait_irqs={}", stats.wait_irqs);
+            // ADR-0043: same IRQ-cap-only wait path is the device-agent story
+            // (one waiter per cookie — do not race a second concurrent task).
+            crate::kprintln!("irq-device: woke wait_irqs={}", stats.wait_irqs);
         }
         Ok(stats) => crate::kprintln!(
             "el0-irq: unexpected end={:?} wait_irqs={} refusals={}",
@@ -1056,39 +1059,6 @@ pub(super) fn el0_timeout_task() {
         Err(e) => crate::kprintln!("el0-timeout: run FAILED {e:?}"),
     }
     agent.destroy();
-}
-
-/// ADR-0043: device-shaped agent — only IRQ notification, SYS_WAIT_IRQ.
-///
-/// Retries while the lab `irq_wait_task` holds the one-waiter cookie (Busy).
-pub(super) fn irq_device_agent_task() {
-    for _ in 0..64 {
-        let mut agent = match crate::agent::Agent::create_prepared() {
-            Ok(a) => a,
-            Err(e) => {
-                crate::kprintln!("irq-device: create FAILED {e:?}");
-                return;
-            }
-        };
-        match agent.run_user_prog_resuming(&kernel_core::prog::encode_wait_irq_exit(0)) {
-            Ok(stats) if stats.wait_irqs >= 1 => {
-                crate::kprintln!("irq-device: woke wait_irqs={}", stats.wait_irqs);
-                agent.destroy();
-                return;
-            }
-            Ok(_) => {
-                // Cookie busy or other non-success — yield and retry.
-                agent.destroy();
-                crate::sched::yield_now();
-            }
-            Err(e) => {
-                crate::kprintln!("irq-device: run FAILED {e:?}");
-                agent.destroy();
-                return;
-            }
-        }
-    }
-    crate::kprintln!("irq-device: gave up waiting for cookie");
 }
 
 /// ADR-0044: thin-stack worker — exits after one yield.
