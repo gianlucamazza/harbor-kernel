@@ -34,10 +34,13 @@
 
 pub mod a64;
 pub mod agentstore;
+pub mod budget;
 pub mod bump;
 pub mod cap;
 pub mod delay;
+pub mod density;
 pub mod display;
+pub mod durable;
 pub mod font8x8;
 pub mod frame;
 pub mod gic;

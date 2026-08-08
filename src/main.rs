@@ -13,6 +13,7 @@ mod bootstrap;
 mod bsp;
 mod console;
 mod drivers;
+mod durable;
 mod ipc;
 mod irq;
 mod mm;

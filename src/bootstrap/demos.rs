@@ -1091,6 +1091,48 @@ pub(super) fn irq_device_agent_task() {
     crate::kprintln!("irq-device: gave up waiting for cookie");
 }
 
+/// ADR-0044: thin-stack worker — exits after one yield.
+pub(super) fn density_thin_task() {
+    crate::sched::yield_now();
+}
+
+static BUDGET_A: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+static BUDGET_B: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// ADR-0046: spin until budget expires, count turns.
+pub(super) fn budget_worker_a() {
+    for _ in 0..32 {
+        while !crate::sched::budget_expired() {
+            core::hint::spin_loop();
+        }
+        BUDGET_A.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        crate::sched::yield_now();
+        if BUDGET_A.load(core::sync::atomic::Ordering::Relaxed) >= 2
+            && BUDGET_B.load(core::sync::atomic::Ordering::Relaxed) >= 1
+        {
+            crate::kprintln!("budget: rotated");
+            return;
+        }
+    }
+}
+
+/// ADR-0046 peer of [`budget_worker_a`].
+pub(super) fn budget_worker_b() {
+    for _ in 0..32 {
+        while !crate::sched::budget_expired() {
+            core::hint::spin_loop();
+        }
+        BUDGET_B.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        crate::sched::yield_now();
+        if BUDGET_A.load(core::sync::atomic::Ordering::Relaxed) >= 1
+            && BUDGET_B.load(core::sync::atomic::Ordering::Relaxed) >= 2
+        {
+            // a prints rotated; b just exits.
+            return;
+        }
+    }
+}
+
 /// ADR-0040: park on RECV with a short tick timeout; no sender → Cancelled.
 pub(super) fn timeout_recv_task() {
     let Some(cap) = crate::sched::my_cap(0) else {

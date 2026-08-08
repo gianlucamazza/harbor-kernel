@@ -28,6 +28,7 @@ use kernel_core::cap::{CapId, SlotError};
 pub use kernel_core::runqueue::TaskId;
 use kernel_core::tasks::{Decision, Switch, Tasks};
 
+use kernel_core::density::{self, StackClass};
 use kernel_core::parktime;
 
 use crate::arch::cpu;
@@ -48,9 +49,9 @@ use crate::time;
 /// It went 12 → 14 when the loader landed, 14 → 16 for M8 console server +
 /// product beacon, 16 → 18 for the ADR-0025 reaping oracle, then 18 → 19 for the K1 irq-wait oracle (ADR-0028),
 /// 19 → 24 for K2/K3 oracles + K10 supervisor, 25 → 28 for transfer/cascade/resolve,
-/// 28 → 32 for EL0 transfer/timeout + IRQ device residual oracles (ADR-0041..0043).
+/// 28 → 40 for density/budget/durable residual oracles (ADR-0044..0046).
 /// Raising it costs task stacks and page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 32;
+pub const MAX_TASKS: usize = 40;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -60,8 +61,11 @@ const _: () = assert!(
 /// Caps a task may hold (M4 local table — not shared globals).
 pub const MAX_CAPS_PER_TASK: usize = 4;
 
-/// Usable stack bytes per spawned task (plus one guard page).
-const TASK_STACK_USABLE: usize = 16 * 1024;
+/// Cooperative quantum in timer ticks (ADR-0046 / K4).
+pub const BUDGET_QUANTUM_TICKS: u64 = 2;
+
+/// Slice start tick for the current task (set on switch-in).
+static SLICE_START: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 /// Per-slot resources. The *state* of a slot lives in [`Tasks`]; this is what
 /// the kernel has to own because it cannot be modelled on a host.
@@ -176,6 +180,11 @@ pub fn spawn(entry: fn()) -> Result<TaskId, SpawnError> {
     spawn_with_caps(entry, &[])
 }
 
+/// Thin-stack spawn (ADR-0044 / K5) — 4 KiB usable + guard.
+pub fn spawn_thin(entry: fn()) -> Result<TaskId, SpawnError> {
+    spawn_with_class(entry, &[], StackClass::Thin)
+}
+
 /// Create a ready task holding `caps` from slot 0 upwards (M4).
 ///
 /// Convenience over [`spawn_with_slots`] for the common case where the slots
@@ -198,10 +207,25 @@ pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError
 /// is refused rather than handed whatever sits next to the one it meant, and
 /// the boot oracle uses exactly that to show the refusal on the good path.
 pub fn spawn_with_slots(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, SpawnError> {
-    spawn_inner(entry, slots)
+    spawn_inner(entry, slots, StackClass::Full)
 }
 
-fn spawn_inner(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, SpawnError> {
+fn spawn_with_class(entry: fn(), caps: &[CapId], class: StackClass) -> Result<TaskId, SpawnError> {
+    if caps.len() > MAX_CAPS_PER_TASK {
+        return Err(SpawnError::TooManyCaps);
+    }
+    let mut slots = [None; MAX_CAPS_PER_TASK];
+    for (slot, &cap) in slots.iter_mut().zip(caps) {
+        *slot = Some(cap);
+    }
+    spawn_inner(entry, &slots, class)
+}
+
+fn spawn_inner(
+    entry: fn(),
+    slots: &[Option<CapId>],
+    class: StackClass,
+) -> Result<TaskId, SpawnError> {
     if STARTED.load(Ordering::Acquire) == 0 {
         return Err(SpawnError::NotStarted);
     }
@@ -209,7 +233,8 @@ fn spawn_inner(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, SpawnErro
         return Err(SpawnError::TooManyCaps);
     }
 
-    let stack = TaskStack::allocate(TASK_STACK_USABLE).map_err(SpawnError::Stack)?;
+    let usable = density::usable_bytes(class);
+    let stack = TaskStack::allocate(usable).map_err(SpawnError::Stack)?;
 
     // Restore rather than unmask: bootstrap spawns before the IRQ path is
     // necessarily live, and a caller that arrived here with IRQs masked must
@@ -436,6 +461,13 @@ static CASCADE_EVENTS: AtomicU32 = AtomicU32::new(0);
 #[inline]
 pub fn cascade_events() -> u32 {
     CASCADE_EVENTS.load(Ordering::Relaxed)
+}
+
+/// True when the current slice has consumed the cooperative quantum (ADR-0046).
+#[inline]
+pub fn budget_expired() -> bool {
+    let start = SLICE_START.load(Ordering::Relaxed);
+    kernel_core::budget::expired(start, time::ticks(), BUDGET_QUANTUM_TICKS)
 }
 
 /// Cooperative yield: requeue current, run the next ready task (or stay).
@@ -861,6 +893,8 @@ fn switch_with(kind: Switch) {
     }
 
     publish_el0(sched, to);
+    // ADR-0046: new slice for whoever we are about to run.
+    SLICE_START.store(time::ticks(), Ordering::Relaxed);
 
     let prev = &raw mut sched.tcbs[from.0 as usize].context;
     let next_ctx = &raw const sched.tcbs[to.0 as usize].context;

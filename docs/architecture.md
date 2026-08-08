@@ -275,11 +275,11 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 
 | Snapshot | Tracks |
 | --- | --- |
-| **done (QEMU)** H1 entry + residuals | K1–K3, K2 timeout, K9 map+IRQ agent, K10, K6, P1–P2, P5–P6 (+ EL0 transfer/timeout) |
-| **H1 next** | K5 density · (P3\|P4 as needed) · HW stamps |
-| **H2 depth** | K4 preemption, K7 ASID, K8 SMP, remaining P depth |
-| **open (kernel)** | K4, K5, K7, K8, peer EL0 transfer, resolve grant |
-| **open (product)** | P2 media residual, P3 network, P4 display product |
+| **done (QEMU)** | H1 entry + K5 thin stacks + P2 durable + K4 budget + lifecycle residuals |
+| **H1 next** | HW stamps · P3\|P4 only with composition (deferred) |
+| **H2 depth** | K4 IRQ preemption residual; K7/K8 code after design ADRs |
+| **open (kernel)** | K4 preemption, K7/K8 code, peer transfer, resolve grant |
+| **open (product)** | P2 SD residual, P3/P4 deferred (ADR-0049) |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
 K/P tables here. Horizon mapping and working order also live in `roadmap.md`.
@@ -336,6 +336,12 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0041](adr/0041-el0-cap-transfer.md) | K3 residual: EL0 SYS_TRANSFER (**accepted**) |
 | [ADR-0042](adr/0042-el0-recv-timeout.md) | K2 residual: EL0 SYS_RECV_TIMEOUT (**accepted**) |
 | [ADR-0043](adr/0043-k9-irq-device-agent.md) | K9 residual: IRQ-cap device agent (**accepted**) |
+| [ADR-0044](adr/0044-k5-agent-density.md) | K5: thin stacks (**accepted**) |
+| [ADR-0045](adr/0045-p2-durable-store.md) | P2 durable region (**accepted**) |
+| [ADR-0046](adr/0046-k4-cooperative-cpu-budget.md) | K4 cooperative budget (**accepted**) |
+| [ADR-0047](adr/0047-k7-asid-isolation-design.md) | K7 ASID design (**accepted**) — code deferred |
+| [ADR-0048](adr/0048-k8-smp-design.md) | K8 SMP design (**accepted**) — code deferred |
+| [ADR-0049](adr/0049-deferred-residuals.md) | Deferred residuals policy (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

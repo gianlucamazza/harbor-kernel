@@ -7,7 +7,7 @@
 pub const MAX_WAITERS: usize = 8;
 
 /// Task id space for pending bits (must cover the kernel's `MAX_TASKS`).
-pub const MAX_TASK_IDS: usize = 32;
+pub const MAX_TASK_IDS: usize = 64;
 
 /// Why [`WaitTable::arm`] refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

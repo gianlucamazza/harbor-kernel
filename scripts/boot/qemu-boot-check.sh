@@ -332,6 +332,15 @@ grep -qa 'el0-timeout: cancelled' "${log}" ||
 # ADR-0043 / K9 residual: IRQ-cap device agent.
 grep -qa 'irq-device: woke' "${log}" ||
 	fail "IRQ device agent did not wait successfully (ADR-0043)"
+# ADR-0044 / K5: thin stack density.
+grep -qaE 'density: thin n=[1-9]' "${log}" ||
+	fail "thin-stack density workers did not spawn (ADR-0044)"
+# ADR-0045 / P2 durable reload.
+grep -qa 'durable: reloaded' "${log}" ||
+	fail "durable store did not round-trip (ADR-0045)"
+# ADR-0046 / K4 cooperative budget.
+grep -qa 'budget: rotated' "${log}" ||
+	fail "cooperative budget did not rotate workers (ADR-0046)"
 
 # ADR-0021: agents are data, and authority is one entry in a table.
 #

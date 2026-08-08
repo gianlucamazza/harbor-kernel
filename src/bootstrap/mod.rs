@@ -663,6 +663,43 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("irq-device: mint FAILED {e:?}"),
         }
 
+        // ADR-0044 / K5: thin-stack density workers.
+        {
+            let mut n = 0u32;
+            for _ in 0..3 {
+                match crate::sched::spawn_thin(demos::density_thin_task) {
+                    Ok(_) => n += 1,
+                    Err(_) => break,
+                }
+            }
+            let each = kernel_core::density::bytes_per_task(kernel_core::density::StackClass::Thin);
+            crate::kprintln!("density: thin n={n} bytes_each={each}");
+        }
+
+        // ADR-0045 / P2 durable: put → get from durable region (no host inject).
+        match crate::durable::put(b"cfg", b"persist") {
+            Ok(()) => {
+                let mut out = [0u8; 16];
+                match crate::durable::get(b"cfg", &mut out) {
+                    Ok(len) if &out[..len] == b"persist" => {
+                        crate::kprintln!("durable: reloaded");
+                    }
+                    Ok(_) => crate::kprintln!("durable: bad payload"),
+                    Err(e) => crate::kprintln!("durable: get FAILED {e:?}"),
+                }
+            }
+            Err(e) => crate::kprintln!("durable: put FAILED {e:?}"),
+        }
+
+        // ADR-0046 / K4: cooperative budget rotation.
+        match crate::sched::spawn_thin(demos::budget_worker_a) {
+            Ok(_) => match crate::sched::spawn_thin(demos::budget_worker_b) {
+                Ok(_) => crate::kprintln!("budget: workers spawned"),
+                Err(e) => crate::kprintln!("budget: worker-b FAILED {e:?}"),
+            },
+            Err(e) => crate::kprintln!("budget: worker-a FAILED {e:?}"),
+        }
+
         // ADR-0032 / K3: a task that holds SEND revokes the channel; bootstrap
         // then proves the stale CapId refuses send (product path, not forged).
         match crate::ipc::create_channel() {

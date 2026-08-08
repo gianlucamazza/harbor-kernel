@@ -45,7 +45,7 @@ GUARD_PAGE_SIZE = 0x1000;
    growing with `.text`; `bootstrap::run` refuses to boot if it ever does not,
    and names this symbol when it does. */
 /* Sized for MAX_TASKS (sched) + kernel map + reserve (bootstrap MIN_SPARE_TABLES). */
-PAGE_TABLE_ARENA_SIZE = 64 * 0x1000;
+PAGE_TABLE_ARENA_SIZE = 80 * 0x1000;
 
 STACK_SIZE = 0x10000;
 
@@ -102,6 +102,16 @@ SECTIONS
         . = ALIGN(8);
         __bss_end = .;
     }
+
+    /* Durable store (ADR-0045): NOLOAD, *after* BSS so boot.s does not clear
+       it, but still under `__data_end` so the kernel RW map covers it. */
+    . = ALIGN(0x1000);
+    .durable_store (NOLOAD) : {
+        __durable_store_start = .;
+        . = . + 0x1000;
+        __durable_store_end = .;
+    }
+
     . = ALIGN(0x1000);
     __data_end = .;
 

@@ -82,11 +82,11 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | K1 | Wait-on-IRQ (first-class) | **done (QEMU)** ([ADR-0028](adr/0028-wait-on-irq.md) EL1 + [ADR-0030](adr/0030-el0-irq-capability.md) EL0) | EL1 `wait_for_irq`; EL0 `SYS_WAIT_IRQ` via IRQ notification cap; oracle `irq-wait: woke` + `el0-irq: woke` | ADR-0008 → 0028 → 0030 |
 | K2 | Park reclaim (timeout and/or auto-reap on last send drop) | **done (QEMU)** ([ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md) + [ADR-0040](adr/0040-k2-park-timeout.md) + [ADR-0042](adr/0042-el0-recv-timeout.md) EL0) | Last SEND hold drop; EL1/EL0 tick timeout → Cancelled | 0025 → 0031 → 0040 → 0042 |
 | K3 | Cap transfer / revoke / endpoint release | **done (QEMU)** ([ADR-0032](adr/0032-k3-channel-revoke.md) + [ADR-0037](adr/0037-k3-cap-transfer.md) + [ADR-0041](adr/0041-el0-cap-transfer.md)); peer TaskId residual | Revoke; EL1 transfer; EL0 self/creator move | 0017 → 0032 → 0037 → 0041 |
-| K4 | Preemption or CPU budget | **open** | Hostile busy-loop is not permanent DoS residual | Successor to ADR-0006; name agent-pair impact (0023) |
-| K5 | Agent density (shrink/collapse driver half) | **open** | Many small agents without 16 KiB kernel stack each by default | Successor to ADR-0023 |
+| K4 | Preemption or CPU budget | **done (QEMU)** first slice ([ADR-0046](adr/0046-k4-cooperative-cpu-budget.md) cooperative quantum); IRQ preemption residual | Tick quantum + voluntary yield; no IRQ switch | 0006 → 0046 |
+| K5 | Agent density (shrink/collapse driver half) | **done (QEMU)** first slice ([ADR-0044](adr/0044-k5-agent-density.md) thin stacks); driver-half collapse residual | `spawn_thin` 4 KiB stacks; pure density arithmetic | 0023 → 0044 |
 | K6 | External agent load + byte manifest | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement) | Image store inject; product prefers store, oracle empty → builtin | ADR-0021 → 0027 → 0029 |
-| K7 | ASID (+ TTBR1 if required) | **open** | Production isolation without cloned-kernel-only story as the end state | Design ADR |
-| K8 | SMP | **open** | Multi-core runqueue/IRQ model on silicon | Design ADR |
+| K7 | ASID (+ TTBR1 if required) | **in design** ([ADR-0047](adr/0047-k7-asid-isolation-design.md) accepted; code deferred) | ASID pool + CONTEXTIDR on switch | 0014 → 0047 |
+| K8 | SMP | **in design** ([ADR-0048](adr/0048-k8-smp-design.md) accepted; code deferred) | Unpark secondary + per-core queues | 0006 → 0048 |
 | K9 | Driver-as-agent beyond PL011 (+ IRQ caps) | **done (QEMU)** ([ADR-0034](adr/0034-k9-rng-driver-agent.md) map + [ADR-0043](adr/0043-k9-irq-device-agent.md) IRQ wait agent) | Map agent + IRQ-cap-only wait agent | 0013 → 0034 → 0043 |
 | K10 | Supervisor lifecycle (restart, creator exit) | **done (QEMU)** ([ADR-0033](adr/0033-k10-supervisor-reap.md) reap + [ADR-0038](adr/0038-k10-creator-exit-cascade.md) cascade); force-kill Running later | `supervisor_reap_blocked`; exit cascades cancel of blocked children | 0018/0025 → 0033 → 0038 |
 
@@ -100,9 +100,9 @@ not as a growing special-case syscall surface ([vision](vision.md) shape).
 | ID | Track | Status | Done when (sketch) | Typical deps | Horizon |
 | --- | --- | --- | --- | --- | --- |
 | P1 | Multi-agent product image beyond beacon | **done (QEMU)** first slice (beacon + chirp in store) | Product store n≥2; both run via console endpoint | ADR-0027/0029 | H1 |
-| P2 | Storage path (block + load/persist) | **done (QEMU)** first slice ([ADR-0036](adr/0036-p2-keyed-blob-store.md) keyed blobs); SD/media + EL0 residual | On-target put/get without host inject of that payload | ADR-0036 (after K6) | H1 (appliance) → H2 depth |
-| P3 | Network agent + caps | **open** | Network I/O only via granted caps; no ambient net | K1/K9 helpful | H1 edge gateway → H2 |
-| P4 | Display/input product path | **open** | Product-grade path (may graduate `debug-display` discipline) | Device agents; optional after K9 | H1 lab UI → H2 |
+| P2 | Storage path (block + load/persist) | **done (QEMU)** ([ADR-0036](adr/0036-p2-keyed-blob-store.md) RAM + [ADR-0045](adr/0045-p2-durable-store.md) durable region); SD/power-cycle + EL0 residual | Put/get + durable section reload | 0036 → 0045 | H1 → H2 |
+| P3 | Network agent + caps | **open** — deferred ([ADR-0049](adr/0049-deferred-residuals.md): no composition target) | Network I/O only via granted caps | K1/K9 helpful | H1 edge → H2 |
+| P4 | Display/input product path | **open** — deferred ([ADR-0049](adr/0049-deferred-residuals.md): no composition target) | Product path beyond `debug-display` | Device agents | H1 UI → H2 |
 | P5 | Naming / discovery / system services | **done (QEMU)** ([ADR-0035](adr/0035-p5-name-registry.md) EL1 + [ADR-0039](adr/0039-p5-el0-resolve.md) `SYS_RESOLVE`) | Bind/resolve; EL0 installs into empty slot | ADR-0035 → 0039 | H1 composition → H2 |
 | P6 | Compose/audit tooling | **done (QEMU)** first slice (pack / inject / inspect) | Host tools for store composition and audit | P1 | H1 |
 
@@ -115,13 +115,14 @@ its design ADR before boundary code.
 
 | Step | Track(s) | Why now (mission fit) |
 | --- | --- | --- |
-| 1 | **K5** density | Scale agent count when stacks/arena press (H1 scale-ready) |
-| 2 | **P3** / **P4** as needed | Edge net / product display only with a concrete composition |
-| — | **P2 media / EL0 storage** (later) | SD/eMMC + storage caps |
-| — | **Peer EL0 transfer** / resolve grant | Later ABI policy |
-| — | **HW stamps** (H1 QEMU → Pi) | Evidence depth, not new mechanism |
+| 1 | **HW stamps** (H1 QEMU → Pi) | Evidence depth for done (HW) claims |
+| 2 | **K4** IRQ preemption / **K7** ASID / **K8** SMP code | H2 depth after design ADRs |
+| — | **P3** / **P4** | Deferred — no composition target (ADR-0049) |
+| — | **P2 SD/power-cycle** / EL0 storage | True media residual |
+| — | Peer transfer / resolve grant | ADR-0049 |
 
-**H1 entry (QEMU) is closed.** Remaining work is scale (K5), optional product (P3/P4), durable media, silicon stamps, then H2.
+**H1 entry + scale + cooperative budget + durable region are paid at QEMU.**
+P3/P4 deferred without composition target. H2 design accepted; code next.
 
 **H2 (after or interleaved when design is ready):** **K4** preemption/budget,
 **K7** ASID/TTBR1, **K8** SMP — production fairness and isolation depth, not
@@ -134,10 +135,10 @@ Mission: agents · grants · evidence · finish the OS
                 │
     H0 foundation ████████ done (HW)
                 │
-    H1 composition ████████ entry paid (QEMU) + lifecycle residuals
-                │          next: K5 · (P3|P4 as needed) · HW stamps
+    H1 composition ████████ entry + K5 thin + durable + budget (QEMU)
+                │          next: HW stamps · P3/P4 if composition
                 │
-    H2 boundary    ░░░░░░░░ K4 K7 K8 + remaining P depth
+    H2 boundary    ░░██████ K4 budget done; K7/K8 design; preemption/SMP code open
 ```
 
 ---
