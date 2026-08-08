@@ -12,7 +12,7 @@ correct picture:
 | --- | --- | --- | --- |
 | 1 | Mission, objectives, stack | [root README](../README.md) | 2 |
 | 2 | What is an *agent* here (it is not an LLM) | [glossary](glossary.md), then [architecture § How Harbor differs](architecture.md#how-harbor-differs-from-a-traditional-kernel) | 2 |
-| 3 | Where it is going, and what is actually done | [roadmap § H1 working order](roadmap.md#h1-working-order-product-critical-path) | 1 |
+| 3 | Where it is going, and what is actually done | [roadmap § H1 working order](roadmap.md#next-working-order-post-h1-hw-stamp) | 1 |
 | 4 | Why any of it should be believed | [verification](verification.md) — **index only**, do not read it through | — |
 
 Depth after that: [`architecture.md`](architecture.md) (normative model),
@@ -52,7 +52,7 @@ Depth after that: [`architecture.md`](architecture.md) (normative model),
 | [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness as goal | Per-track design |
 | `SECURITY.md` | Threat model, authority surface, residuals | Roadmap ordering |
 | `docs/verification.md` | Gates, transcripts, blind spots | Normative design |
-| `docs/adr/*.md` | Immutable structural decisions | Live dashboard |
+| `docs/adr/*.md` | Immutable structural decisions (`amended:` reconciliations per ADR-0058) | Live dashboard |
 | `docs/reviews/*.md` | Dated findings | Current truth after later fixes |
 | `docs/design/*.md` | Design contracts | Completion claims without evidence |
 | `scripts/README.md` | Script taxonomy | Kernel architecture |
@@ -113,7 +113,7 @@ Do **not** treat this block as a second status table — it only steers readers.
 | **H0 foundation** | **done (HW)** on Pi 4B (M0–M8 + parked cancel) |
 | **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification) |
 | **H1 next** | P3\|P4 if composition · SD power-cycle · IRQ preemption code |
-| **H2** | K7 first slice QEMU; K4/K8 design; preemption/SMP code open |
+| **H2** | K7 first slice QEMU; K4 budget done (HW), preemption design; K8 design; SMP code open |
 | **Standing watch** | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020 |
 
 ## Decision records and reviews

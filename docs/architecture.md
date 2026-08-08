@@ -358,6 +358,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0058](adr/0058-adr-amendments-and-mutation-freshness.md)        | ADR amendments + mutation freshness (**accepted**)                                                                             |
 | [ADR-0059](adr/0059-typed-cap-classification.md) | Typed cap classification (**accepted**) |
 | [ADR-0060](adr/0060-syscall-reply-layer.md) | Syscall reply layer (**accepted**) |
+| [ADR-0061](adr/0061-refusal-detail-taxonomy.md) | Refusal detail in x1 (**accepted**) |
 | [`docs/reviews/`](reviews/)                                          | Pass outcomes (findings), not decisions                                                                                        |
 
 ## Non-goals

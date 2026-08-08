@@ -29,7 +29,8 @@ not evidence; `done (QEMU)` and `done (HW)` are different claims.
 - [ ] Introduces a **term a reader would guess wrong**? → row in
       `docs/glossary.md`
 - [ ] Moves a **boundary**? → design ADR accepted first (`docs/adr/`);
-      accepted ADRs are immutable, change them with a successor
+      accepted ADRs are immutable, change them with a successor (narrow
+      `amended:` reconciliations per ADR-0058)
 - [ ] Adds a **gate**? → wired into `make check` and the README `make check`
       line (`make doc-claims` compares them)
 

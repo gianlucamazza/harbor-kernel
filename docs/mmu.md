@@ -102,7 +102,7 @@ so W^X holds inside a user window exactly as it does in the kernel map, with
 Until [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md) the geometry was
 one BSP constant: one page of text, three of stack, the same for every agent.
 That was the ABI, because with no loader there was nothing to negotiate with. It
-is now whatever a manifest entry declares, up to `mm::MAX_TEXT_PAGES` (16, so
+is now whatever a manifest entry declares, up to `mm::aspace::MAX_TEXT_PAGES` (16, so
 64 KiB) — and `USER_STACK_PAGES` in the BSP survives only as the *default* an
 `AddressSpace::create` gets when nobody asks.
 
@@ -150,10 +150,13 @@ Derived from the linker symbols by `mm::layout::kernel_regions`:
 | **guard page**                      | —             | **unmapped**      |
 | kernel stack, `SP_EL0` (64 KiB)     | Normal WB     | RW, no execute    |
 | heap                                | Normal WB     | RW, no execute    |
+| frame pool (ADR-0012 carve-out)     | Normal WB     | RW, no execute    |
 | peripherals (`0xFE00_0000`, 16 MiB) | Device-nGnRnE | RW, no execute    |
 | GIC (`0xFF84_0000`, 16 KiB)         | Device-nGnRnE | RW, no execute    |
 
-Anything else faults. Tables come from a 128 KiB arena reserved by `link.ld`.
+Anything else faults. Tables come from a 320 KiB arena (80 tables) reserved
+by `link.ld` — grown from 128 KiB when the reserve derived from
+`sched::MAX_TASKS = 40` outgrew it.
 How many are used moves with `.text`, so the number is not written down here:
 `mmu::tables_remaining()` is printed at boot, and `bootstrap` refuses to boot if
 what is left is under the reserve it derives from `sched::MAX_TASKS` — that

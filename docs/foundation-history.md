@@ -31,6 +31,8 @@ serial transcript, not in emulation.
 | M4  | IPC + capabilities                                       | **done (HW)**                                                       |
 | M5  | EL0 agents                                               | **done (HW)**                                                       |
 | M6  | Driver-as-agent                                          | **done (HW)** page map + FR + kill; **RX own done (HW)** 2026-08-06 |
+| M7  | Slot ABI + blocking recv + manifest loader               | **done (HW)** 2026-08-07                                            |
+| M8  | Console endpoint + beacon + parked-wait cancel           | **done (HW)** 2026-08-08 stamp                                      |
 
 **M** milestones add capability. **P** milestones add protection or evidence and
 add no capability at all: they are numbered separately because "the kernel can

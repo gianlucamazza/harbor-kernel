@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Boot the product image (no oracle) and assert the M8/P1 product path runs.
 #
-# Complements `check-product-image.sh` (static) with a QEMU smoke: server up,
+# Complements the static half of `product-image.sh` (marker + symbol check)
+# with a QEMU smoke: server up,
 # multi-agent store injected into the image (ADR-0029), agents ran.
 set -euo pipefail
 

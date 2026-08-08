@@ -53,3 +53,7 @@ SMP TLB shootdown (K8); full production isolation measurement.
 ## Deferral
 
 Code deferred: needs careful exception/TTBR interaction; not required for H1 entry.
+
+**Amended 2026-08-08** (ADR-0058 convention): slice items and the oracle
+definition reconciled with the landed first slice —
+[ADR-0050](0050-k7-asid-first-slice.md), commit `560ba4e`.

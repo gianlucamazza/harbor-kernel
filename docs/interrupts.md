@@ -165,8 +165,8 @@ immediately. One state — _armed, no view_ — and both handover orders once pa
 through it.
 
 The rules are [`kernel_core::rxline`](../crates/kernel-core/src/rxline.rs),
-which decides and does not act: `suspend` and `resume` return the steps, and
-`console` performs them. That is what lets a host test walk the line through
+which decides and does not act: `plan_install` / `plan_suspend` /
+`plan_resume` return the steps and `console` applies them (`apply`). That is what lets a host test walk the line through
 every intermediate state and ask, after each one, whether an interrupt arriving
 at that instant could still be cleared — swapping either pair makes it red at
 the exact step.

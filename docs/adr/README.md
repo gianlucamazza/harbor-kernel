@@ -10,7 +10,10 @@ Structural decisions. Lifecycle:
    Alternatives.
 2. A human accepts it, possibly with refinements → `accepted`.
 3. An `accepted` ADR is **immutable**. To change it, write a successor and mark
-   the old one `superseded` (linked through `related`).
+   the old one `superseded` (linked through `related`). One narrow exception
+   ([ADR-0058](0058-adr-amendments-and-mutation-freshness.md)): a
+   reconciliation amendment that aligns stated mechanism with a landed slice,
+   marked by an `amended:` frontmatter bump and a note naming the reconciler.
 
 Numbering is monotonic; never renumber. Prefer a separate `docs:` commit from
 the code that follows.
@@ -77,6 +80,7 @@ the code that follows.
 | [0058](0058-adr-amendments-and-mutation-freshness.md)        | Process — ADR amendments and mutation freshness                                              | accepted   |
 | [0059](0059-typed-cap-classification.md) | Typed capability classification (CapClass) | accepted |
 | [0060](0060-syscall-reply-layer.md) | Syscall reply layer as a pure machine | accepted |
+| [0061](0061-refusal-detail-taxonomy.md) | Refusal detail taxonomy in x1 | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

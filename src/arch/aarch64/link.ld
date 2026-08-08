@@ -39,11 +39,11 @@ GUARD_PAGE_SIZE = 0x1000;
 
    The reserve is no longer a written-down number: `bootstrap` derives
    `MIN_SPARE_TABLES` from `sched::MAX_TASKS`, because the two had drifted to 4
-   and 12 and the reserve was under-counting by 3×. At `MAX_TASKS = 12` that is
-   14 tables, so the arena must hold what `activate` and the DTB consume (seven,
-   as the boot line reports) plus those 14. Thirty-two leaves margin for the map
-   growing with `.text`; `bootstrap::run` refuses to boot if it ever does not,
-   and names this symbol when it does. */
+   and 12 and the reserve was under-counting by 3×. At `MAX_TASKS = 40` the
+   reserve is 42 tables, so the arena must hold what `activate` and the DTB
+   consume (seven, as the boot line reports) plus those 42. Eighty leaves
+   margin for the map growing with `.text`; `bootstrap::run` refuses to boot if
+   it ever does not, and names this symbol when it does. */
 /* Sized for MAX_TASKS (sched) + kernel map + reserve (bootstrap MIN_SPARE_TABLES). */
 PAGE_TABLE_ARENA_SIZE = 80 * 0x1000;
 

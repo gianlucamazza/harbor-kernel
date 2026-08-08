@@ -36,7 +36,7 @@ framework. Unfamiliar vocabulary: [`docs/glossary.md`](docs/glossary.md).
 | Horizon                             | Product outcome                                                                                      | State                                      |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | **H0 — Foundation**                 | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 driver-agent, blocking recv, console + beacon, cancel | **done (HW)**                              |
-| **H1 — Composition / appliance OS** | A multi-agent product you can compose and load, with an early device and supervisor story            | **in progress** — first slices done (QEMU) |
+| **H1 — Composition / appliance OS** | A multi-agent product you can compose and load, with an early device and supervisor story            | **done (HW)** — stamp 2026-08-08; residuals carry into H2 |
 | **H2 — Boundary OS**                | Fair execution, denser agents, production isolation, multi-core, remaining platform paths            | later                                      |
 
 Completeness of the kernel (**K**) and the product OS (**P**) is the goal, not a
@@ -94,7 +94,7 @@ Snapshot, 2026-08-08 — status of record is [`docs/roadmap.md`](docs/roadmap.md
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Foundation**             | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits |
 | **H1 slices**              | done (HW): wait-on-IRQ (**K1**), auto-reap (**K2**), RNG (**K9**), supervisor (**K10**), names ambient era (**P5**) · done (QEMU): store (**K6**), revoke + peer transfer (**K3**), multi-agent (**P1**), resolve-grant (**P5**), compose (**P6**) |
-| **H1 next**                | Storage — [roadmap](docs/roadmap.md)                                                                                                                                    |
+| **Next**                   | P2 SD/power-cycle on Pi *or* K4 preemption code — [roadmap](docs/roadmap.md)                                                                                                                                    |
 | **Not yet (later)**        | IRQ preemption, SMP, ASID residuals (TTBR1/HW stamp), full product net/display depth, …                                                                                 |
 
 **What works today (short list):** cooperative tasks; message IPC; EL0 agents
@@ -108,7 +108,7 @@ auto-reap (ephemeral channels); channel revoke (stale CapId refused).
 | Execution    | Cooperative only — preemption/SMP **open**                                                             |
 | Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade |
 | Product OS   | Multi-agent store composition (QEMU); broader services **open**                                        |
-| Verification | 372 host tests, model checks, Miri, QEMU and hardware stamps                                           |
+| Verification | 373 host tests, model checks, Miri, QEMU and hardware stamps                                           |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

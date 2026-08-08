@@ -9,13 +9,16 @@
 //! | -------------- | ------- | ------- | ------- | ------- | ---------- | ------------- |
 //! | `SYS_PING`     | —       | —       | —       | —       | unchanged  | unchanged     |
 //! | `SYS_EXIT`     | —       | —       | —       | —       | —          | —             |
-//! | `SYS_SEND`     | slot    | tag     | a       | b       | [`Status`] | unchanged     |
-//! | `SYS_RECV`     | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
-//! | `SYS_TRY_RECV` | slot    | —       | —       | —       | [`Status`] | tag, a, b     |
-//! | `SYS_WAIT_IRQ` | slot    | —       | —       | —       | [`Status`] | unchanged     |
-//! | `SYS_RESOLVE`  | slot    | name_len| name_le | —       | [`Status`] | unchanged     |
-//! | `SYS_TRANSFER` | from    | to_slot | dest    | peer_slot*| [`Status`] | unchanged     |
-//! | `SYS_RECV_TIMEOUT` | slot | ticks  | —       | —       | [`Status`] | tag, a, b     |
+//! | `SYS_SEND`     | slot    | tag     | a       | b       | [`Status`] | detail†       |
+//! | `SYS_RECV`     | slot    | —       | —       | —       | [`Status`] | tag, a, b / detail† |
+//! | `SYS_TRY_RECV` | slot    | —       | —       | —       | [`Status`] | tag, a, b / detail† |
+//! | `SYS_WAIT_IRQ` | slot    | —       | —       | —       | [`Status`] | detail†       |
+//! | `SYS_RESOLVE`  | slot    | name_len| name_le | —       | [`Status`] | detail†       |
+//! | `SYS_TRANSFER` | from    | to_slot | dest    | peer_slot*| [`Status`] | detail†       |
+//! | `SYS_RECV_TIMEOUT` | slot | ticks  | —       | —       | [`Status`] | tag, a, b / detail† |
+//!
+//! † on an `Authority` refusal, `x1` carries the [`crate::reply::RefusalDetail`]
+//! code (ADR-0061); `x2`/`x3` stay the agent's own.
 //!
 //! Imm 2 is **unused** (formerly transitional `SYS_PUTC`, removed in M8). It
 //! decodes as [`Syscall::Unknown`] so a stale agent image that still issues
@@ -25,11 +28,11 @@
 //! any other register is the agent's own context, which answering a syscall has
 //! no business changing.
 //!
-//! `x1..x3` carry a payload **only when `x0` is [`Status::Ok`]**. On a refusal
-//! the kernel writes the status and stops, so those registers keep whatever the
-//! agent had in them — it is not handed stale kernel data, and it is not
-//! handed zeroes either. An agent that reads them without checking `x0` is
-//! reading its own scratch.
+//! A *payload* (`x1..x3`) arrives **only when `x0` is [`Status::Ok`]**. On an
+//! `Authority` refusal the kernel additionally writes the reason into `x1`
+//! (ADR-0061) — a refusal reason is a reply, not stale kernel data — and
+//! leaves `x2`/`x3` as the agent's own. An agent that reads `x2`/`x3` without
+//! checking `x0` is reading its own scratch.
 
 /// `svc #0` — ping / presence.
 pub const SYS_PING: u16 = 0;

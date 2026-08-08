@@ -85,8 +85,8 @@ If a word here does not mean what you expect — **agent** most of all — start
 | Evidence ≠ compile | Boundaries stay claims with gates |
 
 Open work that realises these at scale (design ADR before code): **peer** cap
-transfer (K3 residual), **K5** driver-half collapse residual (thin stacks done
-QEMU), **K4** IRQ-side preemption residual (cooperative budget done QEMU),
+transfer depth residuals, **K5** driver-half collapse residual (thin stacks done
+HW), **K4** IRQ-side preemption residual (cooperative budget done HW),
 SMP code (**K8**, design accepted), product network/display only with a
 composition target (**P3**, **P4** deferred), P2 SD/power-cycle residual. First
 slices paid: external load (**K6**), IRQ wait EL1+EL0 (**K1**), last-SEND-hold
@@ -168,13 +168,13 @@ residuals, **K5** thin stacks, **P2** durable region, **K4** cooperative budget)
 Still open: network (**P3**) and product display (**P4**) **only when a
 composition needs them** (deferred without a target); P2 SD/power-cycle;
 **K5** driver-half collapse residual; **HW stamps**; then H2 code. Working order:
-[roadmap § H1 working order](roadmap.md#h1-working-order-product-critical-path).
+[roadmap § H1 working order](roadmap.md#next-working-order-post-h1-hw-stamp).
 
 ### H2 — Boundary operating system
 
 Remaining **K** and **P** for full boundary-OS depth: **IRQ preemption code** on
 **K4** (budget done HW; design [ADR-0051](adr/0051-k4-irq-preemption-design.md)),
-**K7** residuals (TTBR1 / HW TLB stamp), **K8** SMP code, peer transfer code
+**K7** residuals (TTBR1 / HW TLB stamp), **K8** SMP code, peer transfer HW stamp
 ([ADR-0053](adr/0053-k3-peer-transfer-design.md)), denser-agent remainder, and
 remaining product-path depth. Resolve-grant is done QEMU
 ([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this model —

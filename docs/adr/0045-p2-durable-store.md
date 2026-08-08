@@ -57,3 +57,7 @@ soft-reload story re-`get` from the region after other state is discarded.
 | --- | --- |
 | Host encode/decode | unit tests |
 | QEMU put then get from section | `durable: reloaded` |
+
+**Amended 2026-08-08** (ADR-0058 convention): residual wording reconciled with
+the shipped first slices (commit `fd7a4d0`, "docs: align … with shipped first
+slices").

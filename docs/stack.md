@@ -116,7 +116,7 @@ Four levels, in increasing cost and increasing authority
 
 Structural gates (`layering`, `arch-board-free`, `irq-scope`, `no-static-mut`,
 `no-simd`, `no-early-exclusives`, `board-guard`) and documentation gates
-(`doc-claims`, `doc-symbols`, `xrefs`) run in the same `make check`, which is a
+(`doc-claims`, `doc-symbols`, `xrefs`, `roadmap-evidence`) run in the same `make check`, which is a
 deliberate superset of CI: a local green must predict a remote one.
 
 **`done (QEMU)` and `done (HW)` are different words on purpose.** Status

@@ -32,12 +32,12 @@ Just arriving at the project: the [root README](../README.md) and the
 | Bounded model check (in `make test`)                            | Replays every operation sequence to a bound                       | The scheduler's invariants and the authority core's agreement with a reference implementation, over all sequences rather than chosen ones                                                                                           | Anything outside `kernel_core::{tasks, ipc}`, anything past the bound, and any `unsafe` — the walk is over safe code                                                                                                                                                                                                                                             |
 | Bring-up build (`make bringup-builds`)                          | Compiles and lints `--features bringup`                           | A configuration nothing else builds, and the one you reach for when the board will not talk                                                                                                                                         | Anything the gates do not _run_ — it compiles, it is not executed                                                                                                                                                                                                                                                                                                |
 | No-SIMD guard (`make no-simd`)                                  | Disassembles the linked image                                     | A build that silently regains FP/SIMD                                                                                                                                                                                               | FP that never reaches the image                                                                                                                                                                                                                                                                                                                                  |
-| No-`static mut` (`make no-static-mut`)                          | Greps `src/**/*.rs` for declarations                              | A `static mut` reintroduced after ADR-0019 landed the last one as an `AtomicPtr`                                                                                                                                                    | Prose that names the form. The `-> &'static mut` accessor shape is now refused too (one argued exception: `el0::current`); coupling that is neither a declaration nor that shape stays review's                                                                                                                                                                                                                                                                                                    |
+| No-`static mut` (`make no-static-mut`)                          | Greps `src/` and `crates/` for declarations and `-> &'static mut` signatures                              | A `static mut` reintroduced after ADR-0019 landed the last one as an `AtomicPtr`                                                                                                                                                    | Prose that names the form. The `-> &'static mut` accessor shape is now refused too (one argued exception: `el0::current`); coupling that is neither a declaration nor that shape stays review's                                                                                                                                                                                                                                                                                                    |
 | IRQ scope (`make irq-scope`)                                    | Walks each `cpu::without_irqs(` region brace-by-brace             | A task switch inside a masked region — the `DAIF` pair would span it and hand the next task this task's mask. Also refuses raw `cpu::irq_save()` outside `cpu.rs` and `sched`                                                       | Indirect switches: a call that parks three frames down is invisible to a lexical check. The two allowed raw-`irq_save` regions (the primitive itself; `switch_with`) cannot be walked — they legitimately contain the switch — so they stay review's job                                                                                                         |
 | Pre-MMU path (`make no-early-exclusives`)                       | Disassembles `_start` and its callees                             | Atomic read-modify-write before translation is on, the path growing, and any indirect branch on it                                                                                                                                  | Nothing on that path: an edge it cannot follow is refused rather than skipped                                                                                                                                                                                                                                                                                    |
 | QEMU boot (`make boot-check`)                                   | Boots the image, asserts on the log                               | MMU activation, allocator reclaim, timer IRQ, WFI idle, unhandled interrupts, panics                                                                                                                                                | **Memory attributes.** Also cache behaviour, real clocks, firmware state. RNG200 is not modelled on `raspi4b` — init reports `NotPresent` via `arch::probe`, not a successful FIFO read. **CI note:** Ubuntu apt QEMU (≤8.2) lacks the `raspi4b` machine; GitHub Actions wraps an Arch-packaged QEMU that includes it. Local Arch/QEMU ≥9 already has `raspi4b`. |
 | Doc symbols (`make doc-symbols`)                                | Module paths in the descriptive docs                              | A sentence that names `a::b::NAME` after `NAME` moved to another module — path-aware, because the symbol usually still exists somewhere                                                                                             | ADRs and reviews, which are dated records; anything named without a module path                                                                                                                                                                                                                                                                                  |
-| Doc claims (`make doc-claims`)                                  | Compares the docs against the source for facts written twice      | The `make check` gate list, the host test count, the module lists, the ADR dates, and the **set** of syscalls in `SECURITY.md`'s authority table — a call the kernel decodes and the threat model omits is a call nobody considered | Whether a claim is _true_, only whether the two copies agree. `4 \| SYS_RECV \| (non-blocking)` stayed green the day `SYS_RECV` learned to block: the row was there and the number was right                                                                                                                                                                     |
+| Doc claims (`make doc-claims`)                                  | Compares the docs against the source for facts written twice      | The `make check` gate list, the host test count, the module lists, the ADR dates, and the **set** of syscalls in `SECURITY.md`'s authority table — a call the kernel decodes and the threat model omits is a call nobody considered | Whether a claim is _true_, only whether the two copies agree. `4 \| SYS_RECV \| (non-blocking)` stayed green the day `SYS_RECV` learned to block: the row was there and the number was right. The *reply* semantics (status/payload/counter per outcome) are since ADR-0060 host-tested in `kernel_core::reply`; the prose rows of `SECURITY.md` remain review's                                                                                                                                                                     |
 | Layering (`make layering`)                                      | Every `crate::` import edge in `src/`                             | The rules in `architecture.md`: drivers never know the board, arch never names a driver, `exception` reaches only `irq`                                                                                                             | Coupling that is not an import — a shared constant, an agreed register value, a naming convention                                                                                                                                                                                                                                                                |
 | Roadmap evidence (`make roadmap-evidence`)                      | Compares roadmap done-row ADR citations to this file              | A status flip that leaves no trace in the evidence index — three landed exactly that way (ADR-0050/0052/0054) before this gate existed                                                                                              | Whether the entry is _good_ evidence; only that it exists                                                                                                                                                                                                                                                                                                        |
 | Arch board-free (`make arch-board-free`)                        | Greps `src/arch` for 256 MiB-aligned hex literals                 | A physical range base hand-written into the ISA tree (F23's shape)                                                                                                                                                                  | A base written in decimal, or assembled from shifts and multiplications                                                                                                                                                                                                                                                                                          |
@@ -139,6 +139,7 @@ section below records for HW stamps).
 | ADR-0057            | Task-cap lifecycle                            | `xfer-peer: stale refused` end-to-end; `sched: STALE-TASKCAP`, `mint FAILED`, `STALE MOVED` asserted absent; generation-wrap bound host-tested                                                                                          |
 | ADR-0059 | Typed cap classification | quadrant + payload host tests in `kernel_core::cap`; band-refusal tests and `xfer-peer: band refused` unchanged |
 | ADR-0060 | Syscall reply layer | per-outcome host tests in `kernel_core::reply`; boot oracle exact counts unchanged (the byte-for-byte witness) |
+| ADR-0061 | Refusal detail in x1 | per-variant host tests incl. the stable-code table; `SessionStats::last_refusal_detail` carries it to the oracle — QEMU `el0-xfer-peer: refused … detail=4` (the discriminating assertion F-8 lacked) |
 
 ## What emulation cannot catch, with the example that proved it
 
@@ -317,7 +318,7 @@ Protocol notes load-bearing for silicon:
 UART page and polls `DR`. Real bytes via **PL011 LBE** (kernel TX looped to RX)
 — not invented ring writes. `resume_rx` re-arms IMSC. Closed on QEMU and on
 silicon (issue #1, 2026-08-06). Roadmap:
-[architecture.md §Roadmap](architecture.md#roadmap).
+[architecture.md § Completeness roadmap](architecture.md#completeness-roadmap).
 
 ### Expected QEMU boot-check lines (post–issue #1)
 
@@ -607,6 +608,9 @@ slices that had been QEMU-only:
 | P2 durable section      | `durable: reloaded`                                   |
 | K4 cooperative budget   | `budget: rotated`                                     |
 | K9 IRQ-cap device wait  | `irq-device: woke wait_irqs=1` (with `el0-irq: woke`) |
+| K1 EL1 wait-on-IRQ | `irq-wait: woke drops=0` |
+| K10 supervisor reap/restart | `supervisor: reaped id=…` / `supervisor: restarted id=…` |
+| K9 RNG map agent | `rng-agent: map read ok` / `rng-agent: killed ok` |
 | K3 EL0 transfer         | `el0-xfer: ok` / `el0-xfer: refused`                  |
 | K2 EL0 recv timeout     | `el0-timeout: cancelled`                              |
 | K2 EL1 park timeout     | `ipc: timed-out cancelled`                            |
@@ -1494,15 +1498,27 @@ taskcap const assert), and irqcap's generation-0 skip, reachable only at a
 u16 wrap that cannot occur while irqcap has no revoke. The one timeout is
 `reset::partition`'s documented no-op-counter hang.
 
+### Fifth run, after ADR-0059/0060/0061: 369 caught, 17 missed, 1 timeout
+
+`reply.rs` joined the file list the commit it was born (ADR-0058 §2 — a new
+module carrying the reply semantics is an authority module by definition). 387
+mutants over 13 files. **Zero survivors in `reply.rs`** and zero in the new
+`CapClass` decode; the 17 missed are the same justified set as the fourth run
+(the baseline did not move), and the timeout is still `reset::partition`'s
+documented hang.
+
 #### What mutation testing cannot reach here
 
 `cargo-mutants` runs `-p kernel-core`. Everything in `src/` is outside it,
 because it is not host-testable — which means the _kernel-side_ half of some
-claims has no mutation coverage at all. Concretely, after ADR-0022: the table's
-`Busy` refusal is covered (host tests and the bounded model), but the mapping
-`RecvError::Busy → Status::Busy` in `src/agent/mod.rs` is two lines nothing
-mutates and nothing on the boot path reaches, because nothing creates a second
-waiter. Named here rather than left to be inferred from a green run.
+claims has no mutation coverage at all. The sharpest instance this section
+used to name — `RecvError::Busy → Status::Busy`, two lines in `src/agent`
+nothing mutated and nothing on the boot path reached — **no longer exists**:
+ADR-0060 moved every reply mapping into `kernel_core::reply`, where it is
+host-tested per outcome and mutated (zero survivors on the first run). What
+remains outside the net is the marshalling residue in `src/agent` (register
+reads, the one-arm-per-variant outcome conversions) and the rest of `src/` —
+still named here rather than left to be inferred from a green run.
 
 ## The refusal counter that erased itself (2026-08-06)
 

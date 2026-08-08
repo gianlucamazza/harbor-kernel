@@ -140,6 +140,12 @@ pub struct SessionStats {
     pub authority_refusals: u32,
     /// Successful `SYS_WAIT_IRQ` completions (ADR-0030).
     pub wait_irqs: u32,
+    /// `x1` detail of the most recent refusal (ADR-0061); 0 if none yet.
+    ///
+    /// Exists so the oracle can assert *which* refusal fired, not merely that
+    /// one did — the empty-slot refuse and the band refuse were previously
+    /// indistinguishable (excellence review F-8/G-7).
+    pub last_refusal_detail: u64,
     /// Why the session stopped. See [`SessionEnd`].
     pub end: SessionEnd,
 }
@@ -202,6 +208,10 @@ fn apply_reply(session: *mut el0::El0Session, stats: &mut SessionStats, r: Reply
         el0::set_saved_gpr(session, 2, x2);
         el0::set_saved_gpr(session, 3, x3);
     }
+    if let Some(detail) = r.detail {
+        el0::set_saved_gpr(session, 1, detail.as_u64());
+        stats.last_refusal_detail = detail.as_u64();
+    }
     let d = r.delta;
     stats.sends = stats.sends.saturating_add(d.sends);
     stats.recvs = stats.recvs.saturating_add(d.recvs);
@@ -217,13 +227,13 @@ fn apply_reply(session: *mut el0::El0Session, stats: &mut SessionStats, r: Reply
 /// [`reply::wait_irq`]'s.
 fn wait_irq_outcome(slot: usize) -> WaitIrqOutcome {
     let Ok(cap) = sched::my_cap_slot(slot) else {
-        return WaitIrqOutcome::NoAuthority;
+        return WaitIrqOutcome::BadCap;
     };
     if !sched::current_holds(cap) {
-        return WaitIrqOutcome::NoAuthority;
+        return WaitIrqOutcome::BadCap;
     }
     let Ok(cookie) = irq::cap::lookup(cap) else {
-        return WaitIrqOutcome::NoAuthority;
+        return WaitIrqOutcome::NotIrqCap;
     };
     match sched::wait_for_irq(cookie) {
         Ok(()) => WaitIrqOutcome::Woken,
@@ -246,11 +256,15 @@ fn transfer_outcome(
         }
         1 => sched::transfer_held_to_creator(from, to_slot),
         2 => sched::transfer_held_to_peer(from, to_slot, peer_cap_slot),
-        _ => return TransferOutcome::BadDest,
+        _ => return TransferOutcome::UnknownDest,
     };
     match result {
         Ok(()) => TransferOutcome::Moved,
-        Err(_) => TransferOutcome::Refused,
+        Err(sched::TransferError::BadFromSlot) => TransferOutcome::BadFromSlot,
+        Err(sched::TransferError::BadToTask) => TransferOutcome::BadToTask,
+        Err(sched::TransferError::ToSlotFull) => TransferOutcome::ToSlotFull,
+        Err(sched::TransferError::ToSlotOob) => TransferOutcome::ToSlotOob,
+        Err(sched::TransferError::Untransferable) => TransferOutcome::Untransferable,
     }
 }
 

@@ -67,3 +67,7 @@ Originally any agent could attempt resolve. **Superseded by
 | --- | --- |
 | Pointer into user memory for name | Larger attack surface before needed |
 | Return CapId in x1 | Breaks ADR-0017 (no CapId to EL0) |
+
+**Amended 2026-08-08** (ADR-0058 convention): §3's ambient-resolve slice was
+superseded by the per-task grant of [ADR-0052](0052-p5-resolve-grant.md)
+(commit `440d77b`); the section is marked so in place.

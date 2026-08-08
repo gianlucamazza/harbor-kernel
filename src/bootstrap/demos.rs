@@ -1166,9 +1166,14 @@ pub(super) fn el0_peer_xfer_refuse_task() {
     let prog = kernel_core::prog::encode_transfer_peer_exit(0, 0, 1);
     match agent.run_user_prog_resuming(&prog) {
         Ok(stats) if stats.authority_refusals >= 1 => {
+            // detail=4 (BadToTask) is the discriminating half (ADR-0061): the
+            // empty key slot refuses as a bad target, while a deleted
+            // task-cap check would surface detail=3 (BadFromSlot) instead —
+            // the regression the old assertion could not see (F-8).
             crate::kprintln!(
-                "el0-xfer-peer: refused refusals={}",
-                stats.authority_refusals
+                "el0-xfer-peer: refused refusals={} detail={}",
+                stats.authority_refusals,
+                stats.last_refusal_detail
             );
         }
         Ok(stats) => crate::kprintln!(

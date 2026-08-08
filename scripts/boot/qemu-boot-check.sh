@@ -33,7 +33,7 @@ if ! command -v "${QEMU}" >/dev/null; then
 fi
 
 # Every `grep` below carries `-a`. The kernel's own output is text, but an EL0
-# agent can `SYS_PUTC` any byte it likes, and one NUL is enough for `grep` to
+# agent can send any byte over a console endpoint (`SYS_SEND`, tag 0), and one NUL is enough for `grep` to
 # decide the log is binary and stop matching. That failure is silent in the
 # worst way: the assertions do not report what they found, they report nothing,
 # and the first one to notice blames the wrong thing. Seen exactly once, when a
@@ -348,6 +348,11 @@ grep -qa 'el0-xfer-peer: ok' "${log}" ||
 	fail "EL0 peer transfer did not deliver cap to peer (ADR-0054)"
 grep -qa 'el0-xfer-peer: refused' "${log}" ||
 	fail "EL0 peer transfer did not refuse without task-cap (ADR-0054)"
+# ADR-0061: the refusal is attributable. detail=4 (BadToTask) is the empty
+# key slot; a vanished task-cap check would answer detail=3 (BadFromSlot),
+# which the pre-taxonomy assertion could not distinguish (review F-8).
+grep -qaE 'el0-xfer-peer: refused refusals=[1-9][0-9]* detail=4' "${log}" ||
+	fail "peer-transfer refusal detail is not BadToTask (ADR-0061)"
 # The move invariant, not just the delivery: the donor lost the SEND and kept
 # the task-cap. A copy instead of a move would still print "ok" above.
 grep -qa 'el0-xfer-peer: donor emptied' "${log}" ||
