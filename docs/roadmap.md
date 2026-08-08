@@ -56,14 +56,14 @@ the named level — not when prose wishes it.
 | Horizon | Product outcome | Tracks that close it |
 | --- | --- | --- |
 | **H0 — Foundation** | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel | **Done (HW)** — M0–M8 + ADR-0024/0025 |
-| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Entry paid (QEMU):** bar 1–7 first slices + lifecycle residuals (EL0 transfer/timeout, IRQ-device wait). **Depth still open:** P3/P4 as needed, K5, P2 media, peer transfer, resolve grant, HW stamps |
-| **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | K4, K5 (remainder), K7, K8, remainder of P2–P5, hardening of first slices to **done (HW)** where claimed |
+| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (QEMU first slices):** bar 1–7 + lifecycle residuals + **K5 thin stacks** + **P2 durable region** + **K4 cooperative budget**. **Still open / residual:** P3/P4 (deferred, no composition), P2 SD/power-cycle, K5 driver-half collapse, peer transfer, resolve grant, **HW stamps** |
+| **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** IRQ preemption residual (cooperative budget done QEMU); **K5** remainder; **K7/K8** design accepted (code deferred); P depth + **done (HW)** stamps |
 
 **H1 product bar (what “composition OS” means here):**
 
 1. **Compose** — pack/inject/inspect agents + grants (P6; first slice done QEMU).
 2. **Run several agents** from a product store, not a single beacon (P1; first slice done QEMU).
-3. **Load without rebuild-only** — external store path (K6; done QEMU); on-target put/get first slice (P2; done QEMU); media that survives reboot residual.
+3. **Load without rebuild-only** — external store path (K6; done QEMU); on-target put/get (P2 RAM + durable section; done QEMU); SD/power-cycle residual.
 4. **Wait and drive devices as agents** — IRQ wait (K1 QEMU); RNG map (K9 QEMU); IRQ-cap device wait agent (QEMU).
 5. **Supervise** — cancel (HW) + K2 auto-reap + park timeout (EL1+EL0) + K10 reap/restart + cascade (QEMU).
 6. **Move authority** — revoke + EL1 transfer + EL0 return-to-creator (QEMU); peer-by-TaskId residual.

@@ -31,22 +31,28 @@ writers treat bad magic as empty.
 
 ### 3. EL1 façade `src/durable`
 
-- `put` / `get` / `flush` — update pure table then encode into the section.
-- `reload` — parse section into table.
+- `put(key, payload)` — read-modify-write encode of the durable section
+  (decode existing blobs if magic valid, merge/replace key, re-encode).
+- `get(key, out)` — decode the section and copy the matching payload.
+
+No separate RAM cache: the section **is** the store. Callers that need a
+soft-reload story re-`get` from the region after other state is discarded.
 
 ### 4. Oracle
 
-`put` → wipe in-memory table → `reload` from section → `durable: reloaded`.
+`put(b"cfg", b"persist")` → `get` same key from the section →
+`durable: reloaded` (proves region round-trip without host inject of that payload).
 
 ### 5. Residuals
 
 - True SD/eMMC media and power-cycle durability on Pi (`done (HW)`).
 - EL0 storage caps.
-- QEMU full `system_reset` may still wipe RAM — soft-reload is the QEMU bar.
+- Explicit wipe-then-reload API (optional; not required for this slice).
+- QEMU full `system_reset` may still wipe RAM — section put/get is the QEMU bar.
 
 ## Gates
 
 | Check | Evidence |
 | --- | --- |
 | Host encode/decode | unit tests |
-| QEMU reload after wipe | `durable: reloaded` |
+| QEMU put then get from section | `durable: reloaded` |

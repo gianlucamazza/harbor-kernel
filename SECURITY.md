@@ -96,7 +96,7 @@ the machine with other agents under the same kernel, tries to:
 | Crash the kernel by faulting at EL0 | Yes — session ends; creator handles; kernel lives |
 | Steal another agent’s saved GPRs / session | Yes — `CURRENT_EL0` publish + assert on entry |
 | Exhaust frames / tables to DoS later agents | Partially — pool is finite; destroy should return frames |
-| Busy-loop at EL0 and starve the system | **Open residual (K4)** — cooperative today (ADR-0006); preemption/budget is a completeness track, not a permanent non-goal ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)) |
+| Busy-loop at EL0 and starve the system | **Mitigated (QEMU first slice)** — cooperative CPU budget / tick quantum ([ADR-0046](docs/adr/0046-k4-cooperative-cpu-budget.md)); model remains cooperative ([ADR-0006](docs/adr/0006-cooperative-execution-model.md)). Residual: **IRQ-side preemption** (true interrupt switch), still a completeness track ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)) |
 | Park forever on a mailbox nobody sends to | **Mitigated** — supervisor `cancel_blocked` ([ADR-0025](docs/adr/0025-cancel-blocked-wait.md)); last-SEND-hold auto-reap on ephemeral channels ([ADR-0031](docs/adr/0031-k2-last-send-hold-auto-reap.md), QEMU); tick park timeout ([ADR-0040](docs/adr/0040-k2-park-timeout.md), QEMU). Residual: EL0 `SYS_RECV` timeout. |
 | Take a second waiter's place on an endpoint | Yes — `Table::park` refuses (`Status::Busy`) and counts a state refusal. One endpoint, one waiter |
 | Feed an RX-owning agent hostile input from the wire | Yes, and it is *supposed* to arrive — the agent is untrusted either way. What must hold is that the handover cannot leave the line armed with nothing to drain (`kernel_core::rxline`, host-tested) |

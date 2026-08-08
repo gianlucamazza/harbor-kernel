@@ -161,16 +161,19 @@ product store (**P1**); on-target keyed blobs (**P2**,
 [ADR-0036](adr/0036-p2-keyed-blob-store.md)); name registry (**P5**,
 [ADR-0035](adr/0035-p5-name-registry.md)); host compose tools (**P6**).
 
-**H1 entry is paid at QEMU** (composition bar + lifecycle residuals). Still open
-for *depth*: density (**K5**); network (**P3**) and product display (**P4**)
-**when a composition needs them**; P2 media; HW stamps; then H2. Working order:
+**H1 entry + first-slice depth are paid at QEMU** (composition bar, lifecycle
+residuals, **K5** thin stacks, **P2** durable region, **K4** cooperative budget).
+Still open: network (**P3**) and product display (**P4**) **only when a
+composition needs them** (deferred without a target); P2 SD/power-cycle;
+**K5** driver-half collapse residual; **HW stamps**; then H2 code. Working order:
 [roadmap § H1 working order](roadmap.md#h1-working-order-product-critical-path).
 
 ### H2 — Boundary operating system
 
-Remaining **K** and **P** for full boundary-OS depth: preemption/budget
-(**K4**), ASID/isolation (**K7**), SMP (**K8**), denser agents, HW stamps, and
-remaining product-path depth. Full OS sense under this model — still not Linux.
+Remaining **K** and **P** for full boundary-OS depth: **IRQ preemption** residual
+on **K4** (cooperative budget is already done QEMU), **K7** ASID code (design
+accepted), **K8** SMP code (design accepted), denser-agent remainder, HW stamps,
+and remaining product-path depth. Full OS sense under this model — still not Linux.
 
 | Traditional OS | Harbor (vision) |
 | --- | --- |
