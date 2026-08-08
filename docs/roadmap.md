@@ -57,17 +57,17 @@ the named level — not when prose wishes it.
 | --- | --- | --- |
 | **H0 — Foundation** | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel | **Done (HW)** — M0–M8 + ADR-0024/0025 |
 | **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (HW stamp 2026-08-08):** bar 1–7 + K5 thin + P2 durable + K4 budget + lifecycle residuals (serial `.serial-log/20260808-030219.log`). **Still open / residual:** P3/P4 (deferred), P2 SD/power-cycle, K5 driver-half, peer transfer, resolve grant, IRQ preemption |
-| **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** IRQ preemption residual (cooperative budget done QEMU); **K5** remainder; **K7/K8** design accepted (code deferred); P depth + **done (HW)** stamps |
+| **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** IRQ preemption residual (cooperative budget **done (HW)**); **K5** driver-half remainder; **K7/K8** design accepted (code deferred); P3/P4 deferred; SD power-cycle residual |
 
 **H1 product bar (what “composition OS” means here):**
 
-1. **Compose** — pack/inject/inspect agents + grants (P6; first slice done QEMU).
-2. **Run several agents** from a product store, not a single beacon (P1; first slice done QEMU).
-3. **Load without rebuild-only** — external store path (K6; done QEMU); on-target put/get (P2 RAM + durable section; done QEMU); SD/power-cycle residual.
-4. **Wait and drive devices as agents** — IRQ wait (K1 QEMU); RNG map (K9 QEMU); IRQ-cap device wait agent (QEMU).
-5. **Supervise** — cancel (HW) + K2 auto-reap + park timeout (EL1+EL0) + K10 reap/restart + cascade (QEMU).
-6. **Move authority** — revoke + EL1 transfer + EL0 return-to-creator (QEMU); peer-by-TaskId residual.
-7. **Find services** — EL1 registry + EL0 `SYS_RESOLVE` (P5 QEMU); resolve-grant residual.
+1. **Compose** — pack/inject/inspect agents + grants (P6; first slice done QEMU — host tools).
+2. **Run several agents** from a product store, not a single beacon (P1; first slice done QEMU product inject; HW stamp used builtin beacon+mute).
+3. **Load without rebuild-only** — external store path (K6; done QEMU inject + HW builtin fallback); on-target put/get (P2; **done (HW)**); SD/power-cycle residual.
+4. **Wait and drive devices as agents** — IRQ wait (K1; **done (HW)**); RNG map + IRQ-cap wait (K9; **done (HW)**).
+5. **Supervise** — cancel + K2 auto-reap + park timeout + K10 reap/cascade (**done (HW)**).
+6. **Move authority** — revoke + EL1 transfer + EL0 return-to-creator (**done (HW)**); peer-by-TaskId residual.
+7. **Find services** — EL1 registry + EL0 `SYS_RESOLVE` (**done (HW)**); resolve-grant residual.
 
 Use cases that pull H1: modular robot/industrial stacks, least-privilege edge
 gateways, sealed composition firmware, on-device third-party sandbox
@@ -79,7 +79,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 
 | ID | Track | Status | Done when (sketch) | Needs first |
 | --- | --- | --- | --- | --- |
-| K1 | Wait-on-IRQ (first-class) | **done (QEMU)** ([ADR-0028](adr/0028-wait-on-irq.md) EL1 + [ADR-0030](adr/0030-el0-irq-capability.md) EL0) | EL1 `wait_for_irq`; EL0 `SYS_WAIT_IRQ` via IRQ notification cap; oracle `irq-wait: woke` + `el0-irq: woke` | ADR-0008 → 0028 → 0030 |
+| K1 | Wait-on-IRQ (first-class) | **done (HW)** ([ADR-0028](adr/0028-wait-on-irq.md) + [ADR-0030](adr/0030-el0-irq-capability.md); Pi stamp 2026-08-08) | EL1 `wait_for_irq`; EL0 `SYS_WAIT_IRQ`; `irq-wait: woke` + `el0-irq: woke` | ADR-0008 → 0028 → 0030 |
 | K2 | Park reclaim (timeout and/or auto-reap on last send drop) | **done (HW)** ([ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md) + [ADR-0040](adr/0040-k2-park-timeout.md) + [ADR-0042](adr/0042-el0-recv-timeout.md); Pi stamp 2026-08-08) | Last SEND hold drop; EL1/EL0 tick timeout → Cancelled | 0025 → 0031 → 0040 → 0042 |
 | K3 | Cap transfer / revoke / endpoint release | **done (HW)** ([ADR-0032](adr/0032-k3-channel-revoke.md) + [ADR-0037](adr/0037-k3-cap-transfer.md) + [ADR-0041](adr/0041-el0-cap-transfer.md); Pi stamp 2026-08-08); peer TaskId residual | Revoke; EL1 transfer; EL0 self/creator move | 0017 → 0032 → 0037 → 0041 |
 | K4 | Preemption or CPU budget | **done (HW)** first slice ([ADR-0046](adr/0046-k4-cooperative-cpu-budget.md); Pi stamp 2026-08-08); IRQ preemption residual | Tick quantum + voluntary yield; no IRQ switch | 0006 → 0046 |
@@ -108,37 +108,30 @@ not as a growing special-case syscall surface ([vision](vision.md) shape).
 
 ---
 
-## H1 working order (product-critical path)
+## Next working order (post H1 HW stamp)
 
-Priority is **composition OS usefulness**, not ID order. Each step still needs
-its design ADR before boundary code.
+Priority is **mission fit**, not ID order. ADR before boundary code.
 
-| Step | Track(s) | Why now (mission fit) |
+| Step | Track(s) | Why now |
 | --- | --- | --- |
-| 1 | **HW stamps** (H1 QEMU → Pi) | Evidence depth for done (HW) claims |
-| 2 | **K4** IRQ preemption / **K7** ASID / **K8** SMP code | H2 depth after design ADRs |
-| — | **P3** / **P4** | Deferred — no composition target (ADR-0049) |
-| — | **P2 SD/power-cycle** / EL0 storage | True media residual |
-| — | Peer transfer / resolve grant | ADR-0049 |
+| 1 | **K7** ASID first code *or* **K4** IRQ preemption design ADR | H2 entry — isolation vs fairness |
+| 2 | **P2 SD/power-cycle** re-read on Pi | Closes true-media residual while lab is hot |
+| 3 | **Resolve-grant** / peer transfer design | Non-ambient authority depth |
+| — | **K8** SMP unpark | After K7 or when dual-core gate is ready |
+| — | **P3** / **P4** | Only with a named composition (ADR-0049) |
 
-**H1 entry + scale + cooperative budget + durable region are paid at QEMU.**
-P3/P4 deferred without composition target. H2 design accepted; code next.
-
-**H2 (after or interleaved when design is ready):** **K4** preemption/budget,
-**K7** ASID/TTBR1, **K8** SMP — production fairness and isolation depth, not
-the first composition demo.
-
-First slices already paid for H1 entry: **K1**, **K2**, **K3**, **K9** (RNG map), **K10**, **K6**, **P1**, **P2** (blobs), **P5** (names), **P6**.
+**H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
+P3/P4 deferred. H2: budget done (HW); preemption/ASID/SMP code next.
 
 ```text
 Mission: agents · grants · evidence · finish the OS
                 │
     H0 foundation ████████ done (HW)
                 │
-    H1 composition ████████ entry + K5 thin + durable + budget (QEMU)
-                │          next: HW stamps · P3/P4 if composition
+    H1 composition ████████ done (HW) stamp 2026-08-08
+                │          residuals: SD power-cycle · peer xfer · resolve-grant
                 │
-    H2 boundary    ░░██████ K4 budget done; K7/K8 design; preemption/SMP code open
+    H2 boundary    ░░██████ K4 budget HW; next: preemption ADR / K7 code / K8
 ```
 
 ---
