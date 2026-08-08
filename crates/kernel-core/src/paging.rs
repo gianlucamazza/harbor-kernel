@@ -28,6 +28,12 @@ pub const DESC_AP_EL0_RO: u64 = 0b11 << 6;
 pub const DESC_UXN: u64 = 1 << 54;
 /// Never execute at EL1.
 pub const DESC_PXN: u64 = 1 << 53;
+/// Non-global: TLB entry is tagged with the current ASID (ADR-0050 / K7).
+///
+/// Kernel identity leaves leave this clear so they remain Global and survive
+/// ASID switches without a full TLBI. User-accessible leaves set it so two
+/// agents with different ASIDs do not share TLB entries for the same VA.
+pub const DESC_NG: u64 = 1 << 11;
 
 /// `MAIR_EL1` attribute index 0: Normal, write-back, read/write allocate.
 pub const ATTR_IDX_NORMAL: u64 = 0 << 2;
@@ -153,6 +159,12 @@ pub const fn leaf(level: Level, pa: u64, kind: MemKind, perms: Perms) -> Option<
         desc |= DESC_UXN;
     } else {
         desc |= DESC_PXN; // user exec: EL1 should not run user text as kernel
+    }
+
+    // ASID tagging only applies to user-accessible leaves. Kernel leaves stay
+    // Global so restoring ASID 0 does not require a full TLB wipe.
+    if perms.user {
+        desc |= DESC_NG;
     }
 
     Some(desc)
@@ -560,7 +572,18 @@ mod tests {
                 "{level:?}: RW is writable"
             );
             assert_eq!(rx & ADDR_MASK, pa, "{level:?}: output address");
+            // Kernel leaves stay Global (nG clear) so ASID switches keep them.
+            assert_eq!(rx & DESC_NG, 0, "{level:?}: kernel RX is global");
+            assert_eq!(rw & DESC_NG, 0, "{level:?}: kernel RW is global");
         }
+    }
+
+    #[test]
+    fn user_leaves_are_non_global_for_asid_tagging() {
+        let u = leaf(Level::L3, 0x1000, MemKind::NormalWb, Perms::USER_RX).unwrap();
+        assert_ne!(u & DESC_NG, 0, "user leaf must set nG");
+        let k = leaf(Level::L3, 0x1000, MemKind::NormalWb, Perms::RX).unwrap();
+        assert_eq!(k & DESC_NG, 0, "kernel leaf must leave nG clear");
     }
 
     #[test]

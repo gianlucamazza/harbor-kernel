@@ -84,7 +84,7 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
     let outcome = cpu::without_irqs(|| unsafe {
         el0::run(
             sched::current_el0_session(),
-            aspace.root_phys(),
+            aspace.ttbr0_value() as usize,
             aspace.user_entry_va(),
             aspace.user_sp(),
         )
@@ -117,7 +117,7 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
     let outcome = cpu::without_irqs(|| unsafe {
         el0::run(
             sched::current_el0_session(),
-            aspace.root_phys(),
+            aspace.ttbr0_value() as usize,
             aspace.user_entry_va(),
             aspace.user_sp(),
         )
@@ -137,8 +137,9 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
         println!(uart, "aspace: LEAK  free {free_before}->{free_after}");
     }
 
-    // M5-P3: two AS live, then both destroyed — pool must restore.
+    // M5-P3 + K7: two AS live with distinct ASIDs, each EL0 once, then destroy.
     let free_dual = mm::frames::free_count();
+    let asid_free_before = mm::asid::free_count();
     let Ok(mut a) = mm::AddressSpace::create() else {
         println!(uart, "aspace: dual create-a FAILED");
         return;
@@ -154,13 +155,62 @@ pub(super) fn m5_aspace_and_el0_smoke(uart: &mut Pl011) {
         b.destroy();
         return;
     }
+    let asid_a = a.asid();
+    let asid_b = b.asid();
+    if asid_a == 0 || asid_b == 0 || asid_a == asid_b {
+        println!(uart, "asid: dual FAILED a={asid_a} b={asid_b}");
+        a.destroy();
+        b.destroy();
+        return;
+    }
+    // Distinct ASIDs + both enter EL0 (SVC) without a global TLBI between them.
+    if a.poke_user(0, &svc_prog).is_err() || b.poke_user(0, &svc_prog).is_err() {
+        println!(uart, "asid: dual poke FAILED");
+        a.destroy();
+        b.destroy();
+        return;
+    }
+    // SAFETY: both ASes prepared and poked; sequential one-shot sessions under
+    // IRQ mask (ADR-0016) — never overlapping.
+    let ok_a = cpu::without_irqs(|| unsafe {
+        matches!(
+            el0::run(
+                sched::current_el0_session(),
+                a.ttbr0_value() as usize,
+                a.user_entry_va(),
+                a.user_sp(),
+            ),
+            el0::El0Outcome::Svc { imm: 0 }
+        )
+    });
+    // SAFETY: as `ok_a` — second AS, still sole session after the first ended.
+    let ok_b = cpu::without_irqs(|| unsafe {
+        matches!(
+            el0::run(
+                sched::current_el0_session(),
+                b.ttbr0_value() as usize,
+                b.user_entry_va(),
+                b.user_sp(),
+            ),
+            el0::El0Outcome::Svc { imm: 0 }
+        )
+    });
+    if ok_a && ok_b {
+        println!(uart, "asid: dual a={asid_a} b={asid_b} ok");
+    } else {
+        println!(uart, "asid: dual el0 FAILED a={ok_a} b={ok_b}");
+    }
     a.destroy();
     b.destroy();
     let free_end = mm::frames::free_count();
+    let asid_free_end = mm::asid::free_count();
     if free_end == free_dual {
         println!(uart, "aspace: dual create/destroy ok  pool={free_end}");
     } else {
         println!(uart, "aspace: dual LEAK  free {free_dual}->{free_end}");
+    }
+    if asid_free_end != asid_free_before {
+        println!(uart, "asid: LEAK free {asid_free_before}->{asid_free_end}");
     }
 }
 

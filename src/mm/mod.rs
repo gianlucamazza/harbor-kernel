@@ -13,6 +13,7 @@
 //! linker symbol, the single instance, the interrupt discipline, and the
 //! conversion between offsets and raw pointers.
 
+pub mod asid;
 pub mod aspace;
 pub mod early;
 pub mod frames;

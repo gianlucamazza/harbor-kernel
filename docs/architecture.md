@@ -339,7 +339,8 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0044](adr/0044-k5-agent-density.md) | K5: thin stacks (**accepted**) |
 | [ADR-0045](adr/0045-p2-durable-store.md) | P2 durable region (**accepted**) |
 | [ADR-0046](adr/0046-k4-cooperative-cpu-budget.md) | K4 cooperative budget (**accepted**) |
-| [ADR-0047](adr/0047-k7-asid-isolation-design.md) | K7 ASID design (**accepted**) — code deferred |
+| [ADR-0047](adr/0047-k7-asid-isolation-design.md) | K7 ASID design (**accepted**) |
+| [ADR-0050](adr/0050-k7-asid-first-slice.md) | K7 first slice — ASID pool + CONTEXTIDR (**accepted**) |
 | [ADR-0048](adr/0048-k8-smp-design.md) | K8 SMP design (**accepted**) — code deferred |
 | [ADR-0049](adr/0049-deferred-residuals.md) | Deferred residuals policy (**accepted**) |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |

@@ -128,7 +128,7 @@ vocabulary: [`docs/README.md`](README.md).
 | --- | --- |
 | `std`, libc, POSIX, glibc | Different ABI and an ambient-authority world — permanently out of model |
 | Third-party crates | Zero dependencies today; adding one is a boundary decision, not a convenience |
-| Preemption, SMP, ASID | **Open tracks** K4 / K8 / K7, not refusals — [`roadmap.md`](roadmap.md) |
+| Preemption, SMP, ASID residuals | **Open tracks** K4 IRQ preemption / K8 / K7 TTBR1·HW stamp (ASID first slice done QEMU) — [`roadmap.md`](roadmap.md) |
 | A device tree parser | Board truth is compiled-in BSP constants; the DTB is mapped read-only for a future parser ([ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)) |
 | A filesystem, network or window stack | They belong **above** the kernel as agents, when a composition needs them (P2–P5) |
 | An LLM / agent framework | "Agent" here is the isolation unit — [`glossary.md`](glossary.md) |

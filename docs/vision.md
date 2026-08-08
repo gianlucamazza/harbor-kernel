@@ -173,9 +173,10 @@ composition needs them** (deferred without a target); P2 SD/power-cycle;
 ### H2 — Boundary operating system
 
 Remaining **K** and **P** for full boundary-OS depth: **IRQ preemption** residual
-on **K4** (cooperative budget is already done QEMU), **K7** ASID code (design
-accepted), **K8** SMP code (design accepted), denser-agent remainder, HW stamps,
-and remaining product-path depth. Full OS sense under this model — still not Linux.
+on **K4** (cooperative budget is already done HW), **K7** residuals (TTBR1 / HW
+TLB stamp; first ASID slice is QEMU-done), **K8** SMP code (design accepted),
+denser-agent remainder, and remaining product-path depth. Full OS sense under
+this model — still not Linux.
 
 | Traditional OS | Harbor (vision) |
 | --- | --- |

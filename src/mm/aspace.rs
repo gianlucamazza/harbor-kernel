@@ -56,11 +56,12 @@ pub const MAX_TEXT_PAGES: usize = 16;
 // drifted. It becomes reachable the moment kernel code runs under a user root
 // and touches the heap.
 //
-// **2. `destroy` frees frames with no TLB maintenance.**
-// Sound because every path out of EL0 goes through `vectors.s` →
-// `switch_ttbr0`, which ends with `tlbi vmalle1is` — the whole TLB, including
-// every translation this root produced. An AS that never entered EL0 was never
-// in `TTBR0` and has nothing cached. Neither fact is visible from this file.
+// **2. `destroy` frees frames and invalidates by ASID.**
+// With K7, `switch_ttbr0` no longer always does `tlbi vmalle1is`: ASID-tagged
+// user leaves stay in the TLB across switches. So `destroy` must free the ASID
+// and run `tlbi aside1is` for that tag before another AS can reuse it. An AS
+// that never entered EL0 has nothing cached; the ASID invalidate is then a
+// no-op in practice but still the correct contract.
 //
 // **3. The user window's pages are contiguous only by accident.**
 // `map_user_window` takes a separate frame per page from a pool whose free list
@@ -94,11 +95,15 @@ pub enum AsError {
     Unaligned,
     /// Write would leave the frame it was validated against.
     OutOfRange,
+    /// ASID pool exhausted (more concurrent ASes than 8-bit pool).
+    OutOfAsid,
 }
 
 /// User address space: own TTBR0 root, not necessarily live.
 pub struct AddressSpace {
     root_phys: usize,
+    /// ASID assigned at create (non-zero); freed on destroy.
+    asid: u16,
     owned: FrameLedger<MAX_AS_FRAMES>,
     /// User stack top VA (initial SP_EL0) after prepare; 0 if not prepared.
     user_sp: u64,
@@ -140,22 +145,31 @@ impl AddressSpace {
         }
         window.validate().map_err(|_| AsError::OutOfRange)?;
 
-        let (root, root_phys) = frames::alloc().ok_or(AsError::OutOfFrames)?;
+        let asid = crate::mm::asid::alloc().ok_or(AsError::OutOfAsid)?;
+        let (root, root_phys) = match frames::alloc() {
+            Some(pair) => pair,
+            None => {
+                let _ = crate::mm::asid::free(asid);
+                return Err(AsError::OutOfFrames);
+            }
+        };
         // SAFETY: identity-mapped pool frame exclusive to us.
         unsafe {
             zero_table(root_phys);
         }
 
         let mut owned = FrameLedger::new();
-        owned
-            .push(root.index())
-            .map_err(|LedgerFull| AsError::LedgerFull)?;
+        if owned.push(root.index()).is_err() {
+            let _ = frames::free(root);
+            let _ = crate::mm::asid::free(asid);
+            return Err(AsError::LedgerFull);
+        }
 
         debug_assert_eq!(FRAME_SIZE as u64, PAGE_SIZE);
 
-        let _ = root;
         Ok(Self {
             root_phys,
+            asid,
             owned,
             user_sp: 0,
             text_phys: [0; MAX_TEXT_PAGES],
@@ -186,10 +200,22 @@ impl AddressSpace {
         Ok(())
     }
 
-    /// Physical root for `TTBR0_EL1`.
+    /// Physical root for `TTBR0_EL1` (BADDR only, no ASID bits).
     #[inline]
     pub fn root_phys(&self) -> usize {
         self.root_phys
+    }
+
+    /// ASID assigned to this address space (never 0).
+    #[inline]
+    pub fn asid(&self) -> u16 {
+        self.asid
+    }
+
+    /// Packed `TTBR0_EL1` value: physical root + ASID in bits [63:48].
+    #[inline]
+    pub fn ttbr0_value(&self) -> u64 {
+        crate::mm::asid::pack_ttbr0(self.root_phys, self.asid)
     }
 
     /// Initial user SP (stack top) after prepare; 0 if not prepared.
@@ -299,18 +325,20 @@ impl AddressSpace {
             .map_err(|LedgerFull| AsError::LedgerFull)
     }
 
-    /// Free every owned frame. Consumes the AS.
+    /// Free every owned frame and return the ASID. Consumes the AS.
     ///
-    /// No TLB maintenance, and that is not an omission: every path out of EL0
-    /// runs `switch_ttbr0` from `vectors.s`, which invalidates the whole TLB,
-    /// and an AS that never entered EL0 was never in `TTBR0`. See note 2 at the
-    /// top of this file — the reason lives in another file, so a change there
-    /// silently makes this wrong.
+    /// Invalidates TLB entries tagged with this ASID before the tag is reused
+    /// (K7 / ADR-0050). See note 2 at the top of this file.
     pub fn destroy(mut self) {
         for &index in self.owned.as_slice() {
             let _ = frames::free(FrameId::from_index(index));
         }
         self.owned.clear();
+        let asid = self.asid;
+        // Invalidate before free so a concurrent (future SMP) alloc cannot
+        // install the tag while stale entries remain. Single-core today.
+        mmu::invalidate_asid(asid);
+        let _ = crate::mm::asid::free(asid);
         core::mem::forget(self);
     }
 

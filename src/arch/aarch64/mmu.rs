@@ -293,40 +293,70 @@ unsafe fn publish_and_invalidate(va: u64, len: u64) {
     }
 }
 
-/// Point `TTBR0_EL1` at a new table and flush the old translations.
+/// Point `TTBR0_EL1` at a new table and publish its ASID.
 ///
 /// **Sole** TTBR0 switch (boot [`activate`], EL0 entry, lower-EL restore).
 /// Rust and asm (`vectors.s`, `el0_run`) all call this symbol — no parallel
 /// barrier sequences.
 ///
-/// No cache maintenance: translation is already on, so the table writes and
-/// the walker's reads go through the same caches. Only ordering is needed —
-/// the writes must be observable before the switch.
+/// `ttbr` is the full register value: physical root in the low bits and ASID
+/// in [63:48] (ADR-0050). Kernel switches use ASID 0 (plain phys root). User
+/// switches pass [`crate::mm::AddressSpace::ttbr0_value`].
+///
+/// No global TLBI on switch: user leaves are non-global (`nG`) and ASID-tagged,
+/// kernel leaves stay Global. Stale tags are flushed with [`invalidate_asid`]
+/// when an AS is destroyed. Barriers alone order the TTBR/CONTEXTIDR writes.
 ///
 /// # Safety
-/// `root` is a complete table covering every address in use under the new root.
-/// For EL0 entry the root must include kernel coverage plus the user window
-/// (ADR-0014). IRQs should be masked across a switch paired with EL change.
+/// `ttbr`'s root is a complete table covering every address in use under the
+/// new root. For EL0 entry the root must include kernel coverage plus the user
+/// window (ADR-0014). IRQs should be masked across a switch paired with EL change.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn switch_ttbr0(root: u64) {
+pub unsafe extern "C" fn switch_ttbr0(ttbr: u64) {
     // Null root is never a valid identity map; installing it would make the
     // next fetch unrecoverable. Callers (vectors, el0_run) must pass a real root.
+    // ASID bits live above bit 48 — strip them before the null check.
+    let root = ttbr & ((1u64 << 48) - 1);
     if root == 0 {
         panic!("switch_ttbr0: refused null root");
     }
-    // SAFETY: barriers around the `TTBR0` write: `dsb ishst` so table writes are visible
-    // to the walker first, `isb` so the switch takes effect before the next
-    // fetch, then invalidate and order again. The null root was rejected above,
-    // which is what stops this from making the next instruction unfetchable.
+    let asid = (ttbr >> 48) & 0xFFFF;
+    // SAFETY: barriers around the `TTBR0` / `CONTEXTIDR` writes: `dsb ishst`
+    // so table writes are visible to the walker first, `isb` so the switch
+    // takes effect before the next fetch. No `tlbi vmalle1is` — see doc.
     unsafe {
         core::arch::asm!(
             "dsb ishst",
-            "msr ttbr0_el1, {root}",
+            "msr ttbr0_el1, {ttbr}",
+            "msr contextidr_el1, {asid}",
             "isb",
-            "tlbi vmalle1is",
             "dsb ish",
             "isb",
-            root = in(reg) root,
+            ttbr = in(reg) ttbr,
+            asid = in(reg) asid,
+            options(nostack),
+        );
+    }
+}
+
+/// Invalidate all TLB entries tagged with `asid` (inner-shareable).
+///
+/// Call before reusing an ASID after the owning address space is destroyed.
+/// ASID 0 is a no-op (kernel global leaves are not ASID-tagged).
+pub fn invalidate_asid(asid: u16) {
+    if asid == 0 {
+        return;
+    }
+    // TLBI ASIDE1IS operand: ASID in bits [15:0] of Xt (AArch64).
+    let op = asid as u64;
+    // SAFETY: ASID-scoped invalidate; does not remove Global entries.
+    unsafe {
+        core::arch::asm!(
+            "dsb ishst",
+            "tlbi aside1is, {op}",
+            "dsb ish",
+            "isb",
+            op = in(reg) op,
             options(nostack),
         );
     }

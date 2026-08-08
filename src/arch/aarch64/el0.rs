@@ -97,7 +97,7 @@ pub fn set_entry_irqs_unmasked(session: *mut El0Session) {
 /// Same as [`enter`].
 pub unsafe fn run(
     session: *mut El0Session,
-    ttbr0_phys: usize,
+    user_ttbr: usize,
     entry: u64,
     user_sp: u64,
 ) -> El0Outcome {
@@ -105,7 +105,7 @@ pub unsafe fn run(
     // function's own `# Safety`. The `end_session` that follows is sound
     // because `enter` has returned: whatever the outcome, this session took its
     // one event and is not going to be resumed — that is what "one-shot" means.
-    let outcome = unsafe { enter(session, ttbr0_phys, entry, user_sp) };
+    let outcome = unsafe { enter(session, user_ttbr, entry, user_sp) };
     // SAFETY: `enter` has returned, so this session took its one event and will
     // not be resumed — which is what makes ending it here sound.
     unsafe { end_session(session) };
@@ -114,11 +114,14 @@ pub unsafe fn run(
 
 /// Enter EL0 until the first lower-EL sync.
 ///
+/// `user_ttbr` is the full `TTBR0_EL1` value (physical root + ASID in [63:48],
+/// from [`crate::mm::AddressSpace::ttbr0_value`]). Stored for [`resume`].
+///
 /// # Safety
 /// Prepared user root; IRQs masked; sole session.
 pub unsafe fn enter(
     session: *mut El0Session,
-    ttbr0_phys: usize,
+    user_ttbr: usize,
     entry: u64,
     user_sp: u64,
 ) -> El0Outcome {
@@ -133,10 +136,10 @@ pub unsafe fn enter(
     // from a previous session.
     unsafe {
         let live = current();
-        live.user_ttbr = ttbr0_phys as u64;
+        live.user_ttbr = user_ttbr as u64;
         live.can_resume = 0;
         unpack(el0_run(
-            ttbr0_phys as u64,
+            user_ttbr as u64,
             entry,
             user_sp,
             kernel_ttbr as u64,

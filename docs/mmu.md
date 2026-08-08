@@ -281,10 +281,12 @@ caller's head.
   for the **kernel** map only. User AS tables and data pages come from the
   **separate** frame pool ([ADR-0012](adr/0012-frame-allocator-for-address-spaces.md))
   owned by `mm::frames` / `mm::aspace` — not from this arena.
-- **Product multi-AS scheduling / ASID / SMP TLB.** In tree: user `TTBR0` roots,
-  dual-AS teardown, scheduled multi-SVC / IRQ-resume EL0 sessions (sole
-  `switch_ttbr0`), concurrent dual agents. Still out: ASID namespace, multi-core
-  TLB maintenance, two TCBs **simultaneously** live at EL0.
+- **Product multi-AS scheduling / SMP TLB.** In tree: user `TTBR0` roots +
+  first-slice ASID (ADR-0050: pool, CONTEXTIDR, nG user leaves), dual-AS
+  teardown, scheduled multi-SVC / IRQ-resume EL0 sessions (sole
+  `switch_ttbr0`), concurrent dual agents. Still open: TTBR1 split, HW TLB
+  stamp, multi-core TLB shootdown (**K8**), two TCBs **simultaneously** live
+  at EL0.
 - **High-half kernel / `TTBR1`.** Deliberately deferred
   ([ADR-0014](adr/0014-ttbr-split-m5.md) successor).
 - **Agent Device maps** are **in tree** (M6): one PL011 page via

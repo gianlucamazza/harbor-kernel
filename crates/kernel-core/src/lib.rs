@@ -34,6 +34,7 @@
 
 pub mod a64;
 pub mod agentstore;
+pub mod asid;
 pub mod budget;
 pub mod bump;
 pub mod cap;

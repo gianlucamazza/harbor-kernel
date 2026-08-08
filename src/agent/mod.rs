@@ -356,7 +356,7 @@ impl Agent {
         let outcome = cpu::without_irqs(|| unsafe {
             el0::run(
                 sched::current_el0_session(),
-                self.aspace.root_phys(),
+                self.aspace.ttbr0_value() as usize,
                 self.aspace.user_entry_va(),
                 self.aspace.user_sp(),
             )
@@ -388,7 +388,7 @@ impl Agent {
         self.aspace
             .poke_user(0, prog)
             .map_err(|_| AgentError::Poke)?;
-        let root = self.aspace.root_phys();
+        let root = self.aspace.ttbr0_value() as usize;
         let entry = self.aspace.user_entry_va();
         let sp = self.aspace.user_sp();
         // The session this task owns. Every call below passes it, and

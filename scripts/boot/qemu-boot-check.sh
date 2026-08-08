@@ -200,6 +200,15 @@ grep -qa 'aspace: dual create/destroy ok' "${log}" ||
 if grep -qa 'aspace: dual LEAK' "${log}"; then
 	fail "dual address-space leaked frames"
 fi
+# K7 / ADR-0050: dual AS with distinct ASIDs both enter EL0.
+grep -qaE 'asid: dual a=[1-9][0-9]* b=[1-9][0-9]* ok' "${log}" ||
+	fail "ASID dual-AS oracle failed"
+if grep -qa 'asid: LEAK' "${log}"; then
+	fail "ASID pool leaked tags on dual destroy"
+fi
+if grep -qa 'asid: dual FAILED' "${log}" || grep -qa 'asid: dual el0 FAILED' "${log}"; then
+	fail "ASID dual path reported failure"
+fi
 # M5-P1/P2: scheduled EL0 task + SVC dispatch.
 grep -qa 'el0-task: svc ping' "${log}" ||
 	fail "scheduled el0-task did not complete svc ping"

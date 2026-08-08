@@ -63,9 +63,10 @@ the code that follows.
 | [0044](0044-k5-agent-density.md)                             | K5 first slice — thin task stacks for agent density                                                 | accepted   |
 | [0045](0045-p2-durable-store.md)                             | P2 residual — durable keyed store region                                                            | accepted   |
 | [0046](0046-k4-cooperative-cpu-budget.md)                    | K4 first slice — cooperative CPU budget                                                             | accepted   |
-| [0047](0047-k7-asid-isolation-design.md)                     | K7 design — ASID isolation (code deferred)                                                          | accepted   |
+| [0047](0047-k7-asid-isolation-design.md)                     | K7 design — ASID isolation                                                                          | accepted   |
 | [0048](0048-k8-smp-design.md)                                | K8 design — SMP (code deferred)                                                                     | accepted   |
 | [0049](0049-deferred-residuals.md)                           | Deferred residuals — peer transfer, resolve-grant, P3/P4, #14                                       | accepted   |
+| [0050](0050-k7-asid-first-slice.md)                          | K7 first slice — ASID pool, CONTEXTIDR, nG user leaves                                              | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

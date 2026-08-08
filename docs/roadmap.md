@@ -57,7 +57,7 @@ the named level — not when prose wishes it.
 | --- | --- | --- |
 | **H0 — Foundation** | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel | **Done (HW)** — M0–M8 + ADR-0024/0025 |
 | **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (HW stamp 2026-08-08):** bar 1–7 + K5 thin + P2 durable + K4 budget + lifecycle residuals (serial `.serial-log/20260808-030219.log`). **Still open / residual:** P3/P4 (deferred), P2 SD/power-cycle, K5 driver-half, peer transfer, resolve grant, IRQ preemption |
-| **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** IRQ preemption residual (cooperative budget **done (HW)**); **K5** driver-half remainder; **K7/K8** design accepted (code deferred); P3/P4 deferred; SD power-cycle residual |
+| **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** IRQ preemption residual (budget **done (HW)**); **K5** driver-half remainder; **K7** first slice **done (QEMU)** (TTBR1/HW residual); **K8** design only; P3/P4 deferred; SD power-cycle residual |
 
 **H1 product bar (what “composition OS” means here):**
 
@@ -85,7 +85,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | K4 | Preemption or CPU budget | **done (HW)** first slice ([ADR-0046](adr/0046-k4-cooperative-cpu-budget.md); Pi stamp 2026-08-08); IRQ preemption residual | Tick quantum + voluntary yield; no IRQ switch | 0006 → 0046 |
 | K5 | Agent density (shrink/collapse driver half) | **done (HW)** first slice ([ADR-0044](adr/0044-k5-agent-density.md); Pi stamp 2026-08-08); driver-half collapse residual | `spawn_thin` 4 KiB stacks; pure density arithmetic | 0023 → 0044 |
 | K6 | External agent load + byte manifest | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement) | Image store inject; product prefers store, oracle empty → builtin | ADR-0021 → 0027 → 0029 |
-| K7 | ASID (+ TTBR1 if required) | **in design** ([ADR-0047](adr/0047-k7-asid-isolation-design.md) accepted; code deferred) | ASID pool + CONTEXTIDR on switch | 0014 → 0047 |
+| K7 | ASID (+ TTBR1 if required) | **done (QEMU)** first slice ([ADR-0047](adr/0047-k7-asid-isolation-design.md) + [ADR-0050](adr/0050-k7-asid-first-slice.md)); TTBR1 / HW TLB stamp residual | ASID pool + CONTEXTIDR + nG user leaves; dual-AS oracle | 0014 → 0047 → 0050 |
 | K8 | SMP | **in design** ([ADR-0048](adr/0048-k8-smp-design.md) accepted; code deferred) | Unpark secondary + per-core queues | 0006 → 0048 |
 | K9 | Driver-as-agent beyond PL011 (+ IRQ caps) | **done (HW)** ([ADR-0034](adr/0034-k9-rng-driver-agent.md) + [ADR-0043](adr/0043-k9-irq-device-agent.md); Pi stamp 2026-08-08) | Map agent + IRQ-cap-only wait agent | 0013 → 0034 → 0043 |
 | K10 | Supervisor lifecycle (restart, creator exit) | **done (HW)** ([ADR-0033](adr/0033-k10-supervisor-reap.md) + [ADR-0038](adr/0038-k10-creator-exit-cascade.md); Pi stamp 2026-08-08); force-kill Running later | `supervisor_reap_blocked`; exit cascades cancel of blocked children | 0018/0025 → 0033 → 0038 |
@@ -114,14 +114,14 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 
 | Step | Track(s) | Why now |
 | --- | --- | --- |
-| 1 | **K7** ASID first code *or* **K4** IRQ preemption design ADR | H2 entry — isolation vs fairness |
-| 2 | **P2 SD/power-cycle** re-read on Pi | Closes true-media residual while lab is hot |
-| 3 | **Resolve-grant** / peer transfer design | Non-ambient authority depth |
-| — | **K8** SMP unpark | After K7 or when dual-core gate is ready |
+| 1 | **K4** IRQ preemption design ADR *or* **P2 SD/power-cycle** | H2 fairness vs true-media residual |
+| 2 | **Resolve-grant** / peer transfer design | Non-ambient authority depth |
+| 3 | **K7** HW TLB stamp / TTBR1 residual | After lab time; first code is QEMU-done |
+| — | **K8** SMP unpark | After K7 residual or when dual-core gate is ready |
 | — | **P3** / **P4** | Only with a named composition (ADR-0049) |
 
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
-P3/P4 deferred. H2: budget done (HW); preemption/ASID/SMP code next.
+P3/P4 deferred. H2: budget + ASID first slice done (QEMU); preemption/SMP next.
 
 ```text
 Mission: agents · grants · evidence · finish the OS
