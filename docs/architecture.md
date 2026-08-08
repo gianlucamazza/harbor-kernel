@@ -278,7 +278,7 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
 | **H1 next** | P3\|P4 only with composition (deferred) · SD power-cycle · IRQ preemption |
 | **H2 depth** | K4 IRQ preemption residual; K7/K8 code after design ADRs |
-| **open (kernel)** | K4 IRQ preemption, K7/K8 code, peer transfer, resolve grant |
+| **open (kernel)** | K4 IRQ preemption *code*, K7 residuals / K8 code, peer transfer *code* |
 | **open (product)** | P2 SD residual, P3/P4 deferred (ADR-0049) |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
@@ -343,6 +343,9 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0050](adr/0050-k7-asid-first-slice.md) | K7 first slice — ASID pool + CONTEXTIDR (**accepted**) |
 | [ADR-0048](adr/0048-k8-smp-design.md) | K8 SMP design (**accepted**) — code deferred |
 | [ADR-0049](adr/0049-deferred-residuals.md) | Deferred residuals policy (**accepted**) |
+| [ADR-0051](adr/0051-k4-irq-preemption-design.md) | K4 IRQ preemption design (**accepted**) — code deferred |
+| [ADR-0052](adr/0052-p5-resolve-grant.md) | P5 resolve grant (**accepted**) |
+| [ADR-0053](adr/0053-k3-peer-transfer-design.md) | K3 peer transfer design (**accepted**) — code deferred |
 | [`docs/reviews/`](reviews/)                                     | Pass outcomes (findings), not decisions                                                             |
 
 ## Non-goals

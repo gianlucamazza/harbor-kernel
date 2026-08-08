@@ -18,12 +18,12 @@ does not invent product or ambient authority.
 
 | Item | Why deferred | Unblock when |
 | --- | --- | --- |
-| **Peer EL0 transfer** (TaskId / task-cap) | Naming arbitrary tasks from EL0 is ambient; needs task capabilities | Task-cap design ADR |
-| **Resolve grant** (non-ambient SYS_RESOLVE) | Ambient resolve is acceptable for lab; production needs a resolve right | Name-cap or slot policy ADR |
+| **Peer EL0 transfer** (implementation) | Design accepted ([ADR-0053](0053-k3-peer-transfer-design.md)); code deferred | Follow-on code ADR + taskcap table |
 | **P3 network** | No named composition target this cycle | Edge-gateway composition + virtio/net ADR |
 | **P4 product display** | `debug-display` remains lab; no product UI composition | Product UI ADR graduating debug-display |
 | **#14 SpiDevice** | Watch only; XPT2046 not in scope | Touch driver or supersede ADR-0020 |
 
 ## Not deferred (landed elsewhere)
 
-K5 thin stacks, P2 durable region, K4 cooperative budget, K7/K8 design ADRs.
+K5 thin stacks, P2 durable region, K4 cooperative budget, K7 first slice, K4/K8
+preemption·SMP design ADRs, **resolve grant** ([ADR-0052](0052-p5-resolve-grant.md)).

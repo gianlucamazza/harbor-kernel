@@ -96,7 +96,7 @@ the machine with other agents under the same kernel, tries to:
 | Crash the kernel by faulting at EL0 | Yes — session ends; creator handles; kernel lives |
 | Steal another agent’s saved GPRs / session | Yes — `CURRENT_EL0` publish + assert on entry |
 | Exhaust frames / tables to DoS later agents | Partially — pool is finite; destroy should return frames |
-| Busy-loop at EL0 and starve the system | **Mitigated (QEMU first slice)** — cooperative CPU budget / tick quantum ([ADR-0046](docs/adr/0046-k4-cooperative-cpu-budget.md)); model remains cooperative ([ADR-0006](docs/adr/0006-cooperative-execution-model.md)). Residual: **IRQ-side preemption** (true interrupt switch), still a completeness track ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)) |
+| Busy-loop at EL0 and starve the system | **Mitigated (QEMU first slice)** — cooperative CPU budget / tick quantum ([ADR-0046](docs/adr/0046-k4-cooperative-cpu-budget.md)); model remains cooperative ([ADR-0006](docs/adr/0006-cooperative-execution-model.md)). Residual: **IRQ-side preemption** designed ([ADR-0051](docs/adr/0051-k4-irq-preemption-design.md)); code not landed |
 | Park forever on a mailbox nobody sends to | **Mitigated** — supervisor `cancel_blocked` ([ADR-0025](docs/adr/0025-cancel-blocked-wait.md)); last-SEND-hold auto-reap on ephemeral channels ([ADR-0031](docs/adr/0031-k2-last-send-hold-auto-reap.md), QEMU); tick park timeout ([ADR-0040](docs/adr/0040-k2-park-timeout.md), QEMU). Residual: EL0 `SYS_RECV` timeout. |
 | Take a second waiter's place on an endpoint | Yes — `Table::park` refuses (`Status::Busy`) and counts a state refusal. One endpoint, one waiter |
 | Feed an RX-owning agent hostile input from the wire | Yes, and it is *supposed* to arrive — the agent is untrusted either way. What must hold is that the handover cannot leave the line armed with nothing to drain (`kernel_core::rxline`, host-tested) |
@@ -118,7 +118,7 @@ Defined by [ADR-0017](docs/adr/0017-el0-capability-abi.md) and
 | 4 | `SYS_RECV` | `CapRights::RECV` on endpoint in slot — **waits** if the mailbox is empty ([ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md)) |
 | 5 | `SYS_TRY_RECV` | `CapRights::RECV` on endpoint in slot, **never waits** — answers `Empty` |
 | 6 | `SYS_WAIT_IRQ` | IRQ notification in slot (`CapRights::IRQ` object, high-half `CapId` — [ADR-0030](docs/adr/0030-el0-irq-capability.md)); **waits** for cookie signal |
-| 7 | `SYS_RESOLVE` | Empty slot + short name in `x1`/`x2` → install resolved `CapId` ([ADR-0039](docs/adr/0039-p5-el0-resolve.md)); missing/bad → `Authority` |
+| 7 | `SYS_RESOLVE` | Empty slot + short name; requires per-task resolve grant ([ADR-0052](docs/adr/0052-p5-resolve-grant.md)); install resolved `CapId` ([ADR-0039](docs/adr/0039-p5-el0-resolve.md)); missing/bad/no-grant → `Authority` |
 | 8 | `SYS_TRANSFER` | Move held cap: `x0` from, `x1` to empty slot, `x2` = 0 self / 1 creator ([ADR-0041](docs/adr/0041-el0-cap-transfer.md)) |
 | 9 | `SYS_RECV_TIMEOUT` | Blocking recv with tick timeout in `x1` ([ADR-0042](docs/adr/0042-el0-recv-timeout.md)); timeout → `Cancelled` |
 
@@ -189,7 +189,7 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 
 | Topic | Status |
 | ----- | ------ |
-| **Preemption** | **Cooperative budget done (QEMU)** ([ADR-0046](docs/adr/0046-k4-cooperative-cpu-budget.md) tick quantum). Residual: **IRQ-side preemption** (true interrupt switch) — still open; not a permanent non-goal ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md)). |
+| **Preemption** | **Cooperative budget done (HW)** ([ADR-0046](docs/adr/0046-k4-cooperative-cpu-budget.md)). IRQ-side preemption **in design** ([ADR-0051](docs/adr/0051-k4-irq-preemption-design.md)); code deferred. |
 | **Wait-on-IRQ** | **Done (QEMU):** EL1 `wait_for_irq` ([ADR-0028](docs/adr/0028-wait-on-irq.md)); EL0 `SYS_WAIT_IRQ` via IRQ notification cap ([ADR-0030](docs/adr/0030-el0-irq-capability.md)). Residual: no multi-waiter, no dynamic register, no cancel of IRQ parks. |
 | **A parked task may wait until cancelled** | **Reaping (ADR-0025, done HW):** supervisor `ipc::cancel_blocked`. **Last-SEND-hold auto-reap (ADR-0031, done QEMU):** ephemeral channels. **Park timeout (ADR-0040, done QEMU):** `recv_with_timeout` cancels on tick deadline. **Visibility (ADR-0024).** Residual: no EL0 recv timeout yet; frames free only when the task exits and destroys its AS. |
 | **Console TX depends on the server task** | After M8, agent console output is drained by an EL1 server. If that task exits or never runs, agents get `Full` / silent loss; kernel `kprintln` and panic steal still work. |

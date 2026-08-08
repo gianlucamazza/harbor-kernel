@@ -91,6 +91,8 @@ struct Tcb {
     cancel_wait: bool,
     /// Who spawned this task (ADR-0038 / K10 cascade). Idle for early boot.
     creator: TaskId,
+    /// May call `SYS_RESOLVE` (ADR-0052). Default false — not ambient.
+    may_resolve: bool,
 }
 
 impl Tcb {
@@ -103,6 +105,7 @@ impl Tcb {
             el0: None,
             cancel_wait: false,
             creator: Tasks::<MAX_TASKS>::IDLE,
+            may_resolve: false,
         }
     }
 }
@@ -269,6 +272,7 @@ fn spawn_inner(
             el0: Some(El0Session::new()),
             cancel_wait: false,
             creator,
+            may_resolve: false,
         };
         // ADR-0031: SEND holds are TCB slots, not stack CapId copies.
         ipc::register_holds(&held);
@@ -282,6 +286,40 @@ pub fn current_task_id() -> TaskId {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         unsafe { (*SCHED.get()).tasks.current() }
+    })
+}
+
+/// Grant `SYS_RESOLVE` to `id` (ADR-0052). Trusted EL1 / creator path.
+///
+/// Returns `false` if `id` is not a non-empty task slot.
+pub fn grant_resolve(id: TaskId) -> bool {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let sched = unsafe { &mut *SCHED.get() };
+        match sched.tasks.state(id) {
+            Some(kernel_core::tasks::State::Empty) | None => false,
+            Some(_) => {
+                sched.tcbs[id.0 as usize].may_resolve = true;
+                true
+            }
+        }
+    })
+}
+
+/// Grant resolve to the running task (bootstrap / oracle convenience).
+#[inline]
+pub fn grant_resolve_current() -> bool {
+    grant_resolve(current_task_id())
+}
+
+/// Whether the running task may call `SYS_RESOLVE`.
+#[inline]
+pub fn may_resolve_current() -> bool {
+    cpu::without_irqs(|| {
+        // SAFETY: IRQs masked.
+        let sched = unsafe { &*SCHED.get() };
+        let slot = sched.tasks.current().0 as usize;
+        sched.tcbs[slot].may_resolve
     })
 }
 

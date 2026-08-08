@@ -36,7 +36,8 @@ Two thin tasks spin with `yield_if_budget_expired`; interleaved progress prints
 
 ### 4. Residuals
 
-True preemption (IRQ switch), per-agent budgets, priority.
+True preemption (IRQ switch) — design in [ADR-0051](0051-k4-irq-preemption-design.md);
+per-agent budgets, priority.
 
 ## Gates
 

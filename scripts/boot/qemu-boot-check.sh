@@ -322,7 +322,9 @@ grep -qa 'ipc: transfer ok' "${log}" ||
 # ADR-0038 / K10 residual: creator exit cancels blocked child.
 grep -qa 'cascade: cancelled' "${log}" ||
 	fail "creator-exit cascade did not cancel blocked child (ADR-0038)"
-# ADR-0039 / P5 residual: EL0 SYS_RESOLVE.
+# ADR-0039 / ADR-0052 / P5 residual: resolve grant + EL0 SYS_RESOLVE.
+grep -qa 'resolve-grant: refused' "${log}" ||
+	fail "SYS_RESOLVE without grant did not refuse (ADR-0052)"
 grep -qa 'el0-resolve: ok' "${log}" ||
 	fail "EL0 resolve did not install a named cap (ADR-0039)"
 grep -qa 'el0-resolve: refused' "${log}" ||

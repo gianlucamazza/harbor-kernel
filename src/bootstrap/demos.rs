@@ -1169,8 +1169,38 @@ pub(super) fn timeout_recv_task() {
     }
 }
 
-/// ADR-0039: EL0 SYS_RESOLVE into empty slot 0 for name `ab` (bound by bootstrap).
+/// ADR-0039 + ADR-0052: resolve grant + EL0 SYS_RESOLVE for name `ab`.
 pub(super) fn el0_resolve_task() {
+    // name "ab" LE = 0x6261, len 2, slot 0 empty.
+    let prog = kernel_core::prog::encode_resolve_exit(0, 2, 0x6261);
+
+    // ADR-0052: without grant, even a bound name refuses.
+    let mut denied = match crate::agent::Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("resolve-grant: create FAILED {e:?}");
+            return;
+        }
+    };
+    match denied.run_user_prog_resuming(&prog) {
+        Ok(stats) if stats.authority_refusals >= 1 && crate::sched::my_cap(0).is_none() => {
+            crate::kprintln!("resolve-grant: refused");
+        }
+        Ok(stats) => crate::kprintln!(
+            "resolve-grant: unexpected end={:?} refusals={} slot={}",
+            stats.end,
+            stats.authority_refusals,
+            crate::sched::my_cap(0).is_some()
+        ),
+        Err(e) => crate::kprintln!("resolve-grant: run FAILED {e:?}"),
+    }
+    denied.destroy();
+
+    if !crate::sched::grant_resolve_current() {
+        crate::kprintln!("resolve-grant: grant FAILED");
+        return;
+    }
+
     let mut agent = match crate::agent::Agent::create_prepared() {
         Ok(a) => a,
         Err(e) => {
@@ -1178,8 +1208,6 @@ pub(super) fn el0_resolve_task() {
             return;
         }
     };
-    // name "ab" LE = 0x6261, len 2, slot 0 empty.
-    let prog = kernel_core::prog::encode_resolve_exit(0, 2, 0x6261);
     match agent.run_user_prog_resuming(&prog) {
         Ok(stats) if matches!(stats.end, crate::agent::SessionEnd::Exit) => {
             // Slot should now hold the cap — prove with a held check via install path:
@@ -1200,7 +1228,7 @@ pub(super) fn el0_resolve_task() {
     }
     agent.destroy();
 
-    // Missing name refuse path (same empty agent image would need another run).
+    // Missing name refuse path (grant still held).
     let mut agent2 = match crate::agent::Agent::create_prepared() {
         Ok(a) => a,
         Err(e) => {

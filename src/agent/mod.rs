@@ -256,8 +256,14 @@ fn recv_timeout_reply(
     recv_reply(session, ipc::recv_with_timeout(cap, ticks), stats)
 }
 
-/// ADR-0039: pack name from `x1`/`x2`, resolve, install into empty slot.
+/// ADR-0039 + ADR-0052: pack name from `x1`/`x2`, resolve, install into empty slot.
+///
+/// Requires [`sched::may_resolve_current`] — resolve is not ambient.
 fn resolve_reply(slot: usize, name_len: usize, packed: u64, stats: &mut SessionStats) -> Status {
+    if !sched::may_resolve_current() {
+        stats.authority_refusals = stats.authority_refusals.saturating_add(1);
+        return Status::Authority;
+    }
     if !(1..=8).contains(&name_len) {
         stats.authority_refusals = stats.authority_refusals.saturating_add(1);
         return Status::Authority;

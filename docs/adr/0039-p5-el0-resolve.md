@@ -40,11 +40,11 @@ Missing name, bad length, occupied/out-of-range slot → `Status::Authority`
 (same refusal class as a bad slot). Counted as an authority refusal on the agent
 stats path.
 
-### 3. Ambient resolve for this slice
+### 3. Ambient resolve (superseded)
 
-Any agent may attempt resolve. Creators control **what names exist**; there is
-no separate “resolve capability” yet. A later slice may gate resolve behind a
-grant.
+Originally any agent could attempt resolve. **Superseded by
+[ADR-0052](0052-p5-resolve-grant.md):** resolve requires a per-task grant
+(`may_resolve`). Creators still control **what names exist**.
 
 ### 4. Non-goals
 
