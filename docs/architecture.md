@@ -360,6 +360,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0060](adr/0060-syscall-reply-layer.md)                          | Syscall reply layer (**accepted**)                                                                                             |
 | [ADR-0061](adr/0061-refusal-detail-taxonomy.md)                      | Refusal detail in x1 (**accepted**)                                                                                            |
 | [ADR-0062](adr/0062-taskid-epoch.md)                                 | Epoch in the task identity (**accepted**)                                                                                      |
+| [ADR-0063](adr/0063-capslots-extraction.md) | Capability slots as a pure table (**accepted**) |
 | [`docs/reviews/`](reviews/)                                          | Pass outcomes (findings), not decisions                                                                                        |
 
 ## Non-goals

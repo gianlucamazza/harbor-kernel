@@ -82,6 +82,7 @@ the code that follows.
 | [0060](0060-syscall-reply-layer.md)                          | Syscall reply layer as a pure machine                                                        | accepted   |
 | [0061](0061-refusal-detail-taxonomy.md)                      | Refusal detail taxonomy in x1                                                                | accepted   |
 | [0062](0062-taskid-epoch.md)                                 | Epoch in the task identity                                                                   | accepted   |
+| [0063](0063-capslots-extraction.md) | Capability slots as a pure table | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

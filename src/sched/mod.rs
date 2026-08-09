@@ -25,6 +25,7 @@
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use kernel_core::cap::{CapId, SlotError};
+use kernel_core::capslots;
 pub use kernel_core::runqueue::TaskId;
 use kernel_core::tasks::{Decision, Switch, Tasks};
 
@@ -78,8 +79,6 @@ struct Tcb {
     stack: Option<TaskStack>,
     /// Cleared when the trampoline starts the entry function.
     entry: Option<fn()>,
-    /// Unforgeable caps this task holds (M4).
-    caps: [Option<CapId>; MAX_CAPS_PER_TASK],
     /// EL0 session state (ADR-0017 §1). `None` for a slot that is not a task:
     /// an empty slot, or one whose task has exited.
     ///
@@ -104,7 +103,6 @@ impl Tcb {
             context: Context::zeroed(),
             stack: None,
             entry: None,
-            caps: [None; MAX_CAPS_PER_TASK],
             el0: None,
             cancel_wait: false,
             creator: Tasks::<MAX_TASKS>::IDLE,
@@ -134,6 +132,11 @@ fn publish_el0(sched: &mut Sched, to: TaskId) {
 struct Sched {
     tasks: Tasks<MAX_TASKS>,
     tcbs: [Tcb; MAX_TASKS],
+    /// What every task may name, one row per slot (ADR-0063). The decisions
+    /// over it — resolve, install, transfer, drain — are host-tested and
+    /// mutated in `kernel_core::capslots`; this module contributes identity
+    /// (who asks, epoch-checked liveness) and the IRQ mask.
+    caps: capslots::Table<MAX_TASKS, MAX_CAPS_PER_TASK>,
 }
 
 impl Sched {
@@ -141,6 +144,7 @@ impl Sched {
         Self {
             tasks: Tasks::new(),
             tcbs: [const { Tcb::empty() }; MAX_TASKS],
+            caps: capslots::Table::new(),
         }
     }
 }
@@ -268,7 +272,6 @@ fn spawn_inner(
             context,
             stack: Some(stack),
             entry: Some(entry),
-            caps: held,
             // Created here rather than on first use: the switch publishes
             // whatever the slot holds, so a session that appears later would be
             // a pointer the last switch could not have published.
@@ -277,6 +280,7 @@ fn spawn_inner(
             creator,
             may_resolve: false,
         };
+        sched.caps.seed(slot, &held);
         // ADR-0031: SEND holds are TCB slots, not stack CapId copies.
         ipc::register_holds(&held);
         Ok(id)
@@ -353,13 +357,9 @@ pub fn my_cap_slot(slot: usize) -> Result<CapId, SlotError> {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &*SCHED.get() };
-        let idx = sched.tasks.current().slot();
-        match sched.tcbs.get(idx) {
-            Some(tcb) => kernel_core::cap::from_slot(&tcb.caps, slot),
-            // The current task id always indexes the array; this arm exists so
-            // a corrupted index is a refusal rather than a panic in a syscall.
-            None => Err(SlotError::OutOfRange { slot, slots: 0 }),
-        }
+        // A corrupted row index is a refusal rather than a panic in a syscall
+        // — the table answers an out-of-range row as a row with no slots.
+        sched.caps.get(sched.tasks.current().slot(), slot)
     })
 }
 
@@ -385,12 +385,7 @@ pub fn current_holds(cap: CapId) -> bool {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &*SCHED.get() };
-        let idx = sched.tasks.current().slot();
-        sched
-            .tcbs
-            .get(idx)
-            .map(|t| t.caps.contains(&Some(cap)))
-            .unwrap_or(false)
+        sched.caps.holds(sched.tasks.current().slot(), cap)
     })
 }
 
@@ -409,21 +404,29 @@ pub enum TransferError {
     Untransferable,
 }
 
+impl From<capslots::TransferError> for TransferError {
+    fn from(e: capslots::TransferError) -> Self {
+        match e {
+            capslots::TransferError::BadFromSlot => Self::BadFromSlot,
+            capslots::TransferError::ToSlotFull => Self::ToSlotFull,
+            capslots::TransferError::ToSlotOob => Self::ToSlotOob,
+            capslots::TransferError::Untransferable => Self::Untransferable,
+        }
+    }
+}
+
 /// Move the current task's cap at `from_slot` into `to`'s empty `to_slot` (ADR-0037).
 ///
 /// Same-task moves are allowed (`to == current`). SEND-hold counts are unchanged
-/// (same number of installs).
+/// (same number of installs). The slot decisions live in
+/// [`kernel_core::capslots`] (ADR-0063); this function contributes the ABI's
+/// refusal order — bounds, then destination liveness, then the rest.
 pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(), TransferError> {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked; single core.
         let sched = unsafe { &mut *SCHED.get() };
         let from = sched.tasks.current();
-        if from_slot >= MAX_CAPS_PER_TASK {
-            return Err(TransferError::BadFromSlot);
-        }
-        if to_slot >= MAX_CAPS_PER_TASK {
-            return Err(TransferError::ToSlotOob);
-        }
+        capslots::Table::<MAX_TASKS, MAX_CAPS_PER_TASK>::transfer_bounds(from_slot, to_slot)?;
         if to != from {
             // `state` is the one validator: unknown slot, empty slot and a
             // stale epoch (ADR-0062) all answer "no such task".
@@ -434,28 +437,10 @@ pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(),
                 Some(_) => {}
             }
         }
-        let from_i = from.slot();
-        let to_i = to.slot();
-        if from == to && from_slot == to_slot {
-            return Ok(());
-        }
-        let cap = match sched.tcbs[from_i].caps[from_slot] {
-            Some(c) => c,
-            None => return Err(TransferError::BadFromSlot),
-        };
-        // ADR-0055: only IPC endpoint caps move. A task-cap as the moved
-        // object is delegation — a declared non-goal — and an IRQ cap would
-        // hand off ADR-0030's single-armer identity. The class decode is
-        // ADR-0059's, so this site cannot drift from the tables' own checks.
-        if !matches!(cap.classify(), kernel_core::cap::CapClass::Endpoint(_)) {
-            return Err(TransferError::Untransferable);
-        }
-        if sched.tcbs[to_i].caps[to_slot].is_some() {
-            return Err(TransferError::ToSlotFull);
-        }
-        sched.tcbs[from_i].caps[from_slot] = None;
-        sched.tcbs[to_i].caps[to_slot] = Some(cap);
-        Ok(())
+        sched
+            .caps
+            .transfer(from.slot(), from_slot, to.slot(), to_slot)
+            .map_err(TransferError::from)
     })
 }
 
@@ -500,22 +485,15 @@ pub enum InstallError {
 
 /// Install `cap` into the current task's empty `slot` and register SEND holds.
 pub fn install_cap(slot: usize, cap: CapId) -> Result<(), InstallError> {
-    let placed = cpu::without_irqs(|| {
+    cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &mut *SCHED.get() };
-        if slot >= MAX_CAPS_PER_TASK {
-            return false;
-        }
         let idx = sched.tasks.current().slot();
-        if sched.tcbs[idx].caps[slot].is_some() {
-            return false;
-        }
-        sched.tcbs[idx].caps[slot] = Some(cap);
-        true
-    });
-    if !placed {
-        return Err(InstallError::BadSlot);
-    }
+        sched
+            .caps
+            .install(idx, slot, cap)
+            .map_err(|capslots::InstallError::BadSlot| InstallError::BadSlot)
+    })?;
     let mut one = [None; MAX_CAPS_PER_TASK];
     one[slot] = Some(cap);
     ipc::register_holds(&one);
@@ -901,10 +879,9 @@ fn switch_with(kind: Switch) {
         let exit_caps = if kind == Switch::Exit {
             // The slot is `Empty` and its stack stays attached until collected —
             // the model refuses to hand the slot out again until then.
+            let caps = sched.caps.drain(from.slot());
             let slot = &mut sched.tcbs[from.slot()];
-            let caps = slot.caps;
             slot.entry = None;
-            slot.caps = [None; MAX_CAPS_PER_TASK];
             slot.context = Context::zeroed();
             // The session dies with the task. Nothing scrubs what a faulting agent
             // left in it before this point — see ADR-0018's fifth reversal row.

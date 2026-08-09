@@ -1525,6 +1525,15 @@ bound) and two are justified, both instances of already-argued classes:
 The 17 from the fifth run are unchanged; baseline 17 → 19, both additions
 named above. The timeout is still `reset::partition`'s documented hang.
 
+### Seventh run, after ADR-0063: 446 caught, 19 missed, 1 timeout
+
+`capslots.rs` joined the file list the commit it was born (ADR-0058 §2) —
+525 mutants over 16 files. **Zero survivors in `capslots.rs`**: every slot
+decision the extraction moved out of `sched` (resolve, install, the transfer
+refusal order, the ADR-0055 band filter, drain) dies to a host test. The 19
+missed are the sixth run's justified set unchanged, and the timeout is still
+`reset::partition`'s documented hang.
+
 #### What mutation testing cannot reach here
 
 `cargo-mutants` runs `-p kernel-core`. Everything in `src/` is outside it,

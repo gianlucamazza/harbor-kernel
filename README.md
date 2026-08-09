@@ -108,7 +108,7 @@ auto-reap (ephemeral channels); channel revoke (stale CapId refused).
 | Execution    | Cooperative only — preemption/SMP **open**                                                             |
 | Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade |
 | Product OS   | Multi-agent store composition (QEMU); broader services **open**                                        |
-| Verification | 379 host tests, model checks, Miri, QEMU and hardware stamps                                           |
+| Verification | 389 host tests, model checks, Miri, QEMU and hardware stamps                                           |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 
