@@ -57,7 +57,7 @@ the named level — not when prose wishes it.
 | --- | --- | --- |
 | **H0 — Foundation** | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel | **Done (HW)** — M0–M8 + ADR-0024/0025 |
 | **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story | **Paid (HW stamp 2026-08-08):** bar 1–7 + K5 thin + P2 durable + K4 budget + lifecycle residuals (serial `.serial-log/20260808-030219.log`). **Still open / residual:** P3/P4 (deferred), P2 SD/power-cycle, K5 driver-half, IRQ preemption *code* |
-| **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** budget **done (HW)**; preemption **design** ([ADR-0051](adr/0051-k4-irq-preemption-design.md)); **K5** driver-half remainder; **K7** first slice **done (QEMU)**; **K8** design only; P3/P4 deferred; SD power-cycle residual |
+| **H2 — Boundary OS** | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** budget **done (HW)**; preemption **design** ([ADR-0051](adr/0051-k4-irq-preemption-design.md)); **K5** driver-half remainder; **K7** first slice **done (HW)**; **K8** design only; P3/P4 deferred; SD power-cycle residual |
 
 **H1 product bar (what “composition OS” means here):**
 
@@ -85,7 +85,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | K4 | Preemption or CPU budget | **done (HW)** first slice ([ADR-0046](adr/0046-k4-cooperative-cpu-budget.md); Pi stamp 2026-08-08); IRQ preemption **in design** ([ADR-0051](adr/0051-k4-irq-preemption-design.md)) | Tick quantum + voluntary yield; IRQ switch designed | 0006 → 0046 → 0051 |
 | K5 | Agent density (shrink/collapse driver half) | **done (HW)** first slice ([ADR-0044](adr/0044-k5-agent-density.md); Pi stamp 2026-08-08); driver-half collapse residual | `spawn_thin` 4 KiB stacks; pure density arithmetic | 0023 → 0044 |
 | K6 | External agent load + byte manifest | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement) | Image store inject; product prefers store, oracle empty → builtin | ADR-0021 → 0027 → 0029 |
-| K7 | ASID (+ TTBR1 if required) | **done (QEMU)** first slice ([ADR-0047](adr/0047-k7-asid-isolation-design.md) + [ADR-0050](adr/0050-k7-asid-first-slice.md)); TTBR1 / HW TLB stamp residual | ASID pool + CONTEXTIDR + nG user leaves; dual-AS oracle | 0014 → 0047 → 0050 |
+| K7 | ASID (+ TTBR1 if required) | **done (HW)** first slice, stamp 2026-08-09 ([ADR-0047](adr/0047-k7-asid-isolation-design.md) + [ADR-0050](adr/0050-k7-asid-first-slice.md) amended: early-map retirement); TTBR1 / switch-cost measurement residual | ASID pool + CONTEXTIDR + nG user leaves; dual-AS on silicon | 0014 → 0047 → 0050 |
 | K8 | SMP | **in design** ([ADR-0048](adr/0048-k8-smp-design.md) accepted; code deferred) | Unpark secondary + per-core queues | 0006 → 0048 |
 | K9 | Driver-as-agent beyond PL011 (+ IRQ caps) | **done (HW)** ([ADR-0034](adr/0034-k9-rng-driver-agent.md) + [ADR-0043](adr/0043-k9-irq-device-agent.md); Pi stamp 2026-08-08) | Map agent + IRQ-cap-only wait agent | 0013 → 0034 → 0043 |
 | K10 | Supervisor lifecycle (restart, creator exit) | **done (HW)** ([ADR-0033](adr/0033-k10-supervisor-reap.md) + [ADR-0038](adr/0038-k10-creator-exit-cascade.md); Pi stamp 2026-08-08); force-kill Running later | `supervisor_reap_blocked`; exit cascades cancel of blocked children | 0018/0025 → 0033 → 0038 |
@@ -115,13 +115,15 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 | Step | Track(s) | Why now |
 | --- | --- | --- |
 | 1 | **P2 SD/power-cycle** on Pi *or* **K4** preemption first code | True-media residual vs fairness code |
-| 2 | **K7** HW TLB stamp / TTBR1 residual | Lab when free |
+| 2 | **K7** switch-cost measurement / TTBR1 residual | Lab when free |
 | — | **K8** SMP unpark | Dual-core gate investment |
 | — | **P3** / **P4** | Only with a named composition (ADR-0049) |
 
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
-Resolve-grant + peer transfer **done (QEMU)**. K4 preemption **designed**.  
-P3/P4 deferred. Next: lab power-cycle or preemption code.
+K7 ASID slice **done (HW)** (stamp 2026-08-09, with the early-map TLB
+retirement the first silicon boot demanded). Resolve-grant + peer transfer
+**done (QEMU)**. K4 preemption **designed**. P3/P4 deferred. Next: lab
+power-cycle or preemption code.
 
 ```text
 Mission: agents · grants · evidence · finish the OS

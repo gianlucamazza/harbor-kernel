@@ -14,6 +14,17 @@
 # before calling `assert_boot_oracle`.
 
 assert_boot_oracle() {
+	# The caller's side of the contract, enforced: a missing log or a missing
+	# verdict function is a wiring bug, not an empty pass.
+	: "${log:?assert_boot_oracle: caller must set log}"
+	declare -F fail >/dev/null || {
+		echo "assert_boot_oracle: caller must define fail()" >&2
+		exit 2
+	}
+	declare -F on_timer_missed >/dev/null || {
+		echo "assert_boot_oracle: caller must define on_timer_missed()" >&2
+		exit 2
+	}
 	# Each assertion covers a distinct subsystem, so a failure localises itself.
 	grep -qa 'loader: builtin' "${log}" ||
 		fail "oracle boot did not use the builtin manifest path"

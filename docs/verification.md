@@ -162,6 +162,17 @@ identity map before any Rust runs, so the window does not exist, and
 exclusive access, or the state the firmware leaves behind, a green QEMU boot is
 not evidence.
 
+The rule earned its second example on 2026-08-09. TCG never fills the TLB
+speculatively; a Cortex-A72 does. When ADR-0050 removed the per-switch
+`tlbi vmalle1is`, nothing retired the early map's Global 1 GiB blocks — QEMU
+stayed green for a day, and the first silicon boot served the first EL0
+fetches from a stale EL1-only block: instruction abort, permission fault
+level 1 (`.serial-log/20260809-093312.log`, three oracle lines red). The fix
+is `mmu::activate`'s one-time `retire_early_map`, the ADR-0050 amendment —
+and the gate that can actually see this class is
+`scripts/check/hw-transcript-check.sh`, the same oracle assertions
+(`scripts/lib/boot-oracle.sh`, one owner) run against a hardware transcript.
+
 ## TLB maintenance: encoding vs necessity
 
 `mmu::map` and `mmu::unmap` issue `tlbi vaae1is` per page, or `vmalle1` past the
@@ -1754,3 +1765,18 @@ ticks=10
 — `ipc: release stale refused`); EL0 `SYS_WAIT_IRQ` ([ADR-0030](adr/0030-el0-irq-capability.md)).
 **Still open:** K2 timeout queue; K3 cap transfer; full H1 path on the
 [completeness roadmap](roadmap.md).
+
+## Hardware evidence: K7 ASID slice + early-map retirement closed on silicon (2026-08-09)
+
+| Claim | Gate / evidence |
+| --- | --- |
+| Early-map TLB residue retired at activate | Red first: transcript `20260809-093312.log` — `el0: SVC`/`el0: FAULT`/`asid: dual` failing with instruction abort, permission fault L1 at the user window. Green after `retire_early_map`: transcript below |
+| ASID/nG regime works on silicon (ADR-0047/0050) | `asid: dual a=2 b=3 ok` — two ASes, distinct ASIDs, both enter EL0, no global TLBI between them |
+| Whole oracle set holds on Pi 4B | `scripts/check/hw-transcript-check.sh` **clean** — every `boot-oracle.sh` assertion, including the ADR-0055/0057/0061/0062 refusal lines (`refused refusals=… detail=4`, stale task-cap refused, donor emptied) |
+
+**Status: done (HW)** on Pi 4B, 2026-08-09 ~10:07 host time. Transcript:
+`.serial-log/20260809-100645.log` (oracle `kernel8.img` @ `1843423`, which
+carries ADR-0062 epoch identities and ADR-0063 capslots).
+
+The switch-cost measurement named in ADR-0050 §5 remains open — this stamp is
+correctness, not cost. TTBR1 stays deferred at its named trigger.
