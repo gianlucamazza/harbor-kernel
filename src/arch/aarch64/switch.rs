@@ -1,12 +1,13 @@
-//! Voluntary EL1 context switch (ADR-0006).
+//! Shared callee-saved EL1 context switch (ADR-0006 frame layout).
 //!
 //! Saves and restores the AAPCS64 callee-saved state plus `sp` and the
-//! continuation in `x30`. Not a trap frame: IRQ entry still uses
-//! [`super::exception::frame::TrapFrame`].
+//! continuation in `x30`. Used for both voluntary rotation and preemptive
+//! rotation (`Switch::Preempt` — EL0 safe-point and EL1 IRQ-epilogue). Not a
+//! trap frame: IRQ entry still uses [`super::exception::frame::TrapFrame`].
 
-/// Callee-saved GPRs + link + stack pointer for a cooperative switch.
+/// Callee-saved GPRs + link + stack pointer for an EL1 stack swap.
 ///
-/// Layout is load-bearing for [`context_switch`].
+/// Layout is load-bearing for [`context_switch`] (voluntary and preemptive).
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Context {

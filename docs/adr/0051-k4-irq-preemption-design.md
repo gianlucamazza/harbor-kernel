@@ -1,35 +1,36 @@
 ---
 id: 0051
-title: K4 design — IRQ-side preemption (design only)
+title: K4 design — IRQ-side preemption (implemented in ADR-0064 / ADR-0068)
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
 amended: 2026-08-09
-related: [0006, 0046, 0026]
+related: [0006, 0046, 0026, 0064, 0068]
 ---
 
 # ADR-0051: IRQ preemption design (K4 — design; code in ADR-0064 / ADR-0068)
 
 ## Acceptance status
 
-**Accepted as design** (2026-08-08). Code landed in
+**Accepted as design** (2026-08-08). **Code complete** in
 [ADR-0064](0064-k4-el0-preemption-first-slice.md) (EL0) and
 [ADR-0068](0068-k4-el1-preemption-second-slice.md) (EL1), both **done (HW)**.
 This ADR remains the design record; [ADR-0006](0006-cooperative-execution-model.md)
 is partially superseded for the IRQ-epilogue path (device handlers still never
 switch). Cooperative budget ([ADR-0046](0046-k4-cooperative-cpu-budget.md))
 remains the voluntary fairness path under the same quantum arithmetic.
+Present-tense status is **implemented**, not “code deferred”.
 
 ## Context
 
-Today a task that never yields can starve peers until it hits a voluntary
-checkpoint (`yield_if_budget_expired`, park, exit). Budget closes the lab case;
-production boundary OS fairness wants the **timer IRQ** to force a reschedule
-without cooperation.
+At design time a task that never yields could starve peers until it hit a
+voluntary checkpoint (`yield_if_budget_expired`, park, exit). Budget closed the
+lab case; production boundary OS fairness wanted the **timer IRQ** to force a
+reschedule without cooperation.
 
-ADR-0006 forbids IRQ handlers from switching. This document is the successor
-_design_; coding still needs a dedicated implementation ADR after trap-frame
-discipline is named.
+ADR-0006 forbade IRQ handlers from switching. This document is the successor
+_design_; implementation landed in dedicated ADRs after trap-frame discipline
+was named (ADR-0064 lower-EL, ADR-0068 same-EL).
 
 ## Decision (design)
 
@@ -41,9 +42,9 @@ discipline is named.
 | Kernel critical sections | `cpu::without_irqs` regions remain non-preemptible; no switch while a mask is held by the voluntary path                                                        |
 | Interaction with budget  | Quantum = same tick arithmetic as ADR-0046; preemption is the IRQ-side enforcement of the same quantum                                                          |
 | Idle                     | Never preempt idle into idle; if only idle is ready, clear flag and return                                                                                      |
-| Evidence (when coded)    | QEMU: non-yielding spinner loses the CPU (`preempt: rotated`); host model of need_resched; HW stamp                                                             |
+| Evidence                 | QEMU + HW: non-yielding spinner loses the CPU (`preempt: rotated` / `preempt-el1: rotated`); host model of quantum predicate                                    |
 
-### First implementation slice (future code ADR)
+### First implementation slice (historical sketch; paid)
 
 1. Pure `need_resched` / quantum arithmetic (if any beyond budget).
 2. Timer handler sets flag when `budget_expired()`.
@@ -51,35 +52,39 @@ discipline is named.
 4. Lower-EL IRQ: after `exception_irq_el0` classification, optional forced yield before resume.
 5. Oracle: spinner without yield; peer progresses.
 
-### Non-goals of this document
+Paid by ADR-0064 (lower-EL) and ADR-0068 (same-EL), with the amendment deviation
+below (no `need_resched` flag).
 
-- Implementing the switch.
+### Non-goals of this design document (still open elsewhere)
+
 - Priority scheduling.
 - SMP IPI preemption (K8).
 - Softirq / deferred work beyond today's wake queue.
 
+(Implementation of the switch is **done** — not a residual of this ADR.)
+
 ## Relationship to ADR-0006
 
-| ADR-0006 rule          | This design                                |
-| ---------------------- | ------------------------------------------ |
-| No IRQ context switch  | Superseded **when** the code ADR lands     |
-| Voluntary yield / park | Remain primary; preemption is the backstop |
-| Idle WFI model         | Unchanged                                  |
+| ADR-0006 rule          | This design                                      |
+| ---------------------- | ------------------------------------------------ |
+| No IRQ context switch  | Superseded on the IRQ-return epilogue (code live)|
+| Voluntary yield / park | Remain primary; preemption is the backstop       |
+| Idle WFI model         | Unchanged                                        |
 
-## Gates (when coded)
+## Gates (satisfied)
 
-| Check                          | Evidence             |
-| ------------------------------ | -------------------- |
-| Non-yielding task loses CPU    | QEMU named oracle    |
-| No switch under `without_irqs` | `irq-scope` + review |
-| Budget oracle still green      | `budget: rotated`    |
+| Check                          | Evidence                                                    |
+| ------------------------------ | ----------------------------------------------------------- |
+| Non-yielding task loses CPU    | QEMU + HW named oracles (`preempt: rotated`, `preempt-el1: rotated`) |
+| No switch under `without_irqs` | `irq-scope` + review                                        |
+| Budget arithmetic still live   | Same quantum under both preemption paths                    |
 
-## Deferral
+## Implementation and re-audit
 
-Code deferred until trap-frame → TCB path is designed against `vectors.s` /
+Historical deferral was: trap-frame → TCB path against `vectors.s` /
 `el0_run_finish` without breaking EL0 session invariants (ADR-0016/0017).
 
-**Must be re-audited when code lands** (amended 2026-08-08): every
+**Re-audit when code lands** (amended 2026-08-08, **closed**): every
 cooperative-atomicity assumption this design invalidates — the four separate
 masked regions of `sched::transfer_held_to_peer` (lookup → move is not atomic
 under preemption), and the `switch(Exit)` → `taskcap::revoke_task` window
@@ -92,4 +97,4 @@ under preemption), and the `switch(Exit)` → `taskcap::revoke_task` window
 > for the transfer gaps; the exit→revoke window is DAIF-gated). One
 > deviation from this design's sketch, decided in ADR-0064: no
 > `need_resched` flag — the predicate is monotone, so the epilogue
-> evaluates it directly.
+> evaluates it directly. No open same-EL re-audit remains.

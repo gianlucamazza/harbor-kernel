@@ -131,7 +131,7 @@ section below records for HW stamps).
 | ADR-0045            | P2 durable region                             | `durable: reloaded` (QEMU; Pi stamp 2026-08-08)                                                                                                                                                                                                                                                 |
 | ADR-0046            | K4 cooperative budget                         | `budget: rotated` (QEMU; Pi stamp 2026-08-08 — historical). Oracle **superseded by ADR-0068** (`preempt-el1: rotated`): the IRQ epilogue wins the workers' voluntary check by construction. The quantum arithmetic lives on under both preemption paths                                         |
 | ADR-0047 + ADR-0050 | K7 ASID first slice                           | `asid: dual a=… b=… ok`, with `asid: LEAK` / `asid: dual FAILED` asserted absent. QEMU + **Pi stamp 2026-08-09** (`20260809-100645.log` — earned the hard way: the first silicon boot was red, see the hardware-evidence section). Switch-cost measurement is the remaining residual            |
-| ADR-0051            | K4 IRQ preemption design                      | Design; first code slice is ADR-0064 (lower-EL only). The "what must be re-audited" list ran for that slice (results recorded in ADR-0064) and re-opens with the same-EL slice                                                                                                                  |
+| ADR-0051            | K4 IRQ preemption design                      | Design accepted; fully implemented: re-audit ran for EL0 ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)) and again for same-EL ([ADR-0068](adr/0068-k4-el1-preemption-second-slice.md), both **done (HW)**). No open same-EL re-audit; design ADR-0051 is complete on silicon                                                                 |
 | ADR-0064            | K4 EL0 preemption first slice                 | `preempt: rotated` + `preempt: spinner exited irqs=4` (QEMU + **Pi stamp 2026-08-09**, transcript `20260809-122251.log`: PowerOn reset, `cpu: Cortex-A72 r0p3`, `CNTFRQ=54000000`). Host: `kernel_core::preempt` + `Switch::Preempt` model tests                                                |
 | ADR-0052            | P5 resolve-grant                              | `resolve-grant: refused` + `el0-resolve: ok` under a granted task (QEMU + Pi stamp 2026-08-09)                                                                                                                                                                                                  |
 | ADR-0054            | K3 peer transfer                              | `el0-xfer-peer: ok` / `refused` / `donor emptied` (QEMU + Pi stamp 2026-08-09)                                                                                                                                                                                                                  |
@@ -773,7 +773,10 @@ performed one at the time of this record. A preemptive scheduler is what
 would — and since [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md) the
 EL0 preemption slice performs exactly that rotation (`preempt: rotated`),
 resting on the same per-task session state this section argued for. Same-EL
-preemption stays open under **K4**
+preemption is closed by [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)
+(**done (HW)**, Pi stamp 2026-08-09, transcript `20260809-151021.log`). Residual
+under **K4**/sched policy is priorities and quantum policy, plus multi-core IPI
+preemption under **K8** — not same-EL itself
 ([ADR-0026](adr/0026-kernel-and-product-completeness.md)).
 
 ## The manifest: same bytes, different authority (2026-08-07, QEMU)

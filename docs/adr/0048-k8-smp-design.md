@@ -1,19 +1,21 @@
 ---
 id: 0048
-title: K8 design — SMP runqueue / IRQ model (design only)
+title: K8 design — SMP runqueue / IRQ model (first code in ADR-0070)
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
-related: [0006, 0026]
+amended: 2026-08-09
+related: [0006, 0026, 0070]
 ---
 
 # ADR-0048: SMP design (K8 — design; first code in ADR-0070)
 
 ## Acceptance status
 
-**Accepted as design** (2026-08-08). First **code** slice:
-[ADR-0070](0070-k8-smp-first-slice.md) (unpark core 1, idle only, QEMU).
-No multi-core runqueue in this design ADR.
+**Accepted as design** (2026-08-08). First **code** slice landed in
+[ADR-0070](0070-k8-smp-first-slice.md): unpark core 1 into idle only — **done
+(QEMU)** (`smp: core1 alive`). No multi-core runqueue in this design ADR;
+product path still schedules on one core until queue work.
 
 ## Decision (design)
 
@@ -25,16 +27,25 @@ No multi-core runqueue in this design ADR.
 | Sync | IPI for remote wake; no IRQ-side switch (until K4 preemption) |
 | Evidence | QEMU `-smp 2` bring-up; HW dual-core stamp |
 
-### First implementation slice (future)
+### First implementation slice
 
-1. Unpark core 1 into idle WFI loop.  
-2. Per-core `current` + IPI wake.  
-3. Oracle: `smp: core1 alive`.
+1. Unpark core 1 into idle WFI loop. — **paid (QEMU)** via ADR-0070  
+2. Per-core `current` + IPI wake. — residual  
+3. Oracle: `smp: core1 alive`. — **paid (QEMU)** via ADR-0070  
 
 ### Non-goals of this document
 
-Implementing SMP now; full cache-coherent driver model.
+Full cache-coherent driver model; per-core runqueue (deferred to a later K8
+slice). First unpark/idle is implemented in ADR-0070, not deferred.
 
-## Deferral
+## Deferral (historical)
 
-Lab is single-core product path; K8 waits for dual-core gate investment after K4/K7 design use.
+Lab product path remains single schedulable core. Design originally waited on
+dual-core gate investment after K4/K7; K4/K7 first slices are paid (HW), and the
+unpark/idle gate is paid on QEMU (ADR-0070). Residual: **HW stamp** on Pi and
+**per-core queues / IPI** depth.
+
+> **Amendment (2026-08-09).** First unpark/idle slice implemented in
+> [ADR-0070](0070-k8-smp-first-slice.md) (**done (QEMU)**). Steps 1 and 3 above
+> are paid on QEMU; residual is HW stamp + per-core queues/IPI. “Code deferred”
+> is no longer the live claim for the unpark path.

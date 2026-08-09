@@ -289,10 +289,10 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | Snapshot                     | Tracks                                                                                                                                                            |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
-| **H1 next**                  | P3\|P4 only with composition (deferred) · SD power-cycle · IRQ preemption                                                                                         |
-| **H2 depth**                 | K4 IRQ preemption residual; K7 first slice done (HW); K8 code after design ADR                                                                                    |
-| **open (kernel)**            | K4 IRQ preemption _code_, K7 residuals / K8 code                                                                                                                  |
-| **open (product)**           | P2 SD residual, P3/P4 deferred (ADR-0049)                                                                                                                         |
+| **H1 next**                  | P3\|P4 only with composition (deferred) · K5 driver-half residual                                                                                                 |
+| **H2 depth**                 | K4 EL0+EL1 preemption done (HW); K7 first slice done (HW); K8 first slice done (QEMU) ADR-0070 — residual HW stamp + per-core queues; K7 TTBR1/switch-cost        |
+| **open (kernel)**            | K8 HW stamp + queue depth; K7 residuals (TTBR1 / switch-cost)                                                                                                    |
+| **open (product)**           | P3/P4 deferred (ADR-0049); K5 driver-half residual                                                                                                                |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
 K/P tables here. Horizon mapping and working order also live in `roadmap.md`.

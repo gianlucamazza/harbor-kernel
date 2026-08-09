@@ -1,8 +1,12 @@
-//! Cooperative agent shell (post-M5 productization).
+//! Agent shell (post-M5 productization): voluntary yield/park plus
+//! IRQ-epilogue preemption at lower-EL safe points.
 //!
 //! An **agent** is an EL1 scheduled body that owns an [`AddressSpace`] and may
 //! enter EL0 through [`crate::arch::el0`] sessions. Matches ADR-0006
-//! (cooperative) and ADR-0014 (kernel `TTBR0` on lower-EL return).
+//! (voluntary primary / frame layout) as amended by ADR-0064 (EL0 IRQ-epilogue
+//! preemption via [`resume_step_preemptible`]); same-EL EL1 preemption is the
+//! sibling path in vectors/sched (ADR-0068), not this shell. Also ADR-0014
+//! (kernel `TTBR0` on lower-EL return).
 //!
 //! Sessions support **SVC resume** and **IRQ resume** (architectural):
 //! - `svc #0` ([`kernel_core::syscall::SYS_PING`]) — count and resume

@@ -85,16 +85,18 @@ If a word here does not mean what you expect — **agent** most of all — start
 | Authority is enumerable | Audit reads a grant table |
 | Evidence ≠ compile | Boundaries stay claims with gates |
 
-Open work that realises these at scale (design ADR before code): **peer** cap
-transfer depth residuals, **K5** driver-half collapse residual (thin stacks done
-HW), **K4** IRQ-side preemption residual (cooperative budget done HW),
-SMP code (**K8**, design accepted), product network/display only with a
-composition target (**P3**, **P4** deferred), P2 SD/power-cycle residual. First
-slices paid: external load (**K6**), IRQ wait EL1+EL0 (**K1**), last-SEND-hold
+Open work that realises these at scale (design ADR before code where needed):
+**peer** cap transfer depth residuals, **K5** driver-half collapse residual
+(thin stacks done HW), **K7** residuals (TTBR1 / switch-cost), **K8** HW stamp
++ per-core queues (first unpark/idle slice done QEMU, [ADR-0070](adr/0070-k8-smp-first-slice.md)),
+product network/display only with a composition target (**P3**, **P4** deferred).
+Closed on HW for fairness: **K4** budget + EL0 + EL1 IRQ-epilogue preemption
+([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md)).
+First slices paid: external load (**K6**), IRQ wait EL1+EL0 (**K1**), last-SEND-hold
 auto-reap + park timeout (**K2**), channel revoke + EL1/EL0 transfer (**K3**),
-multi-agent product store (**P1**), on-target + durable blobs (**P2**), name
-registry + EL0 resolve (**P5**), compose tools (**P6**), thin stacks (**K5**),
-cooperative budget (**K4**). Status and H1 order: [roadmap](roadmap.md).
+multi-agent product store (**P1**), on-target + durable blobs + SD power-cycle (**P2**),
+name registry + EL0 resolve (**P5**), compose tools (**P6**), thin stacks (**K5**),
+cooperative budget + IRQ preemption (**K4**). Status and H1 order: [roadmap](roadmap.md).
 
 ---
 
@@ -164,22 +166,25 @@ product store (**P1**); on-target keyed blobs (**P2**,
 [ADR-0036](adr/0036-p2-keyed-blob-store.md)); name registry (**P5**,
 [ADR-0035](adr/0035-p5-name-registry.md)); host compose tools (**P6**).
 
-**H1 entry + first-slice depth are paid at QEMU** (composition bar, lifecycle
-residuals, **K5** thin stacks, **P2** durable region, **K4** cooperative budget).
-Still open: network (**P3**) and product display (**P4**) **only when a
-composition needs them** (deferred without a target); P2 SD/power-cycle;
-**K5** driver-half collapse residual; **HW stamps**; then H2 code. Working order:
+**H1 entry + first-slice depth are paid (HW)** (composition bar, lifecycle
+residuals, **K5** thin stacks, **P2** durable + SD power-cycle, **K4** budget +
+EL0/EL1 preemption). Still open: network (**P3**) and product display (**P4**)
+**only when a composition needs them** (deferred without a target); **K5**
+driver-half collapse residual. Working order:
 [roadmap § H1 working order](roadmap.md#next-working-order-post-h1-hw-stamp).
 
 ### H2 — Boundary operating system
 
-Remaining **K** and **P** for full boundary-OS depth: **IRQ preemption code** on
-**K4** (budget done HW; design [ADR-0051](adr/0051-k4-irq-preemption-design.md)),
-**K7** residuals (TTBR1 / HW TLB stamp), **K8** SMP code, peer transfer HW stamp
-([ADR-0053](adr/0053-k3-peer-transfer-design.md)), denser-agent remainder, and
-remaining product-path depth. Resolve-grant is done QEMU
-([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this model —
-still not Linux.
+Remaining **K** and **P** for full boundary-OS depth: **K7** residuals
+(TTBR1 / switch-cost), **K5** driver-half, **K8** HW stamp + per-core queue
+depth (first unpark/idle slice **done (QEMU)**, [ADR-0070](adr/0070-k8-smp-first-slice.md);
+design [ADR-0048](adr/0048-k8-smp-design.md)), deferred **P3**/**P4**, peer
+transfer depth residuals ([ADR-0053](adr/0053-k3-peer-transfer-design.md)), and
+remaining product-path depth. **K4** IRQ preemption is closed on HW
+([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md);
+design [ADR-0051](adr/0051-k4-irq-preemption-design.md)). Resolve-grant is done
+QEMU ([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this model
+— still not Linux.
 
 | Traditional OS | Harbor (vision) |
 | --- | --- |

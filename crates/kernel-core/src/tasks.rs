@@ -1,10 +1,11 @@
-//! Task states and the decision half of a cooperative switch (ADR-0006).
+//! Task states and the decision half of voluntary and involuntary rotation
+//! (ADR-0006; ADR-0064 for [`Switch::Preempt`]).
 //!
 //! [`RunQueue`] answers *which task runs next*. This answers the rest: what
 //! happens to the one leaving, whether a switch is worth making, and whose
 //! stack is now safe to release. It decides and does not act — the caller
 //! performs the context switch and frees the memory, which is what keeps this
-//! testable on a host with no MMU.
+//! testable on a host with no MMU. Idle is never preempted into idle.
 //!
 //! # The stack a task cannot free
 //!

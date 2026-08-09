@@ -50,7 +50,7 @@ pub fn show_boot_after_display(cdiv: u32, bit_hz: u32, cntfrq_hz: u64) {
     with_status(|st| {
         st.grid.clear(BG);
         st.grid.set_line(0, b"Harbor  debug-display", FG, BG);
-        st.grid.set_line(1, b"EL1  W^X  cooperative", FG_DIM, BG);
+        st.grid.set_line(1, b"EL1 W^X yield+preempt", FG_DIM, BG);
 
         let mut buf = [0u8; COLS];
         let n = write_line(&mut buf, format_args!("CNTFRQ={cntfrq_hz} Hz"));

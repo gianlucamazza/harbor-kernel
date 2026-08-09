@@ -133,13 +133,13 @@ stay Pi-only unless a named composition needs them on the lab target.
 ### 7. Explicit non-goals of this intent
 
 - Claiming multi-arch product support in the public README
-- SMP on the lab target (K8 remains Pi design — [ADR-0048](0048-k8-smp-design.md))
+- SMP on the lab target (K8 remains Pi track — design [ADR-0048](0048-k8-smp-design.md); first unpark slice [ADR-0070](0070-k8-smp-first-slice.md) is QEMU on Pi target, not this lab ISA)
 - Network / durable storage / product display on the lab target (P3/P4/P2 media)
 - `dyn Arch` / runtime ISA switch
 - Softfloat/SIMD policy on x86 — **open**; either a follow-on ADR or an explicit
   “allow SSE in lab images” decision before the first binary lands
   ([ADR-0002](0002-softfloat-kernel.md) is AArch64 product history)
-- Reordering H2 Pi completeness (K4 same-EL, K8) behind this lab port by default
+- Reordering residual H2 Pi work (K8 HW stamp / per-core queue depth, K7 TTBR1/switch-cost) behind this lab port by default
 
 ## Platform matrix and native practices
 
