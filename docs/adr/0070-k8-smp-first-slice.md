@@ -70,6 +70,12 @@ primary is fine; core 1 keeps DAIF set forever in this slice.
 
 Runners: QEMU `-smp 4` (required by `raspi4b`); HW Pi 4B (four cores; 2–3 parked).
 
+**HW stamp (2026-08-09):** transcript `.serial-log/20260809-160348.log` —
+`smp: core1 alive` + `cpu: Cortex-A72 r0p3` + `CNTFRQ=54000000`;
+`hw-transcript-check` clean. Silicon required PoC-clean of the spin-table
+words **and** of `SECONDARY_ROOT_PHYS` (MMU-off secondaries do not snoop the
+primary's write-back cache).
+
 ### 6. Explicit non-goals (residuals)
 
 - Per-core runqueue / `current` / work stealing  

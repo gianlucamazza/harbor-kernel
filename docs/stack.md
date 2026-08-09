@@ -32,7 +32,7 @@ Short version in the [root README](../README.md#technology-stack).
 | --- | --- |
 | SoC / board | BCM2711, Raspberry Pi 4 Model B (Rev 1.5 is the stamped unit) |
 | ISA | AArch64 (Cortex-A72, ARMv8.0-A) |
-| Cores used | **Product schedules on one core.** **K8** first slice **done (QEMU)** (core1 unparked idle, [ADR-0070](adr/0070-k8-smp-first-slice.md)); no per-core runqueue yet; HW stamp residual |
+| Cores used | **Product schedules on one core.** **K8** first slice **done (HW)** (core1 unparked idle, [ADR-0070](adr/0070-k8-smp-first-slice.md); stamp 2026-08-09); no per-core runqueue yet |
 | Exception levels | Firmware enters at EL2; `boot.s` drops to EL1h. EL3 is **refused**, not handled |
 | Console | PL011 UART0 @ 115200, primary in every configuration |
 | Interrupts | GICv2, Group 0 + `IAR`/`EOIR` ([ADR-0004](adr/0004-gic-group0-firmware-pin.md)) |
@@ -134,7 +134,7 @@ vocabulary: [`docs/README.md`](README.md).
 | `std`, libc, POSIX, glibc | Different ABI and an ambient-authority world — permanently out of model |
 | Third-party crates | Zero dependencies today; adding one is a boundary decision, not a convenience |
 | Preemption (IRQ epilogue) | **Present** EL0+EL1 on HW ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md)); device handlers never switch |
-| SMP residual | **K8** first slice QEMU (core1 idle); open = HW stamp + per-core queues — product still one schedulable core ([`roadmap.md`](roadmap.md)) |
+| SMP residual | **K8** first slice done (HW) (core1 idle); open = per-core queues — product still one schedulable core ([`roadmap.md`](roadmap.md)) |
 | ASID residual | **K7** first slice done (HW); open = TTBR1 / switch-cost — [`roadmap.md`](roadmap.md) |
 | A device tree parser | Board truth is compiled-in BSP constants; the DTB is mapped read-only for a future parser ([ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)) |
 | A filesystem, network or window stack | They belong **above** the kernel as agents, when a composition needs them (P2–P5) |

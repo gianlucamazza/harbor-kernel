@@ -94,8 +94,8 @@ Snapshot, 2026-08-09 — status of record is [`docs/roadmap.md`](docs/roadmap.md
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Foundation**      | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits                                                                            |
 | **H1 slices**       | done (HW): wait-on-IRQ (**K1**), auto-reap (**K2**), RNG (**K9**), supervisor (**K10**), names ambient era (**P5**) · done (QEMU): store (**K6**), revoke + peer transfer (**K3**), multi-agent (**P1**), resolve-grant (**P5**), compose (**P6**) |
-| **Next**            | K8 HW stamp (then H3 L0 / K8 depth) — [roadmap](docs/roadmap.md)                                                                                                                                                                                   |
-| **Not yet (later)** | K8 HW + per-core queues · ASID residuals (TTBR1/switch-cost) · P3–P4 · full product net/display depth, …                                                                                                                                            |
+| **Next**            | H3 L0 QEMU x86 or K8 queue depth — [roadmap](docs/roadmap.md)                                                                                                                                                                                      |
+| **Not yet (later)** | K8 per-core queues · ASID residuals (TTBR1/switch-cost) · P3–P4 · full product net/display depth, …                                                                                                                                                 |
 
 **What works today (short list):** cooperative tasks; message IPC; EL0 agents
 with private memory; least-privilege console; PL011 driver-agent; product

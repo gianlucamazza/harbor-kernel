@@ -57,7 +57,7 @@ the named level — not when prose wishes it.
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **H0 — Foundation**                 | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel               | **Done (HW)** — M0–M8 + ADR-0024/0025                                                                                                                                                                                                                                                                         |
 | **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story      | **Paid (HW stamp 2026-08-08):** bar 1–7 + K5 thin + P2 durable + K4 budget + lifecycle residuals (serial `.serial-log/20260808-030219.log`). **Still open / residual:** P3/P4 (deferred), K5 driver-half                                                               |
-| **H2 — Boundary OS**                | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** budget + EL0 + EL1 preemption **done (HW)** ([ADR-0068](adr/0068-k4-el1-preemption-second-slice.md); stamp 2026-08-09); **K5** driver-half remainder; **K7** first slice **done (HW)**; **K8** first slice **done (QEMU)** ([ADR-0070](adr/0070-k8-smp-first-slice.md); design [ADR-0048](adr/0048-k8-smp-design.md)); HW stamp + per-core queues residual; P3/P4 deferred; **P2** SD power-cycle **done (HW)** ([ADR-0066](adr/0066-sd-media-durable-store.md); stamp 2026-08-09) |
+| **H2 — Boundary OS**                | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** budget + EL0 + EL1 preemption **done (HW)** ([ADR-0068](adr/0068-k4-el1-preemption-second-slice.md); stamp 2026-08-09); **K5** driver-half remainder; **K7** first slice **done (HW)**; **K8** first slice **done (HW)** ([ADR-0070](adr/0070-k8-smp-first-slice.md); stamp 2026-08-09, `20260809-160348.log`); per-core queues residual; P3/P4 deferred; **P2** SD power-cycle **done (HW)** ([ADR-0066](adr/0066-sd-media-durable-store.md); stamp 2026-08-09) |
 
 **H1 product bar (what “composition OS” means here):**
 
@@ -86,7 +86,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | K5  | Agent density (shrink/collapse driver half)               | **done (HW)** first slice ([ADR-0044](adr/0044-k5-agent-density.md); Pi stamp 2026-08-08); driver-half collapse residual                                                                                                                                                                                              | `spawn_thin` 4 KiB stacks; pure density arithmetic                         | 0023 → 0044                                         |
 | K6  | External agent load + byte manifest                       | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement)                                                                                                                                                                                      | Image store inject; product prefers store, oracle empty → builtin          | ADR-0021 → 0027 → 0029                              |
 | K7  | ASID (+ TTBR1 if required)                                | **done (HW)** first slice, stamp 2026-08-09 ([ADR-0047](adr/0047-k7-asid-isolation-design.md) + [ADR-0050](adr/0050-k7-asid-first-slice.md) amended: early-map retirement); TTBR1 / switch-cost measurement residual                                                                                                  | ASID pool + CONTEXTIDR + nG user leaves; dual-AS on silicon                | 0014 → 0047 → 0050                                  |
-| K8  | SMP                                                       | **done (QEMU)** first slice ([ADR-0070](adr/0070-k8-smp-first-slice.md): unpark core1 idle, `smp: core1 alive`; design [ADR-0048](adr/0048-k8-smp-design.md)); HW stamp residual; per-core queues residual                                                                                                                                              | Unpark secondary + per-core queues                                         | 0006 → 0048 → 0070                                  |
+| K8  | SMP                                                       | **done (HW)** first slice ([ADR-0070](adr/0070-k8-smp-first-slice.md): unpark core1 idle; stamp 2026-08-09, transcript `20260809-160348.log`, `smp: core1 alive` + `cpu: Cortex-A72`; design [ADR-0048](adr/0048-k8-smp-design.md)); per-core queues residual                                                                                                                                 | Unpark secondary + per-core queues                                         | 0006 → 0048 → 0070                                  |
 | K9  | Driver-as-agent beyond PL011 (+ IRQ caps)                 | **done (HW)** ([ADR-0034](adr/0034-k9-rng-driver-agent.md) + [ADR-0043](adr/0043-k9-irq-device-agent.md); Pi stamp 2026-08-08)                                                                                                                                                                                        | Map agent + IRQ-cap-only wait agent                                        | 0013 → 0034 → 0043                                  |
 | K10 | Supervisor lifecycle (restart, creator exit)              | **done (HW)** ([ADR-0033](adr/0033-k10-supervisor-reap.md) + [ADR-0038](adr/0038-k10-creator-exit-cascade.md); Pi stamp 2026-08-08); force-kill Running later                                                                                                                                                         | `supervisor_reap_blocked`; exit cascades cancel of blocked children        | 0018/0025 → 0033 → 0038                             |
 
@@ -114,18 +114,18 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 
 | Step | Track(s)                                             | Why now                                  |
 | ---- | ---------------------------------------------------- | ---------------------------------------- |
-| 1    | **K8** HW stamp (`smp: core1 alive` on Pi)           | QEMU first slice paid; bench residual    |
+| 1    | **H3 L0** QEMU x86 ([ADR-0067](adr/0067-host-lab-second-isa-intent.md)) | Dual-core gate paid; host-class path    |
 | 2    | **K7** switch-cost measurement / TTBR1 residual      | Lab when free                            |
 | —    | **K5** driver-half residual / K8 queue depth          | Density / multi-core sched               |
 | —    | **P3** / **P4**                                      | Only with a named composition (ADR-0049) |
-| —    | **H3 L0** QEMU x86 ([ADR-0067](adr/0067-host-lab-second-isa-intent.md)) | Host-class path after dual-core gate     |
 
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
 K7 ASID slice **done (HW)** (stamp 2026-08-09). Resolve-grant + peer transfer
 **done (HW)** (same stamp). K4 EL0 + EL1 preemption **done (HW)** (ADR-0064/0068).
-K8 first slice **done (QEMU)** (ADR-0070: `smp: core1 alive` under `-smp 4`).
-P3/P4 deferred. P2 power-cycle **done (HW)** (2026-08-09).
-**Next:** K8 HW stamp, then H3 L0 or K8 depth.
+K8 first slice **done (HW)** (ADR-0070: `smp: core1 alive`, transcript
+`20260809-160348.log`, `hw-transcript-check` clean; PoC-clean handoff for
+secondary root). P3/P4 deferred. P2 power-cycle **done (HW)** (2026-08-09).
+**Next:** H3 L0 (QEMU x86) or K8 queue depth / K7 residual.
 
 ```text
 Mission: agents · grants · evidence · finish the OS
@@ -134,7 +134,7 @@ Mission: agents · grants · evidence · finish the OS
                 │
     H1 composition ████████ done (HW) stamp 2026-08-08
                 │
-    H2 boundary    ████████ K4 HW; K8 QEMU; next: K8 HW / H3 L0
+    H2 boundary    ████████ K4+K8 first HW; next: H3 L0 / K8 queues
 ```
 
 ---

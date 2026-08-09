@@ -87,8 +87,8 @@ If a word here does not mean what you expect — **agent** most of all — start
 
 Open work that realises these at scale (design ADR before code where needed):
 **peer** cap transfer depth residuals, **K5** driver-half collapse residual
-(thin stacks done HW), **K7** residuals (TTBR1 / switch-cost), **K8** HW stamp
-+ per-core queues (first unpark/idle slice done QEMU, [ADR-0070](adr/0070-k8-smp-first-slice.md)),
+(thin stacks done HW), **K7** residuals (TTBR1 / switch-cost), **K8** per-core queues (first unpark/idle slice **done (HW)**,
+[ADR-0070](adr/0070-k8-smp-first-slice.md)),
 product network/display only with a composition target (**P3**, **P4** deferred).
 Closed on HW for fairness: **K4** budget + EL0 + EL1 IRQ-epilogue preemption
 ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md)).
@@ -176,8 +176,8 @@ driver-half collapse residual. Working order:
 ### H2 — Boundary operating system
 
 Remaining **K** and **P** for full boundary-OS depth: **K7** residuals
-(TTBR1 / switch-cost), **K5** driver-half, **K8** HW stamp + per-core queue
-depth (first unpark/idle slice **done (QEMU)**, [ADR-0070](adr/0070-k8-smp-first-slice.md);
+(TTBR1 / switch-cost), **K5** driver-half, **K8** per-core queue depth (first unpark/idle slice **done (HW)**,
+[ADR-0070](adr/0070-k8-smp-first-slice.md);
 design [ADR-0048](adr/0048-k8-smp-design.md)), deferred **P3**/**P4**, peer
 transfer depth residuals ([ADR-0053](adr/0053-k3-peer-transfer-design.md)), and
 remaining product-path depth. **K4** IRQ preemption is closed on HW
