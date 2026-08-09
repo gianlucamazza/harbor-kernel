@@ -5,7 +5,7 @@
 
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
-use crate::arch::{cpu, exception, mmu};
+use crate::arch::{cache, cpu, exception, mmu};
 
 /// Per-affinity entry addresses for secondaries waiting in `boot.s`.
 ///
@@ -88,26 +88,35 @@ pub fn unpark_core1() -> bool {
         fn secondary_el2_entry();
     }
     let entry = secondary_el2_entry as *const () as usize as u64;
-    // Path A: secondaries already in `.L_secondary_wait`.
+    // Path A: secondaries already in `secondary_wait` (real start4.elf).
     secondary_entry[1].store(entry, Ordering::Release);
-    // SAFETY: publish then wake WFE waiters.
-    unsafe {
-        core::arch::asm!("dsb ish", "sev", options(nostack, preserves_flags));
-    }
-    // Path B: QEMU spin-table (PA identity-mapped as RAM).
-    // SAFETY: low DRAM under the kernel identity map; ROM/zeroed at reset.
+    // Path B: QEMU / firmware spin-table (PA in low RAM, mapped "low RAM").
+    // SAFETY: page 0 is in the fine map as Normal RW for this reason.
     unsafe {
         core::ptr::write_volatile(QEMU_SPIN_CORE1 as *mut u64, entry);
-        core::arch::asm!("dsb sy", "sev", options(nostack, preserves_flags));
     }
     // Path C: ARM local mailbox (mapped Device window).
     // SAFETY: ARM local region is in DEVICE_REGIONS.
     unsafe {
         core::ptr::write_volatile(CORE1_MBOX3_SET as *mut u32, entry as u32);
-        core::arch::asm!("dsb sy", "sev", options(nostack, preserves_flags));
+    }
+    // Publish cacheable stores to PoC before SEV: secondaries may still have
+    // the MMU off (Device-nGnRnE view) and will not snoop our WB lines.
+    // SAFETY: both ranges are mapped Normal (entry table in .bss, spin PA in
+    // low RAM).
+    unsafe {
+        let entry_va = core::ptr::addr_of!(secondary_entry[1]) as usize;
+        cache::clean_dcache_poc(entry_va, 8);
+        cache::clean_dcache_poc(QEMU_SPIN_CORE1, 8);
+        // Also clean the entry *code* path secondaries will fetch after br —
+        // their I-cache is cold, but D/I non-coherence still applies once they
+        // enable caches in enable_existing; the entry itself is RO text already
+        // coherent after primary's boot. SEV after PoC clean is the gate.
+        core::arch::asm!("dsb ish", "sev", options(nostack, preserves_flags));
     }
 
-    let budget: u64 = 50_000_000;
+    // HW secondaries can be slower than QEMU; ~few seconds of spinning.
+    let budget: u64 = 200_000_000;
     let mut spins = 0u64;
     while spins < budget {
         if CORE1_ALIVE.load(Ordering::Acquire) {

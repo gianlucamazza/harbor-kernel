@@ -160,6 +160,32 @@ pub unsafe fn clean_dcache_pou(va: usize, len: usize) {
     }
 }
 
+/// Clean data cache by VA to the **point of coherency** for `[va, va + len)`.
+///
+/// Needed when a secondary core (MMU off, Device-nGnRnE view of RAM) must see
+/// stores the primary made with the Normal write-back map — e.g. the K8 spin
+/// table and `secondary_entry` (ADR-0070). `cvau` (PoU) is not enough for that.
+///
+/// # Safety
+/// `va..va+len` must be mapped Normal memory; translation and D-cache on.
+pub unsafe fn clean_dcache_poc(va: usize, len: usize) {
+    if len == 0 {
+        return;
+    }
+    let line = dcache_line_size();
+    let start = va & !(line - 1);
+    let end = va.saturating_add(len);
+    let mut p = start;
+    // SAFETY: `dc cvac` writes back a line to PoC; caller maps the range.
+    unsafe {
+        while p < end {
+            asm!("dc cvac, {}", in(reg) p, options(nostack, preserves_flags));
+            p += line;
+        }
+        asm!("dsb ish", options(nostack, preserves_flags));
+    }
+}
+
 /// Make kernel stores to `[va, va + len)` visible to instruction fetch.
 ///
 /// Clean D to PoU, invalidate I (full), order with `isb`. Used after writing
