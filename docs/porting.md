@@ -4,6 +4,24 @@ Harbor is **multi-arch ready** (ADR-0015) with **one product target**:
 AArch64 + Raspberry Pi 4 Model B. This page is the checklist for a future port.
 It does not claim a second architecture is supported.
 
+**Lab second ISA (intent only):** QEMU x86_64 bare guest is planned as a
+secondary lab path — [ADR-0067](adr/0067-host-lab-second-isa-intent.md) and the
+role matrix in
+[`design/host-lab-platform-matrix.md`](design/host-lab-platform-matrix.md). No
+`src/arch/x86_64/` lands without a boot gate (same rules as below).
+
+**Native support bar + Linux-independence:** full checklist in
+[`design/native-multiarch-practices.md`](design/native-multiarch-practices.md).
+Short form:
+
+| Bar | Rule |
+| --- | --- |
+| Supported | Boot gate green for that ISA×board; not compile-only |
+| Guest path | Linux-free (no Linux ABI, GRUB/EFI-stub, in-tree Linux drivers) |
+| Lab x86 boot | Prefer QEMU `-kernel` freestanding ELF + `-serial stdio` |
+| Dev host | May be Linux; **non-TCB** — must not leak into product assumptions |
+| Evidence | `done (QEMU-x86)` ≠ `done (QEMU)` ≠ `done (HW)` |
+
 Contract of the arch facade: [`arch-contract.md`](arch-contract.md).
 Layering rules: [`architecture.md`](architecture.md).
 

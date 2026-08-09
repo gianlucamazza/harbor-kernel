@@ -50,8 +50,8 @@ design ADRs.
 | Anyone evaluating the project | Status that distinguishes `done (QEMU)` from `done (HW)`, and open work called open |
 
 **Not written for** people who want Linux/POSIX or a distro, a cloud
-hypervisor, an LLM/agent chat framework, or a board other than the Raspberry
-Pi 4B today. Those are refusals or open ports, not oversights — see
+hypervisor, or an LLM/agent chat framework. A board other than the Raspberry
+Pi 4B is **not product today** (open port / host-class path — [ADR-0069](adr/0069-harbor-host-class-north-star.md)), not an oversight. See
 [what this vision refuses](#what-this-vision-refuses) and
 [`porting.md`](porting.md).
 
@@ -69,6 +69,7 @@ If a word here does not mean what you expect — **agent** most of all — start
 | **H0 (today)** | Foundation complete on Pi 4B; kernel/product **not yet** complete |
 | **H1** | Appliance / composition OS (early K + multi-agent product) |
 | **H2** | Full boundary OS (remaining K/P: preemption, network, naming, tooling, …) |
+| **H3 (north star)** | Host-class **native** Harbor — usable in place of the previous OS for a named workload ([ADR-0069](adr/0069-harbor-host-class-north-star.md)); not a claim of readiness today |
 | **Roadmap** | [K and P tracks](roadmap.md) |
 
 ---
@@ -191,14 +192,40 @@ still not Linux.
 supervised long-lived systems; tool-limited autonomous workers; least-privilege
 research platform.
 
+### H3 — Host-class native Harbor (north star)
+
+**Long-term destination** ([ADR-0069](adr/0069-harbor-host-class-north-star.md)):
+Harbor runs **bare-metal** on host-class hardware (the machine that is today’s
+dev host), Linux-free, under the same agent/grant model — usable **in place of**
+the previous OS for an owner-named workload. The project name stays **Harbor**
+(kernel package: `harbor-kernel`).
+
+This is **not** a ship date and **not** today’s product board. Pi 4B remains
+the official platform ([ADR-0007](adr/0007-project-identity-harbor-kernel.md))
+until a successor expands it. H0–H2 still prove and complete the model.
+
+Path (maturity levels in ADR-0069):
+
+| Level | Sketch |
+| ----- | ------ |
+| **L0** | Lab x86 guest under QEMU ([ADR-0067](adr/0067-host-lab-second-isa-intent.md)) |
+| **L1** | Bare-metal laptop bring-up (console-class) |
+| **L2** | Self-host tools on Harbor |
+| **L3** | Daily slice — named workload without rebooting to Linux for that work |
+| **L4** | Primary OS for the declared life-slice; Linux optional recovery only |
+
+Lab QEMU and multi-arch practices are **steps**, not the ceiling. Replacement
+means Harbor underneath, not Linux ABI compatibility.
+
 ---
 
 ## What this vision refuses
 
-- Linux/POSIX parity as a goal  
+- Linux/POSIX parity as a goal (including “run unmodified Linux apps” as the path to daily use)  
 - Multi-tenant cloud hypervisor (unless a future ADR owns it)  
 - Being an AI agent framework (may *host* workers; is not a chat SDK)  
 - Microkernel fashion without the confinement story  
+- Claiming host-class primary OS readiness before L3 evidence ([ADR-0069](adr/0069-harbor-host-class-north-star.md))  
 
 ---
 

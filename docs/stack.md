@@ -42,7 +42,12 @@ Board selection is compile-time (`board-*` feature) and the Makefile refuses any
 `ARCH`/`BOARD` other than `aarch64`/`rpi4` rather than building something that
 looks like it worked. The tree is multi-arch **ready**, not multi-arch product —
 port checklist in [`porting.md`](porting.md), contract in
-[`arch-contract.md`](arch-contract.md).
+[`arch-contract.md`](arch-contract.md). A **lab** second ISA (QEMU x86 guest)
+is intent-only — [ADR-0067](adr/0067-host-lab-second-isa-intent.md); no code
+path until a boot gate exists. **Product and guest images are Linux-free**
+(no Linux ABI or bootloader chain in the target path). The **dev host** that
+runs `cargo` / `make` / QEMU may be Linux and is **not** part of the product
+TCB — [native multi-arch practices](design/native-multiarch-practices.md).
 
 ## Language and target
 

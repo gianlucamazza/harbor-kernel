@@ -86,9 +86,15 @@ the code that follows.
 | [0064](0064-k4-el0-preemption-first-slice.md)                | K4 first code slice — lower-EL (EL0) IRQ preemption                                          | accepted   |
 | [0065](0065-platform-self-check.md)                          | Platform self-check — CPU identity decoded, printed, asserted at boot                        | accepted   |
 | [0066](0066-sd-media-durable-store.md) | P2 — SD media persistence for the durable store (EMMC2 PIO) | accepted |
+| [0067](0067-host-lab-second-isa-intent.md) | Host/lab second ISA — QEMU x86_64 intent and non-goals | accepted |
+| [0068](0068-k4-el1-preemption-second-slice.md) | K4 second code slice — same-EL (EL1) IRQ preemption | accepted |
+| [0069](0069-harbor-host-class-north-star.md) | Harbor host-class north star — native primary OS intent | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
-[`../porting.md`](../porting.md).
+[`../porting.md`](../porting.md). Lab second-ISA matrix:
+[`../design/host-lab-platform-matrix.md`](../design/host-lab-platform-matrix.md).
+Native multi-arch + Linux-independence practices:
+[`../design/native-multiarch-practices.md`](../design/native-multiarch-practices.md).
 
 Operational reviews (findings, not decisions): [`../reviews/`](../reviews/).
 

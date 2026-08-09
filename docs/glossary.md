@@ -33,7 +33,9 @@ needing a decoder.
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | **K-track**         | A **kernel** completeness track (K1…K10): a mechanism the microkernel still owes                                                                               | [`roadmap.md`](roadmap.md)                                   |
 | **P-track**         | A **product** completeness track (P1…P6): a service or platform path delivered as agents, not as new syscalls                                                  | [`roadmap.md`](roadmap.md)                                   |
-| **H0 / H1 / H2**    | Horizons — product stories, in order: foundation, composition/appliance OS, full boundary OS. Horizons narrate; **only the K/P tables carry status**           | [`roadmap.md`](roadmap.md), [`vision.md`](vision.md)         |
+| **H0 / H1 / H2**    | Horizons — product stories: foundation, composition/appliance OS, full boundary OS. Horizons narrate; **only the K/P tables carry status**                     | [`roadmap.md`](roadmap.md), [`vision.md`](vision.md)         |
+| **H3**              | Host-class **native** Harbor (north star): bare-metal on host hardware, usable in place of the previous OS for a named workload — **intent**, not ship claim | [ADR-0069](adr/0069-harbor-host-class-north-star.md), [`vision.md`](vision.md) |
+| **L0–L4**           | Host-class maturity: QEMU lab → bare-metal bring-up → self-host → daily slice → primary OS. L3 needs an owner-named workload before any claim                 | [ADR-0069](adr/0069-harbor-host-class-north-star.md)         |
 | **M / P milestone** | The _foundation-era_ numbering. **M** added capability, **P** added protection or evidence and no capability at all. Closed at M8 — history, not live planning | [`foundation-history.md`](foundation-history.md)             |
 | **Oracle**          | A demo agent or task whose exact console lines a boot gate asserts on. Lives behind the `oracle` feature so no production image carries it                     | [`stack.md`](stack.md), [`verification.md`](verification.md) |
 | **Gate**            | A check wired into `make check` that fails the build. Documentation drift is a failed gate, not a nit                                                          | [`CONTRIBUTING.md`](../CONTRIBUTING.md)                      |
@@ -44,15 +46,26 @@ needing a decoder.
 
 These are load-bearing; they are the reason a status table can be trusted.
 
-| Label           | Means                                                                                                     |
-| --------------- | --------------------------------------------------------------------------------------------------------- |
-| **implemented** | In the tree now                                                                                           |
-| **done (QEMU)** | Exercised under emulation. QEMU has booted a kernel that hung on silicon, so this is not the strong claim |
-| **done (HW)**   | Observed on a Raspberry Pi 4B, with a transcript                                                          |
-| **open**        | On the completeness roadmap, or awaiting a decision — a gap, not an identity                              |
-| **in design**   | An ADR is being written; no boundary code yet                                                             |
-| **proposed**    | Design exists, not accepted or complete                                                                   |
-| **historical**  | True at a past date, kept as a record                                                                     |
+| Label               | Means                                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------------------- |
+| **implemented**     | In the tree now                                                                                           |
+| **done (QEMU)**     | Exercised under AArch64 QEMU (`raspi4b` / product inject). QEMU has booted kernels that hung on silicon, so this is not the strong claim |
+| **done (QEMU-x86)** | Exercised under the **lab** x86 guest (`qemu-system-x86_64`). Never collapsed into `done (HW)` or AArch64 `done (QEMU)` | [ADR-0067](adr/0067-host-lab-second-isa-intent.md), [native practices](design/native-multiarch-practices.md) |
+| **done (HW)**       | Observed on a Raspberry Pi 4B, with a transcript                                                          |
+| **open**            | On the completeness roadmap, or awaiting a decision — a gap, not an identity                              |
+| **in design**       | An ADR is being written; no boundary code yet                                                             |
+| **proposed**        | Design exists, not accepted or complete                                                                   |
+| **historical**      | True at a past date, kept as a record                                                                     |
+
+## Multi-arch and Linux-independence
+
+| Term                   | Means here                                                                                                                                                         | Does **not** mean                                      | Owner                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| **Native support**     | Bare-metal Harbor on an ISA×board combo with a boot gate                                                                                                           | A hosted `std` process on a host OS                    | [native-multiarch-practices](design/native-multiarch-practices.md)                             |
+| **Lab target**         | Secondary combo for development/CI when a boot oracle exists (intent: QEMU x86 = host-class **L0**)                                                                | Product identity (Pi 4B until a successor to ADR-0007) | [ADR-0067](adr/0067-host-lab-second-isa-intent.md), [ADR-0069](adr/0069-harbor-host-class-north-star.md) |
+| **Primary OS**         | Harbor is the OS under a declared life-slice; previous OS optional recovery only (**L4**)                                                                          | “Boots under QEMU” or “compiles for x86”               | [ADR-0069](adr/0069-harbor-host-class-north-star.md)                                           |
+| **Linux-free guest**   | No Linux ABI, bootloader chain, drivers, or userland on the **target image path**                                                                                  | “Build host must not be Linux”                         | [native-multiarch-practices](design/native-multiarch-practices.md) § planes A/B                |
+| **Dev host (non-TCB)** | Machine that runs `cargo` / `make` / QEMU — may be Linux; not part of the product trusted base                                                                     | Something the guest image may call into                | [native-multiarch-practices](design/native-multiarch-practices.md) § plane C, [`stack.md`](stack.md) |
 
 Full vocabulary and which document owns which fact:
 [`docs/README.md`](README.md#ownership-and-status-vocabulary).

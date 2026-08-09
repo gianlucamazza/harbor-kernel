@@ -42,16 +42,16 @@ Traditional:                         Harbor:
                                                        └─ park on recv = park the driver
 ```
 
-| Concern               | Traditional kernel                                    | Harbor                                                                                                                                            |
-| --------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Schedulable unit      | Process or thread                                     | **Driver task** only; the EL0 program is not what `sched` switches ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md))         |
-| Isolation unit        | Same process (AS + credentials)                       | **Agent = pair**: EL1 driver + EL0 program with its own address space                                                                             |
-| Preemption            | Timer quantum; IRQs may switch                        | **Cooperative** only; IRQ handlers never context-switch ([ADR-0006](adr/0006-cooperative-execution-model.md))                                     |
-| Authority names       | Forgeable-looking handles / FDs checked in the kernel | EL0 names only a **slot index** into its own table; raw `CapId` never leaves the kernel ([ADR-0017](adr/0017-el0-capability-abi.md))              |
-| How work is created   | Dynamic spawn / load paths                            | Agents described as **manifest data**; the loader binds grants it already holds ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md))         |
-| Device drivers        | In-kernel, or servers with broad maps                 | **Driver-as-agent** with page-sized named MMIO windows ([ADR-0013](adr/0013-narrow-device-windows.md))                                            |
-| User fault            | Kernel reaps or signals the process                   | Kernel **ends the session**; the **creator** decides the driver task’s fate ([ADR-0018](adr/0018-agent-fault-policy.md))                          |
-| “Done” for a boundary | Feature lands and tests pass in CI                    | **M** milestones add capability; **P** milestones add protection/evidence; hardware claims need Pi 4B stamps ([verification.md](verification.md)) |
+| Concern               | Traditional kernel                                    | Harbor                                                                                                                                                                                                                                                                                            |
+| --------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Schedulable unit      | Process or thread                                     | **Driver task** only; the EL0 program is not what `sched` switches ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md))                                                                                                                                                         |
+| Isolation unit        | Same process (AS + credentials)                       | **Agent = pair**: EL1 driver + EL0 program with its own address space                                                                                                                                                                                                                             |
+| Preemption            | Timer quantum; IRQs may switch                        | Voluntary yield primary + **quantum preemption on the IRQ epilogue** (EL0 [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md), EL1 [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)); device handlers still never switch ([ADR-0006](adr/0006-cooperative-execution-model.md) as amended) |
+| Authority names       | Forgeable-looking handles / FDs checked in the kernel | EL0 names only a **slot index** into its own table; raw `CapId` never leaves the kernel ([ADR-0017](adr/0017-el0-capability-abi.md))                                                                                                                                                              |
+| How work is created   | Dynamic spawn / load paths                            | Agents described as **manifest data**; the loader binds grants it already holds ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md))                                                                                                                                                         |
+| Device drivers        | In-kernel, or servers with broad maps                 | **Driver-as-agent** with page-sized named MMIO windows ([ADR-0013](adr/0013-narrow-device-windows.md))                                                                                                                                                                                            |
+| User fault            | Kernel reaps or signals the process                   | Kernel **ends the session**; the **creator** decides the driver task’s fate ([ADR-0018](adr/0018-agent-fault-policy.md))                                                                                                                                                                          |
+| “Done” for a boundary | Feature lands and tests pass in CI                    | **M** milestones add capability; **P** milestones add protection/evidence; hardware claims need Pi 4B stamps ([verification.md](verification.md))                                                                                                                                                 |
 
 Three consequences that look unrelated are the same shape fact:
 
@@ -59,15 +59,18 @@ Three consequences that look unrelated are the same shape fact:
    kernel stack on the driver loop, even when the EL0 text is tiny.
 2. **Kill and lifetime.** You cannot kill “the agent” without ending the driver
    that was watching it; the session lives in that task’s TCB.
-3. **Preemption is not a small scheduler change.** It would mean preempting a
-   driver mid-session with a live EL0 context — a different problem from
-   preempting a plain kernel task.
+3. **Preemption was not a small scheduler change.** Preempting a driver
+   mid-session with a live EL0 context needed the per-task session state of
+   ADR-0017 first, and landed as two deliberate slices (EL0
+   [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md), then EL1
+   [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)).
 
-None of this claims superiority over production kernels. **POSIX remains out of
-model.** Preemption, SMP, and fairness under a hostile busy-loop are **open
-completeness tracks** (not permanent refusals) — residuals today are honest in
-[`SECURITY.md`](../SECURITY.md). The payoff of the shape is that each boundary
-is named, gated, and demonstrable rather than implied by a large ABI.
+None of this claims superiority over production kernels. **POSIX remains out
+of model.** SMP is an **open completeness track** (not a permanent refusal);
+fairness under a hostile busy-loop is now enforced at both ELs by the IRQ
+epilogue — residuals today are honest in [`SECURITY.md`](../SECURITY.md).
+The payoff of the shape is that each boundary is named, gated, and
+demonstrable rather than implied by a large ABI.
 
 ## Layering
 
@@ -207,7 +210,9 @@ live in bootstrap.
 ## Agent model
 
 **Tasks** (M3), **messages/caps** (M4), **private AS + EL0** (M5), and a
-**PL011 driver agent** (M6) are in tree. Cooperative only ([ADR-0006](adr/0006-cooperative-execution-model.md)).
+**PL011 driver agent** (M6) are in tree. Voluntary switches primary, with
+quantum preemption on the IRQ-return epilogue ([ADR-0006](adr/0006-cooperative-execution-model.md)
+as amended by [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)).
 
 | Concept    | Role                                                                                                                                                                                                                        | Status                                                                    |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -366,7 +371,10 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0063](adr/0063-capslots-extraction.md)                          | Capability slots as a pure table (**accepted**)                                                                                |
 | [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)                | K4 first code slice — EL0 IRQ preemption (**accepted**)                                                                        |
 | [ADR-0065](adr/0065-platform-self-check.md)                          | Platform self-check — CPU identity decoded, printed, asserted at boot (**accepted**)                                           |
-| [ADR-0066](adr/0066-sd-media-durable-store.md) | P2 — SD media persistence for the durable store (**accepted**) |
+| [ADR-0066](adr/0066-sd-media-durable-store.md)                       | P2 — SD media persistence for the durable store (**accepted**)                                                                 |
+| [ADR-0067](adr/0067-host-lab-second-isa-intent.md)                   | Host/lab second ISA — QEMU x86 intent; code deferred (**accepted**)                                                            |
+| [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)               | K4 second code slice — same-EL (EL1) IRQ preemption (**accepted**)                                                             |
+| [ADR-0069](adr/0069-harbor-host-class-north-star.md)                 | Host-class north star — native primary OS intent (**accepted**)                                                                |
 | [`docs/reviews/`](reviews/)                                          | Pass outcomes (findings), not decisions                                                                                        |
 
 ## Non-goals

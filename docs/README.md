@@ -34,7 +34,9 @@ Depth after that: [`architecture.md`](architecture.md) (normative model),
 | Product vision / use cases        | [vision](vision.md)                | architecture, SECURITY                                                                                                                          |
 | Authority and threats             | [SECURITY](../SECURITY.md)         | architecture agent model                                                                                                                        |
 | Verify a claim                    | [verification](verification.md)    | linked transcript or gate                                                                                                                       |
-| Port ISA/board                    | [porting](porting.md)              | [arch-contract](arch-contract.md)                                                                                                               |
+| Port ISA/board                    | [porting](porting.md)              | [arch-contract](arch-contract.md), [native practices](design/native-multiarch-practices.md), [ADR-0067](adr/0067-host-lab-second-isa-intent.md), [host-lab matrix](design/host-lab-platform-matrix.md) |
+| Native multi-arch + Linux-free bar | [native practices](design/native-multiarch-practices.md) | [porting](porting.md), [ADR-0015](adr/0015-multi-arch-scaffold.md), [ADR-0067](adr/0067-host-lab-second-isa-intent.md) |
+| Host-class / primary OS north star | [ADR-0069](adr/0069-harbor-host-class-north-star.md) | [vision H3](vision.md), [native practices](design/native-multiarch-practices.md) |
 | Structural decision               | [adr/](adr/README.md)              | the linked ADR                                                                                                                                  |
 | Extend the tree                   | [CONTRIBUTING](../CONTRIBUTING.md) | [scripts map](../scripts/README.md)                                                                                                             |
 
@@ -114,7 +116,7 @@ Do **not** treat this block as a second status table — it only steers readers.
 | **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                       |
 | **H1 next**          | P3\|P4 if composition · SD power-cycle                                                                           |
 | **H2**               | K7 first slice done (HW); K4 budget + EL0 preemption done (HW, ADR-0064), same-EL in design; K8 design; SMP open |
-| **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020                             |
+| **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020; lab x86 intent [ADR-0067](adr/0067-host-lab-second-isa-intent.md) |
 
 ## Decision records and reviews
 

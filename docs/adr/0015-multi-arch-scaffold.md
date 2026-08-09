@@ -100,3 +100,4 @@ matter was structural: a future port should be “sibling module + board feature
 - [0003](0003-early-mmu.md) — early MMU from boot path
 - [architecture.md](../architecture.md) — layering rule 10
 - [arch-contract.md](../arch-contract.md), [porting.md](../porting.md)
+- [0067](0067-host-lab-second-isa-intent.md) — lab second ISA intent (QEMU x86; not product)

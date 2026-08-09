@@ -75,6 +75,9 @@ These are intentional until a second ISA exists; do **not** rename preemptively:
 - Early-MMU exclusives story is Cortex-A72 Device-nGnRnE specific (ADR-0003)
 
 A port documents its mapping of these roles in a successor note or ADR.
+The lab x86 intent mapping (not an implementation claim) is
+[`design/host-lab-platform-matrix.md`](design/host-lab-platform-matrix.md)
+([ADR-0067](adr/0067-host-lab-second-isa-intent.md)).
 
 ## Out of contract
 
