@@ -14,9 +14,57 @@
 //! - Identities are opaque integers. This module does not detect double-enqueue
 //!   of the same id — that is a kernel bug, not a queue concern.
 
-/// Opaque task identity. Assigned and interpreted only by the kernel crate.
+/// Task identity: a slot plus the epoch of its tenancy (ADR-0062).
+///
+/// Slots are reused after exit; the epoch is what makes a reference to the
+/// previous tenant refusable instead of silently naming the next one. Only
+/// [`crate::tasks::Tasks::admit`] mints a live id; equality is over both
+/// fields, so a stale id never compares equal to the slot's current tenant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TaskId(pub u32);
+pub struct TaskId {
+    slot: u16,
+    epoch: u16,
+}
+
+impl TaskId {
+    /// Construct an id naming `slot` at `epoch`.
+    ///
+    /// Constructing an id does not make it live — validation against the
+    /// slot's current epoch happens in `Tasks::state`/`Tasks::wake`.
+    pub const fn new(slot: u16, epoch: u16) -> Self {
+        Self { slot, epoch }
+    }
+
+    /// The slot index, for array addressing.
+    #[inline]
+    pub const fn slot(self) -> usize {
+        self.slot as usize
+    }
+
+    /// The tenancy epoch this id was minted under.
+    #[inline]
+    pub const fn epoch(self) -> u16 {
+        self.epoch
+    }
+
+    /// Pack for transport (wake tokens, atomics): `epoch << 16 | slot`.
+    ///
+    /// Transport, not authority — an unpacked stale id fails validation like
+    /// any other.
+    #[inline]
+    pub const fn to_raw(self) -> u32 {
+        ((self.epoch as u32) << 16) | self.slot as u32
+    }
+
+    /// Unpack a [`Self::to_raw`] value.
+    #[inline]
+    pub const fn from_raw(raw: u32) -> Self {
+        Self {
+            slot: raw as u16,
+            epoch: (raw >> 16) as u16,
+        }
+    }
+}
 
 /// The ready queue could not accept another task.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,9 +89,9 @@ impl<const CAP: usize> RunQueue<CAP> {
     /// Empty queue. `CAP` may be zero; every enqueue then fails.
     pub const fn new() -> Self {
         Self {
-            // `TaskId(0)` is only a placeholder for unused slots; `len` is the
+            // The idle-shaped id is only a placeholder for unused slots; `len` is the
             // sole occupancy truth.
-            slots: [TaskId(0); CAP],
+            slots: [TaskId::new(0, 0); CAP],
             head: 0,
             len: 0,
         }
@@ -127,8 +175,28 @@ impl<const CAP: usize> Default for RunQueue<CAP> {
 mod tests {
     use super::*;
 
-    fn id(n: u32) -> TaskId {
-        TaskId(n)
+    fn id(n: u16) -> TaskId {
+        TaskId::new(n, 0)
+    }
+
+    #[test]
+    fn raw_transport_round_trips_slot_and_epoch() {
+        // ADR-0062: the packed form is transport for wake tokens and atomics.
+        // Exact layout asserted (epoch high, slot low) — a swapped or collapsed
+        // pack would alias distinct tasks in the wake queue.
+        let id = TaskId::new(3, 2);
+        assert_eq!(id.to_raw(), 0x0002_0003);
+        let back = TaskId::from_raw(id.to_raw());
+        assert_eq!(back, id);
+        assert_eq!(back.slot(), 3);
+        assert_eq!(back.epoch(), 2);
+        assert_eq!(TaskId::from_raw(0x0001_0000), TaskId::new(0, 1));
+    }
+
+    #[test]
+    fn capacity_reports_the_const() {
+        assert_eq!(RunQueue::<4>::new().capacity(), 4);
+        assert_eq!(RunQueue::<0>::new().capacity(), 0);
     }
 
     #[test]
@@ -243,7 +311,7 @@ mod tests {
         let mut running = id(1);
         q.enqueue(id(2)).unwrap();
 
-        let mut order = [TaskId(0); 6];
+        let mut order = [id(0); 6];
         for slot in &mut order {
             *slot = running;
             running = q

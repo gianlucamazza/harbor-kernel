@@ -673,7 +673,7 @@ pub(super) fn orphan_reaper() {
         crate::kprintln!("ipc: reaper has no orphan id");
         return;
     }
-    let id = kernel_core::runqueue::TaskId(raw);
+    let id = kernel_core::runqueue::TaskId::from_raw(raw);
     if crate::ipc::cancel_blocked(id) {
         crate::kprintln!(
             "ipc: cancel issued cancel_events={}",
@@ -740,7 +740,7 @@ pub(super) fn supervisor_task() {
     match crate::sched::supervisor_reap_blocked(id) {
         Ok(()) => crate::kprintln!(
             "supervisor: reaped id={} reap_events={}",
-            id.0,
+            id.slot(),
             crate::sched::reap_events()
         ),
         Err(e) => crate::kprintln!("supervisor: reap FAILED {e:?}"),
@@ -757,7 +757,7 @@ pub(super) fn supervisor_task() {
     // Restart: same recv grant after slot is free (restart = re-spawn, ADR-0033).
     match crate::sched::spawn_with_caps(supervised_child, &[ch.recv]) {
         Ok(id2) => {
-            crate::kprintln!("supervisor: restarted id={}", id2.0);
+            crate::kprintln!("supervisor: restarted id={}", id2.slot());
             crate::sched::yield_now();
             crate::sched::yield_now();
             let _ = crate::sched::supervisor_reap_blocked(id2);
@@ -940,7 +940,8 @@ pub(super) static TRANSFER_TO: core::sync::atomic::AtomicU32 =
 
 /// ADR-0037: holds SEND in slot 0; moves it to TRANSFER_TO slot 0.
 pub(super) fn transfer_donor_task() {
-    let to = crate::sched::TaskId(TRANSFER_TO.load(core::sync::atomic::Ordering::Relaxed));
+    let to =
+        crate::sched::TaskId::from_raw(TRANSFER_TO.load(core::sync::atomic::Ordering::Relaxed));
     match crate::sched::transfer_held(0, to, 0) {
         Ok(()) => {
             // Donor must no longer hold the cap.

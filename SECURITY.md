@@ -192,7 +192,7 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | A `DAIF` save/restore pair never spans a task switch     | `make irq-scope`, seen red on a planted `yield_now`                                                                                                                                       |
 | The syscall ABI here matches the kernel's                | `make doc-claims` compares this table's immediates with `kernel_core::syscall` (the set); the reply semantics — which outcome yields which status, payload and counter, and which `x1` detail — are host-tested in `kernel_core::reply` ([ADR-0060](docs/adr/0060-syscall-reply-layer.md)/[0061](docs/adr/0061-refusal-detail-taxonomy.md)). The prose of each row is still review's job                                |
 | Only endpoint caps transfer; task-caps and IRQ caps refuse by band | `xfer-peer: band refused` in `make boot-check` (ADR-0055) |
-| A task-cap goes stale when its target exits | `xfer-peer: stale refused` end-to-end, plus `sched: STALE-TASKCAP` asserted absent (ADR-0057) |
+| A task-cap goes stale when its target exits | `xfer-peer: stale refused` end-to-end (ADR-0057); the id itself carries an epoch, so a stale reference is unrepresentable as a live task (ADR-0062) |
 
 ---
 

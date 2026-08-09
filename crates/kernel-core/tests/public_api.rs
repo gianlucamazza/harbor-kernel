@@ -68,7 +68,7 @@ fn a_receiver_parks_and_a_sender_names_it() {
     // who to wake. Written from outside because that ordering is the contract.
     let mut ipc = KernelIpc::new();
     let ch = ipc.create_channel().unwrap();
-    let me = TaskId(5);
+    let me = TaskId::new(5, 0);
 
     assert_eq!(ipc.try_recv(ch.recv), Err(RecvError::Empty));
     assert_eq!(ipc.park(ch.recv, me), Ok(None));

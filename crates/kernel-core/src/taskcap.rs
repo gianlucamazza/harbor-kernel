@@ -43,7 +43,7 @@ pub enum LookupError {
 struct Entry {
     live: bool,
     generation: u16,
-    /// Task id bits (`TaskId.0`).
+    /// Task id bits (`TaskId::to_raw`), epoch included (ADR-0062).
     task: u32,
 }
 
@@ -125,11 +125,6 @@ impl Table {
             }
         }
         n
-    }
-
-    /// Any live entry naming `task_id`? (ADR-0057 §1 spawn cross-check.)
-    pub fn has_live_for(&self, task_id: u32) -> bool {
-        self.entries.iter().any(|e| e.live && e.task == task_id)
     }
 }
 
@@ -213,16 +208,10 @@ mod tests {
         assert_eq!(t.lookup(seven), Ok(7));
     }
 
-    #[test]
-    fn has_live_for_tracks_mint_and_revoke() {
-        let mut t = Table::new();
-        assert!(!t.has_live_for(5));
-        let _ = t.mint(5).unwrap();
-        assert!(t.has_live_for(5));
-        t.revoke_task(5);
-        assert!(!t.has_live_for(5));
-    }
-
+    #[cfg_attr(
+        miri,
+        ignore = "65 k mint/revoke cycles interpreted take tens of minutes; the loop is pure arithmetic with no unsafe — this crate's only unsafe is ring.rs, which the unit tests already put under Miri"
+    )]
     #[test]
     fn generation_wrap_revalidates_after_65535_cycles() {
         // ADR-0057 §3: the u16 generation wraps (skipping 0) after 65 535 mint

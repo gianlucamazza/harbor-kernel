@@ -51,8 +51,8 @@ use crate::time;
 /// 19 → 24 for K2/K3 oracles + K10 supervisor, 25 → 28 for transfer/cascade/resolve,
 /// 28 → 40 for density/budget/durable residual oracles (ADR-0044..0046).
 /// The four ADR-0054 peer-transfer oracle tasks landed without a bump: slot
-/// reuse after exit absorbs them, and the ADR-0057 §1 cross-check in `spawn`
-/// guards that reuse against a leaked task-cap.
+/// reuse after exit absorbs them, and the epoch in the task identity
+/// (ADR-0062) makes a leaked reference to the previous tenant refusable.
 /// Raising it costs task stacks and page-table reserve derived from this constant.
 pub const MAX_TASKS: usize = 40;
 
@@ -121,7 +121,7 @@ impl Tcb {
 /// a panic on the next EL0 entry rather than one agent reading another's saved
 /// registers — the one "nothing" row ADR-0017 carried.
 fn publish_el0(sched: &mut Sched, to: TaskId) {
-    let session = match sched.tcbs[to.0 as usize].el0.as_mut() {
+    let session = match sched.tcbs[to.slot()].el0.as_mut() {
         Some(session) => session as *mut El0Session,
         None => core::ptr::null_mut(),
     };
@@ -175,7 +175,7 @@ pub fn init() {
         // Idle is a task like any other here: bootstrap runs on it, and
         // bootstrap is what enters EL0 for the demo agents.
         let idle = sched.tasks.current();
-        sched.tcbs[idle.0 as usize].el0 = Some(El0Session::new());
+        sched.tcbs[idle.slot()].el0 = Some(El0Session::new());
         publish_el0(sched, idle);
         STARTED.store(1, Ordering::Release);
     });
@@ -254,7 +254,7 @@ fn spawn_inner(
             unsafe { stack.release() };
             return Err(SpawnError::Full);
         };
-        let slot = id.0 as usize;
+        let slot = id.slot();
 
         let mut context = Context::zeroed();
         context.x30 = task_trampoline as *const () as u64;
@@ -281,16 +281,6 @@ fn spawn_inner(
         ipc::register_holds(&held);
         Ok(id)
     })
-    .inspect(|&id| {
-        // ADR-0057 §1: a freshly admitted slot must carry no live task-cap —
-        // exit revokes before the slot can be reused, so seeing one here is
-        // the escalation the cross-check exists to catch. Kill it and say so;
-        // the boot oracle asserts this line stays absent.
-        if crate::taskcap::has_live_for(id) {
-            let n = crate::taskcap::revoke_task(id);
-            crate::kprintln!("sched: STALE-TASKCAP slot={} revoked={}", id.0, n);
-        }
-    })
 }
 
 /// Running task id (including idle).
@@ -312,7 +302,7 @@ pub fn grant_resolve(id: TaskId) -> bool {
         match sched.tasks.state(id) {
             Some(kernel_core::tasks::State::Empty) | None => false,
             Some(_) => {
-                sched.tcbs[id.0 as usize].may_resolve = true;
+                sched.tcbs[id.slot()].may_resolve = true;
                 true
             }
         }
@@ -331,7 +321,7 @@ pub fn may_resolve_current() -> bool {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &*SCHED.get() };
-        let slot = sched.tasks.current().0 as usize;
+        let slot = sched.tasks.current().slot();
         sched.tcbs[slot].may_resolve
     })
 }
@@ -363,7 +353,7 @@ pub fn my_cap_slot(slot: usize) -> Result<CapId, SlotError> {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &*SCHED.get() };
-        let idx = sched.tasks.current().0 as usize;
+        let idx = sched.tasks.current().slot();
         match sched.tcbs.get(idx) {
             Some(tcb) => kernel_core::cap::from_slot(&tcb.caps, slot),
             // The current task id always indexes the array; this arm exists so
@@ -382,7 +372,7 @@ pub fn current_el0_session() -> *mut El0Session {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked, single core.
         let sched = unsafe { &mut *SCHED.get() };
-        let idx = sched.tasks.current().0 as usize;
+        let idx = sched.tasks.current().slot();
         match sched.tcbs[idx].el0.as_mut() {
             Some(session) => session as *mut El0Session,
             None => core::ptr::null_mut(),
@@ -395,7 +385,7 @@ pub fn current_holds(cap: CapId) -> bool {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &*SCHED.get() };
-        let idx = sched.tasks.current().0 as usize;
+        let idx = sched.tasks.current().slot();
         sched
             .tcbs
             .get(idx)
@@ -434,10 +424,9 @@ pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(),
         if to_slot >= MAX_CAPS_PER_TASK {
             return Err(TransferError::ToSlotOob);
         }
-        if to.0 as usize >= MAX_TASKS {
-            return Err(TransferError::BadToTask);
-        }
         if to != from {
+            // `state` is the one validator: unknown slot, empty slot and a
+            // stale epoch (ADR-0062) all answer "no such task".
             match sched.tasks.state(to) {
                 Some(kernel_core::tasks::State::Empty) | None => {
                     return Err(TransferError::BadToTask);
@@ -445,8 +434,8 @@ pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(),
                 Some(_) => {}
             }
         }
-        let from_i = from.0 as usize;
-        let to_i = to.0 as usize;
+        let from_i = from.slot();
+        let to_i = to.slot();
         if from == to && from_slot == to_slot {
             return Ok(());
         }
@@ -475,7 +464,7 @@ pub fn transfer_held_to_creator(from_slot: usize, to_slot: usize) -> Result<(), 
     let creator = cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &*SCHED.get() };
-        let idx = sched.tasks.current().0 as usize;
+        let idx = sched.tasks.current().slot();
         sched.tcbs[idx].creator
     });
     if creator == current_task_id() {
@@ -517,7 +506,7 @@ pub fn install_cap(slot: usize, cap: CapId) -> Result<(), InstallError> {
         if slot >= MAX_CAPS_PER_TASK {
             return false;
         }
-        let idx = sched.tasks.current().0 as usize;
+        let idx = sched.tasks.current().slot();
         if sched.tcbs[idx].caps[slot].is_some() {
             return false;
         }
@@ -584,7 +573,7 @@ pub fn wake_task(id: TaskId) {
 /// Also expires park deadlines (ADR-0040): cancel blocked waiters whose tick
 /// deadline has passed. Never switches from IRQ — idle/`yield_now` call this.
 pub fn poll_wakes() {
-    irq::wait::drain(|token| wake_task(TaskId(token)));
+    irq::wait::drain(|token| wake_task(TaskId::from_raw(token)));
     poll_park_timeouts();
 }
 
@@ -610,7 +599,7 @@ pub fn disarm_park_deadline(id: TaskId) {
 
 fn poll_park_timeouts() {
     let now = time::ticks();
-    let mut expired = [TaskId(0); parktime::MAX_ARMED];
+    let mut expired = [Tasks::<MAX_TASKS>::IDLE; parktime::MAX_ARMED];
     let n = cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let table = unsafe { &mut *PARK_DEADLINES.get() };
@@ -634,7 +623,7 @@ pub enum WaitIrqError {
 /// Never call from an IRQ handler or from idle. Refuses to overwrite another
 /// waiter's cookie (see [`kernel_core::irqwait`]).
 pub fn wait_for_irq(cookie: u32) -> Result<(), WaitIrqError> {
-    let me = current_task_id().0;
+    let me = current_task_id();
     if irq::wait::arm(cookie, me).is_err() {
         return Err(WaitIrqError::Busy);
     }
@@ -700,10 +689,10 @@ pub fn prepare_cancel_blocked(id: TaskId) -> bool {
         ) {
             return false;
         }
-        let idx = id.0 as usize;
-        if idx >= MAX_TASKS || id == Tasks::<MAX_TASKS>::IDLE {
-            return false;
-        }
+        // `state(id) == Blocked` already implies a live, in-range, non-idle
+        // id: idle never blocks (model invariant) and a stale epoch answers
+        // `None` (ADR-0062).
+        let idx = id.slot();
         sched.tcbs[idx].cancel_wait = true;
         if !sched.tasks.wake(id) {
             return false;
@@ -718,7 +707,7 @@ pub fn take_cancel_wait() -> bool {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let sched = unsafe { &mut *SCHED.get() };
-        let idx = sched.tasks.current().0 as usize;
+        let idx = sched.tasks.current().slot();
         let flag = sched
             .tcbs
             .get_mut(idx)
@@ -833,9 +822,12 @@ pub fn stack_map(out: &mut [StackReport]) -> usize {
             if count == out.len() {
                 break;
             }
+            let Some(id) = sched.tasks.live_id(slot) else {
+                continue;
+            };
             if let Some(stack) = tcb.stack.as_ref() {
                 out[count] = StackReport {
-                    id: TaskId(slot as u32),
+                    id,
                     guard: stack.guard_range(),
                     stack: stack.stack_range(),
                 };
@@ -877,7 +869,7 @@ unsafe fn collect_exited() {
     let Some(id) = sched.tasks.collect() else {
         return;
     };
-    if let Some(stack) = sched.tcbs[id.0 as usize].stack.take() {
+    if let Some(stack) = sched.tcbs[id.slot()].stack.take() {
         // SAFETY: its owner has exited and we are on another stack.
         unsafe { stack.release() };
     }
@@ -909,7 +901,7 @@ fn switch_with(kind: Switch) {
         let exit_caps = if kind == Switch::Exit {
             // The slot is `Empty` and its stack stays attached until collected —
             // the model refuses to hand the slot out again until then.
-            let slot = &mut sched.tcbs[from.0 as usize];
+            let slot = &mut sched.tcbs[from.slot()];
             let caps = slot.caps;
             slot.entry = None;
             slot.caps = [None; MAX_CAPS_PER_TASK];
@@ -929,14 +921,18 @@ fn switch_with(kind: Switch) {
         // ADR-0054: task-caps naming this task become stale.
         let _ = crate::taskcap::revoke_task(from);
         // ADR-0038: cancel Blocked direct children of the exiting task.
-        let mut kids = [TaskId(0); MAX_TASKS];
+        let mut kids = [Tasks::<MAX_TASKS>::IDLE; MAX_TASKS];
         let mut n = 0usize;
         {
             // SAFETY: IRQs still masked.
             let sched = unsafe { &*SCHED.get() };
             for i in 0..MAX_TASKS {
-                let id = TaskId(i as u32);
-                if id == from || id == Tasks::<MAX_TASKS>::IDLE {
+                // `live_id` is how a slot is named since ADR-0062; the exiting
+                // task's slot has no live id any more, so it skips itself.
+                let Some(id) = sched.tasks.live_id(i) else {
+                    continue;
+                };
+                if id == Tasks::<MAX_TASKS>::IDLE {
                     continue;
                 }
                 if sched.tcbs[i].creator != from {
@@ -965,7 +961,7 @@ fn switch_with(kind: Switch) {
         // An exit that found the parked slot already taken. The model counts
         // it; this frees the stack rather than losing the pointer to it. With
         // both collection points in place it never happens.
-        if let Some(stack) = sched.tcbs[stranded.0 as usize].stack.take() {
+        if let Some(stack) = sched.tcbs[stranded.slot()].stack.take() {
             // SAFETY: parked by a task that exited earlier; we are running on
             // our own stack, which is the one being parked now.
             unsafe { stack.release() };
@@ -976,8 +972,8 @@ fn switch_with(kind: Switch) {
     // ADR-0046: new slice for whoever we are about to run.
     SLICE_START.store(time::ticks(), Ordering::Relaxed);
 
-    let prev = &raw mut sched.tcbs[from.0 as usize].context;
-    let next_ctx = &raw const sched.tcbs[to.0 as usize].context;
+    let prev = &raw mut sched.tcbs[from.slot()].context;
+    let next_ctx = &raw const sched.tcbs[to.slot()].context;
 
     // SAFETY: both contexts in static TCBs; stacks valid; IRQs masked.
     unsafe { context_switch(prev, next_ctx) };
@@ -1014,7 +1010,7 @@ extern "C" fn task_trampoline() -> ! {
     let entry = cpu::without_irqs(|| {
         // SAFETY: IRQs masked; we are the current task.
         let sched = unsafe { &mut *SCHED.get() };
-        let idx = sched.tasks.current().0 as usize;
+        let idx = sched.tasks.current().slot();
         sched.tcbs[idx].entry.take()
     });
 

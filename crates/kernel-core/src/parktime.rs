@@ -25,7 +25,7 @@ struct Entry {
 impl Entry {
     const EMPTY: Self = Self {
         live: false,
-        task: TaskId(0),
+        task: TaskId::new(0, 0),
         deadline: 0,
     };
 }
@@ -103,11 +103,11 @@ mod tests {
     #[test]
     fn arm_poll_expires() {
         let mut t = Table::new();
-        t.arm(TaskId(3), 10).unwrap();
-        let mut out = [TaskId(0); MAX_ARMED];
+        t.arm(TaskId::new(3, 0), 10).unwrap();
+        let mut out = [TaskId::new(0, 0); MAX_ARMED];
         assert_eq!(t.poll(9, &mut out), 0);
         assert_eq!(t.poll(10, &mut out), 1);
-        assert_eq!(out[0], TaskId(3));
+        assert_eq!(out[0], TaskId::new(3, 0));
         // Already cleared.
         assert_eq!(t.poll(100, &mut out), 0);
     }
@@ -115,44 +115,44 @@ mod tests {
     #[test]
     fn disarm_prevents_expire() {
         let mut t = Table::new();
-        t.arm(TaskId(1), 5).unwrap();
-        t.disarm(TaskId(1));
-        let mut out = [TaskId(0); MAX_ARMED];
+        t.arm(TaskId::new(1, 0), 5).unwrap();
+        t.disarm(TaskId::new(1, 0));
+        let mut out = [TaskId::new(0, 0); MAX_ARMED];
         assert_eq!(t.poll(5, &mut out), 0);
     }
 
     #[test]
     fn rearm_replaces_deadline() {
         let mut t = Table::new();
-        t.arm(TaskId(2), 5).unwrap();
-        t.arm(TaskId(2), 50).unwrap();
-        let mut out = [TaskId(0); MAX_ARMED];
+        t.arm(TaskId::new(2, 0), 5).unwrap();
+        t.arm(TaskId::new(2, 0), 50).unwrap();
+        let mut out = [TaskId::new(0, 0); MAX_ARMED];
         assert_eq!(t.poll(5, &mut out), 0);
         assert_eq!(t.poll(50, &mut out), 1);
-        assert_eq!(out[0], TaskId(2));
+        assert_eq!(out[0], TaskId::new(2, 0));
     }
 
     #[test]
     fn full_table_refuses_new_task() {
         let mut t = Table::new();
         for i in 0..MAX_ARMED {
-            t.arm(TaskId(i as u32), 1).unwrap();
+            t.arm(TaskId::new(i as u16, 0), 1).unwrap();
         }
-        assert_eq!(t.arm(TaskId(999), 1), Err(ArmError::Full));
+        assert_eq!(t.arm(TaskId::new(999, 0), 1), Err(ArmError::Full));
         // Replace existing still works.
-        t.arm(TaskId(0), 2).unwrap();
+        t.arm(TaskId::new(0, 0), 2).unwrap();
     }
 
     #[test]
     fn multiple_expire_same_poll() {
         let mut t = Table::new();
-        t.arm(TaskId(1), 3).unwrap();
-        t.arm(TaskId(2), 4).unwrap();
-        t.arm(TaskId(3), 100).unwrap();
-        let mut out = [TaskId(0); MAX_ARMED];
+        t.arm(TaskId::new(1, 0), 3).unwrap();
+        t.arm(TaskId::new(2, 0), 4).unwrap();
+        t.arm(TaskId::new(3, 0), 100).unwrap();
+        let mut out = [TaskId::new(0, 0); MAX_ARMED];
         let n = t.poll(4, &mut out);
         assert_eq!(n, 2);
-        let mut ids = [out[0].0, out[1].0];
+        let mut ids = [out[0].slot(), out[1].slot()];
         ids.sort();
         assert_eq!(ids, [1, 2]);
     }

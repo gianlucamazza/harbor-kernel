@@ -49,12 +49,19 @@ const DEPTH: usize = 7;
 enum Op {
     Admit,
     Collect,
-    Wake(u32),
+    /// Wake the **live** id of this slot (no-op when the slot is empty) —
+    /// which is how every kernel caller names a task since ADR-0062.
+    Wake(usize),
+    /// Wake a forged id for this slot whose epoch is one behind the current
+    /// one. Always names a task that no longer exists; the model asserts the
+    /// wake is refused and the machine is undisturbed (ADR-0062). One slot
+    /// suffices: slots are symmetric.
+    WakeStale(usize),
     Switch(Switch),
 }
 
 /// The alphabet, in a fixed order so a printed counter-example is reproducible.
-const ALPHABET: [Op; 5 + SLOTS] = [
+const ALPHABET: [Op; 6 + SLOTS] = [
     Op::Admit,
     Op::Collect,
     Op::Switch(Switch::Yield),
@@ -63,23 +70,38 @@ const ALPHABET: [Op; 5 + SLOTS] = [
     Op::Wake(0),
     Op::Wake(1),
     Op::Wake(2),
+    Op::WakeStale(1),
 ];
 
-fn apply(tasks: &mut Tasks<SLOTS>, op: Op) -> Option<Decision> {
+/// Forge the id a holder from the slot's previous tenancy would still hold.
+fn stale_id_for(tasks: &Tasks<SLOTS>, slot: usize) -> TaskId {
+    let epoch = tasks.live_id(slot).map(|id| id.epoch()).unwrap_or_default();
+    TaskId::new(slot as u16, epoch.wrapping_sub(1))
+}
+
+/// Returns the decision (for `Switch`) and the first violation the operation
+/// itself exposed (stale wake accepted), if any.
+fn apply(tasks: &mut Tasks<SLOTS>, op: Op) -> (Option<Decision>, Option<&'static str>) {
     match op {
         Op::Admit => {
             tasks.admit();
-            None
+            (None, None)
         }
         Op::Collect => {
             tasks.collect();
-            None
+            (None, None)
         }
-        Op::Wake(id) => {
-            tasks.wake(TaskId(id));
-            None
+        Op::Wake(slot) => {
+            if let Some(id) = tasks.live_id(slot) {
+                tasks.wake(id);
+            }
+            (None, None)
         }
-        Op::Switch(kind) => Some(tasks.switch(kind)),
+        Op::WakeStale(slot) => {
+            let woke = tasks.wake(stale_id_for(tasks, slot));
+            (None, woke.then_some("a stale id woke a task (ADR-0062)"))
+        }
+        Op::Switch(kind) => (Some(tasks.switch(kind)), None),
     }
 }
 
@@ -124,8 +146,13 @@ fn violation(tasks: &Tasks<SLOTS>, decision: Option<Decision>) -> Option<&'stati
 
     // 3. One core, cooperative: two tasks in Running is a state the machine
     //    must not be able to reach.
-    let running = (0..SLOTS as u32)
-        .filter(|&i| tasks.state(TaskId(i)) == Some(State::Running))
+    let running = (0..SLOTS)
+        .filter(|&i| {
+            tasks
+                .live_id(i)
+                .and_then(|id| tasks.state(id))
+                .is_some_and(|s| s == State::Running)
+        })
         .count();
     if running != 1 {
         return Some("not exactly one task is Running");
@@ -137,6 +164,14 @@ fn violation(tasks: &Tasks<SLOTS>, decision: Option<Decision>) -> Option<&'stati
         && from == to
     {
         return Some("Decision::Switch names the same task twice");
+    }
+
+    // 5. ADR-0062: an id from a slot's previous tenancy is invisible — it
+    //    names no state, whatever the slot holds now.
+    for slot in 0..SLOTS {
+        if tasks.state(stale_id_for(tasks, slot)).is_some() {
+            return Some("a stale id still names a state (ADR-0062)");
+        }
     }
 
     None
@@ -151,8 +186,8 @@ fn replay(seq: &[Op]) -> Option<(usize, &'static str)> {
         return Some((0, reason));
     }
     for (i, &op) in seq.iter().enumerate() {
-        let decision = apply(&mut tasks, op);
-        if let Some(reason) = violation(&tasks, decision) {
+        let (decision, op_violation) = apply(&mut tasks, op);
+        if let Some(reason) = op_violation.or_else(|| violation(&tasks, decision)) {
             return Some((i + 1, reason));
         }
     }
@@ -214,6 +249,7 @@ fn the_search_reaches_the_states_it_claims_to_cover() {
     let mut saw_exit_release = false;
     let mut saw_blocked = false;
     let mut saw_full_table = false;
+    let mut saw_reused_slot = false;
 
     let alphabet = ALPHABET.len();
     let mut buf = [Op::Admit; DEPTH];
@@ -228,22 +264,28 @@ fn the_search_reaches_the_states_it_claims_to_cover() {
             let mut tasks = Tasks::<SLOTS>::new();
             tasks.start();
             for &op in &buf[..len] {
-                if let Some(Decision::Switch { release, .. }) = apply(&mut tasks, op) {
+                if let (Some(Decision::Switch { release, .. }), _) = apply(&mut tasks, op) {
                     saw_switch = true;
                     saw_exit_release |= release.is_some();
                 }
             }
-            for i in 0..SLOTS as u32 {
-                saw_blocked |= tasks.state(TaskId(i)) == Some(State::Blocked);
+            for i in 0..SLOTS {
+                let state = tasks.live_id(i).and_then(|id| tasks.state(id));
+                saw_blocked |= state == Some(State::Blocked);
+                saw_reused_slot |= tasks.live_id(i).is_some_and(|id| id.epoch() > 0);
             }
-            saw_full_table |=
-                (0..SLOTS as u32).all(|i| tasks.state(TaskId(i)) != Some(State::Empty));
+            saw_full_table |= (0..SLOTS).all(|i| tasks.live_id(i).is_some());
         }
     }
 
     assert!(saw_switch, "no sequence ever produced a context switch");
     assert!(saw_blocked, "no sequence ever parked a task");
     assert!(saw_full_table, "no sequence ever filled the task table");
+    assert!(
+        saw_reused_slot,
+        "no sequence ever re-admitted into an exited slot — the stale-id \
+         invariant (ADR-0062) was never exercised against a live successor"
+    );
     assert!(
         saw_exit_release,
         "no sequence ever produced an exit that had to release a parked stack — \

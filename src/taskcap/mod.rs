@@ -24,20 +24,15 @@ fn with_table<R>(f: impl FnOnce(&mut Table) -> R) -> R {
 
 /// Mint a task-cap naming `id` (trusted EL1 / creator path).
 pub fn mint(id: TaskId) -> Result<CapId, MintError> {
-    with_table(|t| t.mint(id.0))
+    with_table(|t| t.mint(id.to_raw()))
 }
 
 /// Resolve a held CapId to a task id if it is a live task-cap.
 pub fn lookup(cap: CapId) -> Result<TaskId, LookupError> {
-    with_table(|t| t.lookup(cap).map(TaskId))
+    with_table(|t| t.lookup(cap).map(TaskId::from_raw))
 }
 
 /// Invalidate every task-cap naming `id` (call on task exit).
 pub fn revoke_task(id: TaskId) -> u32 {
-    with_table(|t| t.revoke_task(id.0))
-}
-
-/// Any live task-cap naming `id`? (ADR-0057 §1 spawn cross-check.)
-pub fn has_live_for(id: TaskId) -> bool {
-    with_table(|t| t.has_live_for(id.0))
+    with_table(|t| t.revoke_task(id.to_raw()))
 }

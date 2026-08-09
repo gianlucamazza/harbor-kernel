@@ -78,9 +78,10 @@ the code that follows.
 | [0056](0056-ipc-abi-capacities.md)                           | IPC ABI capacities — canonical numbers                                                       | accepted   |
 | [0057](0057-taskcap-lifecycle.md)                            | K3 — task-cap lifecycle invariants                                                           | accepted   |
 | [0058](0058-adr-amendments-and-mutation-freshness.md)        | Process — ADR amendments and mutation freshness                                              | accepted   |
-| [0059](0059-typed-cap-classification.md) | Typed capability classification (CapClass) | accepted |
-| [0060](0060-syscall-reply-layer.md) | Syscall reply layer as a pure machine | accepted |
-| [0061](0061-refusal-detail-taxonomy.md) | Refusal detail taxonomy in x1 | accepted |
+| [0059](0059-typed-cap-classification.md)                     | Typed capability classification (CapClass)                                                   | accepted   |
+| [0060](0060-syscall-reply-layer.md)                          | Syscall reply layer as a pure machine                                                        | accepted   |
+| [0061](0061-refusal-detail-taxonomy.md)                      | Refusal detail taxonomy in x1                                                                | accepted   |
+| [0062](0062-taskid-epoch.md)                                 | Epoch in the task identity                                                                   | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md).

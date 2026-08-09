@@ -413,7 +413,7 @@ impl<const MAILBOXES: usize, const ENDPOINTS: usize, const DEPTH: usize>
     /// assert_eq!(ipc.try_recv(ch.recv), Ok(msg));
     ///
     /// // With a receiver parked, the send names it and the caller wakes it.
-    /// let receiver = TaskId(2);
+    /// let receiver = TaskId::new(2, 0);
     /// assert_eq!(ipc.park(ch.recv, receiver), Ok(None));
     /// assert_eq!(ipc.send(ch.send, msg), Ok(Some(receiver)));
     /// ```
@@ -625,18 +625,18 @@ mod tests {
         let b = t.create_channel_ephemeral().unwrap();
         let holds = [Some(a.send), Some(b.send), None, None];
         t.register_holds(&holds);
-        assert_eq!(t.park(a.recv, TaskId(7)), Ok(None));
-        assert_eq!(t.park(b.recv, TaskId(8)), Ok(None));
+        assert_eq!(t.park(a.recv, TaskId::new(7, 0)), Ok(None));
+        assert_eq!(t.park(b.recv, TaskId::new(8, 0)), Ok(None));
         let woken = t.release_holds(&holds);
-        assert_eq!(woken[0], Some(TaskId(7)));
-        assert_eq!(woken[1], Some(TaskId(8)));
+        assert_eq!(woken[0], Some(TaskId::new(7, 0)));
+        assert_eq!(woken[1], Some(TaskId::new(8, 0)));
     }
 
     #[test]
     fn revoke_returns_parked_waiter() {
         let mut t = T::new();
         let ch = t.create_channel().unwrap();
-        let waiter = TaskId(7);
+        let waiter = TaskId::new(7, 0);
         assert_eq!(t.park(ch.recv, waiter), Ok(None));
         assert_eq!(t.revoke_channel(ch.send), Ok(Some(waiter)));
         // No second wake invented after revoke.
@@ -647,7 +647,7 @@ mod tests {
     fn clear_waiter_drops_the_parked_slot_without_a_send() {
         let mut t = T::new();
         let ch = t.create_channel().unwrap();
-        let waiter = TaskId(3);
+        let waiter = TaskId::new(3, 0);
         assert_eq!(t.park(ch.recv, waiter), Ok(None));
         assert_eq!(t.clear_waiter(waiter), 1);
         assert_eq!(t.clear_waiter(waiter), 0);
@@ -661,7 +661,7 @@ mod tests {
         // ADR-0031: sole SEND holder exits while peer is parked → cancel path.
         let mut t = T::new();
         let ch = t.create_channel_ephemeral().unwrap();
-        let waiter = TaskId(4);
+        let waiter = TaskId::new(4, 0);
         let slots = [Some(ch.send), None, None, None];
         t.register_holds(&slots);
         assert_eq!(t.send_holders(ch.send), Some(1));
@@ -679,7 +679,7 @@ mod tests {
         // clients exit.
         let mut t = T::new();
         let ch = t.create_channel().unwrap();
-        let waiter = TaskId(5);
+        let waiter = TaskId::new(5, 0);
         let slots = [Some(ch.send), None, None, None];
         t.register_holds(&slots);
         assert_eq!(t.park(ch.recv, waiter), Ok(None));
@@ -693,7 +693,7 @@ mod tests {
     fn two_holders_first_unhold_does_not_cancel() {
         let mut t = T::new();
         let ch = t.create_channel_ephemeral().unwrap();
-        let waiter = TaskId(6);
+        let waiter = TaskId::new(6, 0);
         let a = [Some(ch.send), None, None, None];
         let b = [Some(ch.send), None, None, None];
         t.register_holds(&a);
@@ -710,14 +710,17 @@ mod tests {
     fn ephemeral_park_with_zero_holders_is_cancelled() {
         let mut t = T::new();
         let ch = t.create_channel_ephemeral().unwrap();
-        assert_eq!(t.park(ch.recv, TaskId(1)), Err(RecvError::Cancelled));
+        assert_eq!(
+            t.park(ch.recv, TaskId::new(1, 0)),
+            Err(RecvError::Cancelled)
+        );
     }
 
     #[test]
     fn default_channel_allows_park_with_zero_holders() {
         let mut t = T::new();
         let ch = t.create_channel().unwrap();
-        assert_eq!(t.park(ch.recv, TaskId(1)), Ok(None));
+        assert_eq!(t.park(ch.recv, TaskId::new(1, 0)), Ok(None));
     }
 
     #[test]
@@ -877,7 +880,7 @@ mod tests {
     fn park_reports_the_waiter_for_the_sender_to_wake() {
         let mut t = T::new();
         let ch = t.create_channel().unwrap();
-        let me = TaskId(3);
+        let me = TaskId::new(3, 0);
         assert_eq!(t.park(ch.recv, me), Ok(None), "empty: the caller parks");
         assert_eq!(
             t.send(ch.send, msg(5)),
@@ -895,7 +898,7 @@ mod tests {
         let mut t = T::new();
         let ch = t.create_channel().unwrap();
         t.send(ch.send, msg(8)).unwrap();
-        assert_eq!(t.park(ch.recv, TaskId(3)), Ok(Some(msg(8))));
+        assert_eq!(t.park(ch.recv, TaskId::new(3, 0)), Ok(Some(msg(8))));
     }
 
     #[test]
@@ -905,11 +908,11 @@ mod tests {
         // the slot.
         let mut t = T::new();
         let ch = t.create_channel().unwrap();
-        assert_eq!(t.park(ch.recv, TaskId(3)), Ok(None));
-        assert_eq!(t.park(ch.recv, TaskId(4)), Err(RecvError::Busy));
+        assert_eq!(t.park(ch.recv, TaskId::new(3, 0)), Ok(None));
+        assert_eq!(t.park(ch.recv, TaskId::new(4, 0)), Err(RecvError::Busy));
         assert_eq!(
             t.send(ch.send, msg(1)),
-            Ok(Some(TaskId(3))),
+            Ok(Some(TaskId::new(3, 0))),
             "the first waiter is still the one woken"
         );
     }
@@ -921,8 +924,8 @@ mod tests {
         // had every right, the kernel simply has one slot.
         let mut t = T::new();
         let ch = t.create_channel().unwrap();
-        t.park(ch.recv, TaskId(3)).unwrap();
-        assert_eq!(t.park(ch.recv, TaskId(4)), Err(RecvError::Busy));
+        t.park(ch.recv, TaskId::new(3, 0)).unwrap();
+        assert_eq!(t.park(ch.recv, TaskId::new(4, 0)), Err(RecvError::Busy));
         assert_eq!(t.refusals().state, 1);
         assert_eq!(t.refusals().authority, 0, "not an authority violation");
         assert_eq!(t.refusals().full, 0);
@@ -940,7 +943,7 @@ mod tests {
             t.try_recv(bad).ok();
             assert_eq!(t.refusals().authority, expected * 2);
         }
-        assert_eq!(t.park(bad, TaskId(1)), Err(RecvError::BadCap));
+        assert_eq!(t.park(bad, TaskId::new(1, 0)), Err(RecvError::BadCap));
         assert_eq!(t.refusals().authority, 7, "park counts too");
     }
 
@@ -949,8 +952,8 @@ mod tests {
         // A retry loop re-parks after a spurious wake; that must not be `Busy`.
         let mut t = T::new();
         let ch = t.create_channel().unwrap();
-        assert_eq!(t.park(ch.recv, TaskId(3)), Ok(None));
-        assert_eq!(t.park(ch.recv, TaskId(3)), Ok(None));
+        assert_eq!(t.park(ch.recv, TaskId::new(3, 0)), Ok(None));
+        assert_eq!(t.park(ch.recv, TaskId::new(3, 0)), Ok(None));
     }
 
     #[test]

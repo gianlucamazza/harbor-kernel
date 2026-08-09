@@ -172,7 +172,7 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
 
 Rules 1, 3, 4 and 10 are checked by `make layering` (`scripts/check/layering.sh`)
 against every `crate::` import edge (and ISA/board path leaks). Rule 2's
-substance — *what* the BSP does, bind rather than implement — is not decidable
+substance — _what_ the BSP does, bind rather than implement — is not decidable
 from an import graph and stays review's; rule 5 is conformant by a single
 `irq::init` call site, enforced by nothing. Coupling that is not an import (a
 shared constant, an agreed register value) is still review-only — see
@@ -356,9 +356,10 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0056](adr/0056-ipc-abi-capacities.md)                           | IPC ABI capacities (**accepted**)                                                                                              |
 | [ADR-0057](adr/0057-taskcap-lifecycle.md)                            | Task-cap lifecycle invariants (**accepted**)                                                                                   |
 | [ADR-0058](adr/0058-adr-amendments-and-mutation-freshness.md)        | ADR amendments + mutation freshness (**accepted**)                                                                             |
-| [ADR-0059](adr/0059-typed-cap-classification.md) | Typed cap classification (**accepted**) |
-| [ADR-0060](adr/0060-syscall-reply-layer.md) | Syscall reply layer (**accepted**) |
-| [ADR-0061](adr/0061-refusal-detail-taxonomy.md) | Refusal detail in x1 (**accepted**) |
+| [ADR-0059](adr/0059-typed-cap-classification.md)                     | Typed cap classification (**accepted**)                                                                                        |
+| [ADR-0060](adr/0060-syscall-reply-layer.md)                          | Syscall reply layer (**accepted**)                                                                                             |
+| [ADR-0061](adr/0061-refusal-detail-taxonomy.md)                      | Refusal detail in x1 (**accepted**)                                                                                            |
+| [ADR-0062](adr/0062-taskid-epoch.md)                                 | Epoch in the task identity (**accepted**)                                                                                      |
 | [`docs/reviews/`](reviews/)                                          | Pass outcomes (findings), not decisions                                                                                        |
 
 ## Non-goals

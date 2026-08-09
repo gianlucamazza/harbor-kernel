@@ -112,7 +112,7 @@ fn remember(task: TaskId, index: u8) {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked and one core.
         let table = unsafe { &mut *ENTRY_OF_TASK.get() };
-        table[task.0 as usize] = Some(index);
+        table[task.slot()] = Some(index);
     });
 }
 
@@ -120,7 +120,7 @@ fn recall(task: TaskId) -> Option<u8> {
     cpu::without_irqs(|| {
         // SAFETY: as `remember`.
         let table = unsafe { &*ENTRY_OF_TASK.get() };
-        table[task.0 as usize]
+        table[task.slot()]
     })
 }
 

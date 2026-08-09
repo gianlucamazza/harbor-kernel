@@ -584,7 +584,8 @@ pub fn run() -> ! {
             Ok(ch) => {
                 match crate::sched::spawn(demos::transfer_recipient_task) {
                     Ok(to) => {
-                        demos::TRANSFER_TO.store(to.0, core::sync::atomic::Ordering::Relaxed);
+                        demos::TRANSFER_TO
+                            .store(to.to_raw(), core::sync::atomic::Ordering::Relaxed);
                         match crate::sched::spawn_with_caps(demos::transfer_donor_task, &[ch.send])
                         {
                             Ok(_) => crate::kprintln!("ipc: transfer spawned"),
@@ -727,8 +728,9 @@ pub fn run() -> ! {
             Ok(ch) => {
                 match crate::sched::spawn_with_caps(demos::orphan_receiver, &[ch.recv]) {
                     Ok(id) => {
-                        demos::ORPHAN_TASK.store(id.0, core::sync::atomic::Ordering::Relaxed);
-                        crate::kprintln!("ipc: orphan spawned id={}", id.0);
+                        demos::ORPHAN_TASK
+                            .store(id.to_raw(), core::sync::atomic::Ordering::Relaxed);
+                        crate::kprintln!("ipc: orphan spawned id={}", id.slot());
                     }
                     Err(e) => crate::kprintln!("ipc: orphan spawn FAILED {e:?}"),
                 }

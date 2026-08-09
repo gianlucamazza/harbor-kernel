@@ -5,7 +5,8 @@
 //! slot, `Release` after write / `Acquire` before read, no `&mut` shared across
 //! IRQ and main.
 //!
-//! Entries are opaque `u32` tokens (typically a [`crate::runqueue::TaskId`]).
+//! Entries are opaque `u32` tokens (typically a packed
+//! [`crate::runqueue::TaskId::to_raw`], epoch included).
 //! Capacity is fixed; a full queue drops the wake and counts it rather than
 //! spinning in IRQ context.
 

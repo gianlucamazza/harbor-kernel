@@ -63,6 +63,9 @@ pub enum Decision {
 /// Fixed table of task slots plus the ready queue.
 pub struct Tasks<const N: usize> {
     states: [State; N],
+    /// Tenancy epoch per slot (ADR-0062). Bumped on exit; `admit` mints ids
+    /// carrying it, and `state`/`wake` refuse an id whose epoch has moved on.
+    epochs: [u16; N],
     queue: RunQueue<N>,
     current: TaskId,
     parked: Option<TaskId>,
@@ -79,11 +82,12 @@ impl<const N: usize> Default for Tasks<N> {
 
 impl<const N: usize> Tasks<N> {
     /// Slot 0 is idle: it runs on the bootstrap stack and is never queued.
-    pub const IDLE: TaskId = TaskId(0);
+    pub const IDLE: TaskId = TaskId::new(0, 0);
 
     pub const fn new() -> Self {
         Self {
             states: [State::Empty; N],
+            epochs: [0; N],
             queue: RunQueue::new(),
             current: Self::IDLE,
             parked: None,
@@ -94,7 +98,7 @@ impl<const N: usize> Tasks<N> {
 
     /// Claim idle as the running task. Call once, before any spawn.
     pub fn start(&mut self) {
-        self.states[Self::IDLE.0 as usize] = State::Running;
+        self.states[Self::IDLE.slot()] = State::Running;
         self.current = Self::IDLE;
     }
 
@@ -104,9 +108,26 @@ impl<const N: usize> Tasks<N> {
         self.current
     }
 
+    /// The slot's state, or `None` for an unknown **or stale** id
+    /// (ADR-0062): an epoch mismatch means the task this id named is gone,
+    /// whatever now occupies the slot.
     #[inline]
     pub fn state(&self, id: TaskId) -> Option<State> {
-        self.states.get(id.0 as usize).copied()
+        if self.epochs.get(id.slot()) != Some(&id.epoch()) {
+            return None;
+        }
+        self.states.get(id.slot()).copied()
+    }
+
+    /// The live id currently occupying `slot`, or `None` if the slot is
+    /// `Empty`. The one way to name a task by slot (iteration sites); it
+    /// carries the current epoch, so the result validates everywhere.
+    #[inline]
+    pub fn live_id(&self, slot: usize) -> Option<TaskId> {
+        match self.states.get(slot) {
+            Some(State::Empty) | None => None,
+            Some(_) => Some(TaskId::new(slot as u16, self.epochs[slot])),
+        }
     }
 
     #[inline]
@@ -149,12 +170,11 @@ impl<const N: usize> Tasks<N> {
         // and lose the pointer to it. The caller keeps the stack attached to
         // the slot, so this is the only thing standing between an exit and a
         // spawn that reuses it before anyone has run.
-        let slot = self
-            .states
-            .iter()
-            .enumerate()
-            .position(|(i, s)| *s == State::Empty && self.parked != Some(TaskId(i as u32)))?;
-        let id = TaskId(slot as u32);
+        let slot =
+            self.states.iter().enumerate().position(|(i, s)| {
+                *s == State::Empty && self.parked.is_none_or(|p| p.slot() != i)
+            })?;
+        let id = TaskId::new(slot as u16, self.epochs[slot]);
         if self.queue.enqueue(id).is_err() {
             return None;
         }
@@ -162,10 +182,12 @@ impl<const N: usize> Tasks<N> {
         Some(id)
     }
 
-    /// Make a blocked task runnable again. `false` if it was not blocked.
+    /// Make a blocked task runnable again. `false` if it was not blocked —
+    /// including a stale id (ADR-0062), which names a task that no longer
+    /// exists.
     pub fn wake(&mut self, id: TaskId) -> bool {
-        let idx = id.0 as usize;
-        if idx >= N || id == Self::IDLE {
+        let idx = id.slot();
+        if idx >= N || id == Self::IDLE || self.epochs[idx] != id.epoch() {
             return false;
         }
         if self.states[idx] != State::Blocked {
@@ -202,7 +224,7 @@ impl<const N: usize> Tasks<N> {
     /// ```
     pub fn switch(&mut self, kind: Switch) -> Decision {
         let current = self.current;
-        let cur = current.0 as usize;
+        let cur = current.slot();
 
         let requeue = match kind {
             Switch::Yield => {
@@ -223,6 +245,10 @@ impl<const N: usize> Tasks<N> {
             }
             Switch::Exit => {
                 self.states[cur] = State::Empty;
+                // ADR-0062: the tenancy ends here. Every stored reference to
+                // this task — task-caps, wake tokens, pending IRQ deliveries —
+                // carries the old epoch and is refused from now on.
+                self.epochs[cur] = self.epochs[cur].wrapping_add(1);
                 false
             }
         };
@@ -269,7 +295,7 @@ impl<const N: usize> Tasks<N> {
             self.overwrites += 1;
             release = Some(stale);
         }
-        self.states[next.0 as usize] = State::Running;
+        self.states[next.slot()] = State::Running;
         self.current = next;
         Decision::Switch {
             from: current,
@@ -314,7 +340,10 @@ mod tests {
     fn admitting_past_the_last_slot_fails_without_disturbing_the_others() {
         let mut t = started();
         let ids: Vec<_> = (0..3).map(|_| t.admit().unwrap()).collect();
-        assert_eq!(ids, vec![TaskId(1), TaskId(2), TaskId(3)]);
+        assert_eq!(
+            ids,
+            vec![TaskId::new(1, 0), TaskId::new(2, 0), TaskId::new(3, 0)]
+        );
         assert_eq!(t.admit(), None, "slot 0 is idle, so three is the maximum");
         for id in ids {
             assert_eq!(t.state(id), Some(State::Ready));
@@ -384,7 +413,7 @@ mod tests {
             matches!(t.switch(Switch::Exit), Decision::Switch { .. }),
             "a worker exiting really switches away"
         );
-        assert_eq!(t.state(b), Some(State::Empty));
+        assert_eq!(t.state(b), None, "the exited id is stale (ADR-0062)");
     }
 
     #[test]
@@ -497,7 +526,7 @@ mod tests {
     fn waking_idle_or_an_unknown_slot_is_refused() {
         let mut t = started();
         assert!(!t.wake(T::IDLE));
-        assert!(!t.wake(TaskId(99)));
+        assert!(!t.wake(TaskId::new(99, 0)));
     }
 
     #[test]
@@ -513,7 +542,7 @@ mod tests {
                 release: None,
             }
         );
-        assert_eq!(t.state(a), Some(State::Empty));
+        assert_eq!(t.state(a), None, "the exited id is stale (ADR-0062)");
         assert_eq!(t.collect(), Some(a), "the stack is waiting to be freed");
         assert_eq!(t.collect(), None, "and only once");
     }
@@ -588,10 +617,12 @@ mod tests {
         let a = t.admit().unwrap();
         t.switch(Switch::Yield); // → a
         t.switch(Switch::Exit); // a exits; its stack is parked
-        assert_eq!(t.state(a), Some(State::Empty));
+        assert_eq!(t.state(a), None, "the exited id is stale (ADR-0062)");
         assert_eq!(t.admit(), None, "the only free slot still owns a stack");
         assert_eq!(t.collect(), Some(a));
-        assert_eq!(t.admit(), Some(a), "collected, so now it really is free");
+        let b = t.admit().expect("collected, so now it really is free");
+        assert_eq!(b.slot(), a.slot(), "same slot");
+        assert_ne!(b, a, "new tenancy, new identity (ADR-0062)");
     }
 
     #[test]
@@ -608,5 +639,66 @@ mod tests {
             "idle, nothing ready"
         );
         assert_eq!(t.collect(), Some(a), "still there");
+    }
+
+    #[test]
+    fn a_stale_id_is_invisible_after_exit() {
+        // ADR-0062: exit bumps the slot's epoch, so the old id names nothing —
+        // state says unknown, wake refuses — while the slot itself is reusable.
+        let mut t = started();
+        let a = t.admit().unwrap();
+        t.switch(Switch::Yield); // → a
+        t.switch(Switch::Block); // a parks, → idle
+        t.wake(a);
+        t.switch(Switch::Yield); // → a
+        t.switch(Switch::Exit); // a exits
+        t.collect();
+
+        assert_eq!(t.state(a), None, "stale id is unknown, not Empty");
+        assert!(!t.wake(a), "a stale id cannot wake anyone");
+
+        let b = t.admit().unwrap();
+        assert_eq!(b.slot(), a.slot(), "the slot is reused");
+        assert_ne!(b, a, "but the identity is new");
+        assert_eq!(t.state(a), None, "the old id does not name the new tenant");
+        assert_eq!(t.state(b), Some(State::Ready));
+    }
+
+    #[test]
+    fn live_id_names_the_current_tenant_only() {
+        let mut t = started();
+        let a = t.admit().unwrap();
+        assert_eq!(t.live_id(a.slot()), Some(a));
+        assert_eq!(t.live_id(0), Some(T::IDLE));
+        assert_eq!(t.live_id(2), None, "empty slot has no live id");
+        assert_eq!(t.live_id(99), None, "out of range");
+
+        t.switch(Switch::Yield); // → a
+        t.switch(Switch::Exit);
+        t.collect();
+        assert_eq!(t.live_id(a.slot()), None, "exited slot has no live id");
+    }
+
+    #[cfg_attr(
+        miri,
+        ignore = "65 k exit cycles interpreted take tens of minutes; the loop is pure arithmetic with no unsafe — this crate's only unsafe is ring.rs, which the unit tests already put under Miri"
+    )]
+    #[test]
+    fn epoch_wraps_after_65536_exit_cycles() {
+        // ADR-0062: the u16 epoch wraps after 65 536 exits on one slot, and the
+        // original stale id validates again. This encodes the decided bound
+        // (same shape as ADR-0057 §3) rather than pretending it is unbounded.
+        let mut t = Tasks::<2>::new();
+        t.start();
+        let first = t.admit().unwrap();
+        for _ in 0..65536 {
+            t.switch(Switch::Yield); // → worker
+            t.switch(Switch::Exit); // worker exits, → idle
+            t.collect();
+            t.admit().unwrap();
+        }
+        let current = t.live_id(first.slot()).unwrap();
+        assert_eq!(current, first, "the epoch wrapped back to the first id");
+        assert_eq!(t.state(first), Some(State::Ready));
     }
 }

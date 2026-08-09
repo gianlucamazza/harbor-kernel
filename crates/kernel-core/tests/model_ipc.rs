@@ -187,12 +187,12 @@ fn step_reference(model: &mut Reference, op: Op, tag: u32) -> Observed {
                     return Observed::Parked(Ok(Some(tag)));
                 }
                 match ch.waiter {
-                    Some(existing) if existing != TaskId(me) => {
+                    Some(existing) if existing != TaskId::new(me as u16, 0) => {
                         model.state += 1;
                         Observed::Parked(Err(RecvError::Busy))
                     }
                     _ => {
-                        ch.waiter = Some(TaskId(me));
+                        ch.waiter = Some(TaskId::new(me as u16, 0));
                         Observed::Parked(Ok(None))
                     }
                 }
@@ -242,7 +242,7 @@ fn step_real(table: &mut Ipc, channels: &mut Vec<Channel>, op: Op, tag: u32) -> 
         }
         Op::Park(which, me) => Observed::Parked(
             table
-                .park(cap_of(channels, which), TaskId(me))
+                .park(cap_of(channels, which), TaskId::new(me as u16, 0))
                 .map(|m| m.map(|m| m.tag)),
         ),
     }
@@ -347,7 +347,7 @@ fn a_stale_or_forged_handle_is_never_accepted() {
     for bad in [stale, forged] {
         assert_eq!(table.send(bad, msg), Err(SendError::BadCap));
         assert_eq!(table.try_recv(bad), Err(RecvError::BadCap));
-        assert_eq!(table.park(bad, TaskId(1)), Err(RecvError::BadCap));
+        assert_eq!(table.park(bad, TaskId::new(1, 0)), Err(RecvError::BadCap));
     }
 
     // And the live one still works, so the refusals above are about the handle

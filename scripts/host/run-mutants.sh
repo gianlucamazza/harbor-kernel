@@ -35,7 +35,12 @@ cd "$(dirname "$0")/../.." || exit 1
 #   1 × irqcap mint's generation-0 skip — reachable only at u16 wrap, and
 #       irqcap has no revoke, so the generation never advances past first mint
 #   1 × `CapRights::SEND = 1 << 0` → `1 >> 0` in cap — equivalent, not untested
-readonly BASELINE_MISSED=17
+# Sixth run (2026-08-09, ADR-0062 scope gains runqueue.rs and irqwait.rs):
+#   1 × `epoch << 16 | slot` → `^` in runqueue's to_raw — equivalent (the two
+#       halves are disjoint bits; same class as the band mints above)
+#   1 × irqwait signal's `task.slot() < MAX_TASK_IDS` arm — defensive-
+#       unreachable: `arm` refuses those slots, so no armed entry carries one
+readonly BASELINE_MISSED=19
 
 # `partition`'s loop counter mutated to a no-op never terminates. That is a
 # detected mutant, not a surviving one — the suite would hang rather than pass —
@@ -56,7 +61,7 @@ fi
 # One name per line; every module that decides authority belongs here.
 readonly FILES=(
 	ipc tasks layout irqtable rxline reset cap syscall prog manifest
-	taskcap irqcap reply
+	taskcap irqcap reply runqueue irqwait
 )
 file_args=()
 for f in "${FILES[@]}"; do

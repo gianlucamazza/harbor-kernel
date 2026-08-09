@@ -216,12 +216,15 @@ pub fn guard_probe_task() {
     let count = sched::stack_map(&mut map);
     let me = sched::current_id();
 
-    crate::kprintln!("PROBE: overflowing task {} of {count} live stacks", me.0);
+    crate::kprintln!(
+        "PROBE: overflowing task {} of {count} live stacks",
+        me.slot()
+    );
     for report in &map[..count] {
         let tag = if report.id == me { "self" } else { "peer" };
         crate::kprintln!(
             "PROBE: {tag} task {} guard {:#x}..{:#x} stack {:#x}..{:#x}",
-            report.id.0,
+            report.id.slot(),
             report.guard.0,
             report.guard.1,
             report.stack.0,

@@ -370,16 +370,15 @@ grep -qa 'xfer-peer: stale refused' "${log}" ||
 # product check owns the zero assertions.
 grep -qa 'invariants: overwrites=' "${log}" ||
 	fail "invariant beacon did not print"
-# Three lines that must never appear: silent mint exhaustion on the boot path,
-# a moved stale cap, and a leaked task-cap observed at slot reuse.
+# Two lines that must never appear: silent mint exhaustion on the boot path,
+# and a moved stale cap. (The former third line, `sched: STALE-TASKCAP`, died
+# with its print: ADR-0062 puts the epoch in the task identity, so the state
+# that cross-check watched for is unrepresentable.)
 if grep -qa 'mint FAILED' "${log}"; then
 	fail "task-cap mint exhausted on the boot path (ADR-0057 §2)"
 fi
 if grep -qa 'STALE MOVED' "${log}"; then
 	fail "a stale task-cap moved a cap into a recycled slot (ADR-0057 §1)"
-fi
-if grep -qa 'sched: STALE-TASKCAP' "${log}"; then
-	fail "a live task-cap survived its target's exit (ADR-0057 §1 cross-check)"
 fi
 # ADR-0042 / K2 residual: EL0 recv timeout.
 grep -qa 'el0-timeout: cancelled' "${log}" ||

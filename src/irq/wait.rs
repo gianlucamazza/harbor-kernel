@@ -7,6 +7,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use kernel_core::irqwait::{ArmError, WaitTable};
+use kernel_core::runqueue::TaskId;
 use kernel_core::wake::WakeQueue;
 
 use crate::arch::cpu;
@@ -20,7 +21,7 @@ static QUEUE: WakeQueue<Q> = WakeQueue::new();
 static SIGNAL_IDLE: AtomicU32 = AtomicU32::new(0);
 
 /// Arm `task` for `cookie`. Returns an error instead of overwriting another waiter.
-pub fn arm(cookie: u32, task: u32) -> Result<(), ArmError> {
+pub fn arm(cookie: u32, task: TaskId) -> Result<(), ArmError> {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked; single core.
         let table = unsafe { &mut *TABLE.get() };
@@ -29,7 +30,7 @@ pub fn arm(cookie: u32, task: u32) -> Result<(), ArmError> {
 }
 
 /// Drop any arm for `task`.
-pub fn disarm_task(task: u32) {
+pub fn disarm_task(task: TaskId) {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked; single core.
         let table = unsafe { &mut *TABLE.get() };
@@ -55,12 +56,14 @@ pub fn signal(cookie: u32) {
         SIGNAL_IDLE.fetch_add(1, Ordering::Relaxed);
         return;
     };
-    // Pending bit is already set inside `signal`. Queue is the fast path to Ready.
-    enqueue(task);
+    // Pending mark is already set inside `signal`. Queue is the fast path to
+    // Ready; the token is the packed full id (ADR-0062), so a wake for a task
+    // that exited before the drain is refused by the epoch check.
+    enqueue(task.to_raw());
 }
 
 /// Consume pending for `task`. True if an IRQ already posted.
-pub fn take_pending(task: u32) -> bool {
+pub fn take_pending(task: TaskId) -> bool {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked.
         let table = unsafe { &mut *TABLE.get() };
@@ -75,9 +78,9 @@ pub fn drain(mut f: impl FnMut(u32)) {
     }
 }
 
-fn enqueue(task: u32) {
+fn enqueue(token: u32) {
     // Capacity is ≥ task count; a full queue under a correct arm is a fault class.
-    if !QUEUE.push(task) {
+    if !QUEUE.push(token) {
         SIGNAL_IDLE.fetch_add(1, Ordering::Relaxed);
     }
 }
