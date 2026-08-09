@@ -6,6 +6,7 @@ pub mod gicv2;
 pub mod pl011;
 pub mod pm;
 pub mod rng200;
+pub mod sdhci;
 
 #[cfg(feature = "debug-display")]
 pub mod delay;

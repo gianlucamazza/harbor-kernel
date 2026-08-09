@@ -41,6 +41,9 @@ on_timer_missed() {
 # shellcheck source=scripts/lib/boot-oracle.sh
 source "$(dirname "$0")/../lib/boot-oracle.sh"
 
-assert_boot_oracle
+# ADR-0066: the canonical HW transcript is recorded on a second-or-later
+# powered boot, so one log carries cross-power-cycle evidence
+# (from=Previous, boot>=2). Override for bring-up captures only.
+DURABLE_MEDIA_EXPECT="${DURABLE_MEDIA_EXPECT:-previous}" assert_boot_oracle
 
 echo "hw-transcript-check: clean (${TRANSCRIPT})"

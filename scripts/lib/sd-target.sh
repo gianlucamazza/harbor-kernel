@@ -62,6 +62,32 @@ assert_boot_partition() {
 	return 1
 }
 
+# Report whether the card carrying MOUNT has the durable-store partition
+# (MBR type 0x7f, ADR-0066). Informational: a card without one boots with an
+# honest `durable-media: no-partition` line, so absence warns rather than
+# refuses — the kernel's own oracle is the enforcement. Uses lsblk (sysfs),
+# so no elevated access is needed for the check.
+warn_durable_partition() {
+	local mount="$1"
+	local src disk name ptype
+	src="$(findmnt -no SOURCE "${mount}" || true)"
+	disk="$(lsblk -no PKNAME "${src}" 2>/dev/null | head -1 || true)"
+	if [[ -z "${disk}" ]]; then
+		echo "note: cannot resolve the card device behind ${mount}; durable partition unchecked" >&2
+		return 0
+	fi
+	while read -r name ptype; do
+		if [[ "${ptype}" == "0x7f" ]]; then
+			echo "durable partition: present (/dev/${name})"
+			return 0
+		fi
+	done < <(lsblk -nro NAME,PARTTYPE "/dev/${disk}")
+	echo "note: no durable-store partition (type 0x7f) on /dev/${disk}" >&2
+	echo "      the kernel will print 'durable-media: no-partition' and skip media persistence" >&2
+	echo "hint: scripts/host/durable-partition.sh /dev/${disk}" >&2
+	return 0
+}
+
 # Refuse unless the pinned platform blobs match the hashes committed to the
 # repo. `fetch-blobs.sh` checks them on arrival, which protects the download and
 # nothing after it; this covers what actually reaches the card.

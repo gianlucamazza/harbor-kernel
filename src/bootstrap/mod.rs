@@ -755,6 +755,91 @@ pub fn run() -> ! {
             crate::kprintln!("density: thin n={n} bytes_each={each}");
         }
 
+        // ADR-0066 / P2: durable store on true media. The card's partition
+        // table names the store window (type 0x7f); load runs BEFORE any
+        // put, so the `boot` counter read below is evidence of the previous
+        // boot, not of this one. Every degraded path is one honest line and
+        // the boot proceeds with the DRAM-only store (ADR-0045 behavior).
+        let durable_media = {
+            use kernel_core::mbr;
+            // SAFETY: exclusive SDHCI windows; core 0 only.
+            match unsafe { crate::bsp::board::sdhci::init() } {
+                Ok((sd, host)) => {
+                    let mut sector0 = [0u8; 512];
+                    match sd.read_block(0, &mut sector0) {
+                        Ok(()) => match mbr::parse(&sector0) {
+                            Ok(entries) => match mbr::find_store_partition(&entries) {
+                                Some((lba, _sectors)) => Some((sd, lba, host)),
+                                None => {
+                                    crate::kprintln!("durable-media: no-partition (no 0x7f entry)");
+                                    None
+                                }
+                            },
+                            Err(e) => {
+                                crate::kprintln!("durable-media: no-partition ({e:?})");
+                                None
+                            }
+                        },
+                        Err(e) => {
+                            crate::kprintln!("durable-media: error (mbr read {e:?})");
+                            None
+                        }
+                    }
+                }
+                Err(crate::drivers::sdhci::SdError::NotPresent) => {
+                    crate::kprintln!("durable-media: absent (NotPresent)");
+                    None
+                }
+                Err(crate::drivers::sdhci::SdError::NoCard) => {
+                    crate::kprintln!("durable-media: no-card (no SDHC/SDXC answered)");
+                    None
+                }
+                Err(crate::drivers::sdhci::SdError::Unsupported) => {
+                    crate::kprintln!("durable-media: unsupported (not SDHC/SDXC)");
+                    None
+                }
+                Err(e) => {
+                    crate::kprintln!("durable-media: error (init {e:?})");
+                    None
+                }
+            }
+        };
+
+        // Load the winning slot, seed the region, read the counter, print
+        // the cross-boot evidence line, then advance the counter.
+        let durable_flush = durable_media.and_then(|(sd, lba, host)| {
+            let mut loaded = [0u8; kernel_core::durable::REGION_SIZE];
+            let winner = match sd.media_load(lba, &mut loaded) {
+                Ok(w) => w,
+                Err(e) => {
+                    crate::kprintln!("durable-media: error (load {e:?})");
+                    return None;
+                }
+            };
+            if winner.is_some() {
+                crate::durable::restore(&loaded);
+            }
+            let mut out = [0u8; 4];
+            let prev = match crate::durable::get(b"boot", &mut out) {
+                Ok(4) => u32::from_le_bytes(out),
+                _ => 0,
+            };
+            let boot = prev + 1;
+            match winner {
+                Some((slot, seq)) => crate::kprintln!(
+                    "durable-media: boot={boot} from=Previous part=0x7f slot={slot:?} seq={seq} host={host}"
+                ),
+                None => crate::kprintln!(
+                    "durable-media: boot={boot} from=Fresh part=0x7f slot=- seq=0 host={host}"
+                ),
+            }
+            if let Err(e) = crate::durable::put(b"boot", &boot.to_le_bytes()) {
+                crate::kprintln!("durable-media: error (counter put {e:?})");
+                return None;
+            }
+            Some((sd, lba, winner))
+        });
+
         // ADR-0045 / P2 durable: put → get from durable region (no host inject).
         match crate::durable::put(b"cfg", b"persist") {
             Ok(()) => {
@@ -768,6 +853,24 @@ pub fn run() -> ! {
                 }
             }
             Err(e) => crate::kprintln!("durable: put FAILED {e:?}"),
+        }
+
+        // ADR-0066: one explicit flush point — snapshot the region, write
+        // the opposite slot (header last = commit), then read back.
+        if let Some((sd, lba, winner)) = durable_flush {
+            let seq = winner.map(|(_, s)| s).unwrap_or(0);
+            let snap = crate::durable::snapshot();
+            match sd.media_flush(lba, winner.map(|(s, _)| s), seq, &snap) {
+                Ok((slot, new_seq)) => {
+                    crate::kprintln!("durable-media: flushed slot={slot:?} seq={new_seq}");
+                    match sd.media_verify(lba, slot, new_seq, &snap) {
+                        Ok(true) => crate::kprintln!("durable-media: verified"),
+                        Ok(false) => crate::kprintln!("durable-media: error (verify mismatch)"),
+                        Err(e) => crate::kprintln!("durable-media: error (verify {e:?})"),
+                    }
+                }
+                Err(e) => crate::kprintln!("durable-media: error (flush {e:?})"),
+            }
         }
 
         // ADR-0046 / K4: cooperative budget rotation.

@@ -68,12 +68,30 @@ read_child_cpu_hz() {
 read_child_cpu_hz
 cpu_before="${CHILD_CPU_HZ}"
 
+# ADR-0066: a scratch SD card image, partitioned exactly as the host tool
+# partitions a real card (one MBR entry of type 0x7f). Sparse, so the 8 GiB
+# the QEMU SD model wants (power-of-two) costs kilobytes of real disk. Two
+# boots share it: the second is the emulated power cycle — the QEMU process
+# is gone in between, so DRAM state is genuinely lost and only the media
+# can carry the boot counter across.
+sd_img="$(mktemp)"
+trap 'rm -f "${log}" "${sd_img}"' EXIT
+truncate -s 8G "${sd_img}"
+printf 'label: dos\n,2048,7f\n' | sfdisk -q "${sd_img}" >/dev/null
+
 # `timeout` kills a healthy run, so its exit status says nothing; the log is
 # the oracle. `|| true` keeps `set -e` from ending the script before we look.
 # Oracle path: no external store — builtin beacon+mute (ADR-0027 fallback).
-timeout "${SECONDS_TO_RUN}" "${QEMU}" \
-	-M "${QEMU_MACHINE}" -kernel "${IMG}" \
-	-serial mon:stdio -display none </dev/null >"${log}" 2>&1 || true
+run_boot() {
+	local seconds="$1"
+	shift
+	: >"${log}"
+	timeout "${seconds}" "${QEMU}" \
+		-M "${QEMU_MACHINE}" -kernel "${IMG}" \
+		-serial mon:stdio -display none "$@" </dev/null >"${log}" 2>&1 || true
+}
+
+run_boot "${SECONDS_TO_RUN}" -drive "if=sd,format=raw,file=${sd_img}"
 
 # How much host CPU the emulator actually got, in hundredths of a core per
 # second of wall time. On an unloaded machine TCG saturates roughly three cores
@@ -121,7 +139,32 @@ on_timer_missed() {
 	fail "timer deadlines expired unserviced, and the emulator had the CPU to meet them"
 }
 
-assert_boot_oracle
+# Boot 1 on fresh media: the durable window exists and has never been
+# written, so the ADR-0066 line must read from=Fresh boot=1.
+DURABLE_MEDIA_EXPECT=fresh assert_boot_oracle
+ticks_first="$(grep -ac 'ticks=' "${log}")"
 
-printf 'boot-check: clean (%s tick reports, emulator had %s.%02d cores)\n' \
-	"$(grep -ac 'ticks=' "${log}")" $((emulator_cores / 100)) $((emulator_cores % 100))
+# Boot 2, same image, new emulator process: the emulated power cycle. DRAM
+# is gone; only the card can carry the counter across, the winner slot must
+# be the one boot 1 committed, and this flush must land in the other slot.
+run_boot "${SECONDS_TO_RUN}" -drive "if=sd,format=raw,file=${sd_img}"
+read_child_cpu_hz
+emulator_cores=$(((CHILD_CPU_HZ - cpu_before) * 100 / (clk_tck * 2 * SECONDS_TO_RUN)))
+DURABLE_MEDIA_EXPECT=previous assert_boot_oracle
+grep -qaE 'durable-media: boot=2 from=Previous part=0x7f slot=(A|B) seq=1' "${log}" ||
+	fail "the second boot did not read the first boot's committed state (ADR-0066)"
+ticks_second="$(grep -ac 'ticks=' "${log}")"
+
+# No-card phase: the empty-slot path must stay honest, and only QEMU can
+# hold it to that — silicon always boots from a card. Both SDHCI hosts
+# exist in the machine model, so the honest line is `no-card` (CMD8
+# unanswered), not `absent` (no controller). A short run suffices: the
+# line prints during bring-up, well before steady state, so this phase
+# asserts it alone rather than the whole oracle.
+run_boot 8
+grep -qa 'durable-media: no-card (no SDHC/SDXC answered)' "${log}" ||
+	fail "without a card the boot did not report the honest no-card line (ADR-0066)"
+
+printf 'boot-check: clean (%s + %s tick reports over two media boots, emulator had %s.%02d cores)\n' \
+	"${ticks_first}" "${ticks_second}" \
+	$((emulator_cores / 100)) $((emulator_cores % 100))

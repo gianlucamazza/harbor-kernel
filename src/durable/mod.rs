@@ -81,6 +81,27 @@ pub fn put(key: &[u8], payload: &[u8]) -> Result<(), EncodeError> {
     with_region(|r| durable::encode(&blobs[..n], r).map(|_| ()))
 }
 
+/// Copy the raw durable region out — the bytes a media flush commits
+/// (ADR-0066). The caller owns what happens to them; this module keeps its
+/// arch-only imports and never learns a driver exists.
+pub fn snapshot() -> [u8; REGION_SIZE] {
+    let mut out = [0u8; REGION_SIZE];
+    with_region(|r| out[..r.len()].copy_from_slice(r));
+    out
+}
+
+/// Overwrite the durable region with bytes loaded from media (ADR-0066).
+///
+/// Called by bootstrap before any `put` this boot, so a valid media image
+/// is the store — the same "the section is the store" rule as ADR-0045,
+/// with the section now seeded from the card.
+pub fn restore(bytes: &[u8; REGION_SIZE]) {
+    with_region(|r| {
+        let len = r.len();
+        r.copy_from_slice(&bytes[..len]);
+    });
+}
+
 /// Read `key` from the durable region into `out`.
 pub fn get(key: &[u8], out: &mut [u8]) -> Result<usize, DecodeError> {
     let mut keys = [[0u8; durable::MAX_KEY_LEN]; durable::MAX_BLOBS];

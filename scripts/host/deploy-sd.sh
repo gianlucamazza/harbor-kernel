@@ -17,6 +17,9 @@ fi
 source "${ROOT}/scripts/lib/sd-target.sh"
 
 assert_boot_partition "${MOUNT}" || exit 1
+# ADR-0066: informational — a missing store partition degrades honestly on
+# the board, so this warns with the fix rather than blocking the deploy.
+warn_durable_partition "${MOUNT}"
 
 if [[ ! -f "${IMG}" ]]; then
 	echo "error: kernel image not found: ${IMG}" >&2

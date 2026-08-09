@@ -63,6 +63,17 @@ pub const RNG200_REG_BYTES: usize = FRAME_SIZE;
 /// Disjoint from [`USER_PL011_VA`] and from [`USER_VA_BASE`].
 pub const USER_RNG_VA: u64 = 0x0000_0000_5100_0000;
 
+/// EMMC2 SDHCI host — the SD card slot on BCM2711 silicon (ADR-0066).
+///
+/// Low peripheral mode: legacy bus `0x7E34_0000` → ARM `0xFE34_0000`.
+/// Inside the peripherals Device window above — no extra mapping.
+pub const EMMC2_BASE: usize = PERIPHERAL_BASE + 0x0034_0000;
+
+/// Legacy Arasan SDHCI host (BCM2835 lineage) — the other controller the
+/// BCM2711 can route the card to, and the one QEMU `raspi4b` wires the
+/// `-drive if=sd` card into. The bind probes [`EMMC2_BASE`] first.
+pub const SDHCI_LEGACY_BASE: usize = PERIPHERAL_BASE + 0x0030_0000;
+
 /// SPI0 (SPI master 0) register block.
 ///
 /// BCM2711 low peripheral window; same layout as the BCM2835 SPI0 block.

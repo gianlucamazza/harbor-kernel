@@ -317,6 +317,35 @@ assert_boot_oracle() {
 	# ADR-0045 / P2 durable reload.
 	grep -qa 'durable: reloaded' "${log}" ||
 		fail "durable store did not round-trip (ADR-0045)"
+	# ADR-0066 / P2 media persistence: exactly one of the healthy trio or an
+	# honest degraded line. DURABLE_MEDIA_EXPECT pins the mode when the
+	# caller controls the media: fresh | previous | absent (empty = any
+	# healthy-or-degraded outcome, the migration-friendly default).
+	healthy='durable-media: boot=[0-9]+ from=(Fresh|Previous) part=0x7f slot=(-|A|B) seq=[0-9]+'
+	degraded='durable-media: (absent|no-card|unsupported|no-partition|error) ?\(.*\)'
+	if grep -qaE "${healthy}" "${log}"; then
+		grep -qaE 'durable-media: flushed slot=(A|B) seq=[0-9]+' "${log}" ||
+			fail "durable media loaded but never flushed (ADR-0066)"
+		grep -qa 'durable-media: verified' "${log}" ||
+			fail "durable media flush did not verify on read-back (ADR-0066)"
+	else
+		grep -qaE "${degraded}" "${log}" ||
+			fail "no durable-media line at all — the ADR-0066 path never ran"
+	fi
+	case "${DURABLE_MEDIA_EXPECT:-}" in
+	fresh)
+		grep -qaE 'durable-media: boot=1 from=Fresh' "${log}" ||
+			fail "expected a fresh-media boot (ADR-0066): $(grep -a 'durable-media:' "${log}" | head -1)"
+		;;
+	previous)
+		grep -qaE 'durable-media: boot=([2-9]|[0-9]{2,}) from=Previous' "${log}" ||
+			fail "expected media evidence of a previous boot (ADR-0066): $(grep -a 'durable-media:' "${log}" | head -1)"
+		;;
+	absent)
+		grep -qaE 'durable-media: (absent|no-card)' "${log}" ||
+			fail "expected the honest no-media line (ADR-0066): $(grep -a 'durable-media:' "${log}" | head -1)"
+		;;
+	esac
 	# ADR-0046 / K4 cooperative budget.
 	grep -qa 'budget: rotated' "${log}" ||
 		fail "cooperative budget did not rotate workers (ADR-0046)"
