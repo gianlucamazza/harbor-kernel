@@ -115,7 +115,7 @@ Do **not** treat this block as a second status table — it only steers readers.
 | **H0 foundation**    | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                   |
 | **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                       |
 | **H1 next**          | P3\|P4 if composition · SD power-cycle                                                                           |
-| **H2**               | K7 first slice done (HW); K4 budget + EL0 preemption done (HW, ADR-0064), same-EL in design; K8 design; SMP open |
+| **H2**               | K7 first slice done (HW); K4 budget + EL0 + EL1 preemption done (HW, ADR-0064/0068); K8 design; SMP open |
 | **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020; lab x86 intent [ADR-0067](adr/0067-host-lab-second-isa-intent.md) |
 
 ## Decision records and reviews

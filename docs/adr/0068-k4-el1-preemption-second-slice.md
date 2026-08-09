@@ -125,7 +125,12 @@ kernel's preemption-safety contract.
 | Whole oracle set green in one boot                               | boot-check / hw-transcript-check                                                        |
 | No switch under a mask                                           | `irq-scope` (`el1_preempt_from_irq` in SWITCHERS)                                       |
 | Rotations visible                                                | `invariants: … preempts=` counts both slices (shared counter)                           |
-| HW stamp                                                         | serial transcript via the usual SD→boot→serial loop                                     |
+| **HW stamp (2026-08-09)**                                        | transcript `.serial-log/20260809-151021.log`: `preempt-el1: rotated` + `spinner exited` + `cpu: Cortex-A72 r0p3` + `CNTFRQ=54000000`; `hw-transcript-check` clean |
+
+## Acceptance status (evidence)
+
+**Done (HW)** on Pi 4B stamp 2026-08-09 (transcript above). Code and QEMU
+evidence landed with acceptance; silicon stamp closes the K4 residual.
 
 ## Residuals / non-goals
 

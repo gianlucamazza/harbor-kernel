@@ -57,7 +57,7 @@ the named level — not when prose wishes it.
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **H0 — Foundation**                 | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel               | **Done (HW)** — M0–M8 + ADR-0024/0025                                                                                                                                                                                                                                                                         |
 | **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story      | **Paid (HW stamp 2026-08-08):** bar 1–7 + K5 thin + P2 durable + K4 budget + lifecycle residuals (serial `.serial-log/20260808-030219.log`). **Still open / residual:** P3/P4 (deferred), K5 driver-half                                                               |
-| **H2 — Boundary OS**                | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** budget + EL0 preemption **done (HW)**, same-EL **done (QEMU)** ([ADR-0068](adr/0068-k4-el1-preemption-second-slice.md); HW stamp residual); **K5** driver-half remainder; **K7** first slice **done (HW)**; **K8** design only; P3/P4 deferred; **P2** SD power-cycle **done (HW)** ([ADR-0066](adr/0066-sd-media-durable-store.md); stamp 2026-08-09) |
+| **H2 — Boundary OS**                | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** budget + EL0 + EL1 preemption **done (HW)** ([ADR-0068](adr/0068-k4-el1-preemption-second-slice.md); stamp 2026-08-09); **K5** driver-half remainder; **K7** first slice **done (HW)**; **K8** design only; P3/P4 deferred; **P2** SD power-cycle **done (HW)** ([ADR-0066](adr/0066-sd-media-durable-store.md); stamp 2026-08-09) |
 
 **H1 product bar (what “composition OS” means here):**
 
@@ -82,7 +82,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | K1  | Wait-on-IRQ (first-class)                                 | **done (HW)** ([ADR-0028](adr/0028-wait-on-irq.md) + [ADR-0030](adr/0030-el0-irq-capability.md); Pi stamp 2026-08-08)                                                                                                                                                                                                 | EL1 `wait_for_irq`; EL0 `SYS_WAIT_IRQ`; `irq-wait: woke` + `el0-irq: woke` | ADR-0008 → 0028 → 0030                              |
 | K2  | Park reclaim (timeout and/or auto-reap on last send drop) | **done (HW)** ([ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md) + [ADR-0040](adr/0040-k2-park-timeout.md) + [ADR-0042](adr/0042-el0-recv-timeout.md); Pi stamp 2026-08-08)                                                                                                                                         | Last SEND hold drop; EL1/EL0 tick timeout → Cancelled                      | 0025 → 0031 → 0040 → 0042                           |
 | K3  | Cap transfer / revoke / endpoint release                  | **done (QEMU)** depth ([ADR-0032](adr/0032-k3-channel-revoke.md) + [ADR-0037](adr/0037-k3-cap-transfer.md) + [ADR-0041](adr/0041-el0-cap-transfer.md) + [ADR-0054](adr/0054-k3-peer-transfer-first-slice.md)); HW stamp 2026-08-09 covers peer/band/stale too (`hw-transcript-check` clean)                           | Revoke; transfer; EL0 self/creator/peer; band + stale refusal oracles      | 0017 → 0032 → 0037 → 0041 → 0053 → 0054 → 0055/0057 |
-| K4  | Preemption or CPU budget                                  | budget **done (HW)** ([ADR-0046](adr/0046-k4-cooperative-cpu-budget.md); Pi stamp 2026-08-08); EL0 IRQ preemption **done (HW)** ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md); Pi stamp 2026-08-09); same-EL (EL1) preemption **done (QEMU)** ([ADR-0068](adr/0068-k4-el1-preemption-second-slice.md): frame-on-own-stack pivot, `preempt-el1: rotated`; HW stamp residual) | Tick quantum + voluntary yield; any spinner, EL0 or EL1, loses CPU on the IRQ epilogue | 0006 → 0046 → 0051 → 0064 → 0068                           |
+| K4  | Preemption or CPU budget                                  | budget **done (HW)** ([ADR-0046](adr/0046-k4-cooperative-cpu-budget.md); Pi stamp 2026-08-08); EL0 IRQ preemption **done (HW)** ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md); Pi stamp 2026-08-09); same-EL (EL1) preemption **done (HW)** ([ADR-0068](adr/0068-k4-el1-preemption-second-slice.md): frame-on-own-stack pivot; stamp 2026-08-09, transcript `20260809-151021.log`) | Tick quantum + voluntary yield; any spinner, EL0 or EL1, loses CPU on the IRQ epilogue | 0006 → 0046 → 0051 → 0064 → 0068                           |
 | K5  | Agent density (shrink/collapse driver half)               | **done (HW)** first slice ([ADR-0044](adr/0044-k5-agent-density.md); Pi stamp 2026-08-08); driver-half collapse residual                                                                                                                                                                                              | `spawn_thin` 4 KiB stacks; pure density arithmetic                         | 0023 → 0044                                         |
 | K6  | External agent load + byte manifest                       | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement)                                                                                                                                                                                      | Image store inject; product prefers store, oracle empty → builtin          | ADR-0021 → 0027 → 0029                              |
 | K7  | ASID (+ TTBR1 if required)                                | **done (HW)** first slice, stamp 2026-08-09 ([ADR-0047](adr/0047-k7-asid-isolation-design.md) + [ADR-0050](adr/0050-k7-asid-first-slice.md) amended: early-map retirement); TTBR1 / switch-cost measurement residual                                                                                                  | ASID pool + CONTEXTIDR + nG user leaves; dual-AS on silicon                | 0014 → 0047 → 0050                                  |
@@ -114,21 +114,20 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 
 | Step | Track(s)                                             | Why now                                  |
 | ---- | ---------------------------------------------------- | ---------------------------------------- |
-| 1    | **K4** ADR-0068 HW stamp                             | Code done (QEMU); the bench pays it      |
+| 1    | **K8** SMP unpark first slice                        | Dual-core gate; design ADR-0048 accepted |
 | 2    | **K7** switch-cost measurement / TTBR1 residual      | Lab when free                            |
-| —    | **K8** SMP unpark                                    | Dual-core gate investment                |
+| —    | **K5** driver-half residual                          | Density depth                            |
 | —    | **P3** / **P4**                                      | Only with a named composition (ADR-0049) |
+| —    | **H3 L0** QEMU x86 ([ADR-0067](adr/0067-host-lab-second-isa-intent.md)) | Host-class path; not reordering K8 unless prioritised |
 
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
-K7 ASID slice **done (HW)** (stamp 2026-08-09, with the early-map TLB
-retirement the first silicon boot demanded). Resolve-grant + peer transfer
-**done (HW)** (same stamp — the whole oracle set ran on silicon). K4 EL0
-preemption **done (HW)** ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md);
-stamp 2026-08-09, transcript `20260809-122251.log`, `preempt: rotated` +
-`cpu: Cortex-A72` on silicon); same-EL preemption **done (QEMU)**
-([ADR-0068](adr/0068-k4-el1-preemption-second-slice.md); HW stamp is the K4
-residual). P3/P4 deferred. P2 power-cycle **done (HW)** (2026-08-09).
-Next: the ADR-0068 stamp, then K8.
+K7 ASID slice **done (HW)** (stamp 2026-08-09). Resolve-grant + peer transfer
+**done (HW)** (same stamp). K4 EL0 preemption **done (HW)** (ADR-0064,
+`20260809-122251.log`). Same-EL (EL1) preemption **done (HW)** (ADR-0068,
+stamp 2026-08-09, transcript `20260809-151021.log`: `preempt-el1: rotated` +
+`preempt-el1: spinner exited` + `cpu: Cortex-A72`, `hw-transcript-check` clean).
+P3/P4 deferred. P2 power-cycle **done (HW)** (2026-08-09).
+**K4 track closed on HW.** Next: K8 (or H3 L0 if owner prioritises host-class).
 
 ```text
 Mission: agents · grants · evidence · finish the OS
@@ -137,7 +136,7 @@ Mission: agents · grants · evidence · finish the OS
                 │
     H1 composition ████████ done (HW) stamp 2026-08-08
                 │
-    H2 boundary    ░░░░████ preempt EL0+EL1, ASID, grant, peer, SD-media; next: K8 / K5
+    H2 boundary    ████████ K4 full HW; next: K8 / K5 residual / H3 L0
 ```
 
 ---
