@@ -209,13 +209,13 @@ live in bootstrap.
 **Tasks** (M3), **messages/caps** (M4), **private AS + EL0** (M5), and a
 **PL011 driver agent** (M6) are in tree. Cooperative only ([ADR-0006](adr/0006-cooperative-execution-model.md)).
 
-| Concept    | Role                                                                                                                                                                                                                        | Status                                                |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Task (M3)  | Schedulable EL1 entity + private stack                                                                                                                                                                                      | **done (HW)**                                         |
-| Agent      | A **pair**: an EL1 driver task and the EL0 program it drives ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)). Multi-SVC, IRQ resume, console via `SYS_SEND`, PL011 RX own, and a recv it can wait on | **done (HW)**                                         |
-| Message    | Sole interaction channel (M4)                                                                                                                                                                                               | **done (HW)**                                         |
-| Capability | Unforgeable handle (send/recv; IRQ notification — [ADR-0030](adr/0030-el0-irq-capability.md); channel revoke — [ADR-0032](adr/0032-k3-channel-revoke.md))                                                         | **done (HW)** (stamp 2026-08-08; status SSOT is [roadmap.md](roadmap.md)) |
-| Manifest   | The table that says which agents exist and what each is granted ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md))                                                                                                   | **done (HW)**                                         |
+| Concept    | Role                                                                                                                                                                                                                        | Status                                                                    |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Task (M3)  | Schedulable EL1 entity + private stack                                                                                                                                                                                      | **done (HW)**                                                             |
+| Agent      | A **pair**: an EL1 driver task and the EL0 program it drives ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)). Multi-SVC, IRQ resume, console via `SYS_SEND`, PL011 RX own, and a recv it can wait on | **done (HW)**                                                             |
+| Message    | Sole interaction channel (M4)                                                                                                                                                                                               | **done (HW)**                                                             |
+| Capability | Unforgeable handle (send/recv; IRQ notification — [ADR-0030](adr/0030-el0-irq-capability.md); channel revoke — [ADR-0032](adr/0032-k3-channel-revoke.md))                                                                   | **done (HW)** (stamp 2026-08-08; status SSOT is [roadmap.md](roadmap.md)) |
+| Manifest   | The table that says which agents exist and what each is granted ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md))                                                                                                   | **done (HW)**                                                             |
 
 `irq::register` is the hook for later capability mediation.
 
@@ -363,7 +363,9 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0060](adr/0060-syscall-reply-layer.md)                          | Syscall reply layer (**accepted**)                                                                                             |
 | [ADR-0061](adr/0061-refusal-detail-taxonomy.md)                      | Refusal detail in x1 (**accepted**)                                                                                            |
 | [ADR-0062](adr/0062-taskid-epoch.md)                                 | Epoch in the task identity (**accepted**)                                                                                      |
-| [ADR-0063](adr/0063-capslots-extraction.md) | Capability slots as a pure table (**accepted**) |
+| [ADR-0063](adr/0063-capslots-extraction.md)                          | Capability slots as a pure table (**accepted**)                                                                                |
+| [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)                | K4 first code slice — EL0 IRQ preemption (**accepted**)                                                                        |
+| [ADR-0065](adr/0065-platform-self-check.md)                          | Platform self-check — CPU identity decoded, printed, asserted at boot (**accepted**)                                           |
 | [`docs/reviews/`](reviews/)                                          | Pass outcomes (findings), not decisions                                                                                        |
 
 ## Non-goals
