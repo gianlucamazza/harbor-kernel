@@ -100,7 +100,9 @@ facade="$(sed -n 's/^pub use aarch64::{\(.*\)};$/\1/p' src/arch/mod.rs |
 # arch facade has no business re-exporting.
 # shellcheck disable=SC2016  # the backticks are markdown table syntax, not a
 # command substitution: the pattern matches "| `mmu` |" in arch-contract.md.
-contract="$(sed -n 's/^| `\([a-z0-9_]\+\)` |.*/\1/p' docs/arch-contract.md | sort -u)"
+# The closing `|` may be padded away: the markdown formatter aligns table
+# columns, so the claim must survive any amount of cell padding.
+contract="$(sed -n 's/^| `\([a-z0-9_]\+\)`[[:space:]]*|.*/\1/p' docs/arch-contract.md | sort -u)"
 missing="$(comm -23 <(echo "${facade}") <(echo "${contract}"))"
 if [[ -n "${missing}" ]]; then
 	echo "doc-claims: the arch facade re-exports modules arch-contract.md does not list" >&2

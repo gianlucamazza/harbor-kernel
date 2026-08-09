@@ -17,6 +17,8 @@ mod selftest;
 #[cfg(feature = "oracle")]
 use crate::agent::{self};
 use crate::arch::{bootinfo, cpu, exception, mmu, timer};
+use kernel_core::asid::ASID_BITS;
+use kernel_core::cpuid;
 use kernel_core::layout::Region;
 use kernel_core::paging::{MemKind, Perms};
 
@@ -62,6 +64,20 @@ const MIN_SPARE_TABLES: usize = (crate::sched::MAX_TASKS - 1) + 1 + 2;
 /// A boot that cannot establish its invariants has not degraded, it has failed.
 /// Halting is also the honest signal: silence after this message is easier to
 /// notice, and harder to ignore, than a prompt that works.
+/// The PA-range field on the `cpu:` line: `pa44`, or `pa?` when the encoding
+/// is one the architecture reserves. Diagnostic only, so a reserved value must
+/// not refuse the boot — but it must not print as a plausible number either.
+struct PaBits(Option<u32>);
+
+impl core::fmt::Display for PaBits {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.0 {
+            Some(bits) => write!(f, "{bits}"),
+            None => f.write_str("?"),
+        }
+    }
+}
+
 fn refuse_to_boot(uart: &mut Pl011, reason: core::fmt::Arguments<'_>) -> ! {
     println!(uart, "BOOT REFUSED: {reason}");
     println!(
@@ -201,6 +217,60 @@ pub fn run() -> ! {
         uart,
         "reset: {:?} partition={} (PM_RSTS={:#010x})", reset.cause, reset.partition, reset.raw
     );
+
+    // Which core this is, checked against the core the kernel was built for
+    // (ADR-0065). The A72 knowledge in this tree — pre-MMU exclusives
+    // confinement, explicit I/D-cache maintenance, ADR-0050's ASID arithmetic
+    // — was comment-only until this line put the observed identity in every
+    // transcript. Load-bearing mismatches refuse the boot; an unknown part is
+    // a distinct printed outcome and the boot continues, because the
+    // A72-specific handling is conservative on other cores and what the check
+    // owes there is visibility, not a verdict.
+    let midr = cpu::midr_el1();
+    let mmfr0 = cpu::id_aa64mmfr0_el1();
+    let pfr0 = cpu::id_aa64pfr0_el1();
+    if !cpuid::tgran4_supported(mmfr0) || !cpuid::el0_aarch64(pfr0) || !cpuid::el1_aarch64(pfr0) {
+        // The whole paging model is written against the 4 KiB granule, and the
+        // session model against AArch64 EL0/EL1. There is nothing to degrade to.
+        refuse_to_boot(
+            &mut uart,
+            format_args!(
+                "core lacks the 4 KiB granule or AArch64 EL0/EL1 \
+                 (ID_AA64MMFR0={mmfr0:#x}, ID_AA64PFR0={pfr0:#x})"
+            ),
+        )
+    }
+    let asid = match cpuid::asid_bits(mmfr0) {
+        Some(bits) if bits >= ASID_BITS => bits,
+        // Fewer hardware bits than the pool hands out would alias two address
+        // spaces in the TLB — ADR-0050's isolation, gone silently. A reserved
+        // encoding refuses too: a width nobody can name cannot back the pool.
+        answer => refuse_to_boot(
+            &mut uart,
+            format_args!(
+                "hardware ASID width {answer:?} cannot back the {ASID_BITS}-bit \
+                 pool of ADR-0050 (ID_AA64MMFR0={mmfr0:#x})"
+            ),
+        ),
+    };
+    let pa = PaBits(cpuid::pa_bits(mmfr0));
+    match cpuid::part(midr) {
+        cpuid::Part::CortexA72 => println!(
+            uart,
+            "cpu: Cortex-A72 r{}p{} asid{asid} pa{pa} (MIDR={:#010x})",
+            cpuid::variant(midr),
+            cpuid::revision(midr),
+            midr & 0xFFFF_FFFF
+        ),
+        cpuid::Part::Unknown { implementer, part } => println!(
+            uart,
+            "cpu: unknown implementer={implementer:#04x} part={part:#05x} r{}p{} \
+             asid{asid} pa{pa} (MIDR={:#010x})",
+            cpuid::variant(midr),
+            cpuid::revision(midr),
+            midr & 0xFFFF_FFFF
+        ),
+    }
 
     // The kernel map deliberately covers far less than the early one, so the
     // device-tree blob is now outside it. Map it back in: it is the first

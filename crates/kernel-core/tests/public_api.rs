@@ -134,3 +134,27 @@ fn capability_rights_do_not_imply_each_other() {
             .contains(CapRights::SEND)
     );
 }
+
+#[test]
+fn the_platform_self_check_surface_is_reachable_from_outside() {
+    // What `bootstrap` runs at every boot (ADR-0065): recognise the part,
+    // decode the fields the refusals compare, against the values the Pi 4B's
+    // Cortex-A72 actually reports. A decode moved behind the crate boundary,
+    // or an enum variant the boot line matches on going missing, breaks here
+    // rather than in the kernel.
+    use kernel_core::cpuid::{self, Part};
+
+    let (midr, mmfr0, pfr0) = (0x410F_D083u64, 0x1124u64, 0x2222u64);
+    assert_eq!(cpuid::part(midr), Part::CortexA72);
+    assert_eq!(
+        (cpuid::variant(midr), cpuid::revision(midr)),
+        (0, 3),
+        "the r0p3 the boot line prints"
+    );
+    // The load-bearing conjunction bootstrap refuses without, and the width
+    // check's two sides: hardware bits vs the pool's programmed width.
+    assert!(cpuid::tgran4_supported(mmfr0));
+    assert!(cpuid::el0_aarch64(pfr0) && cpuid::el1_aarch64(pfr0));
+    assert!(cpuid::asid_bits(mmfr0).expect("defined encoding") >= kernel_core::asid::ASID_BITS);
+    assert_eq!(cpuid::pa_bits(mmfr0), Some(44));
+}

@@ -53,6 +53,10 @@ Default remains `board-rpi4`. Building with `--no-default-features` and no
    Do not add a compile-only skeleton target that bitrots.
 8. Update `docs/arch-contract.md` if the facade surface grows; file an ADR if
    the user/kernel separation model changes (e.g. leaving TTBR0-only).
+9. Teach the platform self-check the new core (ADR-0065): add its row to
+   `kernel_core::cpuid::part`, revisit the boot refusals for what is
+   load-bearing on that ISA, and give the boot oracle the `cpu:` identity the
+   new runner is expected to report.
 
 ## What not to do
 
@@ -60,7 +64,7 @@ Default remains `board-rpi4`. Building with `--no-default-features` and no
 - Put board MMIO bases in `arch`.
 - Implement UART/GIC protocol logic in the BSP.
 - Introduce `dyn Arch` for the whole CPU surface without a new ADR.
-- Claim multi-arch *support* in README while only one target boots.
+- Claim multi-arch _support_ in README while only one target boots.
 
 ## Verification after any port work
 

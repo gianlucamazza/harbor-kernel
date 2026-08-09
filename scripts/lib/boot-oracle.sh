@@ -40,6 +40,14 @@ assert_boot_oracle() {
 	# register that latched nothing cannot be reported as a clean power cycle.
 	grep -qaE 'reset: (PowerOn|Watchdog|Software|Debug|None) partition=[0-9]+ \(PM_RSTS=0x[0-9a-f]{8}\)' "${log}" ||
 		fail "reset-cause line missing or malformed: $(grep -a '^reset:' "${log}" || echo '(no reset line at all)')"
+	# Which core the image found itself on (ADR-0065). Unlike the reset line,
+	# this one pins the *values*, not just the shape: QEMU's `-cpu cortex-a72`
+	# and the Pi 4B's silicon report the same part, 16-bit ASIDs and a 44-bit
+	# PA range, so a divergence in either runner — a QEMU machine-model change,
+	# a different Pi — is exactly the drift this assertion exists to catch.
+	# Stepping (rNpM) stays free: it varies by silicon batch and proves nothing.
+	grep -qaE 'cpu: Cortex-A72 r[0-9]+p[0-9]+ asid16 pa44 \(MIDR=0x[0-9a-f]{8}\)' "${log}" ||
+		fail "cpu identity line missing or not the expected Cortex-A72: $(grep -a '^cpu:' "${log}" || echo '(no cpu line at all)')"
 	# RNG200 is always probed after the MMU. QEMU has no backend: expect soft
 	# NotPresent. Silicon logs `ok word=…`. Either shape is a successful probe path;
 	# silence would mean the probe panicked or never ran.

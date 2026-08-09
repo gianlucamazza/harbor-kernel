@@ -120,6 +120,51 @@ pub fn sync_pipeline() {
     }
 }
 
+/// `MIDR_EL1` — implementer, part and stepping of this core.
+///
+/// One `mrs`, no logic: the decode is [`kernel_core::cpuid`]'s, where it is
+/// host-tested (ADR-0065) — the same split `PM_RSTS` has with
+/// [`kernel_core::reset`].
+#[inline]
+pub fn midr_el1() -> u64 {
+    let v: u64;
+    // SAFETY: reading an ID register has no side effects.
+    unsafe {
+        core::arch::asm!("mrs {}, midr_el1", out(reg) v, options(nomem, nostack, preserves_flags));
+    }
+    v
+}
+
+/// `ID_AA64MMFR0_EL1` — memory-model features (ASID width, PA range, granules).
+#[inline]
+pub fn id_aa64mmfr0_el1() -> u64 {
+    let v: u64;
+    // SAFETY: reading an ID register has no side effects.
+    unsafe {
+        core::arch::asm!(
+            "mrs {}, id_aa64mmfr0_el1",
+            out(reg) v,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    v
+}
+
+/// `ID_AA64PFR0_EL1` — processor features (EL support, FP/AdvSIMD).
+#[inline]
+pub fn id_aa64pfr0_el1() -> u64 {
+    let v: u64;
+    // SAFETY: reading an ID register has no side effects.
+    unsafe {
+        core::arch::asm!(
+            "mrs {}, id_aa64pfr0_el1",
+            out(reg) v,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    v
+}
+
 // FP/Advanced SIMD is deliberately left trapping (`CPACR_EL1.FPEN` = 0).
 //
 // The kernel is built for `aarch64-unknown-none-softfloat`, so it emits no FP

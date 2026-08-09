@@ -11,23 +11,23 @@ What every ISA module must expose through `crate::arch` so policy, `mm`,
 (`make layering`, ADR-0015).
 
 **Product support today:** AArch64 only. Names below match the current surface;
-a non-AArch64 port may keep the *roles* while renaming modules if needed (see
+a non-AArch64 port may keep the _roles_ while renaming modules if needed (see
 [Known AArch64 shape](#known-aarch64-shape-debt-until-a-real-port)).
 
 ## Required modules
 
-| Module | Role | Policy / callers rely on (indicative) |
-| ------ | ---- | ------------------------------------- |
-| `cpu` | IRQ mask, idle, halt, barriers | `without_irqs`, `irq_save`/`irq_restore`, `wait_for_interrupt`, `halt`, `sync_pipeline` |
-| `timer` | Clocksource deadline / tick IRQ | arm absolute deadline, status, re-arm; used by `time` and BSP IRQ bind |
-| `mmu` | Kernel map activate, map/unmap, root phys, TTBR switch | `activate`, `map`, `unmap`, `kernel_root_phys`, `switch_ttbr0` (name may generalize later) |
-| `cache` | I/D cache and TLB maintenance after map changes | called from `mmu` / `mm` |
-| `switch` | Cooperative context switch | `Context`, `context_switch` (layout is ISA ABI) |
-| `exception` | Vectors + trap frame + init | `init`, `TrapFrame` |
-| `el0` | User-mode session enter/resume/end, and the published session pointer | `enter`/`resume`/`end_session`/`run`, `El0Outcome`, entry IRQ mask policy, `El0Session` + `publish`/`published`, `saved_gpr`/`set_saved_gpr` (the syscall reply window) |
-| `mmio` | Volatile MMIO accessor | `Mmio` used by drivers and BSP |
-| `probe` | Deliberate external-abort recovery for soft presence | RNG and similar soft-fail paths |
-| `bootinfo` | Firmware handoff (e.g. DTB pointer) | early map + optional consume |
+| Module      | Role                                                                  | Policy / callers rely on (indicative)                                                                                                                                                                                                                                              |
+| ----------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cpu`       | IRQ mask, idle, halt, barriers, CPU identity                          | `without_irqs`, `irq_save`/`irq_restore`, `wait_for_interrupt`, `halt`, `sync_pipeline`; ID-register readers for the ADR-0065 platform self-check (`midr_el1`, `id_aa64mmfr0_el1`, `id_aa64pfr0_el1` — an ISA port supplies its equivalents, decode stays in `kernel_core::cpuid`) |
+| `timer`     | Clocksource deadline / tick IRQ                                       | arm absolute deadline, status, re-arm; used by `time` and BSP IRQ bind                                                                                                                                                                                                             |
+| `mmu`       | Kernel map activate, map/unmap, root phys, TTBR switch                | `activate`, `map`, `unmap`, `kernel_root_phys`, `switch_ttbr0` (name may generalize later)                                                                                                                                                                                         |
+| `cache`     | I/D cache and TLB maintenance after map changes                       | called from `mmu` / `mm`                                                                                                                                                                                                                                                           |
+| `switch`    | Cooperative context switch                                            | `Context`, `context_switch` (layout is ISA ABI)                                                                                                                                                                                                                                    |
+| `exception` | Vectors + trap frame + init                                           | `init`, `TrapFrame`                                                                                                                                                                                                                                                                |
+| `el0`       | User-mode session enter/resume/end, and the published session pointer | `enter`/`resume`/`end_session`/`run`, `El0Outcome`, entry IRQ mask policy, `El0Session` + `publish`/`published`, `saved_gpr`/`set_saved_gpr` (the syscall reply window)                                                                                                            |
+| `mmio`      | Volatile MMIO accessor                                                | `Mmio` used by drivers and BSP                                                                                                                                                                                                                                                     |
+| `probe`     | Deliberate external-abort recovery for soft presence                  | RNG and similar soft-fail paths                                                                                                                                                                                                                                                    |
+| `bootinfo`  | Firmware handoff (e.g. DTB pointer)                                   | early map + optional consume                                                                                                                                                                                                                                                       |
 
 A port owes one more thing than the table shows: the session state a lower-EL
 exception needs must be reachable **by linker symbol**, because the vector path
@@ -40,11 +40,11 @@ not see ([ADR-0017](adr/0017-el0-capability-abi.md) §1).
 
 ## Required per-ISA artefacts (not re-exported as Rust modules)
 
-| Artefact | Location (AArch64) | Role |
-| -------- | ------------------- | ---- |
-| Boot entry | `src/arch/aarch64/boot.s` | `_start` → EL1, early MMU, BSS, stack → `kernel_main` |
-| Linker script | `src/arch/aarch64/link.ld` | load address, stacks, guard, table arena |
-| Exception vectors | `src/arch/aarch64/exception/vectors.s` | VBAR table |
+| Artefact          | Location (AArch64)                     | Role                                                  |
+| ----------------- | -------------------------------------- | ----------------------------------------------------- |
+| Boot entry        | `src/arch/aarch64/boot.s`              | `_start` → EL1, early MMU, BSS, stack → `kernel_main` |
+| Linker script     | `src/arch/aarch64/link.ld`             | load address, stacks, guard, table arena              |
+| Exception vectors | `src/arch/aarch64/exception/vectors.s` | VBAR table                                            |
 
 Boot assembly is included from the ISA `mod.rs` so `main` never names the ISA.
 
@@ -53,15 +53,15 @@ Boot assembly is included from the ISA `mod.rs` so `main` never names the ISA.
 Boards are **not** part of `arch`. They implement `crate::bsp::board` via a
 `board-*` feature:
 
-| Surface | Role |
-| ------- | ---- |
-| `memmap` | Bases, sizes, IRQ ids, identity RAM end, user VA window |
-| `console` | Bind PL011 (or board UART) + GPIO pinmux |
-| `irq` | Bind irqchip + timer/UART lines into `irq` |
-| `rng` | Optional SoC RNG bind |
-| `gpio` | Pinmux for console/display binds |
-| `pm` | Reset cause / watchdog block (`board::pm::reset_status`) |
-| `display` | Optional (`debug-display`) |
+| Surface   | Role                                                     |
+| --------- | -------------------------------------------------------- |
+| `memmap`  | Bases, sizes, IRQ ids, identity RAM end, user VA window  |
+| `console` | Bind PL011 (or board UART) + GPIO pinmux                 |
+| `irq`     | Bind irqchip + timer/UART lines into `irq`               |
+| `rng`     | Optional SoC RNG bind                                    |
+| `gpio`    | Pinmux for console/display binds                         |
+| `pm`      | Reset cause / watchdog block (`board::pm::reset_status`) |
+| `display` | Optional (`debug-display`)                               |
 
 Policy imports `crate::bsp::board`, never `crate::bsp::rpi4`.
 

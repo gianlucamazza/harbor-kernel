@@ -39,6 +39,7 @@ pub mod budget;
 pub mod bump;
 pub mod cap;
 pub mod capslots;
+pub mod cpuid;
 pub mod delay;
 pub mod density;
 pub mod display;
