@@ -5,6 +5,7 @@ status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
 related: [0014, 0026, 0047]
+amended: 2026-08-09
 ---
 
 # ADR-0050: ASID first code slice (K7 entry)
@@ -42,6 +43,22 @@ related: [0014, 0026, 0047]
 
 Bootstrap dual-AS path prints `asid: dual a=… b=… ok` after both enter EL0
 with distinct ASIDs.
+
+### Amendment (2026-08-09 — reconciliation per ADR-0058)
+
+The first Pi 4B run of this slice (transcript
+`.serial-log/20260809-093312.log`) showed a mechanism gap: removing the
+per-switch `tlbi vmalle1is` also removed the only thing that retired the
+**early map's** Global 1 GiB L1 blocks from the TLB. On Cortex-A72 (which
+fills the TLB speculatively, unlike QEMU) a stale early block served the
+first EL0 fetches at the user window — instruction abort, permission fault
+level 1 — and until evicted also shadowed the fine map's W^X for EL1.
+`mmu::activate` now runs one `tlbi vmalle1is` immediately after switching to
+the fine root (`retire_early_map`): the early map's lifetime ends there, and
+that boundary owns dropping its residue. §3 is unchanged — the per-switch
+path stays TLBI-free. Reconciled by the commit introducing
+`retire_early_map`; QEMU cannot discriminate this property, so the gate is
+the hardware transcript check.
 
 ### 5. Residuals
 

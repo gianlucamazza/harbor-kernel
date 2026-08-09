@@ -167,8 +167,36 @@ pub unsafe fn activate(regions: &[Region]) -> Result<(), (MmuError, &'static str
 
         ROOT.store(root as usize, Ordering::Release);
         switch_ttbr0(root as u64);
+        retire_early_map();
     }
     Ok(())
+}
+
+/// Drop every TLB entry the early map left behind. Called once, by
+/// [`activate`], immediately after the switch to the fine-grained root.
+///
+/// The early map is 1 GiB **Global** L1 blocks, RWX at EL1 and EL0-denied
+/// (`mm::early`). Global entries match every ASID and survive an ASID-scoped
+/// regime: since ADR-0050 removed the per-switch `tlbi vmalle1is`, nothing
+/// retired them — and on Cortex-A72 (which fills the TLB speculatively, unlike
+/// QEMU) a stale early block served the first EL0 fetches at `USER_VA_BASE` as
+/// *its* 1 GiB translation: instruction abort, permission fault level 1, seen
+/// on Pi 4B 2026-08-09 (`.serial-log/20260809-093312.log`). Until evicted they
+/// also shadow the fine map's W^X attributes for EL1. Ending the early map's
+/// life is this boundary's job, so the one full invalidate lives here — the
+/// per-switch path stays TLBI-free (ADR-0050 §3, amended).
+unsafe fn retire_early_map() {
+    // SAFETY: invalidate-only; the fine root is installed and covers every
+    // address in use, so re-walking after the wipe resolves through it.
+    unsafe {
+        core::arch::asm!(
+            "dsb ishst",
+            "tlbi vmalle1is",
+            "dsb ish",
+            "isb",
+            options(nostack, preserves_flags),
+        );
+    }
 }
 
 /// Add `region` to the live kernel map.
