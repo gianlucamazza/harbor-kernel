@@ -1283,41 +1283,51 @@ pub(super) fn density_thin_task() {
     crate::sched::yield_now();
 }
 
-static BUDGET_A: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-static BUDGET_B: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+/// Heartbeat of the EL1 spinner (ADR-0068): advances only while A runs.
+static PREEMPT_EL1_HEART: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+/// Stop word for the spinner; set by the peer once rotation is proven.
+static PREEMPT_EL1_STOP: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
-/// ADR-0046: spin until budget expires, count turns.
-pub(super) fn budget_worker_a() {
-    for _ in 0..32 {
-        while !crate::sched::budget_expired() {
-            core::hint::spin_loop();
-        }
-        BUDGET_A.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        crate::sched::yield_now();
-        if BUDGET_A.load(core::sync::atomic::Ordering::Relaxed) >= 2
-            && BUDGET_B.load(core::sync::atomic::Ordering::Relaxed) >= 1
-        {
-            crate::kprintln!("budget: rotated");
-            return;
-        }
+/// ADR-0068: EL1 task that **never yields** — no `yield_now`, no park, no
+/// syscall. The only way its peer can run is the IRQ-epilogue preemption.
+///
+/// This pair replaces the ADR-0046 `budget: rotated` workers: the tick that
+/// made their voluntary check true now rotates them first by construction,
+/// so the cooperative oracle could never fire again. The claim here is
+/// strictly stronger — rotation without cooperation (ADR-0046 reconciled).
+pub(super) fn preempt_el1_spinner() {
+    use core::sync::atomic::Ordering;
+    while PREEMPT_EL1_STOP.load(Ordering::Acquire) == 0 {
+        PREEMPT_EL1_HEART.fetch_add(1, Ordering::Relaxed);
+        core::hint::spin_loop();
     }
+    crate::kprintln!("preempt-el1: spinner exited");
 }
 
-/// ADR-0046 peer of [`budget_worker_a`].
-pub(super) fn budget_worker_b() {
-    for _ in 0..32 {
-        while !crate::sched::budget_expired() {
-            core::hint::spin_loop();
+/// ADR-0068 peer of [`preempt_el1_spinner`]: counts rounds in which the
+/// heartbeat advanced between two of its own turns. The spinner never
+/// yields, so a fresh heartbeat means this turn was obtained by preemption.
+/// Two rounds prove rotation; the stop word ends the spinner —
+/// deterministic termination, no timing guess.
+pub(super) fn preempt_el1_peer() {
+    use core::sync::atomic::Ordering;
+    let mut last = PREEMPT_EL1_HEART.load(Ordering::Relaxed);
+    let mut rounds = 0u32;
+    for _ in 0..4096 {
+        let now = PREEMPT_EL1_HEART.load(Ordering::Relaxed);
+        if now != last {
+            last = now;
+            rounds += 1;
+            if rounds >= 2 {
+                crate::kprintln!("preempt-el1: rotated");
+                PREEMPT_EL1_STOP.store(1, Ordering::Release);
+                return;
+            }
         }
-        BUDGET_B.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         crate::sched::yield_now();
-        if BUDGET_A.load(core::sync::atomic::Ordering::Relaxed) >= 1
-            && BUDGET_B.load(core::sync::atomic::Ordering::Relaxed) >= 2
-        {
-            // a prints rotated; b just exits.
-            return;
-        }
     }
+    crate::kprintln!("preempt-el1: peer gave up");
+    PREEMPT_EL1_STOP.store(1, Ordering::Release);
 }
 
 /// Stop-word physical address of the live preempt spinner (ADR-0064).

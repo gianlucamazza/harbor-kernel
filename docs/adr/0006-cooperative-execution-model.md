@@ -4,9 +4,19 @@ title: Cooperative execution model (M3 tasks)
 status: accepted
 date: 2026-08-04
 accepted: 2026-08-04
+amended: 2026-08-09
 ---
 
 # ADR-0006: Cooperative execution model (M3 tasks)
+
+> **Amendment (2026-08-09, supersession pointer).** The successor this
+> document demanded for preemption exists:
+> [ADR-0068](0068-k4-el1-preemption-second-slice.md) (with
+> [ADR-0064](0064-k4-el0-preemption-first-slice.md) for the lower-EL side)
+> supersedes the "no IRQ-side context switch" rule **on the vector
+> epilogue only** — its supersession table records exactly which rules of
+> this model die and which stay (device handlers never switch, voluntary
+> primary, idle WFI, EL1h fatal). Everything else here remains in force.
 
 ## Acceptance status
 
@@ -112,11 +122,11 @@ guard strategy — a silent canary is not an allowed retreat.
 
 ### Lifecycle (M3 minimum)
 
-| State   | Meaning                                      |
-| ------- | -------------------------------------------- |
-| Ready   | On the runqueue                              |
-| Running | The sole running task on core 0              |
-| Exited  | Terminal; stack may be reclaimed             |
+| State   | Meaning                          |
+| ------- | -------------------------------- |
+| Ready   | On the runqueue                  |
+| Running | The sole running task on core 0  |
+| Exited  | Terminal; stack may be reclaimed |
 
 There is **no Blocked** state and no timed sleep in M3. Blocking on IPC or
 events is M4 (and needs the IRQ/handler policy of F13). Sleeping for N ticks
@@ -142,13 +152,13 @@ until a later console-abstraction change.
 
 ### What this ADR does not decide
 
-| Concern                         | Where it lives                          |
-| ------------------------------- | --------------------------------------- |
-| IRQ handler cookies / cap_irq   | F13, M4                                 |
-| Absolute timer deadlines        | F18 (blocks time-based scheduling only) |
-| Frame allocator / multi-AS / EL0| ADR-0005, M5                            |
-| IPC and capabilities            | M4                                      |
-| Preemption or SMP               | A future ADR that supersedes this one   |
+| Concern                          | Where it lives                          |
+| -------------------------------- | --------------------------------------- |
+| IRQ handler cookies / cap_irq    | F13, M4                                 |
+| Absolute timer deadlines         | F18 (blocks time-based scheduling only) |
+| Frame allocator / multi-AS / EL0 | ADR-0005, M5                            |
+| IPC and capabilities             | M4                                      |
+| Preemption or SMP                | A future ADR that supersedes this one   |
 
 ## Consequences
 
@@ -165,26 +175,26 @@ events until M4.
 
 ## Alternatives considered
 
-| Alternative                                      | Why not                                                                                                                                 |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| Preemptive round-robin on CNTP                   | Pulls F18, full IRQ-side switch, and priority later; not required by the M3 done-when                                                   |
-| Async/await or stacked futures as the only model | Hides stacks; cannot meet “overflow faults on a guard page” without reintroducing real stacks                                           |
-| Keep a single `console_loop` until M5            | Contradicts the M3 milestone; no incremental path to agents                                                                             |
-| Task stacks only in `link.ld`                    | Explicitly rejected by the M3 needs table; fixed count; no reclaim story                                                                |
-| Software canary instead of an unmapped guard     | Fails the M3 overflow observable (translation fault, not a lucky panic)                                                               |
-| Design full IPC / capabilities here              | That is M4; would freeze an ABI under the F13 vacuum                                                                                    |
-| Context-switch from an IRQ handler on wake       | Breaks the exception layering rule; races with multi-claim IRQ entry                                                                    |
-| Frame allocator for task stacks now              | ADR-0005: wrong shape until address spaces come and go (M5). Heap alloc + unmap is enough for guards in one AS                          |
+| Alternative                                      | Why not                                                                                                        |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Preemptive round-robin on CNTP                   | Pulls F18, full IRQ-side switch, and priority later; not required by the M3 done-when                          |
+| Async/await or stacked futures as the only model | Hides stacks; cannot meet “overflow faults on a guard page” without reintroducing real stacks                  |
+| Keep a single `console_loop` until M5            | Contradicts the M3 milestone; no incremental path to agents                                                    |
+| Task stacks only in `link.ld`                    | Explicitly rejected by the M3 needs table; fixed count; no reclaim story                                       |
+| Software canary instead of an unmapped guard     | Fails the M3 overflow observable (translation fault, not a lucky panic)                                        |
+| Design full IPC / capabilities here              | That is M4; would freeze an ABI under the F13 vacuum                                                           |
+| Context-switch from an IRQ handler on wake       | Breaks the exception layering rule; races with multi-claim IRQ entry                                           |
+| Frame allocator for task stacks now              | ADR-0005: wrong shape until address spaces come and go (M5). Heap alloc + unmap is enough for guards in one AS |
 
 ## The gate that protects this decision
 
 There is no disassembly gate for “still cooperative.”
 
-| Layer        | What it catches                                                                 |
-| ------------ | ------------------------------------------------------------------------------- |
-| Process      | Incremental multi-role review (ADR-0001) before M3 is marked `done (HW)`        |
-| Docs         | The M3 “Needs first” row names this ADR; supersession requires a successor ADR  |
-| When M3 lands| Host tests on the runqueue; HW/QEMU interleaved yield; overflow probe ESR table |
+| Layer         | What it catches                                                                 |
+| ------------- | ------------------------------------------------------------------------------- |
+| Process       | Incremental multi-role review (ADR-0001) before M3 is marked `done (HW)`        |
+| Docs          | The M3 “Needs first” row names this ADR; supersession requires a successor ADR  |
+| When M3 lands | Host tests on the runqueue; HW/QEMU interleaved yield; overflow probe ESR table |
 
 This is a **declared weakness** relative to ADR-0002/0003: reversal is a review
 and documentation failure mode, not an automatic red build, until the M3 tests

@@ -109,6 +109,72 @@ exc_sync_el1t:
 exc_irq_el1t:
     kernel_entry
     bl      exception_irq_el1
+    // ADR-0068: after claim → dispatch → EOI, ask sched whether the
+    // current task's quantum expired. Pure predicate — the switch itself
+    // never runs on the exception stack.
+    bl      el1_preempt_pending
+    cbz     w0, 1f
+    // `b`, not `bl`: the pivot ends in its own eret and never returns here.
+    b       el1_preempt_pivot
+1:
+    kernel_exit
+
+// ADR-0068: rotate the interrupted EL1 task from the IRQ-return epilogue.
+//
+// Entry: SPSel=1, sp = the trap frame kernel_entry pushed on the exception
+// stack, DAIF fully masked (exception entry), every GPR dead (saved in the
+// frame — this code may clobber anything). The interrupted task's stack
+// pointer is intact in SP_EL0, which EL1 can read and write while running
+// on SP_EL1 — so the frame is copied onto the task's own stack *before*
+// the exception stack is unwound, and no live data ever sits above
+// SP_EL1's top.
+//
+// After the pivot, `el1_preempt_from_irq` runs an ordinary
+// switch_with(Preempt) on the task's own stack; its saved continuation is
+// simply the tail of this routine, so resume needs no new scheduler mode:
+// restore the frame from our own sp and eret. DAIF stays masked from here
+// to the eret; the SPSR restore reopens the interrupted task's I bit.
+el1_preempt_pivot:
+    mrs     x1, sp_el0
+    sub     x1, x1, #TRAP_FRAME_SIZE
+    ldp     x2, x3, [sp, #0x00]
+    stp     x2, x3, [x1, #0x00]
+    ldp     x2, x3, [sp, #0x10]
+    stp     x2, x3, [x1, #0x10]
+    ldp     x2, x3, [sp, #0x20]
+    stp     x2, x3, [x1, #0x20]
+    ldp     x2, x3, [sp, #0x30]
+    stp     x2, x3, [x1, #0x30]
+    ldp     x2, x3, [sp, #0x40]
+    stp     x2, x3, [x1, #0x40]
+    ldp     x2, x3, [sp, #0x50]
+    stp     x2, x3, [x1, #0x50]
+    ldp     x2, x3, [sp, #0x60]
+    stp     x2, x3, [x1, #0x60]
+    ldp     x2, x3, [sp, #0x70]
+    stp     x2, x3, [x1, #0x70]
+    ldp     x2, x3, [sp, #0x80]
+    stp     x2, x3, [x1, #0x80]
+    ldp     x2, x3, [sp, #0x90]
+    stp     x2, x3, [x1, #0x90]
+    ldp     x2, x3, [sp, #0xA0]
+    stp     x2, x3, [x1, #0xA0]
+    ldp     x2, x3, [sp, #0xB0]
+    stp     x2, x3, [x1, #0xB0]
+    ldp     x2, x3, [sp, #0xC0]
+    stp     x2, x3, [x1, #0xC0]
+    ldp     x2, x3, [sp, #0xD0]
+    stp     x2, x3, [x1, #0xD0]
+    ldp     x2, x3, [sp, #0xE0]
+    stp     x2, x3, [x1, #0xE0]
+    ldp     x2, x3, [sp, #0xF0]
+    stp     x2, x3, [x1, #0xF0]
+    ldp     x2, x3, [sp, #0x100]
+    stp     x2, x3, [x1, #0x100]
+    msr     sp_el0, x1
+    add     sp, sp, #TRAP_FRAME_SIZE
+    msr     spsel, #0
+    bl      el1_preempt_from_irq
     kernel_exit
 
 // ADR-0014: never call switch_ttbr0 with a null root.

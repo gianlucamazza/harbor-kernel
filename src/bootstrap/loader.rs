@@ -160,7 +160,9 @@ fn try_store_manifest() -> Option<&'static [AgentEntry]> {
     }; MAX_AGENTS];
     let agents = agentstore::parse(raw, &mut parsed).ok()?;
 
-    // SAFETY: single-threaded boot; no agent has run yet.
+    // SAFETY: single-threaded boot; no agent has run yet, and the window is
+    // mechanically preemption-free too — sched::STARTED is still 0, which
+    // gates both switch_with and the ADR-0068 EL1 IRQ-epilogue preemption.
     let names = unsafe { &mut *NAME_POOL.get() };
     // SAFETY: same boot window — exclusive `&mut` of static pool storage.
     let entries = unsafe { &mut *STORE_ENTRIES.get() };

@@ -1,9 +1,13 @@
-//! Cooperative scheduler (ADR-0006) + IRQ wake integration (ADR-0008).
+//! Scheduler: voluntary switches (ADR-0006) + IRQ wakes (ADR-0008) +
+//! quantum preemption on the IRQ-return epilogue (ADR-0064/0068).
 //!
-//! Voluntary yield only, fixed FIFO runqueue from `kernel-core`, idle is the
-//! console loop on the bootstrap stack. IRQ handlers must not call
-//! [`yield_now`], [`exit`], or [`block_current`]. They call
-//! [`irq::wait::signal`]; the voluntary path drains that queue via [`poll_wakes`].
+//! Fixed FIFO runqueue from `kernel-core`, idle is the console loop on the
+//! bootstrap stack. Device IRQ *handlers* still must not call
+//! [`yield_now`], [`exit`], or [`block_current`] — they call
+//! [`irq::wait::signal`]; the voluntary path drains that queue via
+//! [`poll_wakes`]. What ADR-0068 adds is not a handler switching but the
+//! EL1 vector **epilogue** (after EOI) pivoting onto the current task's own
+//! stack and entering [`el1_preempt_from_irq`] when the quantum expired.
 //!
 //! Context switch is never nested inside [`cpu::without_irqs`]: restoring
 //! another stack would leave IRQs masked with no matching restore. Bookkeeping
@@ -473,6 +477,15 @@ pub fn transfer_held_to_creator(from_slot: usize, to_slot: usize) -> Result<(), 
 /// `task_cap_slot` must hold a live task-cap for the destination task. The
 /// moved object must be an IPC endpoint cap: task-caps and IRQ caps are
 /// refused by [`transfer_held`]'s band filter (ADR-0055).
+///
+/// Preemption-safe by linearization (ADR-0068 re-audit): the gaps between
+/// the four masked regions carry only *names* (CapId, TaskId, slot
+/// indices), never slot contents. `from_slot`'s content is read for the
+/// first time inside [`transfer_held`]'s single final masked region, where
+/// target liveness (the ADR-0062 epoch) and the band filter judge the
+/// *current* content atomically — a preemption in a gap just means the
+/// operation linearizes there, which slot-indexed authority (ADR-0017)
+/// declares correct.
 pub fn transfer_held_to_peer(
     from_slot: usize,
     to_slot: usize,
@@ -518,22 +531,16 @@ pub fn cascade_events() -> u32 {
     CASCADE_EVENTS.load(Ordering::Relaxed)
 }
 
-/// True when the current slice has consumed the cooperative quantum (ADR-0046).
-#[inline]
-pub fn budget_expired() -> bool {
-    let start = SLICE_START.load(Ordering::Relaxed);
-    kernel_core::budget::expired(start, time::ticks(), BUDGET_QUANTUM_TICKS)
-}
-
 /// Rotate the current task if its quantum has expired (ADR-0064).
 ///
-/// The IRQ-return-epilogue safe point of the ADR-0051 design. No flag
-/// carrier: the predicate is monotone in `now` — once the tick that would
-/// have raised `need_resched` fires, it stays true here until the switch
-/// resets [`SLICE_START`] — so evaluating at the safe point is the flag,
-/// without `time` having to know `sched` exists (layering) and without a
-/// stale flag ever outliving the slice that earned it. Voluntary path only —
-/// call outside any [`cpu::without_irqs`] region, never from an IRQ handler.
+/// The **voluntary-path** safe point of the ADR-0051 design (its IRQ-side
+/// sibling is [`el1_preempt_pending`] + [`el1_preempt_from_irq`], ADR-0068).
+/// No flag carrier: the predicate is monotone in `now` — once the tick that
+/// would have raised `need_resched` fires, it stays true here until the
+/// switch resets [`SLICE_START`] — so evaluating at the safe point is the
+/// flag, without `time` having to know `sched` exists (layering) and
+/// without a stale flag ever outliving the slice that earned it. Call
+/// outside any [`cpu::without_irqs`] region, never from an IRQ handler.
 pub fn preempt_switch() {
     let start = SLICE_START.load(Ordering::Relaxed);
     let idle = CURRENT_IS_IDLE.load(Ordering::Relaxed);
@@ -542,6 +549,45 @@ pub fn preempt_switch() {
         poll_wakes();
         switch_with(Switch::Preempt);
     }
+}
+
+/// Should the EL1 IRQ-return epilogue rotate the current task? (ADR-0068)
+///
+/// Called by the vector code after claim → dispatch → EOI, still in
+/// exception context: reads only atomics and the tick counter — no locks,
+/// no switch. `STARTED` gates the whole boot window (the loader's unmasked
+/// single-threaded setup included), and the idle mirror keeps idle
+/// unpreemptable. Reached by `bl` from `vectors.s`, not by an import — the
+/// same deliberate asm seam as `CURRENT_EL0`.
+#[unsafe(no_mangle)]
+pub extern "C" fn el1_preempt_pending() -> u32 {
+    if STARTED.load(Ordering::Acquire) == 0 {
+        return 0;
+    }
+    let start = SLICE_START.load(Ordering::Relaxed);
+    let idle = CURRENT_IS_IDLE.load(Ordering::Relaxed);
+    u32::from(kernel_core::preempt::should_set(
+        start,
+        time::ticks(),
+        BUDGET_QUANTUM_TICKS,
+        idle,
+    ))
+}
+
+/// Rotate from the EL1 IRQ-return pivot (ADR-0068).
+///
+/// Runs on the preempted task's **own** stack after `el1_preempt_pivot`
+/// moved the trap frame there and unwound the exception stack; DAIF is
+/// fully masked from exception entry, and stays masked through the switch
+/// and back out to the pivot's `eret` (whose SPSR restore reopens I).
+///
+/// Deliberately **no** [`poll_wakes`]: the wake-queue drain is a
+/// single-consumer critical section on the voluntary path, and IRQ-context
+/// work stays minimal (ADR-0008 spirit) — idle and `yield_now` still drain.
+#[unsafe(no_mangle)]
+pub extern "C" fn el1_preempt_from_irq() {
+    PREEMPT_SWITCHES.fetch_add(1, Ordering::Relaxed);
+    switch_with(Switch::Preempt);
 }
 
 /// Preempt rotations performed since boot (ADR-0064).
@@ -930,7 +976,10 @@ fn switch_with(kind: Switch) {
 
     if let Some(caps) = exit_caps {
         ipc::release_holds_and_reap(&caps);
-        // ADR-0054: task-caps naming this task become stale.
+        // ADR-0054: task-caps naming this task become stale. The whole
+        // exit→revoke window sits inside this function's irq_save…irq_restore
+        // mask, so EL1 preemption (ADR-0068, DAIF-gated by construction)
+        // cannot land between the model exit above and this revoke.
         let _ = crate::taskcap::revoke_task(from);
         // ADR-0038: cancel Blocked direct children of the exiting task.
         let mut kids = [Tasks::<MAX_TASKS>::IDLE; MAX_TASKS];

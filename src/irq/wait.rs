@@ -72,14 +72,25 @@ pub fn take_pending(task: TaskId) -> bool {
 }
 
 /// Drain IRQ wake tokens into `f` (voluntary path only).
+///
+/// One masked region for the whole loop (ADR-0068): the queue is strictly
+/// single-consumer, and EL1 preemption can otherwise park a consumer
+/// mid-pop and schedule a second one. The bound is the queue capacity and
+/// each callback is an O(1) `wake_task` (whose nested mask save/restores
+/// fine), so the region stays short.
 pub fn drain(mut f: impl FnMut(u32)) {
-    while let Some(token) = QUEUE.pop() {
-        f(token);
-    }
+    cpu::without_irqs(|| {
+        while let Some(token) = QUEUE.pop() {
+            f(token);
+        }
+    });
 }
 
 fn enqueue(token: u32) {
-    // Capacity is ≥ task count; a full queue under a correct arm is a fault class.
+    // Capacity (32) is deliberately below MAX_TASKS (42): a full queue drops
+    // the wake and counts it, and waiters re-check pending around the park,
+    // so a drop is latency, not a lost task. The old "capacity ≥ task count"
+    // claim stopped being true when the table grew for the oracle fleets.
     if !QUEUE.push(token) {
         SIGNAL_IDLE.fetch_add(1, Ordering::Relaxed);
     }

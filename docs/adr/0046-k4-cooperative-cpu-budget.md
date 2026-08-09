@@ -4,7 +4,7 @@ title: K4 first slice — cooperative CPU budget (no IRQ preemption)
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
-amended: 2026-08-08
+amended: 2026-08-09
 related: [0006, 0023, 0026]
 ---
 
@@ -44,7 +44,17 @@ per-agent budgets, priority.
 
 ## Gates
 
-| Check | Evidence |
-| --- | --- |
-| Host expired arithmetic | unit tests |
+| Check                      | Evidence          |
+| -------------------------- | ----------------- |
+| Host expired arithmetic    | unit tests        |
 | QEMU rotation under budget | `budget: rotated` |
+
+> **Amendment (2026-08-09, reconciliation per ADR-0058).** The
+> `budget: rotated` oracle and its workers are **superseded by
+> [ADR-0068](0068-k4-el1-preemption-second-slice.md)**: once the IRQ
+> epilogue enforces the same quantum, the tick that made the workers'
+> voluntary check true rotates them first by construction — the cooperative
+> observation window can never open again. The replacement oracle
+> `preempt-el1: rotated` proves a strictly stronger claim (rotation without
+> cooperation). `sched::budget_expired` left with the workers; the quantum
+> arithmetic lives on in `kernel_core::budget` under both preemption paths.

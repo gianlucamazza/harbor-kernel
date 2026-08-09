@@ -346,9 +346,14 @@ assert_boot_oracle() {
 			fail "expected the honest no-media line (ADR-0066): $(grep -a 'durable-media:' "${log}" | head -1)"
 		;;
 	esac
-	# ADR-0046 / K4 cooperative budget.
-	grep -qa 'budget: rotated' "${log}" ||
-		fail "cooperative budget did not rotate workers (ADR-0046)"
+	# ADR-0068 / K4 same-EL preemption: an EL1 task that never yields loses
+	# the CPU on the IRQ epilogue. Supersedes the ADR-0046 cooperative
+	# `budget: rotated` oracle — the epilogue wins that race by construction,
+	# and this claim is strictly stronger (rotation without cooperation).
+	grep -qa 'preempt-el1: rotated' "${log}" ||
+		fail "EL1 preemption did not rotate the non-yielding spinner (ADR-0068)"
+	grep -qa 'preempt-el1: spinner exited' "${log}" ||
+		fail "the preempted EL1 spinner did not observe the stop word and exit (ADR-0068)"
 	# ADR-0064 / K4: IRQ preemption — a non-syscalling EL0 spinner loses the CPU.
 	grep -qa 'preempt: rotated' "${log}" ||
 		fail "IRQ preemption did not rotate the EL0 spinner (ADR-0064)"

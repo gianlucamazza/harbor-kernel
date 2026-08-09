@@ -120,3 +120,12 @@ exits via `SYS_EXIT`. No iteration-count timing guess.
 - **HW stamp** — `preempt: rotated` on Pi silicon via the serial transcript
   loop; the roadmap row stays `done (QEMU)` until then.
 - Per-agent budgets, priority (unchanged from ADR-0046 residuals).
+
+> **Amendment (2026-08-09, reconciliation per ADR-0058).** The HW stamp
+> landed the same day (transcript `20260809-122251.log`, roadmap row done
+> (HW)). The same-EL residual is closed by
+> [ADR-0068](0068-k4-el1-preemption-second-slice.md), whose pivot ended up
+> simpler than the shape sketched above: the frame moves to the preempted
+> task's **own stack** (no per-TCB save area) and resume is an ordinary
+> `context_switch` return into the pivot tail (no dedicated trampoline
+> mode). Re-audit items 1–2 re-ran there.

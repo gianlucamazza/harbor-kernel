@@ -873,13 +873,16 @@ pub fn run() -> ! {
             }
         }
 
-        // ADR-0046 / K4: cooperative budget rotation.
-        match crate::sched::spawn_thin(demos::budget_worker_a) {
-            Ok(_) => match crate::sched::spawn_thin(demos::budget_worker_b) {
-                Ok(_) => crate::kprintln!("budget: workers spawned"),
-                Err(e) => crate::kprintln!("budget: worker-b FAILED {e:?}"),
+        // ADR-0068 / K4: same-EL preemption — an EL1 spinner that never
+        // yields loses the CPU on the IRQ epilogue. Replaces the ADR-0046
+        // cooperative pair (whose voluntary check the epilogue now wins by
+        // construction). Peer first, same discipline as the EL0 demo.
+        match crate::sched::spawn_thin(demos::preempt_el1_peer) {
+            Ok(_) => match crate::sched::spawn_thin(demos::preempt_el1_spinner) {
+                Ok(_) => crate::kprintln!("preempt-el1: workers spawned"),
+                Err(e) => crate::kprintln!("preempt-el1: spinner spawn FAILED {e:?}"),
             },
-            Err(e) => crate::kprintln!("budget: worker-a FAILED {e:?}"),
+            Err(e) => crate::kprintln!("preempt-el1: peer spawn FAILED {e:?}"),
         }
 
         // ADR-0064 / K4: IRQ-side preemption of a non-syscalling EL0 spinner.
