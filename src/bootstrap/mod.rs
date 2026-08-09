@@ -779,6 +779,16 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("budget: worker-a FAILED {e:?}"),
         }
 
+        // ADR-0064 / K4: IRQ-side preemption of a non-syscalling EL0 spinner.
+        // Peer first, so it is already in the rotation when the window opens.
+        match crate::sched::spawn_thin(demos::preempt_peer_task) {
+            Ok(_) => match crate::sched::spawn(demos::preempt_agent_task) {
+                Ok(_) => crate::kprintln!("preempt: tasks spawned"),
+                Err(e) => crate::kprintln!("preempt: agent spawn FAILED {e:?}"),
+            },
+            Err(e) => crate::kprintln!("preempt: peer spawn FAILED {e:?}"),
+        }
+
         // ADR-0032 / K3: a task that holds SEND revokes the channel; bootstrap
         // then proves the stale CapId refuses send (product path, not forged).
         match crate::ipc::create_channel() {

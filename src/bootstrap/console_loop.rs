@@ -275,12 +275,13 @@ pub fn run() -> ! {
                 let _ = console::with_tx(|uart| {
                     println!(
                         uart,
-                        "invariants: overwrites={} abandoned={} faults={} blocked={} frames_free={}",
+                        "invariants: overwrites={} abandoned={} faults={} blocked={} frames_free={} preempts={}",
                         crate::sched::pending_overwrites(),
                         crate::mm::task_stack::abandoned_stacks(),
                         crate::agent::fault_count(),
                         crate::sched::blocked_count(),
                         crate::mm::frames::free_count(),
+                        crate::sched::preempt_switches(),
                     );
                 });
                 last_printed = report;

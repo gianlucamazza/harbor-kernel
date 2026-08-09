@@ -1320,6 +1320,100 @@ pub(super) fn budget_worker_b() {
     }
 }
 
+/// Stop-word physical address of the live preempt spinner (ADR-0064).
+/// Zero = no spinner window open. Written by [`preempt_agent_task`], consumed
+/// by [`preempt_peer_task`].
+static PREEMPT_STOP_PA: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static PREEMPT_PEER_TURNS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Byte offset of the ADR-0064 stop word inside text page 0 — past the
+/// program, word-aligned, within the page.
+const PREEMPT_STOP_OFF: usize = 0x800;
+
+/// ADR-0064: EL0 spinner that makes **no** syscalls — preemption on the IRQ
+/// epilogue is the only way it loses the CPU. The peer proves rotation and
+/// ends it by writing the stop word.
+pub(super) fn preempt_agent_task() {
+    use crate::bsp::board::memmap::USER_VA_BASE;
+
+    let mut agent = match Agent::create_prepared() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::kprintln!("preempt: create FAILED {e:?}");
+            return;
+        }
+    };
+    // The stop word must start zero; a pool frame's content is not assumed.
+    if let Err(e) = agent
+        .aspace()
+        .poke_user(PREEMPT_STOP_OFF, &0u32.to_le_bytes())
+    {
+        crate::kprintln!("preempt: stop-word poke FAILED {e:?}");
+        agent.destroy();
+        return;
+    }
+    let Some(text_pa) = agent.aspace().text_page_phys(0) else {
+        crate::kprintln!("preempt: no text page");
+        agent.destroy();
+        return;
+    };
+
+    let prog = kernel_core::prog::encode_spin_flag_exit(
+        (USER_VA_BASE >> 16) as u16,
+        PREEMPT_STOP_OFF as u16,
+    );
+    // EL0 IRQs open, or the tick is claimed at EL1 and no `Irq` outcome — and
+    // therefore no preempt safe point — ever arrives.
+    el0::set_entry_irqs_unmasked(sched::current_el0_session());
+    PREEMPT_STOP_PA.store(
+        text_pa + PREEMPT_STOP_OFF,
+        core::sync::atomic::Ordering::Release,
+    );
+    let res = agent.run_user_prog_resuming_prep(&prog, || {
+        timer::accelerate_next_tick(1);
+    });
+    PREEMPT_STOP_PA.store(0, core::sync::atomic::Ordering::Release);
+    el0::set_entry_irqs_masked(sched::current_el0_session());
+
+    match res {
+        Ok(s) if matches!(s.end, agent::SessionEnd::Exit) => {
+            crate::kprintln!("preempt: spinner exited irqs={}", s.irqs);
+        }
+        Ok(s) => crate::kprintln!("preempt: spinner unexpected end {:?}", s.end),
+        Err(e) => crate::kprintln!("preempt: spinner FAILED {e:?}"),
+    }
+    agent.destroy();
+}
+
+/// ADR-0064 peer of [`preempt_agent_task`]: counts its own scheduled turns
+/// while the spinner window is open. The spinner's host task never yields, so
+/// every turn here means the CPU was taken from it involuntarily. Two turns
+/// prove rotation; the oracle line prints and the stop word ends the spinner.
+pub(super) fn preempt_peer_task() {
+    use core::sync::atomic::Ordering;
+
+    for _ in 0..4096 {
+        let stop_pa = PREEMPT_STOP_PA.load(Ordering::Acquire);
+        if stop_pa != 0 {
+            let turns = PREEMPT_PEER_TURNS.fetch_add(1, Ordering::Relaxed) + 1;
+            if turns >= 2 {
+                crate::kprintln!("preempt: rotated");
+                // SAFETY: `stop_pa` names the stop word inside a text frame
+                // the live agent owns, published for exactly this write and
+                // cleared when the session ends. The identity alias is Normal
+                // WB like the EL0 mapping of the same PA, so the store is
+                // coherent with the spinner's loads (same discipline as
+                // `poke_user`, minus the I-side maintenance a data word does
+                // not need).
+                unsafe { core::ptr::write_volatile(stop_pa as *mut u32, 1) };
+                return;
+            }
+        }
+        crate::sched::yield_now();
+    }
+    crate::kprintln!("preempt: peer gave up");
+}
+
 /// ADR-0040: park on RECV with a short tick timeout; no sender → Cancelled.
 pub(super) fn timeout_recv_task() {
     let Some(cap) = crate::sched::my_cap(0) else {

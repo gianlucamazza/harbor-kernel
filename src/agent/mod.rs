@@ -187,6 +187,19 @@ fn resume_step(session: *mut el0::El0Session) -> el0::El0Outcome {
     cpu::without_irqs(|| unsafe { el0::resume(session) })
 }
 
+/// [`resume_step`] with the ADR-0064 preempt check in front of it.
+///
+/// This is the lower-EL IRQ-return epilogue of the preemption design: by the
+/// time the session loop is back here, the vector has unwound the exception
+/// stack, the frame lives in the [`el0::El0Session`], and any IRQ (including
+/// the tick that raised `need_resched`) has been claimed and EOI'd. The check
+/// sits **before** the one-step mask — a preempt is a switch, and no switch
+/// runs under a mask this loop holds (ADR-0022).
+fn resume_step_preemptible(session: *mut el0::El0Session) -> el0::El0Outcome {
+    sched::preempt_switch();
+    resume_step(session)
+}
+
 /// End a session with EL1 IRQs masked. Same one-step rule as [`resume_step`].
 fn end_step(session: *mut el0::El0Session) {
     // SAFETY: called on the paths that will not resume — the session is either
@@ -325,6 +338,11 @@ impl Agent {
     }
 
     #[inline]
+    pub fn aspace(&self) -> &AddressSpace {
+        &self.aspace
+    }
+
+    #[inline]
     pub fn aspace_mut(&mut self) -> &mut AddressSpace {
         &mut self.aspace
     }
@@ -397,7 +415,7 @@ impl Agent {
                             // SAFETY: the outcome being matched is `Svc`, which
                             // is resumable by definition; IRQs are still masked
                             // by the enclosing `without_irqs`.
-                            event = resume_step(session);
+                            event = resume_step_preemptible(session);
                         }
                         Syscall::Send => {
                             let msg = ipc::Message {
@@ -416,7 +434,7 @@ impl Agent {
                             // SAFETY: as `Ping` — a resumable `Svc` outcome with
                             // IRQs masked. The reply is already in the saved
                             // register file, so the resume delivers it.
-                            event = resume_step(session);
+                            event = resume_step_preemptible(session);
                         }
                         Syscall::Recv => {
                             // The call this whole restructuring exists for
@@ -431,7 +449,7 @@ impl Agent {
                             let outcome = recv_outcome(ipc::recv_from_slot(slot));
                             apply_reply(session, &mut stats, reply::recv(outcome));
                             // SAFETY: as `Send`.
-                            event = resume_step(session);
+                            event = resume_step_preemptible(session);
                         }
                         Syscall::TryRecv => {
                             // The non-blocking half (ADR-0022 §4), and the only
@@ -440,7 +458,7 @@ impl Agent {
                             let outcome = recv_outcome(ipc::try_recv_from_slot(slot));
                             apply_reply(session, &mut stats, reply::recv(outcome));
                             // SAFETY: as `Send`.
-                            event = resume_step(session);
+                            event = resume_step_preemptible(session);
                         }
                         Syscall::WaitIrq => {
                             // ADR-0030 / K1 remainder: park on a granted IRQ
@@ -454,7 +472,7 @@ impl Agent {
                                 reply::wait_irq(wait_irq_outcome(slot)),
                             );
                             // SAFETY: as `Send`.
-                            event = resume_step(session);
+                            event = resume_step_preemptible(session);
                         }
                         Syscall::Resolve => {
                             // ADR-0039 / P5: name → empty slot (no CapId to EL0).
@@ -464,7 +482,7 @@ impl Agent {
                             let outcome = resolve_outcome(slot, name_len, packed);
                             apply_reply(session, &mut stats, reply::resolve(outcome));
                             // SAFETY: as `Send`.
-                            event = resume_step(session);
+                            event = resume_step_preemptible(session);
                         }
                         Syscall::Transfer => {
                             // ADR-0041 / ADR-0054: self / creator / peer (task-cap).
@@ -474,7 +492,7 @@ impl Agent {
                             let peer_cap_slot = el0::saved_gpr(session, 3) as usize;
                             let outcome = transfer_outcome(from, to_slot, dest, peer_cap_slot);
                             apply_reply(session, &mut stats, reply::transfer(outcome));
-                            event = resume_step(session);
+                            event = resume_step_preemptible(session);
                         }
                         Syscall::RecvTimeout => {
                             // ADR-0042: park with tick deadline.
@@ -485,7 +503,7 @@ impl Agent {
                                 Err(_) => RecvOutcome::BadCap,
                             };
                             apply_reply(session, &mut stats, reply::recv(outcome));
-                            event = resume_step(session);
+                            event = resume_step_preemptible(session);
                         }
                         Syscall::Exit => {
                             // SAFETY: the session is resumable but will not be
@@ -512,7 +530,7 @@ impl Agent {
                         // run to completion. `ELR` still points at the
                         // interrupted instruction, which the architecture
                         // re-executes — resuming here does not skip it.
-                        event = resume_step(session);
+                        event = resume_step_preemptible(session);
                     }
                     el0::El0Outcome::DataAbort { esr, far }
                     | el0::El0Outcome::OtherSync { esr, far } => {

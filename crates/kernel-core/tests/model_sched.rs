@@ -61,10 +61,11 @@ enum Op {
 }
 
 /// The alphabet, in a fixed order so a printed counter-example is reproducible.
-const ALPHABET: [Op; 6 + SLOTS] = [
+const ALPHABET: [Op; 7 + SLOTS] = [
     Op::Admit,
     Op::Collect,
     Op::Switch(Switch::Yield),
+    Op::Switch(Switch::Preempt),
     Op::Switch(Switch::Block),
     Op::Switch(Switch::Exit),
     Op::Wake(0),

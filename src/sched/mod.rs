@@ -54,8 +54,10 @@ use crate::time;
 /// The four ADR-0054 peer-transfer oracle tasks landed without a bump: slot
 /// reuse after exit absorbs them, and the epoch in the task identity
 /// (ADR-0062) makes a leaked reference to the previous tenant refusable.
+/// 40 → 42 for the ADR-0064 preemption oracle pair (spinner host + peer),
+/// which are live across the window the ADR-0031 auto-reap oracle spawns in.
 /// Raising it costs task stacks and page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 40;
+pub const MAX_TASKS: usize = 42;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -70,6 +72,14 @@ pub const BUDGET_QUANTUM_TICKS: u64 = 2;
 
 /// Slice start tick for the current task (set on switch-in).
 static SLICE_START: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+/// Mirror of "the running task is idle", written on switch-in beside
+/// [`SLICE_START`] so [`preempt_switch`] reads both without opening `SCHED`.
+/// Idle is current from boot, hence `true`.
+static CURRENT_IS_IDLE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(true);
+
+/// Quantum expiries consumed by [`preempt_switch`] (ADR-0064).
+static PREEMPT_SWITCHES: AtomicU32 = AtomicU32::new(0);
 
 /// Per-slot resources. The *state* of a slot lives in [`Tasks`]; this is what
 /// the kernel has to own because it cannot be modelled on a host.
@@ -515,6 +525,31 @@ pub fn budget_expired() -> bool {
     kernel_core::budget::expired(start, time::ticks(), BUDGET_QUANTUM_TICKS)
 }
 
+/// Rotate the current task if its quantum has expired (ADR-0064).
+///
+/// The IRQ-return-epilogue safe point of the ADR-0051 design. No flag
+/// carrier: the predicate is monotone in `now` — once the tick that would
+/// have raised `need_resched` fires, it stays true here until the switch
+/// resets [`SLICE_START`] — so evaluating at the safe point is the flag,
+/// without `time` having to know `sched` exists (layering) and without a
+/// stale flag ever outliving the slice that earned it. Voluntary path only —
+/// call outside any [`cpu::without_irqs`] region, never from an IRQ handler.
+pub fn preempt_switch() {
+    let start = SLICE_START.load(Ordering::Relaxed);
+    let idle = CURRENT_IS_IDLE.load(Ordering::Relaxed);
+    if kernel_core::preempt::should_set(start, time::ticks(), BUDGET_QUANTUM_TICKS, idle) {
+        PREEMPT_SWITCHES.fetch_add(1, Ordering::Relaxed);
+        poll_wakes();
+        switch_with(Switch::Preempt);
+    }
+}
+
+/// Preempt rotations performed since boot (ADR-0064).
+#[inline]
+pub fn preempt_switches() -> u32 {
+    PREEMPT_SWITCHES.load(Ordering::Relaxed)
+}
+
 /// Cooperative yield: requeue current, run the next ready task (or stay).
 ///
 /// Never call from an IRQ handler.
@@ -946,8 +981,11 @@ fn switch_with(kind: Switch) {
     }
 
     publish_el0(sched, to);
-    // ADR-0046: new slice for whoever we are about to run.
+    // ADR-0046: new slice for whoever we are about to run. The idle mirror is
+    // written beside it (ADR-0064) so the tick handler reads both without
+    // touching `SCHED`.
     SLICE_START.store(time::ticks(), Ordering::Relaxed);
+    CURRENT_IS_IDLE.store(to == Tasks::<MAX_TASKS>::IDLE, Ordering::Relaxed);
 
     let prev = &raw mut sched.tcbs[from.slot()].context;
     let next_ctx = &raw const sched.tcbs[to.slot()].context;

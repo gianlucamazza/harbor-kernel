@@ -313,6 +313,19 @@ impl AddressSpace {
         Ok(())
     }
 
+    /// Physical address of text page `page` after prepare, `None` if unmapped.
+    ///
+    /// For callers that need to name a text location to a peer that cannot
+    /// hold a reference to this AS (ADR-0064 stop word): the peer writes
+    /// through the kernel identity alias, exactly as [`Self::poke_user`] does.
+    #[inline]
+    pub fn text_page_phys(&self, page: usize) -> Option<usize> {
+        match self.text_phys.get(page) {
+            Some(&pa) if pa != 0 => Some(pa),
+            _ => None,
+        }
+    }
+
     #[inline]
     pub fn frame_count(&self) -> usize {
         self.owned.len()

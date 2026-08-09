@@ -48,6 +48,13 @@ pub const fn b_self() -> u32 {
     0x1400_0000
 }
 
+/// `b label` — unconditional, `offset_words` signed PC-relative word offset.
+/// [`b_self`] is `b_rel(0)`.
+#[inline]
+pub const fn b_rel(offset_words: i32) -> u32 {
+    0x1400_0000 | ((offset_words as u32) & 0x03FF_FFFF)
+}
+
 /// `sub xd, xn, #imm12` (64-bit, shift 0).
 #[inline]
 pub const fn sub_x_imm(rd: u8, rn: u8, imm12: u16) -> u32 {
@@ -162,5 +169,13 @@ mod tests {
     #[test]
     fn b_self_is_infinite() {
         assert_eq!(b_self(), 0x1400_0000);
+    }
+
+    #[test]
+    fn b_rel_back_edge() {
+        // Matches gas: `b .-8` → 0x17fffffe; `b .` is the zero offset.
+        assert_eq!(b_rel(-2), 0x17FF_FFFE);
+        assert_eq!(b_rel(0), b_self());
+        assert_eq!(b_rel(2), 0x1400_0002);
     }
 }

@@ -312,6 +312,36 @@ pub const fn encode_spin_exit(iters: u16) -> [u8; 20] {
     out
 }
 
+/// Spin on a stop word until non-zero, then `SYS_EXIT` (ADR-0064 oracle).
+///
+/// Unlike [`encode_spin_exit`] this makes **no** forward progress of its own
+/// and no syscalls while spinning — the only way it loses the CPU is the
+/// IRQ-side preemption it exists to prove. The kernel ends it by writing a
+/// non-zero word at `base_va_hi16 << 16 | stop_off` (a text-page address the
+/// kernel pokes through its identity alias).
+///
+/// ```text
+/// movz x0, #base_va_hi16, lsl #16
+/// 1: ldr  w1, [x0, #stop_off]
+///    cbnz x1, 2f
+///    b    1b                  // offset −2 words from the b (gas-checked)
+/// 2: svc  #1
+///    b .
+/// ```
+///
+/// `stop_off` must be a multiple of 4 within the text page, past the program.
+pub const fn encode_spin_flag_exit(base_va_hi16: u16, stop_off: u16) -> [u8; 24] {
+    let mut out = [0u8; 24];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x_lsl16(0, base_va_hi16));
+    push_word(&mut out, &mut i, a64::ldr_w_imm(1, 0, stop_off));
+    push_word(&mut out, &mut i, a64::cbnz_x(1, 2));
+    push_word(&mut out, &mut i, a64::b_rel(-2));
+    push_word(&mut out, &mut i, a64::svc(1));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// PL011 RX poll once at `USER_PL011_VA` (`0x5000_0000`):
 /// if RX not empty, `SYS_SEND` the byte to the console; always `SYS_EXIT`.
 ///
@@ -530,6 +560,18 @@ mod tests {
             "encode_spin_exit(0x800)",
             &encode_spin_exit(0x800),
             "movz x0, #2048\nsub x0, x0, #1\ncbnz x0, #-4\nsvc #1\nb .\n",
+        );
+
+        // ADR-0064: spin on the stop word until non-zero, then exit.
+        assert_program(
+            "encode_spin_flag_exit(0x4000, 0x800)",
+            &encode_spin_flag_exit(0x4000, 0x800),
+            "movz x0, #0x4000, lsl #16\n\
+             ldr w1, [x0, #0x800]\n\
+             cbnz x1, #8\n\
+             b #-8\n\
+             svc #1\n\
+             b .\n",
         );
     }
 

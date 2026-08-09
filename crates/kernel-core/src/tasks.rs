@@ -39,6 +39,10 @@ pub enum State {
 pub enum Switch {
     /// Voluntary yield: requeue and take the next.
     Yield,
+    /// Involuntary yield (ADR-0064): the quantum expired and the safe-point
+    /// consumer is rotating the current task. Same rotation as [`Switch::Yield`];
+    /// idle is never rotated by it.
+    Preempt,
     /// Park until woken. Idle may not block.
     Block,
     /// Terminate. Idle may not exit.
@@ -227,7 +231,12 @@ impl<const N: usize> Tasks<N> {
         let cur = current.slot();
 
         let requeue = match kind {
-            Switch::Yield => {
+            Switch::Preempt if current == Self::IDLE => {
+                // Never preempt idle into idle (ADR-0064): a stale flag taken
+                // with idle current is a no-op, not a rotation.
+                return Decision::Stay;
+            }
+            Switch::Yield | Switch::Preempt => {
                 if self.states[cur] == State::Running {
                     self.states[cur] = State::Ready;
                 }
@@ -454,6 +463,49 @@ mod tests {
             matches!(t.switch(Switch::Exit), Decision::Switch { to, .. } if to == T::IDLE),
             "the last worker exits into idle"
         );
+    }
+
+    #[test]
+    fn a_preempted_worker_rotates_like_a_yield() {
+        // ADR-0064: same rotation as Yield — the preempted task goes to the
+        // queue tail marked Ready, the head runs.
+        let mut t = started();
+        let a = t.admit().unwrap();
+        let b = t.admit().unwrap();
+        t.switch(Switch::Yield); // → a
+        assert_eq!(t.current(), a);
+
+        assert!(
+            matches!(t.switch(Switch::Preempt), Decision::Switch { from, to, .. }
+                if from == a && to == b),
+            "the preempted worker hands the CPU to the next ready task"
+        );
+        assert_eq!(t.state(a), Some(State::Ready), "preempted, not blocked");
+        assert_eq!(t.state(b), Some(State::Running));
+    }
+
+    #[test]
+    fn preempting_idle_is_a_stay() {
+        // Never idle → idle, even with a ready task waiting: preemption exists
+        // to bound a running *worker*; idle reschedules through its own loop.
+        let mut t = started();
+        let _a = t.admit().unwrap();
+        assert_eq!(t.switch(Switch::Preempt), Decision::Stay);
+        assert_eq!(t.current(), T::IDLE);
+        assert_eq!(t.state(T::IDLE), Some(State::Running));
+    }
+
+    #[test]
+    fn a_preempted_worker_alone_rotates_through_idle() {
+        // A worker always finds at least idle queued (idle is exactly one of
+        // current or queued), so a lone spinner rotates into idle and comes
+        // back next round — it is never wedged on itself.
+        let mut t = started();
+        let a = t.admit().unwrap();
+        t.switch(Switch::Yield); // → a, queue holds idle
+        assert_eq!(t.current(), a);
+        assert!(matches!(t.switch(Switch::Preempt), Decision::Switch { to, .. } if to == T::IDLE));
+        assert_eq!(t.state(a), Some(State::Ready), "back in the rotation");
     }
 
     #[test]

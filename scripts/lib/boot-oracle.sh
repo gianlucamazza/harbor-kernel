@@ -320,6 +320,11 @@ assert_boot_oracle() {
 	# ADR-0046 / K4 cooperative budget.
 	grep -qa 'budget: rotated' "${log}" ||
 		fail "cooperative budget did not rotate workers (ADR-0046)"
+	# ADR-0064 / K4: IRQ preemption — a non-syscalling EL0 spinner loses the CPU.
+	grep -qa 'preempt: rotated' "${log}" ||
+		fail "IRQ preemption did not rotate the EL0 spinner (ADR-0064)"
+	grep -qa 'preempt: spinner exited' "${log}" ||
+		fail "the preempted spinner did not observe the stop word and exit (ADR-0064)"
 
 	# ADR-0021: agents are data, and authority is one entry in a table.
 	#

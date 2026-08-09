@@ -89,7 +89,7 @@ import io, re, subprocess, sys
 OPENER = "without_irqs"
 # Calls that can switch tasks. `wake_task` is deliberately absent — see above.
 SWITCHERS = re.compile(
-    r"\b(?:block_current|yield_now|switch_with|context_switch|sched::exit)\s*\("
+    r"\b(?:block_current|yield_now|switch_with|context_switch|sched::exit|preempt_switch)\s*\("
 )
 
 files = subprocess.run(
