@@ -58,7 +58,8 @@ QEMU        ?= qemu-system-aarch64
 QEMU_MACHINE ?= raspi4b
 # ADR-0029: packed store for inject into `.agent_store` (product image).
 AGENTS_BIN  ?= target/agents.bin
-QEMU_FLAGS  ?= -M $(QEMU_MACHINE) -kernel $(IMG) -serial mon:stdio -display none
+# raspi4b: min 4 CPUs (QEMU). -smp 4 so ADR-0070 can unpark core 1.
+QEMU_FLAGS  ?= -M $(QEMU_MACHINE) -smp 4 -kernel $(IMG) -serial mon:stdio -display none
 
 # Long enough for the boot assertions (two tick reports at 10 Hz) with margin.
 BOOT_CHECK_SECONDS ?= 15

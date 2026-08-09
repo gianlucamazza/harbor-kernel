@@ -745,3 +745,24 @@ pub fn is_enabled() -> bool {
     }
     sctlr & 1 != 0
 }
+
+/// Enable translation on a **secondary** core using the primary's live root.
+///
+/// Does not rebuild tables or republish [`kernel_root_phys`]. Used by the K8
+/// first slice ([ADR-0070](../../../../docs/adr/0070-k8-smp-first-slice.md)).
+///
+/// # Safety
+/// `root` must be the physical address already activated on core 0. Call once
+/// per secondary, with IRQs masked, translation off, and the code path
+/// identity-mapped under that root.
+pub unsafe fn enable_existing(root: u64) {
+    // SAFETY: same order as [`enable_identity`]: invalidate, program regime,
+    // TLB drop, then enable. Tables are already complete on the primary.
+    unsafe {
+        cache::invalidate_dcache_all();
+        cache::invalidate_icache();
+        program_regime(root);
+        cache::invalidate_tlb_all();
+        enable_translation();
+    }
+}

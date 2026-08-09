@@ -350,6 +350,11 @@ assert_boot_oracle() {
 	# the CPU on the IRQ epilogue. Supersedes the ADR-0046 cooperative
 	# `budget: rotated` oracle — the epilogue wins that race by construction,
 	# and this claim is strictly stronger (rotation without cooperation).
+	# ADR-0070 / K8 first slice: core 1 left WFE and signalled alive.
+	grep -qa 'smp: core1 alive' "${log}" ||
+		fail "core 1 did not unpark (ADR-0070): $(grep -a 'smp:' "${log}" | head -1)"
+	grep -qa 'smp: core1 timeout' "${log}" &&
+		fail "core 1 unpark timed out (ADR-0070)"
 	grep -qa 'preempt-el1: rotated' "${log}" ||
 		fail "EL1 preemption did not rotate the non-yielding spinner (ADR-0068)"
 	grep -qa 'preempt-el1: spinner exited' "${log}" ||

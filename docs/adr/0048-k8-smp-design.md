@@ -11,8 +11,9 @@ related: [0006, 0026]
 
 ## Acceptance status
 
-**Accepted as design** (2026-08-08). Secondary cores remain parked (`boot.s`).
-No multi-core runqueue in this ADR.
+**Accepted as design** (2026-08-08). First **code** slice:
+[ADR-0070](0070-k8-smp-first-slice.md) (unpark core 1, idle only, QEMU).
+No multi-core runqueue in this design ADR.
 
 ## Decision (design)
 

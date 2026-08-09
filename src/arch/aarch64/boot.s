@@ -1,12 +1,13 @@
 // Early AArch64 bootstrap for Raspberry Pi 4 Model B.
 //
 // Responsibilities (and nothing else):
-//   1. Park secondary cores.
+//   1. Park secondary cores until `secondary_entry[aff]` is set (ADR-0070).
 //   2. If entered at EL2 (typical with start4.elf), drop to EL1h.
 //   3. Mask DAIF, clear BSS, install the stack, call kernel_main.
 //   4. If kernel_main returns, park core 0.
 //
 // Symbols from the linker script: __bss_start, __bss_end, __stack_top.
+// Core1 stacks: __core1_exception_stack_top / __core1_stack_top (from smp.rs).
 
 // Storage for the firmware's x0. Deliberately in .data, not .bss: the BSS
 // clear below runs *after* this is written and would zero it.
@@ -15,6 +16,8 @@
 .align 3
 __dtb_ptr:
     .quad 0
+
+// `secondary_entry` lives in Rust (`arch::smp`) as `[AtomicU64; 4]`.
 
 .section .text.boot, "ax"
 .global _start
@@ -36,11 +39,9 @@ _start:
     // Affinity level 0 only (core id within cluster).
     mrs     x0, mpidr_el1
     and     x0, x0, #0xFF
-    cbz     x0, .L_primary
-
-.L_park:
-    wfe
-    b       .L_park
+    // Direct branch only: secondary wait has an indirect `br` and must not
+    // sit inside `_start`'s pre-MMU audit window (scripts/check/pre-mmu-path.sh).
+    cbnz    x0, secondary_wait
 
 .L_primary:
     // CurrentEL[3:2]. Only EL2 and EL1 are handled: platform firmware
@@ -136,4 +137,81 @@ _start:
     // kernel_main must not return; park if it does.
     b       .L_park
 
+.L_park:
+    wfe
+    b       .L_park
+
 .size _start, . - _start
+
+// --- Secondaries (outside `_start` size: may use indirect branches) ---
+
+// Wait for a non-zero entry in `secondary_entry[aff0]` (path A, real Pi).
+.global secondary_wait
+.type secondary_wait, %function
+secondary_wait:
+    adrp    x1, secondary_seen
+    add     x1, x1, :lo12:secondary_seen
+    ldr     x2, [x1]
+    add     x2, x2, #1
+    str     x2, [x1]
+    mrs     x0, mpidr_el1
+    and     x0, x0, #0xFF
+    cmp     x0, #3
+    b.hi    park_forever
+    adrp    x1, secondary_entry
+    add     x1, x1, :lo12:secondary_entry
+    ldr     x2, [x1, x0, lsl #3]
+    cbz     x2, 1f
+    br      x2
+1:
+    wfe
+    b       secondary_wait
+.size secondary_wait, . - secondary_wait
+
+.global park_forever
+.type park_forever, %function
+park_forever:
+    wfe
+    b       park_forever
+.size park_forever, . - park_forever
+
+// Core 1 entry: path A (table) or path B (QEMU spin-table at 0xe0).
+.global secondary_el2_entry
+.type secondary_el2_entry, %function
+secondary_el2_entry:
+    mrs     x0, CurrentEL
+    lsr     x0, x0, #2
+    cmp     x0, #2
+    b.gt    park_forever
+    b.lt    .L_secondary_el1
+
+    ldr     x0, =0x30d00800
+    msr     sctlr_el1, x0
+    mov     x0, #(1 << 31)
+    msr     hcr_el2, x0
+    mov     x0, #0x3
+    msr     cnthctl_el2, x0
+    msr     cntvoff_el2, xzr
+    mrs     x0, cptr_el2
+    bic     x0, x0, #(1 << 10)
+    msr     cptr_el2, x0
+    mov     x0, #0x3C5
+    msr     spsr_el2, x0
+    adr     x0, .L_secondary_el1
+    msr     elr_el2, x0
+    eret
+
+.L_secondary_el1:
+    msr     daifset, #0xF
+    adrp    x0, CORE1_EXC_STACK
+    add     x0, x0, :lo12:CORE1_EXC_STACK
+    add     x0, x0, #(16 * 1024)
+    mov     sp, x0
+    adrp    x0, CORE1_KER_STACK
+    add     x0, x0, :lo12:CORE1_KER_STACK
+    add     x0, x0, #(16 * 1024)
+    msr     sp_el0, x0
+    msr     spsel, #0
+    bl      secondary_main
+    b       park_forever
+.size secondary_el2_entry, . - secondary_el2_entry

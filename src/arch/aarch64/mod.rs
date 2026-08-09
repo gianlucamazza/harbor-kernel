@@ -14,6 +14,7 @@ pub mod exception;
 pub mod mmio;
 pub mod mmu;
 pub mod probe;
+pub mod smp;
 pub mod switch;
 pub mod timer;
 

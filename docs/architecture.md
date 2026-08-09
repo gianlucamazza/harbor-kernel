@@ -375,6 +375,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0067](adr/0067-host-lab-second-isa-intent.md)                   | Host/lab second ISA — QEMU x86 intent; code deferred (**accepted**)                                                            |
 | [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)               | K4 second code slice — same-EL (EL1) IRQ preemption (**accepted**)                                                             |
 | [ADR-0069](adr/0069-harbor-host-class-north-star.md)                 | Host-class north star — native primary OS intent (**accepted**)                                                                |
+| [ADR-0070](adr/0070-k8-smp-first-slice.md)                           | K8 first slice — unpark core 1, idle only (**accepted**)                                                                       |
 | [`docs/reviews/`](reviews/)                                          | Pass outcomes (findings), not decisions                                                                                        |
 
 ## Non-goals

@@ -157,9 +157,11 @@ pub const USER_STACK_PAGES: usize = 4;
 /// allows: everything outside these windows faults, which is how a stray
 /// pointer into the peripheral range becomes a diagnosable exception instead
 /// of an unpredictable side effect on a device register.
-pub const DEVICE_REGIONS: [(usize, usize, &str); 2] = [
+pub const DEVICE_REGIONS: [(usize, usize, &str); 3] = [
     // Low peripherals: GPIO, PL011, mailboxes.
     (PERIPHERAL_BASE, 0x0100_0000, "peripherals"),
+    // ARM local (timers, core mailboxes) — K8 unpark poke (ADR-0070).
+    (0xFF80_0000, 0x0000_4000, "ARM local"),
     // GIC-400 distributor + CPU interface.
     (0xFF84_0000, 0x0000_4000, "GIC"),
 ];

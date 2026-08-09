@@ -13,7 +13,7 @@
 mod aarch64;
 
 #[cfg(target_arch = "aarch64")]
-pub use aarch64::{bootinfo, cache, cpu, el0, exception, mmio, mmu, probe, switch, timer};
+pub use aarch64::{bootinfo, cache, cpu, el0, exception, mmio, mmu, probe, smp, switch, timer};
 
 #[cfg(not(target_arch = "aarch64"))]
 compile_error!(

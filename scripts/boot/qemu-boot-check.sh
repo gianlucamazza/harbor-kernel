@@ -86,8 +86,9 @@ run_boot() {
 	local seconds="$1"
 	shift
 	: >"${log}"
+	# raspi4b requires min 4 CPUs; ADR-0070 needs secondaries present to unpark.
 	timeout "${seconds}" "${QEMU}" \
-		-M "${QEMU_MACHINE}" -kernel "${IMG}" \
+		-M "${QEMU_MACHINE}" -smp 4 -kernel "${IMG}" \
 		-serial mon:stdio -display none "$@" </dev/null >"${log}" 2>&1 || true
 }
 

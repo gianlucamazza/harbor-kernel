@@ -89,6 +89,7 @@ the code that follows.
 | [0067](0067-host-lab-second-isa-intent.md) | Host/lab second ISA — QEMU x86_64 intent and non-goals | accepted |
 | [0068](0068-k4-el1-preemption-second-slice.md) | K4 second code slice — same-EL (EL1) IRQ preemption | accepted |
 | [0069](0069-harbor-host-class-north-star.md) | Harbor host-class north star — native primary OS intent | accepted |
+| [0070](0070-k8-smp-first-slice.md) | K8 first slice — unpark core 1, idle only | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

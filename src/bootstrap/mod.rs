@@ -16,7 +16,7 @@ mod selftest;
 
 #[cfg(feature = "oracle")]
 use crate::agent::{self};
-use crate::arch::{bootinfo, cpu, exception, mmu, timer};
+use crate::arch::{bootinfo, cpu, exception, mmu, smp, timer};
 use kernel_core::asid::ASID_BITS;
 use kernel_core::cpuid;
 use kernel_core::layout::Region;
@@ -270,6 +270,17 @@ pub fn run() -> ! {
             cpuid::revision(midr),
             midr & 0xFFFF_FFFF
         ),
+    }
+
+    // ADR-0070 / K8 first slice: unpark core 1 into an idle loop. Kernel map
+    // and VBAR are live; IRQs still masked. Timeout prints an honest line the
+    // boot oracle fails on — silence would look like a single-core boot.
+    let seen = smp::secondary_seen_count();
+    let core1 = smp::unpark_core1();
+    if core1 {
+        println!(uart, "smp: core1 alive");
+    } else {
+        println!(uart, "smp: core1 timeout seen={seen}");
     }
 
     // The kernel map deliberately covers far less than the early one, so the
