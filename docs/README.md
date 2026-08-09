@@ -75,9 +75,9 @@ not every symbol.
 
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
-  a64, agentstore, asid, budget, bump, cap, capslots, cpuid, delay, density, display, durable, font8x8, frame, gic, heap,
-  ipc, irqcap, irqtable, irqwait, layout, manifest, naming, paging, parktime, poll, preempt, prog, reply, reset, ring, rng,
-  runqueue, rxline, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, wake
+  a64, agentstore, asid, budget, bump, cap, capslots, cpuid, delay, density, display, durable, durable_media, font8x8, frame, gic, heap,
+  ipc, irqcap, irqtable, irqwait, layout, manifest, mbr, naming, paging, parktime, poll, preempt, prog, reply, reset, ring, rng,
+  runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, wake
   tests/ public_api, model_sched, model_ipc
 src/
   arch/           ISA facade and AArch64 entry, exceptions, MMU, switch, EL0

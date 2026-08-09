@@ -366,6 +366,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0063](adr/0063-capslots-extraction.md)                          | Capability slots as a pure table (**accepted**)                                                                                |
 | [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)                | K4 first code slice — EL0 IRQ preemption (**accepted**)                                                                        |
 | [ADR-0065](adr/0065-platform-self-check.md)                          | Platform self-check — CPU identity decoded, printed, asserted at boot (**accepted**)                                           |
+| [ADR-0066](adr/0066-sd-media-durable-store.md) | P2 — SD media persistence for the durable store (**accepted**) |
 | [`docs/reviews/`](reviews/)                                          | Pass outcomes (findings), not decisions                                                                                        |
 
 ## Non-goals
