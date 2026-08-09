@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Boot the kernel under QEMU and assert the run reached a healthy steady state.
 #
-# This is the single definition of "the boot is sound", used by `make check`
-# and by CI. It lived only in the workflow before, which meant the local gate
-# was a subset of the remote one — a local green did not predict CI — and the
-# assertions were somewhere nobody runs while working, free to drift.
+# One of two runners of the boot oracle: the single definition of "the boot
+# is sound" lives in scripts/lib/boot-oracle.sh, shared verbatim with the
+# hardware transcript check. This script owns what is QEMU's alone — the
+# emulator invocation, the CPU-starvation measurement, and the indeterminate
+# verdict a starved host earns instead of a red.
 set -euo pipefail
 
 IMG="${1:?usage: $0 <kernel8.img> [seconds]}"

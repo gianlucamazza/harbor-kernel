@@ -5,6 +5,7 @@ status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
 related: [0033, 0038, 0051, 0053, 0054]
+amended: 2026-08-09
 ---
 
 # ADR-0057: Task-cap lifecycle invariants
@@ -30,9 +31,16 @@ and nothing asserted it.
    single `switch_with(Switch::Exit)` funnel, and `taskcap::revoke_task(from)`
    runs inside it _before_ the ADR-0038 cascade wakes any child. A live
    task-cap must never name an `Empty` or re-admitted slot. `sched::spawn`
-   now cross-checks at admit time: a freshly admitted `TaskId` with a live
-   task-cap entry is the bug this ADR exists to catch, and it refuses loudly
-   (`taskcap::has_live_for`).
+   originally cross-checked at admit time (`taskcap::has_live_for`), refusing
+   loudly on a leaked entry.
+
+   > **Amendment (2026-08-09, reconciliation per ADR-0058).** The spawn
+   > cross-check, `has_live_for`, and the boot-oracle absence line were
+   > **deleted** by [ADR-0062](0062-taskid-epoch.md) (reconciled by the
+   > commit landing it, `aca0d60`): the epoch inside `TaskId` makes the state
+   > the cross-check watched for unrepresentable — a re-admitted slot mints a
+   > new identity, so a leaked task-cap cannot name it. Revocation on exit
+   > (this ADR's §1 funnel) is unchanged.
 2. **Mint contract:** `mint` is EL1-only and takes a task the caller has just
    spawned or otherwise knows live; the pure table cannot check liveness and
    does not pretend to. Entries are freed only by `revoke_task(target)` —

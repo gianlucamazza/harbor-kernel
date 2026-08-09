@@ -184,9 +184,9 @@ doc-claims:
 	./scripts/check/doc-claims.sh
 
 # Boot the image under QEMU and assert it reaches a healthy steady state.
-# The assertions live in the script, not here and not in the CI workflow, so
-# the two cannot drift apart.
-# ADR-0029: pack composition blob (input to inject-agent-store.py).
+# The assertions live in scripts/lib/boot-oracle.sh (shared with the HW
+# transcript check), not here and not in the CI workflow, so no copy drifts.
+# ADR-0029: pack composition blob (input to scripts/agent/inject-store.py).
 agents:
 	python3 scripts/agent/pack-store.py -o $(AGENTS_BIN)
 
@@ -264,8 +264,8 @@ product-boot-check: product-builds
 # that running the code cannot sample. It covers the only `unsafe` in
 # kernel-core: the SPSC ring's `UnsafeCell` buffer and its `Sync` assertion.
 #
-# Not part of `make check`: it needs nightly, and the toolchain pin is
-# deliberately stable. Run it when touching the ring or the allocator.
+# A `make check` prerequisite (nightly is required only for this target; the
+# kernel's own toolchain pin stays stable). ALLOW_MIRI_SKIP=1 opts out loudly.
 # Mutation testing. Not a `check` prerequisite: ~7 minutes, and the value is in
 # reading which mutants survived rather than in a threshold. Cadence and scope
 # rules are ADR-0058's: run before a boundary-moving commit, and the script

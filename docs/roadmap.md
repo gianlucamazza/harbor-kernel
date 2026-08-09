@@ -66,8 +66,8 @@ the named level — not when prose wishes it.
 3. **Load without rebuild-only** — external store path (K6; done QEMU inject + HW builtin fallback); on-target put/get (P2; **done (HW)**); SD/power-cycle residual.
 4. **Wait and drive devices as agents** — IRQ wait (K1; **done (HW)**); RNG map + IRQ-cap wait (K9; **done (HW)**).
 5. **Supervise** — cancel + K2 auto-reap + park timeout + K10 reap/cascade (**done (HW)**).
-6. **Move authority** — revoke + EL1 transfer + EL0 self/creator (**done (HW)**); peer via task-cap (**done (QEMU)** ADR-0054; bands + lifecycle ADR-0055/0057).
-7. **Find services** — EL1 registry + EL0 `SYS_RESOLVE` (**done (HW)**); resolve-grant (**done (QEMU)** ADR-0052).
+6. **Move authority** — revoke + EL1 transfer + EL0 self/creator (**done (HW)**); peer via task-cap (**done (HW)** stamp 2026-08-09, ADR-0054; bands + lifecycle ADR-0055/0057).
+7. **Find services** — EL1 registry + EL0 `SYS_RESOLVE` (**done (HW)**); resolve-grant (**done (HW)** stamp 2026-08-09, ADR-0052).
 
 Use cases that pull H1: modular robot/industrial stacks, least-privilege edge
 gateways, sealed composition firmware, on-device third-party sandbox
@@ -81,7 +81,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | --- | --- | --- | --- | --- |
 | K1 | Wait-on-IRQ (first-class) | **done (HW)** ([ADR-0028](adr/0028-wait-on-irq.md) + [ADR-0030](adr/0030-el0-irq-capability.md); Pi stamp 2026-08-08) | EL1 `wait_for_irq`; EL0 `SYS_WAIT_IRQ`; `irq-wait: woke` + `el0-irq: woke` | ADR-0008 → 0028 → 0030 |
 | K2 | Park reclaim (timeout and/or auto-reap on last send drop) | **done (HW)** ([ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md) + [ADR-0040](adr/0040-k2-park-timeout.md) + [ADR-0042](adr/0042-el0-recv-timeout.md); Pi stamp 2026-08-08) | Last SEND hold drop; EL1/EL0 tick timeout → Cancelled | 0025 → 0031 → 0040 → 0042 |
-| K3 | Cap transfer / revoke / endpoint release | **done (QEMU)** depth ([ADR-0032](adr/0032-k3-channel-revoke.md) + [ADR-0037](adr/0037-k3-cap-transfer.md) + [ADR-0041](adr/0041-el0-cap-transfer.md) + [ADR-0054](adr/0054-k3-peer-transfer-first-slice.md)); HW stamp covers self/creator era; peer is QEMU | Revoke; transfer; EL0 self/creator/peer; band + stale refusal oracles | 0017 → 0032 → 0037 → 0041 → 0053 → 0054 → 0055/0057 |
+| K3 | Cap transfer / revoke / endpoint release | **done (QEMU)** depth ([ADR-0032](adr/0032-k3-channel-revoke.md) + [ADR-0037](adr/0037-k3-cap-transfer.md) + [ADR-0041](adr/0041-el0-cap-transfer.md) + [ADR-0054](adr/0054-k3-peer-transfer-first-slice.md)); HW stamp 2026-08-09 covers peer/band/stale too (`hw-transcript-check` clean) | Revoke; transfer; EL0 self/creator/peer; band + stale refusal oracles | 0017 → 0032 → 0037 → 0041 → 0053 → 0054 → 0055/0057 |
 | K4 | Preemption or CPU budget | **done (HW)** first slice ([ADR-0046](adr/0046-k4-cooperative-cpu-budget.md); Pi stamp 2026-08-08); IRQ preemption **in design** ([ADR-0051](adr/0051-k4-irq-preemption-design.md)) | Tick quantum + voluntary yield; IRQ switch designed | 0006 → 0046 → 0051 |
 | K5 | Agent density (shrink/collapse driver half) | **done (HW)** first slice ([ADR-0044](adr/0044-k5-agent-density.md); Pi stamp 2026-08-08); driver-half collapse residual | `spawn_thin` 4 KiB stacks; pure density arithmetic | 0023 → 0044 |
 | K6 | External agent load + byte manifest | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement) | Image store inject; product prefers store, oracle empty → builtin | ADR-0021 → 0027 → 0029 |
@@ -103,7 +103,7 @@ not as a growing special-case syscall surface ([vision](vision.md) shape).
 | P2 | Storage path (block + load/persist) | **done (HW)** first slices ([ADR-0036](adr/0036-p2-keyed-blob-store.md) + [ADR-0045](adr/0045-p2-durable-store.md); Pi stamp 2026-08-08); SD/power-cycle + EL0 residual | Put/get + durable section | 0036 → 0045 | H1 → H2 |
 | P3 | Network agent + caps | **open** — deferred ([ADR-0049](adr/0049-deferred-residuals.md): no composition target) | Network I/O only via granted caps | K1/K9 helpful | H1 edge → H2 |
 | P4 | Display/input product path | **open** — deferred ([ADR-0049](adr/0049-deferred-residuals.md): no composition target) | Product path beyond `debug-display` | Device agents | H1 UI → H2 |
-| P5 | Naming / discovery / system services | **done (QEMU)** depth ([ADR-0035](adr/0035-p5-name-registry.md) + [ADR-0039](adr/0039-p5-el0-resolve.md) + [ADR-0052](adr/0052-p5-resolve-grant.md)); HW stamp covers bind/resolve ambient era; grant is QEMU | Bind/resolve + non-ambient grant | 0035 → 0039 → 0052 | H1 → H2 |
+| P5 | Naming / discovery / system services | **done (QEMU)** depth ([ADR-0035](adr/0035-p5-name-registry.md) + [ADR-0039](adr/0039-p5-el0-resolve.md) + [ADR-0052](adr/0052-p5-resolve-grant.md)); HW stamp 2026-08-09 covers non-ambient grant too (`resolve-grant: refused` on silicon) | Bind/resolve + non-ambient grant | 0035 → 0039 → 0052 | H1 → H2 |
 | P6 | Compose/audit tooling | **done (QEMU)** first slice (pack / inject / inspect) | Host tools for store composition and audit | P1 | H1 |
 
 ---
@@ -122,8 +122,9 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
 K7 ASID slice **done (HW)** (stamp 2026-08-09, with the early-map TLB
 retirement the first silicon boot demanded). Resolve-grant + peer transfer
-**done (QEMU)**. K4 preemption **designed**. P3/P4 deferred. Next: lab
-power-cycle or preemption code.
+**done (HW)** (same stamp — the whole oracle set ran on silicon). K4
+preemption **designed**. P3/P4 deferred. Next: lab power-cycle or preemption
+code.
 
 ```text
 Mission: agents · grants · evidence · finish the OS

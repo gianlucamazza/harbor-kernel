@@ -56,8 +56,22 @@ unit="$(grep -rhc '^\s*#\[test\]' crates/kernel-core/src/*.rs |
 	awk '{ n += $1 } END { print n + 0 }')"
 integration="$(cat crates/kernel-core/tests/*.rs 2>/dev/null |
 	grep -c '^\s*#\[test\]' || true)"
-doc="$(grep -rhc '^\s*/// ```$' crates/kernel-core/src/*.rs |
-	awk '{ n += $1 } END { print int((n + 0) / 2) }')"
+# Fences are stateful, not countable: a `/// ```text` block's *closing* fence
+# is bare and indistinguishable from a doc-test's by pattern alone. Halving
+# the bare-fence count therefore counted every text block as one phantom
+# doc-test (found 2026-08-09: four ```text blocks in prog.rs inflated 7 to
+# 9). Walk the fences and count only blocks whose OPENING fence is bare —
+# the only kind rustdoc runs in this crate.
+doc="$(cat crates/kernel-core/src/*.rs | awk '
+	/^[[:space:]]*\/\/\/ ```/ {
+		if (open) { open = 0; next }
+		open = 1
+		tag = $0
+		sub(/^[[:space:]]*\/\/\/ ```/, "", tag)
+		if (tag == "") { n++ }
+		next
+	}
+	END { print n + 0 }')"
 actual=$((unit + integration + doc))
 [[ "${unit}" -gt 0 ]] || fail "found no #[test] attributes under crates/kernel-core/src"
 

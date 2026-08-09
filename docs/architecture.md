@@ -81,6 +81,7 @@ is named, gated, and demonstrable rather than implied by a large ABI.
 │  Kernel policy                                           │
 │  bootstrap · loader · console_loop · sched · ipc · time  │
 │  console · agent · mm (frames, aspace) · taskcap · status│
+│  naming · storage · durable (P5/P2 service state)        │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
@@ -148,8 +149,10 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
    compiled, and is checked: `make product-builds` refuses one that still
    carries the demo strings.
 
-   That build also reports a number worth reading: **36 items are unreachable
-   without the oracle**, down from 95. `bootstrap::loader` is product code and
+   That build also reports a number worth reading: how many items are
+   unreachable without the oracle (69 as of 2026-08-09; the number is
+   reprinted by every `make product-builds` run, which is the source to
+   trust over this sentence). `bootstrap::loader` is product code and
    calls `sched::spawn_with_slots`, `AddressSpace`, `Agent` and the EL0 session, so
    they finally have a product-path caller (ADR-0021).
 
@@ -211,7 +214,7 @@ live in bootstrap.
 | Task (M3)  | Schedulable EL1 entity + private stack                                                                                                                                                                                      | **done (HW)**                                         |
 | Agent      | A **pair**: an EL1 driver task and the EL0 program it drives ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)). Multi-SVC, IRQ resume, console via `SYS_SEND`, PL011 RX own, and a recv it can wait on | **done (HW)**                                         |
 | Message    | Sole interaction channel (M4)                                                                                                                                                                                               | **done (HW)**                                         |
-| Capability | Unforgeable handle (send/recv; IRQ notification QEMU — [ADR-0030](adr/0030-el0-irq-capability.md); channel revoke QEMU — [ADR-0032](adr/0032-k3-channel-revoke.md))                                                         | **done (HW)** send/recv; **done (QEMU)** IRQ + revoke |
+| Capability | Unforgeable handle (send/recv; IRQ notification — [ADR-0030](adr/0030-el0-irq-capability.md); channel revoke — [ADR-0032](adr/0032-k3-channel-revoke.md))                                                         | **done (HW)** (stamp 2026-08-08; status SSOT is [roadmap.md](roadmap.md)) |
 | Manifest   | The table that says which agents exist and what each is granted ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md))                                                                                                   | **done (HW)**                                         |
 
 `irq::register` is the hook for later capability mediation.
@@ -282,7 +285,7 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
 | **H1 next**                  | P3\|P4 only with composition (deferred) · SD power-cycle · IRQ preemption                                                                                         |
-| **H2 depth**                 | K4 IRQ preemption residual; K7/K8 code after design ADRs                                                                                                          |
+| **H2 depth**                 | K4 IRQ preemption residual; K7 first slice done (HW); K8 code after design ADR                                                                                    |
 | **open (kernel)**            | K4 IRQ preemption _code_, K7 residuals / K8 code                                                                                                                  |
 | **open (product)**           | P2 SD residual, P3/P4 deferred (ADR-0049)                                                                                                                         |
 

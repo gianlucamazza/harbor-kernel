@@ -5,6 +5,7 @@ status: accepted
 date: 2026-08-09
 accepted: 2026-08-09
 related: [0017, 0055, 0058, 0062]
+amended: 2026-08-09
 ---
 
 # ADR-0063: Capability slots as a pure table
@@ -37,6 +38,12 @@ slot **decision**:
   (`CapId::classify`, ADR-0059's one decoder), destination bounds and
   occupancy, the same-slot no-op. Returns the moved cap.
 - `drain` — take and clear a task's row on exit, for hold release.
+
+> **Amendment (2026-08-09, reconciliation per ADR-0058 — same-day, reconciled
+> by the landing commit `cdcc9b7`).** The API also exposes `transfer_bounds`,
+> the bounds half of `transfer` callable on its own: the ABI refuses
+> out-of-range slots *before* the kernel's destination-liveness check, so the
+> kernel asks bounds → liveness → full transfer — one owner, called twice.
 
 The kernel keeps what a pure table cannot know: **who** is asking (current
 task), whether the destination task is live (`Tasks::state`, epoch-checked

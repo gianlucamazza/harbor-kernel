@@ -130,11 +130,11 @@ section below records for HW stamps).
 | ADR-0044            | K5 thin stacks                                | `density: thin n=3 bytes_each=8192` (QEMU; Pi stamp 2026-08-08)                                                                                                                                                                                  |
 | ADR-0045            | P2 durable region                             | `durable: reloaded` (QEMU; Pi stamp 2026-08-08)                                                                                                                                                                                                  |
 | ADR-0046            | K4 cooperative budget                         | `budget: rotated` (QEMU; Pi stamp 2026-08-08). EL1 workers only — the budget does not cover a spinning EL0 agent; `SECURITY.md`'s attacker-model row says so                                                                                     |
-| ADR-0047 + ADR-0050 | K7 ASID first slice                           | `asid: dual a=… b=… ok`, with `asid: LEAK` / `asid: dual FAILED` asserted absent. **QEMU-only** — and ASID/`nG`/TLB tagging is squarely in "what emulation cannot catch" below, so the HW TLB stamp is the K7 residual, not a formality          |
+| ADR-0047 + ADR-0050 | K7 ASID first slice                           | `asid: dual a=… b=… ok`, with `asid: LEAK` / `asid: dual FAILED` asserted absent. QEMU + **Pi stamp 2026-08-09** (`20260809-100645.log` — earned the hard way: the first silicon boot was red, see the hardware-evidence section). Switch-cost measurement is the remaining residual          |
 | ADR-0051            | K4 IRQ preemption                             | Design only — no evidence expected until code lands. Its "what must be re-audited" list includes the taskcap lookup/move windows (ADR-0057)                                                                                                      |
-| ADR-0052            | P5 resolve-grant                              | `resolve-grant: refused` + `el0-resolve: ok` under a granted task (QEMU-only)                                                                                                                                                                    |
-| ADR-0054            | K3 peer transfer                              | `el0-xfer-peer: ok` / `refused` / `donor emptied` (QEMU-only)                                                                                                                                                                                    |
-| ADR-0055            | Transfer band filter                          | `xfer-peer: band refused` — a live task-cap moved as the object refuses (QEMU)                                                                                                                                                                   |
+| ADR-0052            | P5 resolve-grant                              | `resolve-grant: refused` + `el0-resolve: ok` under a granted task (QEMU + Pi stamp 2026-08-09)                                                                                                                                                                    |
+| ADR-0054            | K3 peer transfer                              | `el0-xfer-peer: ok` / `refused` / `donor emptied` (QEMU + Pi stamp 2026-08-09)                                                                                                                                                                                    |
+| ADR-0055            | Transfer band filter                          | `xfer-peer: band refused` — a live task-cap moved as the object refuses (QEMU + Pi stamp 2026-08-09)                                                                                                                                                                   |
 | ADR-0056            | IPC ABI capacities                            | `make doc-claims` compares `src/ipc/mod.rs` constants to the ADR's table                                                                                                                                                                         |
 | ADR-0057            | Task-cap lifecycle                            | `xfer-peer: stale refused` end-to-end; `mint FAILED`, `STALE MOVED` asserted absent; generation-wrap bound host-tested (the `STALE-TASKCAP` cross-check was deleted by ADR-0062: the epoch in the task identity makes its state unrepresentable) |
 | ADR-0059            | Typed cap classification                      | quadrant + payload host tests in `kernel_core::cap`; band-refusal tests and `xfer-peer: band refused` unchanged                                                                                                                                  |
@@ -646,8 +646,8 @@ Representative lines (host timestamps from `serial-capture`):
 handshake incomplete on this boot (`rx own short` / incomplete — not a reopen
 of M6 if prior stamps hold); true SD power-cycle of the durable section not
 re-read after power loss; peer transfer / resolve-grant landed **after** this
-stamp and are QEMU-only (ADR-0052/0054 — see the evidence index by ADR; a HW
-stamp for them is the K3/P5 residual).
+stamp and were QEMU-only at the time (ADR-0052/0054) — closed by the
+2026-08-09 stamp below.
 
 ## Hardware evidence: the loader and the park, on silicon (2026-08-07)
 
@@ -1763,7 +1763,9 @@ ticks=10
 ([ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md) — boot-check
 `ipc: auto-reaped cancelled`); channel revoke ([ADR-0032](adr/0032-k3-channel-revoke.md)
 — `ipc: release stale refused`); EL0 `SYS_WAIT_IRQ` ([ADR-0030](adr/0030-el0-irq-capability.md)).
-**Still open:** K2 timeout queue; K3 cap transfer; full H1 path on the
+Both were closed by the 2026-08-08 depth stamp (`ipc: auto-reaped
+cancelled`, `ipc: release stale refused`, `el0-irq: woke` on silicon — see
+the H1 sections above); what remains open lives in one place, the
 [completeness roadmap](roadmap.md).
 
 ## Hardware evidence: K7 ASID slice + early-map retirement closed on silicon (2026-08-09)

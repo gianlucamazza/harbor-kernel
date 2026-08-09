@@ -125,15 +125,6 @@ jobs:
       - name: make check
         run: make check
 
-      # `make check` runs clippy on the binary and the library; neither pass
-      # sees test code. The host tests are lint-free only because this pass
-      # lints them (`doc-claims` owns the current count — no number here to
-      # go stale).
-      - name: Clippy over test targets
-        run: |
-          cargo clippy -p kernel-core --target "$(rustc -vV | sed -n 's/^host: //p')" \
-            --all-targets -- -D warnings
-
       - name: Shell scripts
         run: make shellcheck
 

@@ -9,7 +9,7 @@
 # landed without joining it, which is how a new authority object went
 # unmutated for a day (excellence review 2026-08-08, F-7).
 #
-# `cargo-mutants` exits 3 whenever anything survived, and seventeen things do:
+# `cargo-mutants` exits 3 whenever anything survived, and nineteen things do:
 # unreachable defensive branches, boundary guards, model-check-guarded arms,
 # and a handful of *equivalent* mutants (`1 << 0` → `1 >> 0`; `|` → `^` on
 # disjoint bits). `docs/verification.md` argues each one. A target that is red every time is a
