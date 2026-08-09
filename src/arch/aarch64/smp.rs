@@ -26,6 +26,13 @@ static secondary_seen: AtomicU64 = AtomicU64::new(0);
 
 static CORE1_ALIVE: AtomicBool = AtomicBool::new(false);
 
+/// Kernel page-table root PA for the secondary, published + cleaned to PoC by
+/// the primary before SEV. Must not use [`mmu::kernel_root_phys`] alone on the
+/// secondary while its MMU is still off: that read is Device-nGnRnE and will
+/// not snoop the primary's write-back line (HW timeout, `seen=0` if the core
+/// only entered via the spin-table and then halted on a zero root).
+static SECONDARY_ROOT_PHYS: AtomicU64 = AtomicU64::new(0);
+
 /// Core 1 stack storage. Must live in **BSS** (writable): a zeroed
 /// `static` of this size was landing in `.rodata`, and the secondary's first
 /// spill faulted before `CORE1_ALIVE` could be set.
@@ -48,17 +55,30 @@ static CORE1_KER_STACK: Core1Stack = Core1Stack([0; 16 * 1024]);
 /// Called only on affinity 1, with IRQs masked, before any other core-1 code.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn secondary_main() -> ! {
-    // SAFETY: primary published a non-zero root before writing secondary_entry[1].
-    let root = match mmu::kernel_root_phys() {
-        Some(r) => r as u64,
-        None => cpu::halt(),
+    // Prefer the handoff word the primary cleaned to PoC; fall back to the
+    // mmu ROOT only if somehow already coherent (e.g. both caches off).
+    let root = match SECONDARY_ROOT_PHYS.load(Ordering::Acquire) {
+        0 => match mmu::kernel_root_phys() {
+            Some(r) => r as u64,
+            None => cpu::halt(),
+        },
+        r => r,
     };
+    if root == 0 {
+        cpu::halt();
+    }
     // SAFETY: same tables primary activated; identity-mapped text/data.
     unsafe {
         mmu::enable_existing(root);
     }
     exception::init();
     CORE1_ALIVE.store(true, Ordering::Release);
+    // Make the alive flag visible to the primary (Normal WB, both MMUs on —
+    // hardware coherency; still clean to PoC for belt-and-braces).
+    unsafe {
+        cache::clean_dcache_poc(core::ptr::addr_of!(CORE1_ALIVE) as usize, 8);
+        core::arch::asm!("dsb ish", options(nostack, preserves_flags));
+    }
     // IRQs stay masked; WFE until SEV (none expected) — pure park.
     loop {
         cpu::wait_for_event();
@@ -88,6 +108,11 @@ pub fn unpark_core1() -> bool {
         fn secondary_el2_entry();
     }
     let entry = secondary_el2_entry as *const () as usize as u64;
+    let Some(root) = mmu::kernel_root_phys() else {
+        return false;
+    };
+    // Handoff root first — secondary must see this with MMU off.
+    SECONDARY_ROOT_PHYS.store(root as u64, Ordering::Release);
     // Path A: secondaries already in `secondary_wait` (real start4.elf).
     secondary_entry[1].store(entry, Ordering::Release);
     // Path B: QEMU / firmware spin-table (PA in low RAM, mapped "low RAM").
@@ -100,18 +125,12 @@ pub fn unpark_core1() -> bool {
     unsafe {
         core::ptr::write_volatile(CORE1_MBOX3_SET as *mut u32, entry as u32);
     }
-    // Publish cacheable stores to PoC before SEV: secondaries may still have
-    // the MMU off (Device-nGnRnE view) and will not snoop our WB lines.
-    // SAFETY: both ranges are mapped Normal (entry table in .bss, spin PA in
-    // low RAM).
+    // Publish every cacheable handoff word to PoC before SEV.
+    // SAFETY: all Normal-mapped (ROOT handoff + entry table in BSS; spin PA).
     unsafe {
-        let entry_va = core::ptr::addr_of!(secondary_entry[1]) as usize;
-        cache::clean_dcache_poc(entry_va, 8);
+        cache::clean_dcache_poc(core::ptr::addr_of!(SECONDARY_ROOT_PHYS) as usize, 8);
+        cache::clean_dcache_poc(core::ptr::addr_of!(secondary_entry[1]) as usize, 8);
         cache::clean_dcache_poc(QEMU_SPIN_CORE1, 8);
-        // Also clean the entry *code* path secondaries will fetch after br —
-        // their I-cache is cold, but D/I non-coherence still applies once they
-        // enable caches in enable_existing; the entry itself is RO text already
-        // coherent after primary's boot. SEV after PoC clean is the gate.
         core::arch::asm!("dsb ish", "sev", options(nostack, preserves_flags));
     }
 
