@@ -14,7 +14,8 @@
 //! operation never reached. On one core the two are indistinguishable, so
 //! nothing chose between them — the local forms were simply what got typed, and
 //! `mmu::publish_and_invalidate` had already picked `vaae1is` for its per-page
-//! path. Matching them costs nothing with the secondary cores parked in `wfe`
+//! path. Matching them costs nothing while non-primary cores are idle (`wfe`;
+//! core 1 may be unparked into an idle loop — ADR-0070 — cores 2–3 stay parked)
 //! and stops being free of consequence the day one of them starts.
 
 use core::arch::asm;

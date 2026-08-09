@@ -8,14 +8,17 @@ amended: 2026-08-09
 related: [0006, 0046, 0026]
 ---
 
-# ADR-0051: IRQ preemption design (K4 residual — design accepted, code deferred)
+# ADR-0051: IRQ preemption design (K4 — design; code in ADR-0064 / ADR-0068)
 
 ## Acceptance status
 
-**Accepted as design** (2026-08-08). Does **not** implement IRQ-side context
-switches. [ADR-0006](0006-cooperative-execution-model.md) remains in force until
-a follow-on **code** ADR supersedes it. Cooperative budget
-([ADR-0046](0046-k4-cooperative-cpu-budget.md)) stays the product fairness path.
+**Accepted as design** (2026-08-08). Code landed in
+[ADR-0064](0064-k4-el0-preemption-first-slice.md) (EL0) and
+[ADR-0068](0068-k4-el1-preemption-second-slice.md) (EL1), both **done (HW)**.
+This ADR remains the design record; [ADR-0006](0006-cooperative-execution-model.md)
+is partially superseded for the IRQ-epilogue path (device handlers still never
+switch). Cooperative budget ([ADR-0046](0046-k4-cooperative-cpu-budget.md))
+remains the voluntary fairness path under the same quantum arithmetic.
 
 ## Context
 

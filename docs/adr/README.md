@@ -67,10 +67,10 @@ the code that follows.
 | [0045](0045-p2-durable-store.md)                             | P2 residual — durable keyed store region                                                     | accepted   |
 | [0046](0046-k4-cooperative-cpu-budget.md)                    | K4 first slice — cooperative CPU budget                                                      | accepted   |
 | [0047](0047-k7-asid-isolation-design.md)                     | K7 design — ASID isolation                                                                   | accepted   |
-| [0048](0048-k8-smp-design.md)                                | K8 design — SMP (code deferred)                                                              | accepted   |
+| [0048](0048-k8-smp-design.md)                                | K8 design — SMP (first code: 0070)                                                           | accepted   |
 | [0049](0049-deferred-residuals.md)                           | Deferred residuals — peer transfer, resolve-grant, P3/P4, #14                                | accepted   |
 | [0050](0050-k7-asid-first-slice.md)                          | K7 first slice — ASID pool, CONTEXTIDR, nG user leaves                                       | accepted   |
-| [0051](0051-k4-irq-preemption-design.md)                     | K4 design — IRQ-side preemption (code deferred)                                              | accepted   |
+| [0051](0051-k4-irq-preemption-design.md)                     | K4 design — IRQ-side preemption (code: 0064/0068)                                            | accepted   |
 | [0052](0052-p5-resolve-grant.md)                             | P5 residual — resolve grant (non-ambient SYS_RESOLVE)                                        | accepted   |
 | [0053](0053-k3-peer-transfer-design.md)                      | K3 design — peer transfer via task-cap                                                       | accepted   |
 | [0054](0054-k3-peer-transfer-first-slice.md)                 | K3 first slice — peer transfer via task-cap                                                  | accepted   |

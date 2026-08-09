@@ -354,9 +354,9 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0046](adr/0046-k4-cooperative-cpu-budget.md)                    | K4 cooperative budget (**accepted**)                                                                                           |
 | [ADR-0047](adr/0047-k7-asid-isolation-design.md)                     | K7 ASID design (**accepted**)                                                                                                  |
 | [ADR-0050](adr/0050-k7-asid-first-slice.md)                          | K7 first slice — ASID pool + CONTEXTIDR (**accepted**)                                                                         |
-| [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**) — code deferred                                                                                   |
+| [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                      |
 | [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                       |
-| [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**) — code deferred                                                                        |
+| [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md) |
 | [ADR-0052](adr/0052-p5-resolve-grant.md)                             | P5 resolve grant (**accepted**)                                                                                                |
 | [ADR-0053](adr/0053-k3-peer-transfer-design.md)                      | K3 peer transfer design (**accepted**)                                                                                         |
 | [ADR-0054](adr/0054-k3-peer-transfer-first-slice.md)                 | K3 peer transfer first slice (**accepted**)                                                                                    |

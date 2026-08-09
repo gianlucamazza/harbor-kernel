@@ -7,7 +7,7 @@ accepted: 2026-08-08
 related: [0006, 0026]
 ---
 
-# ADR-0048: SMP design (K8 — design accepted, code deferred)
+# ADR-0048: SMP design (K8 — design; first code in ADR-0070)
 
 ## Acceptance status
 

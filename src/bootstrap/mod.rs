@@ -463,7 +463,8 @@ pub fn run() -> ! {
 
     console_loop::heap_check(&mut uart);
 
-    // Shared TX for idle + worker tasks (cooperative only; serialized in with_tx).
+    // Shared TX for idle + worker tasks (serialized in with_tx; not a claim
+    // that the whole kernel is cooperative-only — see K4 preemption).
     console::install_tx(uart);
 
     // Console channel (M8): send end is what agents (and the loader's `held`
