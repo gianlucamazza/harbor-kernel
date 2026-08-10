@@ -83,7 +83,7 @@ Linux-like process model.
 
 | Decision | Choice |
 | --- | --- |
-| Scope | Add stack class **`Mini`** (usable **2 KiB** + guard); pure density accounting; product/loader **may** prefer Thin/Mini for shallow agents; oracle reports class costs |
+| Scope | Add stack class **`Mini`** (one **4 KiB** page, **no** unmapped guard — see code ADR-0086; 2 KiB+guard is impossible on a 4 KiB granule); pure density accounting; product/loader **may** prefer Thin/Mini for shallow agents; oracle reports class costs |
 | Non-scope | Shared driver pool (K5-H); session-as-schedulable (K5-B); TTBR1; agent steal; dynamic stack growth |
 | Default `spawn*` | Remain **Full** (no silent shrink of deep drivers / demos) |
 | New API | `spawn_mini` / class parameter; loader policy table for agent bodies |
@@ -98,10 +98,11 @@ gates before re-opening session ownership, park identity, and creator/fault
 referents (K5-H/B). ADR-0023 already forbids sneaking pair collapse in as a
 side effect.
 
-**Why Mini = 2 KiB:** between Thin (4 KiB) and “too small for any SVC path”;
-first code must **fault-probe or oracle-stress** the driver loop depth under
-Mini (or refuse Mini for resuming multi-SVC agents if unsafe). Code ADR may
-narrow Mini to EL1-only short workers if EL0 session depth exceeds 2 KiB.
+**Why Mini = no-guard single page (not 2 KiB + hole):** the page is the
+unmap granule; a half-page guard cannot be unmapped. Mini therefore drops the
+guard page and keeps one full usable page (half of Thin’s heap). First code
+restricts Mini to short EL1 workers (`spawn_mini`); multi-SVC agent drivers
+stay Full/Thin.
 
 ### 5. K5-H constraints (design only — not first code)
 

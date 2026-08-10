@@ -277,9 +277,9 @@ as amended by [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)).
 it enters EL0, handles each SVC, resumes, and returns when the session ends. So
 what `sched` admits and switches to is the _driver_, not the EL0 context —
 and an agent costs one of `MAX_TASKS` slots plus a kernel stack (default
-**Full** 16 KiB; **Thin** 4 KiB via [ADR-0044](adr/0044-k5-agent-density.md);
-**Mini** 2 KiB is the next **K5-S** code under
-[ADR-0085](adr/0085-k5-density-residual-design.md)) on top of its address space,
+**Full** 16 KiB; **Thin** 4 KiB + guard via [ADR-0044](adr/0044-k5-agent-density.md);
+**Mini** 4 KiB **no guard** via [ADR-0086](adr/0086-k5-mini-stack-first-slice.md)
+(**K5-S**, policy [ADR-0085](adr/0085-k5-density-residual-design.md))) on top of its address space,
 however small its program. Collapsing or multiplexing the driver half is
 **K5-H/B** (deferred; same ADR) — not “raise `MAX_TASKS`.”
 
@@ -363,9 +363,9 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | Snapshot                     | Tracks                                                                                                                                                            |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
-| **H1 next**                  | P3\|P4 only with composition (deferred) · K5-S Mini code ([ADR-0085](adr/0085-k5-density-residual-design.md))                                                      |
-| **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1 done (HW); option C + ASID; K7 residual ADR-0084; K5 residual ADR-0085 (K5-S next; K5-H/B later)                                              |
-| **open (kernel)**            | K5-S Mini code; K5-H/B if trigger (0085); K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                                                          |
+| **H1 next**                  | P3\|P4 only with composition (deferred) · K5-S Mini HW stamp                                                                                                       |
+| **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1 done (HW); K5-S Mini done (QEMU) ADR-0086; K7 residual ADR-0084; K5-H/B later (0085)                                                          |
+| **open (kernel)**            | K5-S HW stamp; K5-H/B if trigger (0085); K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                                                            |
 | **open (product)**           | P3/P4 deferred (ADR-0049); denser composition after K5-S                                                                                                            |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
@@ -430,6 +430,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0050](adr/0050-k7-asid-first-slice.md)                          | K7 first slice — ASID pool + CONTEXTIDR (**accepted**); done (HW)                                                                                      |
 | [ADR-0084](adr/0084-k7-residual-policy.md)                           | K7 residual policy — measure / TTBR1 triggers / rollover (**accepted**)                                                                                |
 | [ADR-0085](adr/0085-k5-density-residual-design.md)                   | K5 density residual — K5-S/H/B split; Mini first code (**accepted**)                                                                                    |
+| [ADR-0086](adr/0086-k5-mini-stack-first-slice.md)                    | K5-S Mini stacks — one page, no unmapped guard (**accepted**)                                                                                           |
 | [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                                              |
 | [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                                               |
 | [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md) |

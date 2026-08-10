@@ -300,8 +300,12 @@ fn spawn_on_inner(
         return Err(SpawnError::TooManyCaps);
     }
 
-    let usable = density::usable_bytes(class);
-    let stack = TaskStack::allocate(usable).map_err(SpawnError::Stack)?;
+    let stack = if matches!(class, StackClass::Mini) {
+        TaskStack::allocate_mini().map_err(SpawnError::Stack)?
+    } else {
+        let usable = density::usable_bytes(class);
+        TaskStack::allocate(usable).map_err(SpawnError::Stack)?
+    };
 
     let mut held = [None; MAX_CAPS_PER_TASK];
     held[..slots.len()].copy_from_slice(slots);
@@ -439,6 +443,14 @@ pub fn spawn_thin(entry: fn()) -> Result<TaskId, SpawnError> {
     spawn_with_class(entry, &[], StackClass::Thin)
 }
 
+/// Mini-stack spawn (ADR-0085 **K5-S** / ADR-0086) — 2 KiB usable + guard.
+///
+/// For short EL1 workers that yield/exit. Do not use for deep multi-SVC agent
+/// driver loops (stack overflow risk).
+pub fn spawn_mini(entry: fn()) -> Result<TaskId, SpawnError> {
+    spawn_with_class(entry, &[], StackClass::Mini)
+}
+
 /// Create a ready task holding `caps` from slot 0 upwards (M4).
 ///
 /// Convenience over [`spawn_with_slots`] for the common case where the slots
@@ -487,8 +499,12 @@ fn spawn_inner(
         return Err(SpawnError::TooManyCaps);
     }
 
-    let usable = density::usable_bytes(class);
-    let stack = TaskStack::allocate(usable).map_err(SpawnError::Stack)?;
+    let stack = if matches!(class, StackClass::Mini) {
+        TaskStack::allocate_mini().map_err(SpawnError::Stack)?
+    } else {
+        let usable = density::usable_bytes(class);
+        TaskStack::allocate(usable).map_err(SpawnError::Stack)?
+    };
 
     let mut held = [None; MAX_CAPS_PER_TASK];
     held[..slots.len()].copy_from_slice(slots);

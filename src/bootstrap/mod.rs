@@ -819,10 +819,13 @@ pub fn run() -> ! {
         // ADR-0043 / K9 residual: IRQ-cap device wait is proven sequentially
         // inside irq_wait_task (one waiter per cookie — no concurrent race).
 
-        // ADR-0044 / K5: thin-stack density workers.
+        // ADR-0044 / K5 + ADR-0086 / K5-S: thin + mini density workers.
+        // Census is fixed-size: do **not** raise MAX_TASKS for denser demos
+        // (ADR-0085). Two of each class keeps the same slot budget as the
+        // former three thin workers plus one spare for later oracles.
         {
             let mut n = 0u32;
-            for _ in 0..3 {
+            for _ in 0..2 {
                 match crate::sched::spawn_thin(demos::density_thin_task) {
                     Ok(_) => n += 1,
                     Err(_) => break,
@@ -830,6 +833,17 @@ pub fn run() -> ! {
             }
             let each = kernel_core::density::bytes_per_task(kernel_core::density::StackClass::Thin);
             crate::kprintln!("density: thin n={n} bytes_each={each}");
+        }
+        {
+            let mut n = 0u32;
+            for _ in 0..2 {
+                match crate::sched::spawn_mini(demos::density_mini_task) {
+                    Ok(_) => n += 1,
+                    Err(_) => break,
+                }
+            }
+            let each = kernel_core::density::bytes_per_task(kernel_core::density::StackClass::Mini);
+            crate::kprintln!("density: mini n={n} bytes_each={each}");
         }
 
         // ADR-0066 / P2: durable store on true media. The card's partition

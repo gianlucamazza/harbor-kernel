@@ -334,6 +334,9 @@ assert_boot_oracle() {
 	# ADR-0044 / K5: thin stack density.
 	grep -qaE 'density: thin n=[1-9]' "${log}" ||
 		fail "thin-stack density workers did not spawn (ADR-0044)"
+	# ADR-0086 / K5-S: mini stack density (2 KiB usable).
+	grep -qaE 'density: mini n=[1-9]' "${log}" ||
+		fail "mini-stack density workers did not spawn (ADR-0086)"
 	# ADR-0045 / P2 durable reload.
 	grep -qa 'durable: reloaded' "${log}" ||
 		fail "durable store did not round-trip (ADR-0045)"

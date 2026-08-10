@@ -94,7 +94,7 @@ Snapshot, 2026-08-10 — status of record is [`docs/roadmap.md`](docs/roadmap.md
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Foundation**      | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits                                                                            |
 | **H1 slices**       | done (HW): wait-on-IRQ (**K1**), auto-reap (**K2**), RNG (**K9**), supervisor (**K10**), names ambient era (**P5**) · done (QEMU): store (**K6**), revoke + peer transfer (**K3**), multi-agent (**P1**), resolve-grant (**P5**), compose (**P6**) |
-| **Next**            | K5-S Mini code ([ADR-0085](docs/adr/0085-k5-density-residual-design.md)) · optional K7-M · TTBR1 only if trigger — [roadmap](docs/roadmap.md)                                                                                                  |
+| **Next**            | K5-S Mini **HW stamp** ([ADR-0086](docs/adr/0086-k5-mini-stack-first-slice.md) done QEMU) · K5-H/B if trigger · optional K7-M — [roadmap](docs/roadmap.md)                                                                                    |
 | **Not yet (later)** | P3–P4 · H3 L1+, …                                                                                                                                                                 |
 
 **What works today (short list):** preemptible tasks (voluntary yield +
@@ -110,7 +110,7 @@ auto-reap (ephemeral channels); channel revoke (stale CapId refused).
 | Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068; CPU1 EL1+EL0 **done (HW)** ADR-0079/0081); K8 through steal **done (HW)** ADR-0070…0083; product default home still CPU 0 |
 | Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade                                     |
 | Product OS   | Multi-agent store composition (QEMU); broader services **open**                                                                                                                            |
-| Verification | 461 host tests, model checks, Miri, QEMU and hardware stamps                                                                                                                               |
+| Verification | 463 host tests, model checks, Miri, QEMU and hardware stamps                                                                                                                               |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

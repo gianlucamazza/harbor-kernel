@@ -1283,6 +1283,11 @@ pub(super) fn density_thin_task() {
     crate::sched::yield_now();
 }
 
+/// ADR-0086 / K5-S: mini-stack worker — same shape as thin (one yield then exit).
+pub(super) fn density_mini_task() {
+    crate::sched::yield_now();
+}
+
 /// Heartbeat of the EL1 spinner (ADR-0068): advances only while A runs.
 static PREEMPT_EL1_HEART: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 /// Stop word for the spinner; set by the peer once rotation is proven.
