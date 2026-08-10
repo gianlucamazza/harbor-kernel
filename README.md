@@ -45,30 +45,6 @@ permanent demo: [ADR-0026](docs/adr/0026-kernel-and-product-completeness.md).
 page carries a snapshot, never a second table. Product shape and use cases:
 [`docs/vision.md`](docs/vision.md).
 
-## Technology stack
-
-| Layer    | Choice                                                                                |
-| -------- | ------------------------------------------------------------------------------------- |
-| Language | Rust, edition 2024, `no_std`, **zero dependencies**                                   |
-| Target   | `aarch64-unknown-none-softfloat` (pinned toolchain, `panic = "abort"`)                |
-| Platform | Raspberry Pi 4B / BCM2711, AArch64, **dual-current** (product home CPU 0)             |
-| Build    | `make` over `cargo`; `kernel8.img` at `0x80000`, EL2 → EL1h                           |
-| Model    | Cooperative tasks · slot-indexed capabilities · agent = EL1 driver task + EL0 program |
-| Evidence | Host tests · Miri · QEMU oracles in `make check`; Pi 4B serial stamps by hand         |
-
-Full stack, including what is deliberately **not** in it:
-[`docs/stack.md`](docs/stack.md).
-
-## Who this is for
-
-**For:** people building or studying isolation and capability systems on bare
-metal, and anyone who wants a composable appliance OS on a Pi 4 rather than a
-distro to strip down.
-
-**Not for:** Linux/POSIX or driver-compatibility work, cloud hypervisors, or
-LLM/agent chat frameworks. Those are out of model, not backlog
-([`docs/vision.md`](docs/vision.md#who-this-is-for)).
-
 ## How it works
 
 In a conventional OS a process is usually both isolated and scheduled. In Harbor
@@ -86,34 +62,58 @@ decides the task’s fate.
 Full contrast:
 [architecture § How Harbor differs](docs/architecture.md#how-harbor-differs-from-a-traditional-kernel).
 
-## Where we are
+## Technology stack
 
-Snapshot, 2026-08-10 — status of record is [`docs/roadmap.md`](docs/roadmap.md).
+| Layer    | Choice                                                                                |
+| -------- | ------------------------------------------------------------------------------------- |
+| Language | Rust, edition 2024, `no_std`, **zero dependencies**                                   |
+| Target   | `aarch64-unknown-none-softfloat` (pinned toolchain, `panic = "abort"`)                |
+| Platform | Raspberry Pi 4B / BCM2711, AArch64, **dual-current** (product home CPU 0)             |
+| Build    | `make` over `cargo`; `kernel8.img` at `0x80000`, EL2 → EL1h                           |
+| Model    | Cooperative tasks · slot-indexed capabilities · agent = EL1 driver task + EL0 program |
+| Evidence | Host tests · Miri · QEMU oracles in `make check`; Pi 4B serial stamps by hand         |
 
-|                     |                                                                                                                                                                                                                                                    |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Foundation**      | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits                                                                            |
-| **H1 slices**       | done (HW): wait-on-IRQ (**K1**), auto-reap (**K2**), RNG (**K9**), supervisor (**K10**), names ambient era (**P5**) · done (QEMU): store (**K6**), revoke + peer transfer (**K3**), multi-agent (**P1**), resolve-grant (**P5**), compose (**P6**) |
-| **Next**            | Product evidence hygiene · K5-H/B if trigger ([ADR-0085](docs/adr/0085-k5-density-residual-design.md)) · optional K7-M — [roadmap](docs/roadmap.md)                                                                                        |
-| **Not yet (later)** | P3–P4 · H3 L1+, …                                                                                                                                                                 |
+Full stack, including what is deliberately **not** in it:
+[`docs/stack.md`](docs/stack.md).
 
-**What works today (short list):** preemptible tasks (voluntary yield +
-IRQ-epilogue quantum preemption, EL0+EL1 on both cores); dual-current SMP
-through steal (`smp: core1 alive` / `ipi` / `ran` / `steal ok` on HW); message
-IPC; EL0 agents with private memory and per-CPU publish; least-privilege
-console; PL011 driver-agent; product composition via injected store; density
-stack classes Full / Thin / **Mini** (`density: mini n=` on HW); EL1+EL0 IRQ
-wait; last-SEND-hold auto-reap; channel revoke (stale CapId refused).
+## Current status
 
-| Area         | State                                                                                                                                                                                      |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Platform     | AArch64 Pi 4B (quad-core; dual-current schedule, product home CPU 0), early MMU, W^X, heap, guarded stacks                                                                                 |
-| Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068; CPU1 EL1+EL0 **done (HW)**); K8 through steal **done (HW)**; K5-S Mini **done (HW)**; product default home still CPU 0 |
-| Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade                                     |
-| Product OS   | Multi-agent store composition (QEMU); broader services **open** (P3/P4 deferred)                                                                                                           |
-| Verification | 463 host tests, model checks, Miri, QEMU and hardware stamps                                                                                                                               |
+Snapshot, 2026-08-10. The status of record is
+[`docs/roadmap.md`](docs/roadmap.md) — per-track state lives there and nowhere
+else; what follows is a summary, not a second ledger.
+
+| Horizon                             | State                                                     |
+| ----------------------------------- | --------------------------------------------------------- |
+| **H0 — Foundation**                 | **complete on Pi 4B**                                     |
+| **H1 — Composition / appliance OS** | **done (HW)** — stamp 2026-08-08; residuals carry into H2 |
+| **H2 — Boundary OS**                | later — P3–P4, H3 L1+, … still open                       |
+
+Next: product evidence hygiene · K5-H/B if trigger
+([ADR-0085](docs/adr/0085-k5-density-residual-design.md)) · optional K7-M —
+[roadmap](docs/roadmap.md).
+
+**Working today (high level).** Preemptible tasks on both cores — voluntary
+yield plus IRQ-epilogue quantum preemption, EL0+EL1 — with dual-current SMP
+through steal; message IPC and EL0 agents with private memory, slot
+capabilities, revoke and auto-reap; a least-privilege console and a PL011
+driver-agent; product composition via an injected store, with density stack
+classes Full / Thin / **Mini** stamped on hardware.
+
+| Evidence     | Today                                                        |
+| ------------ | ------------------------------------------------------------ |
+| Verification | 463 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
+
+## Who this is for
+
+**For:** people building or studying isolation and capability systems on bare
+metal, and anyone who wants a composable appliance OS on a Pi 4 rather than a
+distro to strip down.
+
+**Not for:** Linux/POSIX or driver-compatibility work, cloud hypervisors, or
+LLM/agent chat frameworks. Those are out of model, not backlog
+([`docs/vision.md`](docs/vision.md#who-this-is-for)).
 
 ## What we are not
 
@@ -136,7 +136,7 @@ make qemu         # boot in QEMU
 make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence, then clippy
 ```
 
-On a Pi 4B (FAT boot partition + 3.3 V USB-serial):
+On a Pi 4B (FAT boot partition + 3.3 V USB-serial):
 
 ```bash
 make blobs
