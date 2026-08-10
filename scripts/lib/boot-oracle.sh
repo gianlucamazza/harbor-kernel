@@ -69,6 +69,12 @@ assert_boot_oracle() {
 		fail "RNG200 probe line missing (expected ok or unavailable)"
 	grep -qa 'fully reclaimed' "${log}" ||
 		fail "the allocator did not return freed memory"
+	# Bring-up cost on the board's own clock. Shape only: an emulator starved by
+	# its host and a cold Pi produce wildly different numbers, and pinning one
+	# would make this an assertion about the *host*. What it does catch is the
+	# line disappearing, which is how a phase mark gets lost in a refactor.
+	grep -qaE 'boot: mmu=[0-9]+ ms discover=[0-9]+ ms ready=[0-9]+ ms' "${log}" ||
+		fail "boot timing line missing or malformed: $(grep -a '^boot: ' "${log}" || echo '(no line)')"
 	# `mmu::unmap` (and the L2→L3 split when the heap is a block) then remap.
 	# Failure prints `unmap: FAILED` / `remap FAILED`; silence would mean a hang
 	# on the first post-unmap access instead.
@@ -435,6 +441,11 @@ assert_boot_oracle() {
 	build_line="$(grep -a '^build: ' "${log}" || true)"
 	[[ -n "${build_line}" ]] ||
 		fail "the image did not declare its feature set (no 'build:' line)"
+	# …and which tree it was built from. `nogit` is a legitimate answer (a
+	# source tarball, a build outside the repo); an absent field is not, because
+	# then a transcript cited by an ADR cannot be tied to a commit at all.
+	[[ "${build_line}" == *" src="* ]] ||
+		fail "the image did not declare its source id: ${build_line}"
 	if [[ "${build_line}" == *"debug-display"* ]]; then
 		grep -qa '^display: ' "${log}" ||
 			fail "image says debug-display, but the panel never came up: ${build_line}"

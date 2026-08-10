@@ -6,8 +6,11 @@
 //! writable *and* executable, guard page covered by nothing — is arithmetic,
 //! and is checked by tests that need no board.
 
+use core::sync::atomic::{AtomicU64, Ordering};
+
 use kernel_core::layout::{self, Boundaries, DeviceWindow, GuardedStack, LayoutError, Region};
 
+use crate::arch::mmu;
 use crate::bsp::board::memmap;
 
 unsafe extern "C" {
@@ -126,6 +129,80 @@ pub const fn empty_region() -> Region {
         perms: kernel_core::paging::Perms::RW,
         name: "unused",
     }
+}
+
+/// The bounds bootstrap chose, kept so a fault can be located after the fact.
+///
+/// The region table is a pure function of these two numbers plus the linker
+/// symbols, so nothing else needs storing: [`describe_address`] rebuilds it on
+/// demand rather than holding a copy that could drift from the map actually
+/// installed.
+static MAPPED_HEAP_END: AtomicU64 = AtomicU64::new(0);
+static MAPPED_FRAME_END: AtomicU64 = AtomicU64::new(0);
+
+/// Record what [`kernel_regions`] was called with, once the map is live.
+pub fn record_bounds(heap_end: u64, frame_pool_end: u64) {
+    MAPPED_HEAP_END.store(heap_end, Ordering::Relaxed);
+    MAPPED_FRAME_END.store(frame_pool_end, Ordering::Release);
+}
+
+/// Locate an address for a fault report.
+///
+/// Two questions, in this order, because they disagree in the case that
+/// matters most. *Does it translate?* is asked of the hardware walker, which
+/// knows about the guard pages `TaskStack::allocate` unmaps after the kernel
+/// map was built. *Which region does it belong to?* is asked of the region
+/// table, which does not — it still calls that range "heap", because that is
+/// where the guard was carved from.
+///
+/// Asking only the second question is how a stack overflow gets reported as an
+/// ordinary heap access, which is what the first version of this function did.
+pub fn describe_address(addr: u64) -> AddressNote {
+    let translates = mmu::translates(addr);
+    if addr >= guard_page() && addr < guard_page() + kernel_core::paging::PAGE_SIZE {
+        return AddressNote::BootstrapGuard;
+    }
+    let frame_end = MAPPED_FRAME_END.load(Ordering::Acquire);
+    let heap_end = MAPPED_HEAP_END.load(Ordering::Relaxed);
+    if frame_end == 0 {
+        return AddressNote::Unknown;
+    }
+    let mut buffer = [empty_region(); MAX_REGIONS];
+    let Ok(regions) = kernel_regions(heap_end, frame_end, &mut buffer) else {
+        return AddressNote::Unknown;
+    };
+    for region in regions.iter() {
+        if addr >= region.base && addr < region.base + region.len {
+            return if translates {
+                AddressNote::In(region.name, region.perms)
+            } else {
+                AddressNote::UnmappedInside(region.name)
+            };
+        }
+    }
+    if translates {
+        AddressNote::MappedOutsideTable
+    } else {
+        AddressNote::Unmapped
+    }
+}
+
+/// What [`describe_address`] found.
+pub enum AddressNote {
+    /// Translates, and the region table names it.
+    In(&'static str, kernel_core::paging::Perms),
+    /// Inside a named region but with no translation — a hole punched after
+    /// the map was built. For the heap that means a task-stack guard page.
+    UnmappedInside(&'static str),
+    /// The bootstrap stack's guard page, unmapped by the map itself (ADR-0006).
+    BootstrapGuard,
+    /// No translation and no region.
+    Unmapped,
+    /// Translates but belongs to no region the table knows — a mapping made
+    /// outside the kernel layout, which is worth saying out loud.
+    MappedOutsideTable,
+    /// Asked before the map was built, so no honest answer exists.
+    Unknown,
 }
 
 /// Address of the guard page, for diagnostics.

@@ -9,6 +9,10 @@ pub use frame::TrapFrame;
 // used to carry byte-identical private copies of both.
 pub use handlers::{read_esr_el1, read_far_el1};
 
+// The syndrome of the last fatal trap, for the panic path: naming the faulting
+// address needs the region table, which `arch` may not import (rule 3).
+pub use handlers::last_fault;
+
 // `TRAP_FRAME_SIZE` comes from `frame.rs`, so the assembly reserves exactly
 // what the Rust struct needs and the compiler checks it — the two used to
 // carry independent constants (`.equ … 0x110` and an `assert!(… == 264)`)

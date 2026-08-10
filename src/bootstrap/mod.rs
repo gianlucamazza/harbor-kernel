@@ -123,7 +123,21 @@ pub fn run() -> ! {
     // invocation nobody can read afterwards, and the symptom of the wrong image
     // is a panel that stays dark — which looks exactly like broken hardware.
     // Cost: one line. What it replaces: guessing.
-    println!(uart, "build: {}", build_features());
+    // `src=` is `git describe --always --dirty` at compile time (build.rs).
+    // The feature word says what the image *does*; the source id says what it
+    // was built *from*, which is what a transcript cited by an ADR needs in
+    // order to be evidence about a specific tree rather than about "a build".
+    println!(
+        uart,
+        "build: {} src={} {}",
+        build_features(),
+        env!("HARBOR_SOURCE_ID"),
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        }
+    );
 
     exception::init();
 
@@ -184,6 +198,9 @@ pub fn run() -> ! {
     if let Err((error, region)) = unsafe { mmu::activate(regions) } {
         refuse_to_boot(&mut uart, format_args!("could not map {region}: {error:?}"))
     }
+    // The map is live: remember the two bounds it was built from, so a later
+    // fault can be told which region its address belongs to.
+    mm::layout::record_bounds(heap_end as u64, frame_end as u64);
 
     // `activate` returning `Ok` is not the same as the MMU being on. The claim
     // printed below is about the hardware, so it is read back from `SCTLR_EL1`
@@ -201,6 +218,10 @@ pub fn run() -> ! {
         mm::layout::guard_page(),
         mmu::tables_remaining()
     );
+    // Phase marks for the `boot:` timing line at the end of bring-up. Sampled
+    // here rather than derived from the console timestamps, which belong to
+    // the host and only exist when someone was capturing.
+    let mmu_at = timer::physical_count();
 
     // Why the board came up, read before anything else can obscure it.
     //
@@ -317,6 +338,7 @@ pub fn run() -> ! {
     // secondary_wait counter — that stays 0 under QEMU -kernel).
     let smp_seen = 1u64 + u64::from(core1);
     discover::report(&mut uart, dtb_mapped, smp_seen);
+    let discover_at = timer::physical_count();
 
     // Every later spawn may cost a table (guard unmap splits a 2 MiB heap
     // block; the arena never frees). Check *after* the DTB map so the reserve
@@ -994,6 +1016,20 @@ pub fn run() -> ! {
         "arena: {} splits, {} tables free",
         mmu::splits(),
         mmu::tables_free()
+    );
+
+    // How long the phases above took, on the board's own clock. The serial
+    // transcript carries host timestamps, but only when someone captured it
+    // with `serial-capture`; a log read on its own could not answer "is this
+    // slow?" at all. `CNTPCT` runs from reset, so these are milliseconds since
+    // the counter started, not since power — which is what a comparison
+    // between two boots of the same image needs.
+    let hz = timer::frequency_hz();
+    crate::kprintln!(
+        "boot: mmu={} ms discover={} ms ready={} ms",
+        kernel_core::delay::counts_to_ms(hz, mmu_at),
+        kernel_core::delay::counts_to_ms(hz, discover_at),
+        kernel_core::delay::counts_to_ms(hz, timer::physical_count())
     );
 
     // Idle body — never returns (ADR-0006).

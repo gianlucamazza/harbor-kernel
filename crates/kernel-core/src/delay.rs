@@ -43,6 +43,23 @@ pub const fn us_to_counts(freq_hz: u64, us: u32) -> u64 {
     ns_to_counts(freq_hz, ns)
 }
 
+/// Milliseconds that `counts` ticks represent at `freq_hz`, truncated.
+///
+/// The inverse direction of [`ms_to_counts`], for reporting elapsed time
+/// rather than waiting: a boot phase measured in counter ticks means nothing
+/// to a reader, and dividing by the frequency in the caller is how a
+/// two-boot comparison ends up off by a factor of the clock.
+///
+/// Truncates rather than rounding up: an elapsed report must not claim a
+/// millisecond that has not finished. Zero frequency yields zero, because a
+/// counter whose rate is unknown measures nothing.
+pub const fn counts_to_ms(freq_hz: u64, counts: u64) -> u64 {
+    if freq_hz == 0 {
+        return 0;
+    }
+    ((counts as u128) * 1_000 / (freq_hz as u128)) as u64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +106,27 @@ mod tests {
     fn us_scale() {
         assert_eq!(us_to_counts(1_000_000, 1), 1);
         assert_eq!(us_to_counts(54_000_000, 1), 54);
+    }
+
+    #[test]
+    fn counts_to_ms_is_the_inverse_of_ms_to_counts() {
+        let hz = 54_000_000;
+        assert_eq!(counts_to_ms(hz, ms_to_counts(hz, 250)), 250);
+        assert_eq!(counts_to_ms(hz, 0), 0);
+        // Truncates: 999 ticks at 1 kHz is 999 ms, not 1 s.
+        assert_eq!(counts_to_ms(1_000, 999), 999);
+        // A partial millisecond is not yet a millisecond.
+        assert_eq!(counts_to_ms(1_000_000, 999), 0);
+    }
+
+    #[test]
+    fn counts_to_ms_without_a_known_frequency_measures_nothing() {
+        assert_eq!(counts_to_ms(0, 12_345), 0);
+    }
+
+    #[test]
+    fn counts_to_ms_does_not_overflow_on_a_full_counter() {
+        // u64 counts * 1000 overflows u64; the u128 intermediate must not.
+        assert!(counts_to_ms(54_000_000, u64::MAX) > 0);
     }
 }

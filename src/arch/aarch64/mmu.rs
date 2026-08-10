@@ -707,6 +707,38 @@ unsafe fn enable_translation() {
     }
 }
 
+/// Ask the MMU whether `va` translates, using the hardware walker.
+///
+/// `AT S1E1R` runs the same stage-1 walk a load would, and `PAR_EL1.F` says
+/// whether it faulted — so this answers about the table that is *installed*,
+/// not about the table someone believes was installed. That distinction is the
+/// whole point here: task-stack guard pages are unmapped after the map is
+/// built (ADR-0006), so a region table lookup would confidently place a stack
+/// overflow "inside the heap", which is where the guard was carved from.
+///
+/// Read permission only: a write fault to a read-only page still translates,
+/// and the syndrome already says it was a permission fault. Diagnostics only —
+/// nothing maps or unmaps based on this.
+pub fn translates(va: u64) -> bool {
+    // SAFETY: `AT` performs a walk with no architectural side effects beyond
+    // writing `PAR_EL1`, which nothing else in the kernel reads across this
+    // sequence. `isb` orders the walk before the `PAR_EL1` read.
+    let par: u64 = unsafe {
+        let value: u64;
+        core::arch::asm!(
+            "at s1e1r, {va}",
+            "isb",
+            "mrs {out}, par_el1",
+            va = in(reg) va,
+            out = out(reg) value,
+            options(nostack, preserves_flags),
+        );
+        value
+    };
+    // PAR_EL1.F: 0 = translation succeeded.
+    par & 1 == 0
+}
+
 /// Bytes of the table arena still unused. Zero means the next map fails.
 pub fn tables_remaining() -> usize {
     cpu::without_irqs(|| {

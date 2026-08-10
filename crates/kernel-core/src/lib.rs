@@ -45,6 +45,7 @@ pub mod density;
 pub mod display;
 pub mod durable;
 pub mod durable_media;
+pub mod fault;
 pub mod fdt;
 pub mod font8x8;
 pub mod frame;
