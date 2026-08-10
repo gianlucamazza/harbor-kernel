@@ -11,20 +11,7 @@
 #   fail <msg>          — report and exit non-zero
 #   on_timer_missed     — verdict for a `timer: MISSED` line (an emulator can
 #                         be starved by its host; silicon cannot)
-#   on_deadline_missed  — verdict for every *other* assertion whose subject is
-#                         "did this happen fast enough": unpark, IPI, pinned
-#                         run, rotation, spinner exit, steal (ADR-0087)
 # before calling `assert_boot_oracle`.
-#
-# The split is between two kinds of claim, not two levels of strictness. `MMU
-# on` is structural: a host that ran slowly still gets the line, so its absence
-# is the kernel's fault on any host. `preempt-el1-cpu1: spinner exited` is a
-# deadline: the spinner exits *within* a bounded number of watcher yields, and
-# a host that gave the emulator a tenth of a core can miss it with nothing
-# wrong in the kernel. Reporting the second as FAIL is how a gate teaches
-# people to ignore it. The runner decides the verdict because only the runner
-# knows what the host gave it — which is why silicon, where the excuse does not
-# exist, points both hooks at `fail`.
 
 assert_boot_oracle() {
 	# The caller's side of the contract, enforced: a missing log or a missing
@@ -36,10 +23,6 @@ assert_boot_oracle() {
 	}
 	declare -F on_timer_missed >/dev/null || {
 		echo "assert_boot_oracle: caller must define on_timer_missed()" >&2
-		exit 2
-	}
-	declare -F on_deadline_missed >/dev/null || {
-		echo "assert_boot_oracle: caller must define on_deadline_missed()" >&2
 		exit 2
 	}
 	# Each assertion covers a distinct subsystem, so a failure localises itself.
@@ -138,7 +121,7 @@ assert_boot_oracle() {
 	observed="$(grep -aoE '^task-[ab] [0-9]+' "${log}" | tr '\n' ' ' || true)"
 	expected="task-a 0 task-b 0 task-a 1 task-b 1 task-a 2 task-b 2 task-a 3 task-b 3 "
 	[[ "${observed}" == "${expected}" ]] ||
-		on_deadline_missed "task output not interleaved: ${observed}"
+		fail "task output not interleaved: ${observed}"
 	if grep -qa 'spawn task-a FAILED' "${log}" || grep -qa 'spawn task-b FAILED' "${log}"; then
 		fail "cooperative task spawn failed"
 	fi
@@ -392,53 +375,53 @@ assert_boot_oracle() {
 	# and this claim is strictly stronger (rotation without cooperation).
 	# ADR-0070 / K8 first slice: core 1 left WFE and signalled alive.
 	grep -qa 'smp: core1 alive' "${log}" ||
-		on_deadline_missed "core 1 did not unpark (ADR-0070): $(grep -a 'smp:' "${log}" | head -1)"
+		fail "core 1 did not unpark (ADR-0070): $(grep -a 'smp:' "${log}" | head -1)"
 	grep -qa 'smp: core1 timeout' "${log}" &&
-		on_deadline_missed "core 1 unpark timed out (ADR-0070)"
+		fail "core 1 unpark timed out (ADR-0070)"
 	# ADR-0074 / K8 second slice: core 1 took SGI 0 from the primary.
 	grep -qa 'smp: core1 ipi' "${log}" ||
-		on_deadline_missed "core 1 did not handle the wake SGI (ADR-0074): $(grep -a 'smp:' "${log}" | head -3)"
+		fail "core 1 did not handle the wake SGI (ADR-0074): $(grep -a 'smp:' "${log}" | head -3)"
 	grep -qa 'smp: core1 ipi timeout' "${log}" &&
-		on_deadline_missed "core 1 wake SGI timed out (ADR-0074)"
+		fail "core 1 wake SGI timed out (ADR-0074)"
 	grep -qa 'smp: core1 ipi skipped' "${log}" &&
 		fail "core 1 IPI probe skipped because IRQs were unbound (ADR-0074)"
 	# ADR-0076 / K8 third slice: pinned worker ran on CPU 1 (primary prints).
 	grep -qa 'smp: core1 ran' "${log}" ||
-		on_deadline_missed "core 1 did not run a pinned task (ADR-0076): $(grep -a 'smp:' "${log}" | head -5)"
+		fail "core 1 did not run a pinned task (ADR-0076): $(grep -a 'smp:' "${log}" | head -5)"
 	grep -qa 'smp: core1 ran timeout' "${log}" &&
-		on_deadline_missed "core 1 pinned task timed out (ADR-0076)"
+		fail "core 1 pinned task timed out (ADR-0076)"
 	grep -qa 'preempt-el1: rotated' "${log}" ||
-		on_deadline_missed "EL1 preemption did not rotate the non-yielding spinner (ADR-0068)"
+		fail "EL1 preemption did not rotate the non-yielding spinner (ADR-0068)"
 	grep -qa 'preempt-el1: spinner exited' "${log}" ||
-		on_deadline_missed "the preempted EL1 spinner did not observe the stop word and exit (ADR-0068)"
+		fail "the preempted EL1 spinner did not observe the stop word and exit (ADR-0068)"
 	# ADR-0079 / K8: EL1 quantum preemption on CPU 1 (local CNTP + epilogue).
 	grep -qa 'preempt-el1-cpu1: rotated' "${log}" ||
-		on_deadline_missed "EL1 preemption on CPU 1 did not rotate the non-yielding spinner (ADR-0079)"
+		fail "EL1 preemption on CPU 1 did not rotate the non-yielding spinner (ADR-0079)"
 	grep -qa 'preempt-el1-cpu1: spinner exited' "${log}" ||
-		on_deadline_missed "the CPU1 preempted EL1 spinner did not exit after the stop word (ADR-0079)"
+		fail "the CPU1 preempted EL1 spinner did not exit after the stop word (ADR-0079)"
 	grep -qa 'preempt-el1-cpu1: peer gave up' "${log}" &&
-		on_deadline_missed "CPU1 EL1 preemption peer gave up (ADR-0079)"
+		fail "CPU1 EL1 preemption peer gave up (ADR-0079)"
 	grep -qa 'preempt-el1-cpu1: watch timeout' "${log}" &&
-		on_deadline_missed "CPU1 EL1 preemption watch timed out (ADR-0079)"
+		fail "CPU1 EL1 preemption watch timed out (ADR-0079)"
 	# ADR-0081 / K8: EL0 session + quantum preemption on CPU 1.
 	grep -qa 'preempt-el0-cpu1: rotated' "${log}" ||
-		on_deadline_missed "EL0 preemption on CPU 1 did not rotate the non-yielding spinner (ADR-0081)"
+		fail "EL0 preemption on CPU 1 did not rotate the non-yielding spinner (ADR-0081)"
 	grep -qa 'preempt-el0-cpu1: spinner exited' "${log}" ||
-		on_deadline_missed "the CPU1 preempted EL0 spinner did not exit after the stop word (ADR-0081)"
+		fail "the CPU1 preempted EL0 spinner did not exit after the stop word (ADR-0081)"
 	grep -qa 'preempt-el0-cpu1: peer gave up' "${log}" &&
-		on_deadline_missed "CPU1 EL0 preemption peer gave up (ADR-0081)"
+		fail "CPU1 EL0 preemption peer gave up (ADR-0081)"
 	grep -qa 'preempt-el0-cpu1: watch timeout' "${log}" &&
-		on_deadline_missed "CPU1 EL0 preemption watch timed out (ADR-0081)"
+		fail "CPU1 EL0 preemption watch timed out (ADR-0081)"
 	# ADR-0083 / K8: work steal — victim admitted on CPU0 only, ran on affinity 1.
 	grep -qa 'smp: steal ok' "${log}" ||
-		on_deadline_missed "work steal did not run a CPU0-only worker on affinity 1 (ADR-0083)"
+		fail "work steal did not run a CPU0-only worker on affinity 1 (ADR-0083)"
 	grep -qa 'smp: steal timeout' "${log}" &&
-		on_deadline_missed "work steal oracle timed out (ADR-0083)"
+		fail "work steal oracle timed out (ADR-0083)"
 	# ADR-0064 / K4: IRQ preemption — a non-syscalling EL0 spinner loses the CPU.
 	grep -qa 'preempt: rotated' "${log}" ||
-		on_deadline_missed "IRQ preemption did not rotate the EL0 spinner (ADR-0064)"
+		fail "IRQ preemption did not rotate the EL0 spinner (ADR-0064)"
 	grep -qa 'preempt: spinner exited' "${log}" ||
-		on_deadline_missed "the preempted spinner did not observe the stop word and exit (ADR-0064)"
+		fail "the preempted spinner did not observe the stop word and exit (ADR-0064)"
 
 	# ADR-0021: agents are data, and authority is one entry in a table.
 	#
@@ -463,7 +446,7 @@ assert_boot_oracle() {
 	grep -qa 'loader: mute ran sends=0 refusals=2' "${log}" ||
 		fail "the ungranted manifest agent was not refused the console"
 	grep -qa 'H!loader: beacon ran' "${log}" ||
-		on_deadline_missed "the manifest agent's bytes did not reach the console before its report"
+		fail "the manifest agent's bytes did not reach the console before its report"
 
 	# Neither of the other two should move in a healthy boot: nothing here fills a
 	# mailbox, and a refusal for `state` means an endpoint resolved and then named a

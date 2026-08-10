@@ -20,8 +20,45 @@ use crate::drivers::pl011::Pl011;
 use crate::mm;
 use crate::println;
 use crate::sched;
+use crate::time;
 use kernel_core::paging::Perms;
 use kernel_core::syscall::{self, Syscall};
+
+/// Guest time a **cross-core** oracle wait is given, in timer ticks (10 Hz).
+///
+/// A wait for another core's progress cannot be bounded in yields. The yields
+/// are this core's, and how many of them fit before the other core makes its
+/// next step is a property of the host's scheduler, not of the kernel: under
+/// TCG the vCPU threads are multiplexed, and CPU 0 can spin through thousands
+/// of cheap yields while CPU 1's thread has not been picked once. That is how
+/// `preempt-el1-cpu1: spinner exit timeout` reached CI while the same image
+/// passed every run on a workstation (ADR-0087).
+///
+/// Ticks are the guest's own clock, so this bound means the same thing on
+/// every host. Same-core waits stay counted in yields: there the budget
+/// measures the very core whose progress is in question.
+const CROSS_CORE_WAIT_TICKS: u64 = 10;
+
+/// Yield ceiling for a tick-bounded wait, so a stopped tick counter is a
+/// failure rather than a hang. Reaching it is a different bug from timing out.
+const CROSS_CORE_WAIT_CEILING: u32 = 2_000_000;
+
+/// Yield until `f()` or the guest clock has advanced [`CROSS_CORE_WAIT_TICKS`].
+///
+/// `true` if the condition held in time.
+fn wait_ticks_for(f: impl Fn() -> bool) -> bool {
+    let deadline = time::ticks() + CROSS_CORE_WAIT_TICKS;
+    for _ in 0..CROSS_CORE_WAIT_CEILING {
+        if f() {
+            return true;
+        }
+        if time::ticks() >= deadline {
+            return false;
+        }
+        sched::yield_now();
+    }
+    false
+}
 
 /// Slot every demo task keeps its console capability in.
 ///
@@ -1390,33 +1427,20 @@ pub(super) fn preempt_el1_cpu1_peer() {
 /// proves rotation (or gives up) and the spinner has exited.
 pub(super) fn preempt_el1_cpu1_watch() {
     use core::sync::atomic::Ordering;
-    let mut saw_result = false;
-    for _ in 0..8192 {
-        match PREEMPT_EL1_CPU1_RESULT.load(Ordering::Acquire) {
-            1 => {
-                crate::kprintln!("preempt-el1-cpu1: rotated");
-                saw_result = true;
-                break;
-            }
-            2 => {
-                crate::kprintln!("preempt-el1-cpu1: peer gave up");
-                saw_result = true;
-                break;
-            }
-            _ => crate::sched::yield_now(),
-        }
-    }
-    if !saw_result {
+    // Both waits are for CPU 1's progress, watched from CPU 0: bounded in
+    // guest time, not in this core's yields (ADR-0087).
+    if !wait_ticks_for(|| PREEMPT_EL1_CPU1_RESULT.load(Ordering::Acquire) != 0) {
         crate::kprintln!("preempt-el1-cpu1: watch timeout");
         PREEMPT_EL1_CPU1_STOP.store(1, Ordering::Release);
         return;
     }
-    for _ in 0..4096 {
-        if PREEMPT_EL1_CPU1_EXITED.load(Ordering::Acquire) != 0 {
-            crate::kprintln!("preempt-el1-cpu1: spinner exited");
-            return;
-        }
-        crate::sched::yield_now();
+    match PREEMPT_EL1_CPU1_RESULT.load(Ordering::Acquire) {
+        1 => crate::kprintln!("preempt-el1-cpu1: rotated"),
+        _ => crate::kprintln!("preempt-el1-cpu1: peer gave up"),
+    }
+    if wait_ticks_for(|| PREEMPT_EL1_CPU1_EXITED.load(Ordering::Acquire) != 0) {
+        crate::kprintln!("preempt-el1-cpu1: spinner exited");
+        return;
     }
     crate::kprintln!("preempt-el1-cpu1: spinner exit timeout");
 }
@@ -1502,32 +1526,18 @@ pub(super) fn el0_cpu1_peer() {
 /// ADR-0081: primary watcher — prints oracle lines for the CPU1 EL0 pair.
 pub(super) fn el0_cpu1_watch() {
     use core::sync::atomic::Ordering;
-    let mut saw = false;
-    for _ in 0..8192 {
-        match EL0_CPU1_RESULT.load(Ordering::Acquire) {
-            1 => {
-                crate::kprintln!("preempt-el0-cpu1: rotated");
-                saw = true;
-                break;
-            }
-            2 => {
-                crate::kprintln!("preempt-el0-cpu1: peer gave up");
-                saw = true;
-                break;
-            }
-            _ => crate::sched::yield_now(),
-        }
-    }
-    if !saw {
+    // Cross-core, so guest time bounds it — see `preempt_el1_cpu1_watch`.
+    if !wait_ticks_for(|| EL0_CPU1_RESULT.load(Ordering::Acquire) != 0) {
         crate::kprintln!("preempt-el0-cpu1: watch timeout");
         return;
     }
-    for _ in 0..4096 {
-        if EL0_CPU1_EXITED.load(Ordering::Acquire) != 0 {
-            crate::kprintln!("preempt-el0-cpu1: spinner exited");
-            return;
-        }
-        crate::sched::yield_now();
+    match EL0_CPU1_RESULT.load(Ordering::Acquire) {
+        1 => crate::kprintln!("preempt-el0-cpu1: rotated"),
+        _ => crate::kprintln!("preempt-el0-cpu1: peer gave up"),
+    }
+    if wait_ticks_for(|| EL0_CPU1_EXITED.load(Ordering::Acquire) != 0) {
+        crate::kprintln!("preempt-el0-cpu1: spinner exited");
+        return;
     }
     crate::kprintln!("preempt-el0-cpu1: spinner exit timeout");
 }
@@ -1556,12 +1566,11 @@ pub(super) fn steal_victim() {
 pub(super) fn steal_watch() {
     use core::sync::atomic::Ordering;
     crate::sched::mark_current_not_stealeable();
-    for _ in 0..16384 {
-        if STEAL_RAN.load(Ordering::Acquire) {
-            crate::kprintln!("smp: steal ok");
-            return;
-        }
-        crate::sched::yield_now();
+    // The victim runs on CPU 1: cross-core, so guest time bounds the wait
+    // (ADR-0087).
+    if wait_ticks_for(|| STEAL_RAN.load(Ordering::Acquire)) {
+        crate::kprintln!("smp: steal ok");
+        return;
     }
     crate::kprintln!("smp: steal timeout");
 }

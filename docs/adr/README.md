@@ -106,6 +106,7 @@ the code that follows.
 | [0084](0084-k7-residual-policy.md)                           | K7 residual policy — switch-cost evidence, TTBR1 triggers, ASID honesty                  | accepted   |
 | [0085](0085-k5-density-residual-design.md)                   | K5 density residual policy — K5-S/H/B split; Mini first code                             | accepted   |
 | [0086](0086-k5-mini-stack-first-slice.md)                    | K5-S first slice — Mini stacks (one page, no unmapped guard)                             | accepted   |
+| [0087](0087-oracle-waits-and-the-hosts-verdict.md) | Oracle waits in guest time; a starved host gets no verdict | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

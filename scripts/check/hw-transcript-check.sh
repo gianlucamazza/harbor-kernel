@@ -38,13 +38,6 @@ on_timer_missed() {
 	fail "timer deadlines expired unserviced on hardware"
 }
 
-on_deadline_missed() {
-	# Same reason, one level up (ADR-0087): the board owns its four cores and
-	# runs at their speed, so a rotation or an exit that did not happen in time
-	# there is the kernel's, and there is no third verdict to reach for.
-	fail "$1 — on hardware"
-}
-
 # shellcheck source=scripts/lib/boot-oracle.sh
 source "$(dirname "$0")/../lib/boot-oracle.sh"
 

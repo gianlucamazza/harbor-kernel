@@ -1,0 +1,141 @@
+---
+id: 0087
+title: Oracle waits are guest time, and a host that cannot host the question gets no verdict
+status: accepted
+date: 2026-08-10
+accepted: 2026-08-10
+related: [0008, 0022, 0064, 0066, 0068, 0070, 0074, 0076, 0079, 0081, 0083]
+---
+
+# ADR-0087: oracle waits are guest time, and a starved host gets no verdict
+
+## Acceptance status
+
+**Accepted** (2026-08-10). Written after the repository owner asked for the CI
+red to be fixed and the design completed, and delegated the call: the two
+decisions below — what an oracle wait is counted in, and who is to blame when a
+host could not host the question — were made on their behalf and are recorded
+here rather than left implicit in a script.
+
+Implemented in the same series: `src/bootstrap/demos.rs` (cross-core waits),
+`scripts/boot/qemu-boot-check.sh` (measurement and verdict).
+`scripts/lib/boot-oracle.sh` is **unchanged** — deliberately, see §3.
+
+## Context
+
+`make check`'s richest gate boots the kernel under QEMU and asserts a hundred
+lines of a healthy run. It has always had a third verdict — `INDETERMINATE`,
+exit 3 — for the case where the emulator was starved by its host, on the
+argument that _an emulator can be starved by its host; silicon cannot_. That
+verdict was wired to exactly one line, `timer: MISSED`.
+
+Three things came out of a CI red that would not reproduce anywhere else
+(`preempt-el1-cpu1: spinner exit timeout`, ADR-0079's oracle, green on this
+workstation and stamped on silicon):
+
+1. **The waits were counted in the wrong clock.** A CPU 0 task waiting for CPU
+   1 to make progress gave it a budget of 4096 `yield_now()` calls. How many of
+   this core's yields fit before the other core takes its next step is a
+   property of the _host's_ scheduler: under TCG the vCPU threads are
+   multiplexed, and CPU 0 can spin through thousands of cheap yields while CPU
+   1's thread has not been picked once. The claim being tested — the spinner
+   observes the stop word and exits — is real; the budget was not a bound on
+   anything the kernel controls.
+
+2. **The starvation measurement was wrong twice, and unmeasurable once.** It
+   read `/proc/self/stat` fields 15 and 16 — the shell's own stime plus the
+   children's utime — instead of cutime and cstime. Corrected, it still read
+   0.10 s for a full 15-second boot on CI, because the workflow wraps
+   `qemu-system-aarch64` in a script that `exec docker run`s an Arch container:
+   the emulator is not this shell's child at all, and no sampling of a pid we
+   own will ever see it.
+
+3. **The bar was picked, not measured.** "Under one whole core it cannot be
+   asked to meet a deadline" — while this laptop's build shim caps the slice at
+   exactly 1.00, so every local deadline failure would have been excused.
+
+## Decision
+
+### 1. A cross-core oracle wait is bounded in guest time
+
+Waits for _another core's_ progress are bounded by the guest's own tick counter
+(`CROSS_CORE_WAIT_TICKS`, ten ticks ≈ 1 s of guest time), with a yield ceiling
+underneath so a stopped tick counter is a failure rather than a hang. Ticks
+mean the same thing on every host; yields do not.
+
+Same-core waits stay counted in yields, and that is not an inconsistency: there
+the budget measures the very core whose progress is in question. Bring-up waits
+before the timer is live (`core1 alive`, `core1 ipi`, `core1 ran`) stay spin-
+bounded for the same reason — there is no guest clock yet.
+
+What this buys, on the quota ladder that measured it: the oracle set used to
+break below 0.37 of a core and now holds at 0.22. Half of what looked like the
+emulator needing CPU was the oracles needing the host's scheduler to be fair.
+
+### 2. Below the bar there is no verdict, for any assertion
+
+On a host that did not give the emulator enough CPU, **no** assertion is
+attributable to the kernel. A starved boot does not fail the rotation claim and
+pass the rest; it does not get far enough, and which line goes missing first is
+a property of the host.
+
+So the QEMU runner's `fail` consults the measured share: below
+`CORES_TO_BE_MEASURABLE` every failure is `INDETERMINATE` (exit 3, non-zero —
+an unestablished claim is not a pass), above it every failure is a plain red.
+
+The rejected alternative was a per-assertion split into "structural" and
+"deadline" claims, with only the second class excusable. It was implemented,
+and the quota ladder refuted it: every rung surfaced a new arrival-shaped
+assertion the classification had missed — the `task-a`/`task-b` interleave,
+then the agent's bytes arriving before its report, then the pl011 RX loopback,
+then the received payload. They were never a class. They were the assertions
+that happened to come first.
+
+### 3. The bar is measured, and the measurement says how it was taken
+
+`CORES_TO_BE_MEASURABLE` is 0.20 cores, one rung under the last clean run of a
+`CPUQuota` ladder recorded in the script. The share is read from the emulator's
+own `/proc/<pid>/stat` while it runs; when that reads _exactly_ zero — the
+docker-client case, where there is no process of ours to watch — the runner
+falls back to the host's `/proc/stat` busy delta and labels the number
+host-wide wherever it prints it. Never the other way round, and never on a
+merely small reading: a 10%-capped emulator still reports 0.10 of a core from
+its own entry, and letting a busy host's 1.54 host-wide cores overrule that was
+a real misfire on the ladder.
+
+Every verdict, red or indeterminate, prints the share it was decided on, and
+the clean line prints one per boot.
+
+### 4. Silicon has no verdict to soften
+
+`scripts/lib/boot-oracle.sh` — the single definition of "this boot is sound",
+shared verbatim by the QEMU gate and `hw-transcript-check.sh` — is untouched by
+all of this. The assertions do not know which runner is asking. Only the QEMU
+runner has a starved-host excuse to weigh; the board owns its four cores, so
+its `fail` is unconditional.
+
+## Consequences
+
+- A deadline failure on a starved host is exit 3, not exit 1. `make check` and
+  CI both still stop, and the operator is told which of the two happened.
+- The gate is honest about CI's container wrapper instead of silently reading
+  zero through it. If the fallback ever reads zero as well, the run says
+  "not credible — treat as unmeasured" rather than inventing starvation.
+- ADR-0079/0081/0083's claims are unchanged in content. What changed is the
+  clock their waits are counted in, so the same claim now means the same thing
+  on a workstation, in CI's container, and on the board.
+
+## Gates
+
+| Check       | Evidence                                                                                     |
+| ----------- | -------------------------------------------------------------------------------------------- |
+| QEMU        | `make boot-check` clean at 2.00 and at 0.22 cores; `INDETERMINATE` (exit 3) at 0.13 and 0.08 |
+| Measurement | Sampler agrees with `/usr/bin/time` on an identical run (1.89 vs 2.06 cores)                 |
+| HW          | `hw-transcript-check.sh` unchanged and still sharing every assertion                         |
+
+## Related
+
+- Masked regions and the mask that travels: [0022](0022-blocking-recv-and-the-mask-that-travels.md)
+- The oracles whose waits this re-clocks: [0079](0079-k8-per-core-timer-preemption-first-slice.md),
+  [0081](0081-k8-el0-on-cpu1-first-slice.md), [0083](0083-k8-work-stealing-first-slice.md)
+- Boot oracle and its two runners: [0066](0066-sd-media-durable-store.md)

@@ -132,27 +132,25 @@ fi
 # second of wall time.
 #
 # The threshold is measured, not guessed. Walking this gate down a `CPUQuota`
-# ladder on one idle machine, same image, same 15s window (2026-08-10):
+# ladder on one idle machine, same image, same 15s window (2026-08-10, after
+# the ADR-0087 cross-core waits were put on the guest clock):
 #
-#   2.03 cores  unthrottled          clean
-#   0.92        1-core slice cap     clean
-#   0.54        60% quota            clean
-#   0.37        40% quota            clean
-#   0.23        25% quota            FAIL — task output not interleaved
-#   0.13        15% quota            FAIL — agent bytes arrived after its report
+#   2.00 cores  unthrottled     clean
+#   0.22        25% quota       clean
+#   0.13        15% quota       the run no longer gets far enough
+#   0.08        10% quota       below the credible floor as well
 #
-# So the oracle set holds on roughly a third of a core and breaks below a
-# quarter. One whole core — the first version of this bar — would have called
-# every deadline failure on a laptop whose build shim caps the slice at 1.00
-# "indeterminate", which is the same as retiring the assertions on the machine
-# they run on most. 0.35 sits just under the last clean rung.
+# So the oracle set holds on a fifth of a core. It is worth recording what the
+# same ladder said *before* the oracles stopped counting cross-core waits in
+# yields: clean at 0.37, broken at 0.23. Half of what looked like the emulator
+# needing CPU was the oracles needing this host's scheduler to be fair.
 #
-# Guest tick reports were tried first and are the wrong signal: TCG drives the
-# guest timer from wall-clock time, so the count tracks how long the run lasted
-# rather than how much CPU it received. At a 20% quota the guest still reported
-# 12 ticks while running on a fifth of one core.
+# Guest tick reports were tried first as the starvation signal and are the
+# wrong one: TCG drives the guest timer from wall-clock time, so the count
+# tracks how long the run lasted rather than how much CPU it received. At a 20%
+# quota the guest still reported 12 ticks while running on a fifth of one core.
 clk_tck="$(getconf CLK_TCK 2>/dev/null || echo 100)"
-CORES_TO_BE_MEASURABLE=35 # 0.35 cores, one rung under the last clean run
+CORES_TO_BE_MEASURABLE=20 # 0.20 cores, just under the last clean rung
 
 # Below this the reading is not a small share, it is a failed measurement. A
 # guest that boots through to steady state costs the host seconds of CPU; an
@@ -204,10 +202,17 @@ run_boot() {
 
 	emulator_cores=$((RUN_CPU_HZ * 100 / (clk_tck * seconds)))
 	share_is_host_wide=0
-	if ((emulator_cores < CORES_TO_BE_CREDIBLE)); then
-		# The emulator was not ours to watch. Fall back to what the host as a
-		# whole burned, and say so — never silently, and never the other way
-		# round: a process we *can* see is always the better answer.
+	if ((RUN_CPU_HZ == 0)); then
+		# Exactly zero, not merely small: an emulator that ran for seconds
+		# always accumulates ticks, however starved — walking the quota ladder,
+		# a 10%-capped run still reported 0.10 of a core from its own entry.
+		# Zero means what we watched never executed, which is the docker-client
+		# case and nothing else. Falling back on "small" instead would let a
+		# busy host's 1.54 host-wide cores overrule a genuinely starved
+		# emulator's own 0.09 — seen, and the reason this reads `== 0`.
+		#
+		# Never the other way round: a process we *can* see is always the
+		# better answer, and the fallback says so wherever it is printed.
 		emulator_cores=$(((HOST_BUSY_HZ - busy_before) * 100 / (clk_tck * seconds)))
 		share_is_host_wide=1
 	fi
@@ -236,7 +241,28 @@ print_cpu_share() {
 		else echo "enough to meet deadlines"; fi)" >&2
 }
 
+# The runner's verdict on a failed assertion (ADR-0087).
+#
+# One rule, applied to every assertion rather than to a hand-picked list of the
+# timing-shaped ones: on a host that did not give the emulator enough CPU, *no*
+# assertion is attributable to the kernel. A starved boot does not fail the
+# rotation claim and pass the rest — it simply does not get far enough, and
+# which line goes missing first is a property of the host. Classifying
+# assertions as "structural" or "deadline" was tried and is whack-a-mole: the
+# quota ladder found a new arrival-shaped one on every rung (`task-a` interleave,
+# then agent bytes before the report, then pl011 RX loopback, then the received
+# payload). They were never a class; they were the assertions that happened to
+# come first.
+#
+# Above the bar the verdict is a plain red, exactly as before. Below it there is
+# no verdict to give, and saying so is the only honest answer.
+#
+# Silicon has no such excuse, which is why `hw-transcript-check.sh` shares the
+# assertions and keeps its own `fail`.
 fail() {
+	if [[ "${emulator_cores}" -lt "${CORES_TO_BE_MEASURABLE}" ]]; then
+		indeterminate "$1"
+	fi
 	echo "boot-check: FAIL — $1" >&2
 	print_cpu_share
 	echo "--- serial log ---" >&2
@@ -250,30 +276,12 @@ fail() {
 indeterminate() {
 	echo "boot-check: INDETERMINATE — $1" >&2
 	print_cpu_share
-	echo "  A deadline cannot be demanded of an emulator that did not get a core," >&2
-	echo "  nor of one whose share this host will not report. Re-run on an idle" >&2
-	echo "  machine — and note that a build shim or thermal governor that puts" >&2
-	echo "  the run in a throttled slice starves it just as effectively as a" >&2
-	echo "  busy one." >&2
+	echo "  The boot did not get the CPU to be judged on, so nothing it did or" >&2
+	echo "  did not print is the kernel's. Re-run on an idle machine — and note" >&2
+	echo "  that a build shim or thermal governor that puts the run in a" >&2
+	echo "  throttled slice starves it just as effectively as a busy one." >&2
 	echo "  This is not a kernel failure, and it is not a pass." >&2
 	exit 3
-}
-
-# The verdict for an assertion that can only be met by running fast enough:
-# timer deadlines, and every rotation or exit an oracle waits a bounded number
-# of yields for. `scripts/lib/boot-oracle.sh` decides *what* a sound boot says;
-# this decides who is to blame when a host could not host the question.
-#
-# Silicon has no such excuse, which is why `hw-transcript-check.sh` shares the
-# assertions and not this function (ADR-0087).
-deadline_verdict() {
-	if [[ "${emulator_cores}" -lt "${CORES_TO_BE_CREDIBLE}" ]]; then
-		indeterminate "$1, on a host that did not report what the emulator got"
-	fi
-	if [[ "${emulator_cores}" -lt "${CORES_TO_BE_MEASURABLE}" ]]; then
-		indeterminate "$1, on a host that starved the emulator"
-	fi
-	fail "$1, and the emulator had the CPU to meet it"
 }
 
 # The assertions themselves live in one place, shared with the hardware
@@ -282,12 +290,8 @@ deadline_verdict() {
 source "$(dirname "$0")/../lib/boot-oracle.sh"
 
 on_timer_missed() {
-	deadline_verdict "timer deadlines expired unserviced"
-}
-
-# Rotation and exit under preemption: same shape as the timer, same verdict.
-on_deadline_missed() {
-	deadline_verdict "$1"
+	# `fail` already asks whether this host could be judged at all.
+	fail "timer deadlines expired unserviced"
 }
 
 # Boot 1 on fresh media: the durable window exists and has never been
