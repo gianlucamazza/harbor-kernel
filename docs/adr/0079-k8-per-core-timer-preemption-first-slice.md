@@ -15,8 +15,10 @@ related: [0006, 0008, 0048, 0051, 0064, 0068, 0070, 0074, 0075, 0076, 0077, 0078
 [ADR-0078](0078-k8-per-core-timer-preemption-design.md): each schedulable
 CPU programs its own CNTP, secondary enables PPI 30, global ticks stay
 CPU0-only, and `el1_preempt_pending` evaluates per-CPU mirrors on both
-affinities. Status **done (QEMU)** with oracle `preempt-el1-cpu1: rotated`
-+ `spinner exited`. HW stamp residual (same gate via `hw-transcript-check`).
+affinities. Status **done (QEMU)** and **done (HW)** — Pi stamp 2026-08-10,
+transcript `.serial-log/20260810-132749.log` (`preempt-el1-cpu1: rotated` +
+`spinner exited` + `cpu: Cortex-A72 r0p3` + `CNTFRQ=54000000`;
+`hw-transcript-check` clean; build `src=385cccee`).
 
 ## Decision (what landed)
 
@@ -63,6 +65,10 @@ Primary K4 oracles (`preempt-el1:`, `preempt:`) unchanged.
 
 Gate: `boot-check` / `hw-transcript-check`. `MAX_TASKS` 43 → 46 (watcher +
 peer + spinner live across the ADR-0031 auto-reap spawn window).
+
+**HW stamp (2026-08-10):** transcript `.serial-log/20260810-132749.log` —
+`smp: core1 alive` + `ipi` + `ran` + `preempt-el1-cpu1: rotated` +
+`spinner exited` on Cortex-A72; primary K4 lines also clean on the same boot.
 
 ### 6. Residuals (honest)
 

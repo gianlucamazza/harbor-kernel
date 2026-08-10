@@ -114,8 +114,7 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 
 | Step | Track(s)                                             | Why now                                  |
 | ---- | ---------------------------------------------------- | ---------------------------------------- |
-| 1    | **K8** preempt-on-CPU1 **HW stamp** ([ADR-0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)) | QEMU paid; close silicon residual |
-| 2    | **K7** switch-cost / TTBR1 · **K5** driver-half · EL0-on-CPU1 | After or beside K8 HW stamp              |
+| 1    | **EL0-on-CPU1** · **K7** switch-cost / TTBR1 · **K5** driver-half | K8 preempt-on-CPU1 closed (HW)           |
 | —    | **K8** steal                                         | After sticky affinity + preempt-on-CPU1  |
 | —    | **H3 L1+** or deeper L0 (timer/sched)                 | After L0 gate; separate ADRs             |
 | —    | **P3** / **P4**                                      | Only with a named composition (ADR-0049) |
@@ -128,9 +127,10 @@ stamp 2026-08-10, transcript `20260810-130305.log`: `smp: core1 alive` +
 `ipi` + `ran`). P3/P4 deferred. P2 power-cycle **done (HW)** (2026-08-09).
 **H3 L0** **done (QEMU-x86)** ([ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)).
 **Discovery** **done (QEMU)** + **done (HW)** (ADR-0072/0073). **K8 per-core
-timer + EL1 preempt on CPU 1** **done (QEMU)**
-([ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md)/[0079](adr/0079-k8-per-core-timer-preemption-first-slice.md));
-**next:** HW stamp, then K7 measure / K5 density / EL0-on-CPU1 / steal.
+timer + EL1 preempt on CPU 1** **done (HW)**
+([ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md)/[0079](adr/0079-k8-per-core-timer-preemption-first-slice.md);
+stamp 2026-08-10, transcript `20260810-132749.log`: `preempt-el1-cpu1: rotated`
++ `spinner exited`). **Next:** EL0-on-CPU1 / steal / K7 measure / K5 density.
 
 ```text
 Mission: agents · grants · evidence · finish the OS
@@ -139,7 +139,7 @@ Mission: agents · grants · evidence · finish the OS
                 │
     H1 composition ████████ done (HW) stamp 2026-08-08
                 │
-    H2 boundary    ████████ K4+K8 queues HW; K8 preempt-cpu1 done (QEMU)
+    H2 boundary    ████████ K4+K8 preempt-cpu1 HW; residual steal/EL0-cpu1
                 │
     H3 host-class  █░░░░░░░ L0 done (QEMU-x86); L1+ open
 ```
