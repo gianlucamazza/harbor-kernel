@@ -1078,6 +1078,14 @@ pub fn run() -> ! {
             }
             Err(e) => crate::kprintln!("ipc: auto-reap channel FAILED {e:?}"),
         }
+
+        // ADR-0090 / K10 residual: force-exit Running EL0 — **last** among
+        // oracle demos so a long EL0 spin cannot interleave frame-pool free
+        // counts with `agents: concurrent` (false LEAK).
+        match crate::sched::spawn(demos::force_kill_supervisor) {
+            Ok(_) => crate::kprintln!("sched: spawned force-kill supervisor"),
+            Err(e) => crate::kprintln!("sched: spawn force-kill FAILED {e:?}"),
+        }
     }
 
     // Deliberate fault, last so the demo tasks are alive when it runs: the

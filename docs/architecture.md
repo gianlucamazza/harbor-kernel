@@ -302,7 +302,7 @@ Code is authoritative; this table is the map.
 
 | Bound | Value (today) | Owns | Note |
 | --- | ---: | --- | --- |
-| `sched::MAX_TASKS` | **52** | `src/sched/mod.rs` | Includes dual idle + oracle census; product image uses far fewer; **do not raise for density** (ADR-0085) |
+| `sched::MAX_TASKS` | **54** | `src/sched/mod.rs` | Includes dual idle + oracle census; product image uses far fewer; **do not raise for density** (ADR-0085) |
 | Stack classes | Full 20 KiB · Thin 8 KiB · Mini 4 KiB heap | `kernel_core::density` | Mini = one page, no unmapped guard (ADR-0086) |
 | Caps per task | **4** | `sched` / manifest | Slot ABI width |
 | Task-caps (system) | **32** | `kernel_core::taskcap` | Deliberately &lt; `MAX_TASKS` |
@@ -439,6 +439,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0087](adr/0087-oracle-waits-and-the-hosts-verdict.md)            | Oracle cross-core waits in guest time; a starved host earns no verdict (**accepted**)                                                                   |
 | [ADR-0088](adr/0088-product-home-cpu.md)                             | Product multi-core — manifest `home_cpu` + loader pin (**accepted**); done (QEMU)                                                                      |
 | [ADR-0089](adr/0089-k5-b-pair-collapse-design.md)                    | K5-B pair collapse design — session as schedulable; **no code** until trigger (**accepted**)                                                           |
+| [ADR-0090](adr/0090-k10-force-exit-running.md)                       | K10 force-exit Running at safe point (**accepted**); done (QEMU)                                                                                       |
 | [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                                              |
 | [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                                               |
 | [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md) |

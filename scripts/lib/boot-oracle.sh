@@ -252,6 +252,13 @@ assert_boot_oracle() {
 		fail "supervisor did not restart by re-spawn (ADR-0033)"
 	grep -qa 'supervised: cancelled' "${log}" ||
 		fail "supervised child did not observe Cancelled"
+	# ADR-0090 / K10 residual: force-exit a Running (non-Blocked) task.
+	grep -qaE 'force-kill: requested events=[1-9]' "${log}" ||
+		fail "force-kill supervisor did not request exit (ADR-0090)"
+	grep -qa 'force-kill: child forced' "${log}" ||
+		fail "force-kill child did not observe force_exit (ADR-0090)"
+	grep -qa 'force-kill: slot empty' "${log}" ||
+		fail "force-killed task slot was not reclaimed (ADR-0090)"
 	# ADR-0034 / K9: second driver-as-agent (RNG200 page); QEMU may fault the load.
 	grep -qaE 'rng-agent: map (read|fault) ok' "${log}" ||
 		fail "rng-agent did not exercise the Device page map (ADR-0034)"

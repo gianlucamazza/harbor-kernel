@@ -66,8 +66,9 @@ use crate::time;
 /// concurrent with the primary preempt pair and auto-reap spawns.
 /// 46 → 49 for ADR-0081: CPU1 EL0 preempt oracle (watcher + peer + spinner).
 /// 49 → 52 for ADR-0083: steal oracle (watch + two thin victims).
+/// 52 → 54 for ADR-0090: force-kill supervisor + EL0 spinner child (oracle tax).
 /// Raising it costs task stacks and page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 52;
+pub const MAX_TASKS: usize = 54;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -116,6 +117,8 @@ struct Tcb {
     el0: Option<El0Session>,
     /// Set by [`cancel_blocked`]; consumed by the IPC wait path (ADR-0025).
     cancel_wait: bool,
+    /// Set by [`supervisor_force_exit`]; consumed at safe points (ADR-0090).
+    force_exit: bool,
     /// Who spawned this task (ADR-0038 / K10 cascade). Idle for early boot.
     creator: TaskId,
     /// May call `SYS_RESOLVE` (ADR-0052). Default false — not ambient.
@@ -130,6 +133,7 @@ impl Tcb {
             entry: None,
             el0: None,
             cancel_wait: false,
+            force_exit: false,
             creator: Tasks::<MAX_TASKS>::IDLE,
             may_resolve: false,
         }
@@ -330,6 +334,7 @@ fn spawn_on_inner(
             entry: Some(entry),
             el0: Some(El0Session::new()),
             cancel_wait: false,
+            force_exit: false,
             creator,
             may_resolve: false,
         };
@@ -548,6 +553,7 @@ fn spawn_inner(
             // a pointer the last switch could not have published.
             el0: Some(El0Session::new()),
             cancel_wait: false,
+            force_exit: false,
             creator,
             may_resolve: false,
         };
@@ -1083,6 +1089,82 @@ pub fn reap_events() -> u32 {
     REAP_EVENTS.load(Ordering::Relaxed)
 }
 
+/// Why [`supervisor_force_exit`] refused (ADR-0090 / K10 residual).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ForceError {
+    /// Target is the idle task.
+    Idle,
+    /// Unknown task id (or stale epoch).
+    BadId,
+    /// Slot already empty.
+    Empty,
+}
+
+static FORCE_EXIT_EVENTS: AtomicU32 = AtomicU32::new(0);
+
+/// Request that `id` exit at the next safe point (ADR-0090).
+///
+/// **Blocked:** also cancels the wait (same path as reap). **Ready / Running:**
+/// sets a flag; the victim observes it in the trampoline or the agent session
+/// loop and tears down **its own** AS — not a remote destroy.
+pub fn supervisor_force_exit(id: TaskId) -> Result<(), ForceError> {
+    if id == Tasks::<MAX_TASKS>::IDLE {
+        return Err(ForceError::Idle);
+    }
+    let (need_cancel, home) = with_sched(|sched| {
+        match sched.tasks.state(id) {
+            None => Err(ForceError::BadId),
+            Some(kernel_core::tasks::State::Empty) => Err(ForceError::Empty),
+            Some(state) => {
+                let idx = id.slot();
+                sched.tcbs[idx].force_exit = true;
+                let home = sched.tasks.home_of(id).unwrap_or(0);
+                let need_cancel = matches!(state, kernel_core::tasks::State::Blocked);
+                if !need_cancel {
+                    // Nudge the home CPU so a Running spinner reaches a safe point.
+                    if home != this_cpu() {
+                        request_resched(home);
+                        if home == 1 {
+                            irq::send_sgi(0, 1 << 1);
+                        }
+                    } else {
+                        request_resched(home);
+                    }
+                }
+                Ok((need_cancel, home))
+            }
+        }
+    })?;
+    let _ = home;
+    if need_cancel {
+        let _ = ipc::cancel_blocked(id);
+    }
+    FORCE_EXIT_EVENTS.fetch_add(1, Ordering::Relaxed);
+    Ok(())
+}
+
+/// Take and clear the current task's force-exit flag (ADR-0090).
+pub fn take_force_exit() -> bool {
+    with_sched(|sched| {
+        let idx = sched.tasks.current_on(this_cpu()).slot();
+        let flag = sched
+            .tcbs
+            .get_mut(idx)
+            .map(|t| t.force_exit)
+            .unwrap_or(false);
+        if let Some(t) = sched.tcbs.get_mut(idx) {
+            t.force_exit = false;
+        }
+        flag
+    })
+}
+
+/// Successful [`supervisor_force_exit`] calls since boot.
+#[inline]
+pub fn force_exit_events() -> u32 {
+    FORCE_EXIT_EVENTS.load(Ordering::Relaxed)
+}
+
 /// Wake queue drop count (full queue under IRQ pressure).
 #[inline]
 pub fn wake_drops() -> u32 {
@@ -1329,6 +1411,11 @@ extern "C" fn task_trampoline() -> ! {
     unsafe { collect_exited() };
 
     cpu::irq_enable();
+
+    // ADR-0090: killed before first entry — never call the body.
+    if take_force_exit() {
+        exit();
+    }
 
     let entry = with_sched(|sched| {
         let idx = sched.tasks.current_on(this_cpu()).slot();

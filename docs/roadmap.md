@@ -88,7 +88,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | K7  | ASID (+ TTBR1 if required)                                | **done (HW)** first slice, stamp 2026-08-09 ([ADR-0047](adr/0047-k7-asid-isolation-design.md) + [ADR-0050](adr/0050-k7-asid-first-slice.md)); residual policy [ADR-0084](adr/0084-k7-residual-policy.md): **K7-M** switch-cost lab (optional), **K7-T** TTBR1 deferred-with-triggers, **K7-R** ASID rollover under pressure                                                                                                  | First slice: ASID + dual-AS HW; TTBR1 only if trigger                      | 0014 → 0047 → 0050 → 0084                           |
 | K8  | SMP                                                       | **done (HW)** unpark ([ADR-0070](adr/0070-k8-smp-first-slice.md)); **done (HW)** IPI ([ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)); **done (HW)** queues + shared-state ([ADR-0075](adr/0075-k8-per-core-queues-design.md)/[0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md): stamp 2026-08-10); per-core timer+EL1 preempt **done (HW)** ([ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md)/[0079](adr/0079-k8-per-core-timer-preemption-first-slice.md): stamp 2026-08-10); EL0-on-CPU1 **done (HW)** ([ADR-0080](adr/0080-k8-el0-on-cpu1-design.md)/[0081](adr/0081-k8-el0-on-cpu1-first-slice.md): stamp 2026-08-10); steal **done (HW)** ([ADR-0082](adr/0082-k8-work-stealing-design.md)/[0083](adr/0083-k8-work-stealing-first-slice.md): stamp 2026-08-10, `20260810-144305.log`); residual agent+TLB steal; parent [ADR-0048](adr/0048-k8-smp-design.md)                                                                                                                                 | Unpark + IPI + queues + fair dual-core + steal HW; agent TLB residual       | 0006 → 0048 → 0070 → 0074 → 0075 → 0076 → 0077 → 0078 → 0079 → 0080 → 0081 → 0082 → 0083 |
 | K9  | Driver-as-agent beyond PL011 (+ IRQ caps)                 | **done (HW)** ([ADR-0034](adr/0034-k9-rng-driver-agent.md) + [ADR-0043](adr/0043-k9-irq-device-agent.md); Pi stamp 2026-08-08)                                                                                                                                                                                        | Map agent + IRQ-cap-only wait agent                                        | 0013 → 0034 → 0043                                  |
-| K10 | Supervisor lifecycle (restart, creator exit)              | **done (HW)** ([ADR-0033](adr/0033-k10-supervisor-reap.md) + [ADR-0038](adr/0038-k10-creator-exit-cascade.md); Pi stamp 2026-08-08); force-kill Running later                                                                                                                                                         | `supervisor_reap_blocked`; exit cascades cancel of blocked children        | 0018/0025 → 0033 → 0038                             |
+| K10 | Supervisor lifecycle (restart, creator exit)              | **done (HW)** reap/cascade ([ADR-0033](adr/0033-k10-supervisor-reap.md) + [ADR-0038](adr/0038-k10-creator-exit-cascade.md); Pi stamp 2026-08-08); **force-exit Running** **done (QEMU)** ([ADR-0090](adr/0090-k10-force-exit-running.md))                                                                                                                                                         | `supervisor_reap_blocked` + `supervisor_force_exit`; exit cascades        | 0018/0025 → 0033 → 0038 → 0090                      |
 
 ---
 
@@ -117,7 +117,7 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 | —     | ~~Product-boot-check / oracle census~~               | **Paid** — composition-minimum + `oracle-census` | — |
 | —     | ~~Product multi-core policy~~ (`home_cpu`)           | **Paid (QEMU)** — [ADR-0088](adr/0088-product-home-cpu.md) | — |
 | —     | ~~**K5-B** design ADR~~                              | **Paid (design)** — [ADR-0089](adr/0089-k5-b-pair-collapse-design.md); code only if trigger | — |
-| **1** | **K10** force-kill Running EL0                       | Named residual after reap/cascade HW     | [#26](https://github.com/gianlucamazza/harbor-kernel/issues/26) |
+| —     | ~~**K10** force-exit Running~~                       | **Paid (QEMU)** — [ADR-0090](adr/0090-k10-force-exit-running.md) | — |
 | next  | **K5-H** design (if slot wall)                       | Prefer before K5-B **code** under pure slot pressure (0085/0089) | — |
 | watch | **K7-M** switch-cost lab / **K7-T** if trigger       | Optional; policy [ADR-0084](adr/0084-k7-residual-policy.md) | [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) |
 | watch | **ADR-0020** SpiDevice                               | Standing watch only                      | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
@@ -148,8 +148,9 @@ stamp 2026-08-10). F-R1-P1 shared-state **done (HW)**. Product evidence hygiene
 **paid** (`product-boot-check` composition minimum + `make oracle-census`).
 **Product multi-core `home_cpu` paid (QEMU)** ([ADR-0088](adr/0088-product-home-cpu.md)).
 **K5-B design paid** ([ADR-0089](adr/0089-k5-b-pair-collapse-design.md); code deferred).
-**Next working queue:** (1) K10 force-kill [#26]. Optional: K5-H design if slot
-wall. Trigger-only: K5-B **code**, K7-T, agent+TLB, H3 L1+, P3–P4.
+**K10 force-exit paid (QEMU)** ([ADR-0090](adr/0090-k10-force-exit-running.md)).
+**Next:** optional K5-H design if slot wall; trigger-only K5-B **code**, K7-T,
+agent+TLB, H3 L1+, P3–P4. HW stamps for 0088/0090 optional.
 
 ```text
 Mission: agents · grants · evidence · finish the OS

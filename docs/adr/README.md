@@ -109,6 +109,7 @@ the code that follows.
 | [0087](0087-oracle-waits-and-the-hosts-verdict.md) | Oracle waits in guest time; a starved host gets no verdict | accepted |
 | [0088](0088-product-home-cpu.md)                   | Product multi-core — manifest `home_cpu` and loader pin    | accepted |
 | [0089](0089-k5-b-pair-collapse-design.md)          | K5-B design — pair collapse (session schedulable); no code | accepted |
+| [0090](0090-k10-force-exit-running.md)             | K10 force-exit Running at a safe point                     | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

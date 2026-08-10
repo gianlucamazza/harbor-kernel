@@ -97,6 +97,8 @@ pub enum SessionEnd {
     UnknownSvc { imm: u16 },
     /// The agent took a fault at EL0. Session is over and cannot be resumed.
     Fault { esr: u64, far: u64 },
+    /// Supervisor requested stop at a safe point ([ADR-0090](../../docs/adr/0090-k10-force-exit-running.md)).
+    Forced,
 }
 
 /// EL0 faults since boot, machine-wide (ADR-0018 §3).
@@ -416,6 +418,12 @@ impl Agent {
         let mut stats = SessionStats::default();
         {
             loop {
+                // ADR-0090: creator force-exit at a safe point (between EL0 steps).
+                if sched::take_force_exit() {
+                    end_step(session);
+                    stats.end = SessionEnd::Forced;
+                    return Ok(stats);
+                }
                 match event {
                     el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
                         Syscall::Ping => {

@@ -761,6 +761,50 @@ pub(super) fn supervised_child() {
     }
 }
 
+/// ADR-0090 / K10 residual: **Running** EL1 body that never parks on IPC —
+/// only force-exit stops it. Uses WFI (not yield-spam) so peer demos and the
+/// tick reporter keep CPU. Agent sessions still observe force-exit in
+/// `run_user_prog_resuming` (`SessionEnd::Forced`).
+pub(super) fn force_kill_child() {
+    loop {
+        if crate::sched::take_force_exit() {
+            crate::kprintln!("force-kill: child forced");
+            return;
+        }
+        // Timer / resched IPI wakes; supervisor_force_exit requests resched.
+        crate::arch::cpu::wait_for_interrupt();
+    }
+}
+
+/// ADR-0090: spawn Running child, force-exit, wait for slot reclaim.
+pub(super) fn force_kill_supervisor() {
+    let Ok(id) = crate::sched::spawn(force_kill_child) else {
+        crate::kprintln!("force-kill: spawn FAILED");
+        return;
+    };
+    // Let the child run (Ready → Running).
+    crate::sched::yield_now();
+    crate::sched::yield_now();
+    match crate::sched::supervisor_force_exit(id) {
+        Ok(()) => crate::kprintln!(
+            "force-kill: requested events={}",
+            crate::sched::force_exit_events()
+        ),
+        Err(e) => crate::kprintln!("force-kill: request FAILED {e:?}"),
+    }
+    for _ in 0..32 {
+        // After exit the epoch advances: stale id → `None` (ADR-0062), not Empty.
+        match crate::sched::task_state(id) {
+            None | Some(kernel_core::tasks::State::Empty) => {
+                crate::kprintln!("force-kill: slot empty");
+                return;
+            }
+            Some(_) => crate::sched::yield_now(),
+        }
+    }
+    crate::kprintln!("force-kill: slot still {:?}", crate::sched::task_state(id));
+}
+
 /// ADR-0033: reap a blocked child, wait for Empty, re-spawn (restart), reap again.
 pub(super) fn supervisor_task() {
     let Ok(ch) = crate::ipc::create_channel() else {

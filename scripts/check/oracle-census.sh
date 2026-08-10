@@ -25,7 +25,8 @@ fail() {
 
 # Last justified raise: ADR-0083 steal oracle (watcher + two thin victims).
 # Do not bump without a named concurrent-demo reason (ADR-0085).
-readonly EXPECTED_MAX_TASKS=52
+# Last justified raise: ADR-0090 force-kill oracle pair (supervisor + EL0 child).
+readonly EXPECTED_MAX_TASKS=54
 
 # Product peak concurrent slots after composition steadies (not a measurement):
 #   idle0 + idle1 + console-server + beacon + chirp = 5
@@ -46,7 +47,7 @@ src_max="$(
 	fail "MAX_TASKS is ${src_max} in source, census expects ${EXPECTED_MAX_TASKS} (update this script + architecture table with ADR reason)"
 
 arch_max="$(
-	# Capacity table row: | `sched::MAX_TASKS` | **52** | ...
+	# Capacity table row: | `sched::MAX_TASKS` | **N** | ...
 	# shellcheck disable=SC2016 # literal backticks in the markdown cell
 	grep -E '^\| `sched::MAX_TASKS`' docs/architecture.md |
 		grep -oE '\*\*[0-9]+\*\*' |

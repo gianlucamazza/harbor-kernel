@@ -29,7 +29,7 @@ This document does **not** implement shared drivers or session-as-schedulable
 | Agent = EL1 driver task + EL0 program | **Shape of record** — [ADR-0023](0023-an-agent-is-an-el1-driver-and-an-el0-program.md) |
 | Schedulable entity | Driver task only; session in TCB; pair not collapsed |
 | Stack classes | `Full` 16 KiB / `Thin` 4 KiB (+ guard) — [ADR-0044](0044-k5-agent-density.md) **done (HW)** |
-| `MAX_TASKS` | **52** (oracle census tax; not a density design) |
+| `MAX_TASKS` | oracle census tax (see architecture table / `oracle-census`; not a density design) |
 | Cost axes | **Slot** (one task per agent) · **heap stack** · **AS frames** (option C clone — [ADR-0084](0084-k7-residual-policy.md) K7-T if *map* density) |
 | Preemption / SMP / EL0-on-CPU1 / steal | **done (HW)**; agents non-stealeable without TLB IPI |
 | Roadmap next (at acceptance) | “K5 driver-half” without residual IDs — superseded in prose by K5-S/H/B after this ADR; **K5-S** later **done (HW)** [ADR-0086](0086-k5-mini-stack-first-slice.md) |
