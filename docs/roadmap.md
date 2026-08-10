@@ -115,7 +115,7 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 | Step | Track(s)                                             | Why now                                  |
 | ---- | ---------------------------------------------------- | ---------------------------------------- |
 | 1    | **K7** switch-cost measurement / TTBR1 residual      | Lab when free                            |
-| 2    | **K5** driver-half / K8 steal or per-core preempt      | Queues first code paid (QEMU); deepen H2   |
+| 2    | **K5** driver-half / K8 steal or per-core preempt      | Queues first **done (HW)** stamp 2026-08-10; deepen H2 |
 | —    | **H3 L1+** or deeper L0 (timer/sched)                 | After L0 gate; separate ADRs             |
 | —    | **P3** / **P4**                                      | Only with a named composition (ADR-0049) |
 
@@ -136,7 +136,7 @@ Mission: agents · grants · evidence · finish the OS
                 │
     H1 composition ████████ done (HW) stamp 2026-08-08
                 │
-    H2 boundary    ████████ K4+K8 first HW; next: K7 / K8 queues
+    H2 boundary    ████████ K4+K8 first HW; next: K7 / K5 / K8 steal·preempt
                 │
     H3 host-class  █░░░░░░░ L0 done (QEMU-x86); L1+ open
 ```

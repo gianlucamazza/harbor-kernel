@@ -66,12 +66,13 @@ Three consequences that look unrelated are the same shape fact:
    [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)).
 
 None of this claims superiority over production kernels. **POSIX remains out
-of model.** SMP is an **open completeness track** (not a permanent refusal):
-core 1 is unparked into idle ([ADR-0070](adr/0070-k8-smp-first-slice.md)) and
-takes a wake SGI from the primary ([ADR-0074](adr/0074-k8-ipi-wake-second-slice.md));
-per-core runqueues remain open;
-fairness under a hostile busy-loop is now enforced at both ELs by the IRQ
-epilogue — residuals today are honest in [`SECURITY.md`](../SECURITY.md).
+of model.** SMP first depth is **done (HW)** (unpark [ADR-0070](adr/0070-k8-smp-first-slice.md),
+IPI [ADR-0074](adr/0074-k8-ipi-wake-second-slice.md), dual-current queues
+[ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md);
+stamp 2026-08-10): product agents still home on CPU 0; residuals are steal,
+per-core preemption, and EL0-on-CPU1 — honest in [`SECURITY.md`](../SECURITY.md).
+Fairness under a hostile busy-loop is enforced at both ELs by the IRQ
+epilogue on the primary.
 The payoff of the shape is that each boundary is named, gated, and
 demonstrable rather than implied by a large ABI.
 
@@ -333,7 +334,7 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
 | **H1 next**                  | P3\|P4 only with composition (deferred) · K5 driver-half residual                                                                                                 |
 | **H2 depth**                 | K4 EL0+EL1 preemption done (HW); K7 first slice done (HW); K8 unpark+IPI+queues first done (HW, stamp 2026-08-10); residual steal / per-core preempt / EL0-on-CPU1; K7 TTBR1 |
-| **open (kernel)**            | K8 steal·preempt·heap-SMP; K7 residuals (TTBR1 / switch-cost)                                                                                                     |
+| **open (kernel)**            | K8 steal·preempt·EL0-on-CPU1; K7 residuals (TTBR1 / switch-cost); K5 driver-half                                                                                  |
 | **open (product)**           | P3/P4 deferred (ADR-0049); K5 driver-half residual                                                                                                                |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
@@ -419,7 +420,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0069](adr/0069-harbor-host-class-north-star.md)                 | Host-class north star — native primary OS intent (**accepted**)                                                                                        |
 | [ADR-0070](adr/0070-k8-smp-first-slice.md)                           | K8 first slice — unpark core 1, idle only (**accepted**); done (HW), stamp 2026-08-09                                                                  |
 | [ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)                     | K8 second slice — SGI IPI wake core 1 (**accepted**); done (HW), stamp 2026-08-10                                                                       |
-| [ADR-0075](adr/0075-k8-per-core-queues-design.md)                    | K8 design — per-core queues / multi-current (**accepted**; code [0076](adr/0076-k8-per-core-queues-first-slice.md))                                    |
+| [ADR-0075](adr/0075-k8-per-core-queues-design.md)                    | K8 design — per-core queues / multi-current (**accepted**); code [0076](adr/0076-k8-per-core-queues-first-slice.md)                                    |
 | [ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)               | K8 third slice — dual current + pinned CPU1 worker (**accepted**); done (HW), stamp 2026-08-10                                                         |
 | [ADR-0077](adr/0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — IrqSpinLock, per-CPU mirrors (**accepted**); HW with 0076 stamp                                                          |
 | [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)                   | H3 L0 — x86_64 QEMU first slice (**accepted**); done (QEMU-x86)                                                                                        |

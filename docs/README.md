@@ -113,13 +113,13 @@ docs/design/      scale topology + multi-arch contracts — see design/README.md
 Do **not** treat this block as a second status table — it only steers readers.
 **Status lives in [roadmap.md](roadmap.md).**
 
-| Layer                | State (2026-08-09)                                                                                                                                      |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **H0 foundation**    | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                                                          |
-| **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                                                              |
-| **H1 next**          | P3\|P4 if composition · K5 driver-half residual                                                                                                         |
-| **H2**               | K4 EL0+EL1 done (HW, ADR-0064/0068); K7 first slice done (HW); K8 first slice done (HW, ADR-0070); queues residual                                      |
-| **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020; lab x86 intent [ADR-0067](adr/0067-host-lab-second-isa-intent.md) |
+| Layer                | State (2026-08-10)                                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **H0 foundation**    | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                                                                                  |
+| **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                                                                                      |
+| **H1 next**          | P3\|P4 if composition · K5 driver-half residual                                                                                                                                 |
+| **H2**               | K4 EL0+EL1 done (HW); K7 first done (HW); K8 unpark+IPI+queues first **done (HW)** (ADR-0070/0074/0076/0077, stamp 2026-08-10); residual steal·preempt·EL0-CPU1 · K7 TTBR1 · K5 |
+| **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020; lab x86 intent [ADR-0067](adr/0067-host-lab-second-isa-intent.md)                         |
 
 ## Decision records and reviews
 

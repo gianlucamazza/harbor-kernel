@@ -12,7 +12,9 @@ related: [0006, 0008, 0048, 0051, 0064, 0068, 0070, 0074]
 ## Acceptance status
 
 **Accepted as design** (2026-08-10). First **code** slice:
-[ADR-0076](0076-k8-per-core-queues-first-slice.md) (**done (QEMU)**).
+[ADR-0076](0076-k8-per-core-queues-first-slice.md) (**done (QEMU)** and
+**done (HW)**, stamp 2026-08-10, transcript `20260810-130305.log`); shared-state
+cleanup [ADR-0077](0077-smp-shared-state-discipline.md).
 
 Parent design intent remains [ADR-0048](0048-k8-smp-design.md). Unpark and
 IPI delivery are paid by [ADR-0070](0070-k8-smp-first-slice.md) /

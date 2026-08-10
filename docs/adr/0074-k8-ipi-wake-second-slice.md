@@ -100,14 +100,14 @@ queues land.
 Gate: `boot-check` / `hw-transcript-check` via `scripts/lib/boot-oracle.sh`.
 Handler count seal line becomes **3** (timer + UART + wake SGI).
 
-### 6. Explicit non-goals (still residual)
+### 6. Explicit non-goals (then residual; status today)
 
-- Per-core runqueue / `current` array — **design** in ADR-0075; code residual
-- Work stealing — later than queues code
-- IPI remote **resched of tasks** — design in ADR-0075 (SGI 0 as RESCHED); code residual
-- Per-core timer / PPI on core 1
-- Unparking cores 2–3
-- Cross-core K4 preemption
+- Per-core runqueue / `current` — **paid (HW)** via [ADR-0076](0076-k8-per-core-queues-first-slice.md)/[0077](0077-smp-shared-state-discipline.md) (stamp 2026-08-10)
+- Work stealing — still later
+- IPI remote **resched of tasks** — paid with 0076 (SGI 0 as RESCHED)
+- Per-core timer / PPI on core 1 — still open
+- Unparking cores 2–3 — still open
+- Cross-core K4 preemption — still open
 - Cache-coherent driver model beyond shared identity map
 
 ## Consequences

@@ -87,8 +87,9 @@ If a word here does not mean what you expect — **agent** most of all — start
 
 Open work that realises these at scale (design ADR before code where needed):
 **peer** cap transfer depth residuals, **K5** driver-half collapse residual
-(thin stacks done HW), **K7** residuals (TTBR1 / switch-cost), **K8** per-core queues (first unpark/idle slice **done (HW)**,
-[ADR-0070](adr/0070-k8-smp-first-slice.md)),
+(thin stacks done HW), **K7** residuals (TTBR1 / switch-cost), **K8** residual
+steal / per-core preempt / EL0-on-CPU1 (unpark+IPI+queues first **done (HW)**,
+[ADR-0070](adr/0070-k8-smp-first-slice.md)/[0074](adr/0074-k8-ipi-wake-second-slice.md)/[0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md)),
 product network/display only with a composition target (**P3**, **P4** deferred).
 Closed on HW for fairness: **K4** budget + EL0 + EL1 IRQ-epilogue preemption
 ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md)).
@@ -176,9 +177,9 @@ driver-half collapse residual. Working order:
 ### H2 — Boundary operating system
 
 Remaining **K** and **P** for full boundary-OS depth: **K7** residuals
-(TTBR1 / switch-cost), **K5** driver-half, **K8** per-core queue depth (first unpark/idle slice **done (HW)**,
-[ADR-0070](adr/0070-k8-smp-first-slice.md);
-design [ADR-0048](adr/0048-k8-smp-design.md)), deferred **P3**/**P4**, peer
+(TTBR1 / switch-cost), **K5** driver-half, **K8** steal / per-core preempt /
+EL0-on-CPU1 (queues first **done (HW)** [ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md);
+design [ADR-0048](adr/0048-k8-smp-design.md)/[0075](adr/0075-k8-per-core-queues-design.md)), deferred **P3**/**P4**, peer
 transfer depth residuals ([ADR-0053](adr/0053-k3-peer-transfer-design.md)), and
 remaining product-path depth. **K4** IRQ preemption is closed on HW
 ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md);
