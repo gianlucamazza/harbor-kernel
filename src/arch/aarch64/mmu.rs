@@ -26,7 +26,6 @@ use kernel_core::layout::Region;
 use kernel_core::paging::{self, Level, MemKind, Perms};
 
 use crate::arch::cache;
-use crate::arch::cpu;
 use crate::sync::SyncCell;
 
 /// Blocks split into next-level tables since boot. See [`splits`].
@@ -84,11 +83,14 @@ struct Arena {
 
 /// Table arena state.
 ///
-/// Mutated by `activate` while the early map is active, and by `map` with the
-/// kernel map active — never with translation off, and always with interrupts
-/// masked. The invariant is the masking, not the MMU state: the walker reads
-/// the tables this hands out, so a half-written entry must not be reachable.
+/// Mutated by `activate` while the early map is active, and by `map`/`unmap`
+/// under [`MAP_LOCK`] (ADR-0077 / F-R1-P1): dual-current cores may unmap stack
+/// guards concurrently. The walker reads published entries after
+/// `publish_and_invalidate`.
 static ARENA: SyncCell<Arena> = SyncCell::new(Arena { next: 0, end: 0 });
+
+/// Serialises kernel map mutation and arena bump (not taken from IRQ handlers).
+static MAP_LOCK: crate::sync::IrqSpinLock = crate::sync::IrqSpinLock::new();
 
 /// Physical address of the root table, published for `TTBR0_EL1`.
 ///
@@ -207,27 +209,29 @@ unsafe fn retire_early_map() {
 ///
 /// # Safety
 /// [`activate`] must have succeeded, and `region` must not conflict with an
-/// existing mapping. Called with interrupts masked: it mutates live tables and
-/// the arena, neither of which is protected against a concurrent walker.
+/// existing mapping. Serialised by [`MAP_LOCK`] (callers need not mask IRQs
+/// themselves, though many still do).
 pub unsafe fn map(region: &Region) -> Result<(), MmuError> {
-    // SAFETY: root is non-zero (checked just above) and points at the live L1 table
-    // published by `activate`, which is the only writer of `ROOT`.
-    unsafe {
-        let root = ROOT.load(Ordering::Acquire);
-        if root == 0 {
-            return Err(MmuError::NotActivated);
+    MAP_LOCK.with(|| {
+        // SAFETY: root is non-zero (checked) and points at the live L1 table
+        // published by `activate`; MAP_LOCK excludes concurrent map/unmap.
+        unsafe {
+            let root = ROOT.load(Ordering::Acquire);
+            if root == 0 {
+                return Err(MmuError::NotActivated);
+            }
+
+            map_region(root as *mut Table, region)?;
+
+            // Publish the entries before anything can walk them, then drop stale
+            // translations. Going from invalid to valid would not strictly need the
+            // invalidation — the architecture does not permit caching invalid
+            // entries — but the same path is shared with [`unmap`], where it is
+            // mandatory.
+            publish_and_invalidate(region.base, region.len);
+            Ok(())
         }
-
-        map_region(root as *mut Table, region)?;
-
-        // Publish the entries before anything can walk them, then drop stale
-        // translations. Going from invalid to valid would not strictly need the
-        // invalidation — the architecture does not permit caching invalid
-        // entries — but the same path is shared with [`unmap`], where it is
-        // mandatory.
-        publish_and_invalidate(region.base, region.len);
-        Ok(())
-    }
+    })
 }
 
 /// Remove the live mapping of `[base, base + len)`.
@@ -241,13 +245,14 @@ pub unsafe fn map(region: &Region) -> Result<(), MmuError> {
 /// heap block without unmapping the rest of the heap.
 ///
 /// # Safety
-/// [`activate`] must have succeeded. Interrupts masked. After this returns,
-/// software must not touch the range except through a deliberate remapping;
-/// instruction fetches or data accesses there will fault.
+/// [`activate`] must have succeeded. After this returns, software must not
+/// touch the range except through a deliberate remapping; instruction fetches
+/// or data accesses there will fault. Serialised by [`MAP_LOCK`].
 pub unsafe fn unmap(base: u64, len: u64) -> Result<(), MmuError> {
-    // SAFETY: root is non-zero (checked), IRQs masked by contract. `ensure_mapped` runs
-    // before any page is cleared, so a range that is only partly mapped is
-    // refused whole rather than half-unmapped.
+    MAP_LOCK.with(|| {
+    // SAFETY: root is non-zero (checked); MAP_LOCK excludes concurrent map/unmap.
+    // `ensure_mapped` runs before any page is cleared, so a range that is only
+    // partly mapped is refused whole rather than half-unmapped.
     unsafe {
         let root = ROOT.load(Ordering::Acquire);
         if root == 0 {
@@ -284,6 +289,7 @@ pub unsafe fn unmap(base: u64, len: u64) -> Result<(), MmuError> {
         publish_and_invalidate(base, len);
         Ok(())
     }
+    })
 }
 
 /// `dsb ishst`, TLB invalidation for `[va, va + len)`, then `dsb ish` / `isb`.
@@ -408,11 +414,10 @@ unsafe fn arena_init() {
 /// Take the next zeroed table from the arena.
 ///
 /// # Safety
-/// Single core, arena initialised.
+/// Caller holds [`MAP_LOCK`] (or is the single-threaded `activate` path before
+/// secondary cores run).
 unsafe fn alloc_table() -> Result<*mut Table, MmuError> {
-    // SAFETY: exclusive `&mut` to the arena, valid because the caller guarantees single
-    // core with IRQs masked: `tables_remaining` takes a shared borrow of the same
-    // cell and masks for exactly this reason.
+    // SAFETY: exclusive `&mut` via MAP_LOCK / activate-only boot.
     unsafe {
         let arena = &mut *ARENA.get();
         let size = core::mem::size_of::<Table>();
@@ -741,13 +746,8 @@ pub fn translates(va: u64) -> bool {
 
 /// Bytes of the table arena still unused. Zero means the next map fails.
 pub fn tables_remaining() -> usize {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked, so this shared borrow cannot overlap the `&mut`
-        // that `alloc_table` takes of the same cell. It was an unmasked read
-        // from a safe `pub fn`, which is two overlapping references to one
-        // `UnsafeCell` any time a mapping happens — true only because no
-        // interrupt handler maps anything, which is a fact about today's
-        // handlers rather than about this function.
+    MAP_LOCK.with(|| {
+        // SAFETY: exclusivity from MAP_LOCK vs alloc_table under map/unmap.
         let arena = unsafe { &*ARENA.get() };
         arena.end.saturating_sub(arena.next)
     })

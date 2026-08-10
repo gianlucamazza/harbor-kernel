@@ -13,7 +13,6 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use kernel_core::ring::ByteRing;
 use kernel_core::rxline::{RxLine, Step};
 
-use crate::arch::cpu;
 use crate::bsp::board;
 use crate::drivers::pl011::{Pl011, Pl011Rx};
 use crate::sync::SyncCell;
@@ -46,12 +45,12 @@ static RX_LINE: SyncCell<RxLine> = SyncCell::new(RxLine::new());
 /// IRQ with no atomicity: the handler could observe it half-initialised.
 static RX_MMIO_BASE: AtomicUsize = AtomicUsize::new(0);
 
-/// Run `f` against the line with IRQs masked.
+/// Serialise RX-line model updates (handover plan). The IRQ handler never
+/// touches `RX_LINE` — it reads the published atomic (`RX_MMIO_BASE`) only.
 fn with_line<R>(f: impl FnOnce(&mut RxLine) -> R) -> R {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked and one core, so this `&mut` cannot overlap
-        // another. The IRQ handler never touches `RX_LINE` — it reads the
-        // published atomic instead, which is why that publication exists.
+    static LINE_LOCK: crate::sync::IrqSpinLock = crate::sync::IrqSpinLock::new();
+    LINE_LOCK.with(|| {
+        // SAFETY: exclusivity from LINE_LOCK; IRQ path does not borrow RX_LINE.
         let line = unsafe { &mut *RX_LINE.get() };
         f(line)
     })

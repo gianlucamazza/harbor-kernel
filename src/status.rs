@@ -11,7 +11,6 @@ use kernel_core::display::Rgb565;
 use kernel_core::font8x8::{GLYPH_H, GLYPH_W};
 use kernel_core::textgrid::TextGrid;
 
-use crate::arch::cpu;
 use crate::bsp::board::display;
 use crate::mm;
 use crate::sync::SyncCell;
@@ -106,8 +105,9 @@ pub fn show_panic(msg: &str) {
 }
 
 fn with_status(f: impl FnOnce(&mut StatusState)) {
-    cpu::without_irqs(|| {
-        // SAFETY: single core; IRQs masked for the duration.
+    static STATUS_LOCK: crate::sync::IrqSpinLock = crate::sync::IrqSpinLock::new();
+    STATUS_LOCK.with(|| {
+        // SAFETY: exclusivity from STATUS_LOCK (debug-display path).
         let st = unsafe { &mut *STATUS.get() };
         f(st);
     });

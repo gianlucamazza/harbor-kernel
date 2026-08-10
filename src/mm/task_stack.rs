@@ -12,7 +12,6 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use kernel_core::layout::{GuardedStack, LayoutError, validate_guarded_stack};
 use kernel_core::paging::PAGE_SIZE;
 
-use crate::arch::cpu;
 use crate::arch::mmu;
 use crate::mm;
 
@@ -76,10 +75,8 @@ impl TaskStack {
         };
         validate_guarded_stack(&geometry).map_err(StackError::Layout)?;
 
-        let unmap_err = cpu::without_irqs(|| {
-            // SAFETY: kernel map active; IRQs masked; guard is one mapped page.
-            unsafe { mmu::unmap(geometry.guard.0, PAGE_SIZE) }
-        });
+        // mmu::unmap serialises under MAP_LOCK (ADR-0077 / F-R1-P1).
+        let unmap_err = unsafe { mmu::unmap(geometry.guard.0, PAGE_SIZE) };
         if let Err(error) = unmap_err {
             // Remap is not needed — still fully mapped. Return the pages.
             // SAFETY: allocation still fully mapped; we never unmapped.
@@ -146,10 +143,8 @@ impl TaskStack {
             perms: Perms::RW,
             name: "task stack guard restore",
         };
-        let remapped = cpu::without_irqs(|| {
-            // SAFETY: IRQs masked; restoring a page we own before free.
-            unsafe { mmu::map(&region) }
-        });
+        // mmu::map serialises under MAP_LOCK (ADR-0077 / F-R1-P1).
+        let remapped = unsafe { mmu::map(&region) };
 
         if remapped.is_err() {
             // Counted rather than silent: a leak nobody counts is a heap that

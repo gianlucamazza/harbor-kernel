@@ -36,13 +36,19 @@ Every SMP-shared mutable structure is entered as:
 5. restore IRQs  
 
 Implemented as `sync::IrqSpinLock`. **First payment:** heap, scheduler, park
-deadlines. **Post multi-role P1 (2026-08-10):** also IPC table, frame pool,
-ASID pool, naming, storage, taskcap, durable region, console TX. Device/SGI
-handlers never take these locks.
+deadlines. **F-R1-P1 complete (2026-08-10):** also IPC, frames, ASID, naming,
+storage, taskcap, durable, console TX + RX line model, IRQ wait table + IRQ
+caps, kernel MMU map/unmap/arena, status grid (debug-display).
+
+**IRQ handlers and locks:** voluntary paths hold locks with local IRQs masked
+(no same-core re-entry). Cross-core, a short spin in `irq::wait::signal` is
+accepted so the wait table is dual-current-safe; handlers still never take
+**SCHED** or switch (ADR-0008).
 
 **Lock order:** never hold **SCHED** while taking **IPC** (spawn registers
 holds after `with_sched`; cancel clears waiter under IPC then prepares under
-SCHED). Send drops IPC before `wake_task`.
+SCHED). Send drops IPC before `wake_task`. Wait drain pops under WAIT then
+wakes under SCHED (no WAIT→SCHED nesting).
 
 ### 2. Heap is multi-core-safe
 
@@ -70,10 +76,12 @@ there is **no quantum path**, not because queues are incomplete.
 
 ### 6. Residuals (honest only)
 
-- Work stealing — **done (HW)** [ADR-0083](0083-k8-work-stealing-first-slice.md); agent+TLB residual
-- Per-core timer / K4 preemption on core 1 — **done (HW)** [ADR-0079](0079-k8-per-core-timer-preemption-first-slice.md) (design [0078](0078-k8-per-core-timer-preemption-design.md); stamp 2026-08-10)
-- EL0 agents with home on CPU 1 — **done (HW)** [ADR-0081](0081-k8-el0-on-cpu1-first-slice.md) (design [0080](0080-k8-el0-on-cpu1-design.md); stamp 2026-08-10)
-- Lock refinement if measured contention requires it  
+- Work stealing / EL0-on-CPU1 / per-core timer — **done (HW)** (0079/0081/0083)
+- **F-R1-P1 global-table discipline** — **done (QEMU)** code complete 2026-08-10
+  (post multi-role review); dual-current paths exercise locks every boot-check
+- Agent+TLB steal — only if product needs auto-balance of agents
+- Lock refinement if measured contention requires it
+- Bootstrap-only `without_irqs` / "single core" SAFETY on early init (pre-secondary) remains correct
 
 ## Related
 

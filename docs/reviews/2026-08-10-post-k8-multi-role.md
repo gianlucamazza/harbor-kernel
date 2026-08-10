@@ -54,7 +54,7 @@ shape, threat-model lag, and product multi-core policy honesty.
 - **Impact:** Data race / corrupted table under dual-core product load (oracle may not hit it)
 - **Proposed action:** extend 0077 discipline — `IrqSpinLock` (or equivalent) for naming/storage/taskcap (and audit console TX); rewrite SAFETY comments
 - **Effort:** M
-- **Follow-up:** **fixed** 2026-08-10 — `IrqSpinLock` on naming, storage, taskcap, ipc, frames, asid, durable, console TX; spawn/cancel lock order IPC↔SCHED; ADR-0077 amended; `make boot-check` clean
+- **Follow-up:** **complete** 2026-08-10 — first pass: naming, storage, taskcap, ipc, frames, asid, durable, console TX + SCHED/IPC order (`b3d208e`). Completion pass: IRQ wait/caps, console RX line, status, MMU `MAP_LOCK`, drain lock-order fix; ADR-0077 + verification re-baselined; `make boot-check` clean
 
 ### R2 — Memory / MMU
 

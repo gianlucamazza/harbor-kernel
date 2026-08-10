@@ -3,6 +3,10 @@
 //! Handlers must not import `sched`. They call [`signal`]; [`crate::sched::poll_wakes`]
 //! drains the queue into Ready. Wait table rules live in
 //! [`kernel_core::irqwait`] (host-tested): one waiter per cookie, no overwrite.
+//!
+//! Dual-current: table mutations use [`IrqSpinLock`] (ADR-0077 / F-R1-P1).
+//! [`signal`] may take the lock from an IRQ on the non-holding core — sections
+//! are short; same-core IRQs are masked while the lock is held.
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -10,48 +14,40 @@ use kernel_core::irqwait::{ArmError, WaitTable};
 use kernel_core::runqueue::TaskId;
 use kernel_core::wake::WakeQueue;
 
-use crate::arch::cpu;
-use crate::sync::SyncCell;
+use crate::sync::{IrqSpinLock, SyncCell};
 
 /// SPSC: IRQ producer → voluntary consumer (ADR-0008). Sized for all tasks.
 const Q: usize = 32;
 
 static TABLE: SyncCell<WaitTable> = SyncCell::new(WaitTable::new());
+static TABLE_LOCK: IrqSpinLock = IrqSpinLock::new();
 static QUEUE: WakeQueue<Q> = WakeQueue::new();
 static SIGNAL_IDLE: AtomicU32 = AtomicU32::new(0);
 
+fn with_table<R>(f: impl FnOnce(&mut WaitTable) -> R) -> R {
+    TABLE_LOCK.with(|| {
+        // SAFETY: exclusivity from TABLE_LOCK.
+        f(unsafe { &mut *TABLE.get() })
+    })
+}
+
 /// Arm `task` for `cookie`. Returns an error instead of overwriting another waiter.
 pub fn arm(cookie: u32, task: TaskId) -> Result<(), ArmError> {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
-        let table = unsafe { &mut *TABLE.get() };
-        table.arm(cookie, task)
-    })
+    with_table(|table| table.arm(cookie, task))
 }
 
 /// Drop any arm for `task`.
 pub fn disarm_task(task: TaskId) {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
-        let table = unsafe { &mut *TABLE.get() };
-        table.disarm_task(task);
-    });
+    with_table(|table| table.disarm_task(task));
 }
 
 /// IRQ path: match cookie, mark pending, enqueue wake token.
 ///
 /// Never switches. If the queue is full, pending remains set so the waiter can
 /// still observe delivery via [`take_pending`] after a spurious resume path;
-/// [`crate::sched::poll_wakes`] also re-checks pending for ready promotion when
-/// drops are non-zero is unnecessary if we scan — waiters always check pending
-/// before and after block.
+/// waiters always check pending before and after block.
 pub fn signal(cookie: u32) {
-    let task = cpu::without_irqs(|| {
-        // SAFETY: IRQs masked for table mutation; handler may run nested only
-        // with DAIF set, so this is the sole writer for the duration.
-        let table = unsafe { &mut *TABLE.get() };
-        table.signal(cookie)
-    });
+    let task = with_table(|table| table.signal(cookie));
     let Some(task) = task else {
         SIGNAL_IDLE.fetch_add(1, Ordering::Relaxed);
         return;
@@ -64,26 +60,31 @@ pub fn signal(cookie: u32) {
 
 /// Consume pending for `task`. True if an IRQ already posted.
 pub fn take_pending(task: TaskId) -> bool {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let table = unsafe { &mut *TABLE.get() };
-        table.take_pending(task)
-    })
+    with_table(|table| table.take_pending(task))
 }
 
 /// Drain IRQ wake tokens into `f` (voluntary path only).
 ///
-/// One masked region for the whole loop (ADR-0068): the queue is strictly
-/// single-consumer, and EL1 preemption can otherwise park a consumer
-/// mid-pop and schedule a second one. The bound is the queue capacity and
-/// each callback is an O(1) `wake_task` (whose nested mask save/restores
-/// fine), so the region stays short.
+/// Pop under the wait lock (single consumer), then invoke `f` **outside** the
+/// lock so `wake_task` (SCHED) never nests under WAIT (lock order).
 pub fn drain(mut f: impl FnMut(u32)) {
-    cpu::without_irqs(|| {
-        while let Some(token) = QUEUE.pop() {
-            f(token);
+    let mut tokens = [0u32; Q];
+    let n = TABLE_LOCK.with(|| {
+        let mut n = 0usize;
+        while n < Q {
+            match QUEUE.pop() {
+                Some(token) => {
+                    tokens[n] = token;
+                    n += 1;
+                }
+                None => break,
+            }
         }
+        n
     });
+    for token in tokens.iter().take(n) {
+        f(*token);
+    }
 }
 
 fn enqueue(token: u32) {
