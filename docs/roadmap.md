@@ -112,12 +112,15 @@ not as a growing special-case syscall surface ([vision](vision.md) shape).
 
 Priority is **mission fit**, not ID order. ADR before boundary code.
 
-| Step | Track(s)                                             | Why now                                  |
-| ---- | ---------------------------------------------------- | ---------------------------------------- |
-| —    | ~~Product-boot-check / oracle census~~               | **Paid** — composition-minimum product gate + `oracle-census` (F-R5-2 / F-R7-1) |
-| —    | **K5-H** multiplex                                    | Only after slot pressure (0085)          |
-| —    | **K5-B** pair collapse                                | Only if 0085 §3 trigger                  |
-| —    | **K7-M** / **K7-T** / agent+TLB / **H3 L1+** / **P3–P4** | Trigger or composition target only     |
+| Order | Track(s)                                             | Why now                                  | Tracker |
+| ----: | ---------------------------------------------------- | ---------------------------------------- | ------- |
+| —     | ~~Product-boot-check / oracle census~~               | **Paid** — composition-minimum + `oracle-census` | — |
+| **1** | **Product multi-core policy** (`home_cpu` / loader pin) | Mechanism dual-current paid; composition cannot name home (multi-role Tier C) | [#24](https://github.com/gianlucamazza/harbor-kernel/issues/24) |
+| **2** | **K5-B** design ADR (driver-half collapse)           | Density frontier after Mini; design before code (0085) | [#25](https://github.com/gianlucamazza/harbor-kernel/issues/25) |
+| **3** | **K10** force-kill Running EL0                       | Named residual after reap/cascade HW     | [#26](https://github.com/gianlucamazza/harbor-kernel/issues/26) |
+| watch | **K7-M** switch-cost lab / **K7-T** if trigger       | Optional; policy [ADR-0084](adr/0084-k7-residual-policy.md) | [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) |
+| watch | **ADR-0020** SpiDevice                               | Standing watch only                      | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
+| gated | **K5-H** / agent+TLB / **H3 L1+** / **P3–P4** / cores 2–3 | Trigger or composition target only     | — |
 
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
 K7 ASID slice **done (HW)** (stamp 2026-08-09). Resolve-grant + peer transfer
@@ -142,7 +145,9 @@ option C current; K7-M optional lab; K7-T trigger-gated; K7-R under pressure).
 **K5-S Mini** **done (HW)** ([ADR-0086](adr/0086-k5-mini-stack-first-slice.md),
 stamp 2026-08-10). F-R1-P1 shared-state **done (HW)**. Product evidence hygiene
 **paid** (`product-boot-check` composition minimum + `make oracle-census`).
-**Next:** K5-H/B and K7-T only with triggers.
+**Next working queue:** (1) product multi-core `home_cpu` [#24] → (2) K5-B
+design [#25] → (3) K10 force-kill [#26]. Trigger-only: K5-H, K7-T, agent+TLB,
+H3 L1+, P3–P4.
 
 ```text
 Mission: agents · grants · evidence · finish the OS

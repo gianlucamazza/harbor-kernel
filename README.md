@@ -86,10 +86,9 @@ H0 is complete on Pi 4B and H1 is **done (HW)** — stamp 2026-08-08, with
 residuals carrying into H2. H2 is open: P3–P4, H3 L1+ and the remaining
 platform paths.
 
-Next: K5-H/B if trigger
-([ADR-0085](docs/adr/0085-k5-density-residual-design.md)) · optional K7-M —
-[roadmap](docs/roadmap.md). Product evidence hygiene is paid (composition-minimum
-`product-boot-check` + `oracle-census` gate).
+Next: **product multi-core** (`home_cpu`, [#24](https://github.com/gianlucamazza/harbor-kernel/issues/24))
+· K5-B design [#25] · K10 force-kill [#26] — [roadmap](docs/roadmap.md). Product
+evidence hygiene is paid (composition-minimum `product-boot-check` + `oracle-census`).
 
 **Working today (high level).** Preemptible tasks on both cores — voluntary
 yield plus IRQ-epilogue quantum preemption, EL0+EL1 — with dual-current SMP
