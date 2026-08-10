@@ -82,11 +82,9 @@ Snapshot, 2026-08-10. The status of record is
 [`docs/roadmap.md`](docs/roadmap.md) — per-track state lives there and nowhere
 else; what follows is a summary, not a second ledger.
 
-| Horizon                             | State                                                     |
-| ----------------------------------- | --------------------------------------------------------- |
-| **H0 — Foundation**                 | **complete on Pi 4B**                                     |
-| **H1 — Composition / appliance OS** | **done (HW)** — stamp 2026-08-08; residuals carry into H2 |
-| **H2 — Boundary OS**                | later — P3–P4, H3 L1+, … still open                       |
+H0 is complete on Pi 4B and H1 is **done (HW)** — stamp 2026-08-08, with
+residuals carrying into H2. H2 is open: P3–P4, H3 L1+ and the remaining
+platform paths.
 
 Next: product evidence hygiene · K5-H/B if trigger
 ([ADR-0085](docs/adr/0085-k5-density-residual-design.md)) · optional K7-M —
