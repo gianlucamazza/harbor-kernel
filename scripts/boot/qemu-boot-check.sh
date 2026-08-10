@@ -42,35 +42,36 @@ fi
 log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 
-# CPU time this shell's children have consumed, in USER_HZ. Read from
-# `/proc/self/stat` (cutime + cstime) rather than through `/usr/bin/time`, so
-# the measurement adds no dependency to a script `make check` always runs.
+# CPU time a live process has consumed, in USER_HZ: utime + stime out of
+# `/proc/<pid>/stat`. No `/usr/bin/time`, so the measurement adds no dependency
+# to a script `make check` always runs.
 #
 # The comm field can contain spaces, so everything up to the last `)` is
 # dropped before counting: the remaining fields start at `state`, so positional
-# `n` is `proc(5)` field `n + 2`. cutime is field 16 and cstime is field 17,
-# which is `${14}` and `${15}` — not `${13}` and `${14}`, which are the
-# *shell's own* stime and the children's utime. Reading those two summed a
-# number that is always ~0 with one that happened to be most of TCG's cost, so
-# the total looked plausible on an idle laptop and told the truth nowhere else.
+# `n` is `proc(5)` field `n + 2`, which puts utime and stime at `${12}` and
+# `${13}`.
 #
-# The result goes into a global rather than being echoed for a caller to
-# capture. `$(…)` runs in a subshell, and a subshell's `/proc/self/stat` is its
-# own — a fresh process that has reaped no children, so cutime and cstime are
-# always zero. The first version of this did exactly that and measured 0.00
-# cores on an idle machine, which would have called every real timer failure
-# "indeterminate" and quietly retired the assertion.
-read_child_cpu_hz() {
+# Read from the emulator's own entry while it runs, not from this shell's
+# cutime after reaping it. Two versions of the reap-side reading were wrong in
+# two different ways — one summed the shell's stime with the children's utime,
+# and even corrected it reported 0.10 s for a full 15-second boot inside CI's
+# container. A number that is only right on the machine it was written on is
+# not a measurement, and this gate spends it on a verdict. The process's own
+# accounting is the source, and it is the same on every host.
+#
+# The result goes into a global rather than being echoed: `$(…)` is a subshell,
+# and one more layer between the reading and the reader is one more place for
+# it to be about the wrong process.
+read_cpu_hz_of() {
 	local stat rest
-	read -r stat </proc/self/stat
+	CPU_HZ=0
+	[[ -r "/proc/$1/stat" ]] || return 0
+	read -r stat <"/proc/$1/stat" || return 0
 	rest="${stat##*) }"
 	# shellcheck disable=SC2086  # deliberate word splitting into positionals
 	set -- ${rest}
-	CHILD_CPU_HZ=$((${14} + ${15}))
+	CPU_HZ=$((${12} + ${13}))
 }
-
-read_child_cpu_hz
-cpu_before="${CHILD_CPU_HZ}"
 
 # ADR-0066: a scratch SD card image, partitioned exactly as the host tool
 # partitions a real card (one MBR entry of type 0x7f). Sparse, so the 8 GiB
@@ -94,42 +95,82 @@ if [[ ! -f "${DTB_FIXTURE}" ]]; then
 	exit 1
 fi
 
-run_boot() {
-	local seconds="$1"
-	shift
-	: >"${log}"
-	# raspi4b requires min 4 CPUs; ADR-0070 needs secondaries present to unpark.
-	timeout "${seconds}" "${QEMU}" \
-		-M "${QEMU_MACHINE}" -smp 4 -kernel "${IMG}" \
-		-serial mon:stdio -display none "$@" </dev/null >"${log}" 2>&1 || true
-}
-
-# Boot 1: with -dtb fixture (FDT parse path).
-run_boot "${SECONDS_TO_RUN}" -dtb "${DTB_FIXTURE}" -drive "if=sd,format=raw,file=${sd_img}"
-
 # How much host CPU the emulator actually got, in hundredths of a core per
-# second of wall time. On an unloaded machine TCG saturates roughly three cores
-# (measured: 2.88); under a cgroup quota tight enough to make the guest miss
-# deadlines it collapses to 0.08. Two orders of magnitude apart, so the
-# threshold below is nowhere near either edge.
+# second of wall time.
+#
+# The threshold is measured, not guessed. Walking this gate down a `CPUQuota`
+# ladder on one idle machine, same image, same 15s window (2026-08-10):
+#
+#   2.03 cores  unthrottled          clean
+#   0.92        1-core slice cap     clean
+#   0.54        60% quota            clean
+#   0.37        40% quota            clean
+#   0.23        25% quota            FAIL — task output not interleaved
+#   0.13        15% quota            FAIL — agent bytes arrived after its report
+#
+# So the oracle set holds on roughly a third of a core and breaks below a
+# quarter. One whole core — the first version of this bar — would have called
+# every deadline failure on a laptop whose build shim caps the slice at 1.00
+# "indeterminate", which is the same as retiring the assertions on the machine
+# they run on most. 0.35 sits just under the last clean rung.
 #
 # Guest tick reports were tried first and are the wrong signal: TCG drives the
 # guest timer from wall-clock time, so the count tracks how long the run lasted
 # rather than how much CPU it received. At a 20% quota the guest still reported
-# 13 ticks while running on a fifth of one core.
+# 12 ticks while running on a fifth of one core.
 clk_tck="$(getconf CLK_TCK 2>/dev/null || echo 100)"
-read_child_cpu_hz
-emulator_cores=$(((CHILD_CPU_HZ - cpu_before) * 100 / (clk_tck * SECONDS_TO_RUN)))
-CORES_TO_BE_MEASURABLE=100 # one whole core, averaged over the run
+CORES_TO_BE_MEASURABLE=35 # 0.35 cores, one rung under the last clean run
 
 # Below this the reading is not a small share, it is a failed measurement. A
 # guest that boots through to steady state costs the host seconds of CPU; an
 # accounting that reports a hundredth of a core for it is not describing the
-# emulator. Seen on GitHub's runners, where the number read 0.00 for a run the
-# serial log shows going all the way to `ticks=140` — and 0.00 silently
-# satisfies every "starved?" test, which would turn the indeterminate verdict
-# into a rubber stamp on the one host where it fires.
+# emulator, and 0.00 silently satisfies every "starved?" test — which would
+# turn the indeterminate verdict into a rubber stamp on exactly the host where
+# it fires. Kept as a floor even though the reading now comes from the
+# emulator's own `/proc` entry: the day it reads zero again, the gate has to
+# say "I could not measure this" rather than "the host was busy".
 CORES_TO_BE_CREDIBLE=10 # 0.10 core
+
+# Every boot's share, in order, for the closing line. A gate that reports the
+# environment it ran in only when it fails leaves nothing to compare against
+# the day it starts failing.
+cores_seen=()
+
+# Run one boot for `seconds` and leave its serial output in `${log}`, the CPU it
+# consumed in `RUN_CPU_HZ`, and its share of a core in `emulator_cores`.
+#
+# The emulator is backgrounded and timed here rather than wrapped in
+# `timeout(1)`, because the CPU reading has to be taken while the process still
+# exists: `/proc/<pid>/stat` is gone the instant it exits, and the reap-side
+# number this used to rely on is not trustworthy on every host (see
+# `read_cpu_hz_of`). Same deadline, same SIGTERM, same "the log is the oracle,
+# not the exit status" contract as before.
+run_boot() {
+	local seconds="$1"
+	shift
+	: >"${log}"
+	local deadline=$((SECONDS + seconds)) pid
+	# raspi4b requires min 4 CPUs; ADR-0070 needs secondaries present to unpark.
+	"${QEMU}" \
+		-M "${QEMU_MACHINE}" -smp 4 -kernel "${IMG}" \
+		-serial mon:stdio -display none "$@" </dev/null >"${log}" 2>&1 &
+	pid=$!
+	RUN_CPU_HZ=0
+	while ((SECONDS < deadline)) && kill -0 "${pid}" 2>/dev/null; do
+		read_cpu_hz_of "${pid}"
+		# The last reading before exit, not the first: a boot that ends early
+		# still reports what it burned. Zero only if it was never observable.
+		((CPU_HZ > RUN_CPU_HZ)) && RUN_CPU_HZ="${CPU_HZ}"
+		sleep 0.2
+	done
+	kill -TERM "${pid}" 2>/dev/null || true
+	wait "${pid}" 2>/dev/null || true
+	emulator_cores=$((RUN_CPU_HZ * 100 / (clk_tck * seconds)))
+	cores_seen+=("$(printf '%s.%02d' $((emulator_cores / 100)) $((emulator_cores % 100)))")
+}
+
+# Boot 1: with -dtb fixture (FDT parse path).
+run_boot "${SECONDS_TO_RUN}" -dtb "${DTB_FIXTURE}" -drive "if=sd,format=raw,file=${sd_img}"
 
 # The environment reading belongs on every verdict, not only the ones that
 # blame the environment: a FAIL whose host share is unknown cannot be told from
@@ -160,7 +201,9 @@ indeterminate() {
 	print_cpu_share
 	echo "  A deadline cannot be demanded of an emulator that did not get a core," >&2
 	echo "  nor of one whose share this host will not report. Re-run on an idle" >&2
-	echo "  machine that accounts for its children." >&2
+	echo "  machine — and note that a build shim or thermal governor that puts" >&2
+	echo "  the run in a throttled slice starves it just as effectively as a" >&2
+	echo "  busy one." >&2
 	echo "  This is not a kernel failure, and it is not a pass." >&2
 	exit 3
 }
@@ -204,8 +247,9 @@ ticks_first="$(grep -ac 'ticks=' "${log}")"
 # Boot 2: DTB-less power cycle (degraded discover: unknown (no dtb) + durable).
 # DRAM is gone; only the card can carry the counter across.
 run_boot "${SECONDS_TO_RUN}" -drive "if=sd,format=raw,file=${sd_img}"
-read_child_cpu_hz
-emulator_cores=$(((CHILD_CPU_HZ - cpu_before) * 100 / (clk_tck * 2 * SECONDS_TO_RUN)))
+# This boot's own share, not a running average of both: the verdict below is
+# about the run it is judging.
+emulator_cores=$((RUN_CPU_HZ * 100 / (clk_tck * SECONDS_TO_RUN)))
 DURABLE_MEDIA_EXPECT=previous assert_boot_oracle
 grep -qaE 'durable-media: boot=2 from=Previous part=0x7f slot=(A|B) seq=1' "${log}" ||
 	fail "the second boot did not read the first boot's committed state (ADR-0066)"
@@ -221,6 +265,9 @@ run_boot 8
 grep -qa 'durable-media: no-card (no SDHC/SDXC answered)' "${log}" ||
 	fail "without a card the boot did not report the honest no-card line (ADR-0066)"
 
-printf 'boot-check: clean (%s + %s tick reports over two media boots, emulator had %s.%02d cores)\n' \
+printf 'boot-check: clean (%s + %s tick reports over two media boots, emulator had %s cores)\n' \
 	"${ticks_first}" "${ticks_second}" \
-	$((emulator_cores / 100)) $((emulator_cores % 100))
+	"$(
+		IFS='/'
+		echo "${cores_seen[*]}"
+	)"

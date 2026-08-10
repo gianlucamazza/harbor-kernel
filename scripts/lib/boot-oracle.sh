@@ -138,7 +138,7 @@ assert_boot_oracle() {
 	observed="$(grep -aoE '^task-[ab] [0-9]+' "${log}" | tr '\n' ' ' || true)"
 	expected="task-a 0 task-b 0 task-a 1 task-b 1 task-a 2 task-b 2 task-a 3 task-b 3 "
 	[[ "${observed}" == "${expected}" ]] ||
-		fail "task output not interleaved: ${observed}"
+		on_deadline_missed "task output not interleaved: ${observed}"
 	if grep -qa 'spawn task-a FAILED' "${log}" || grep -qa 'spawn task-b FAILED' "${log}"; then
 		fail "cooperative task spawn failed"
 	fi
@@ -463,7 +463,7 @@ assert_boot_oracle() {
 	grep -qa 'loader: mute ran sends=0 refusals=2' "${log}" ||
 		fail "the ungranted manifest agent was not refused the console"
 	grep -qa 'H!loader: beacon ran' "${log}" ||
-		fail "the manifest agent's bytes did not reach the console before its report"
+		on_deadline_missed "the manifest agent's bytes did not reach the console before its report"
 
 	# Neither of the other two should move in a healthy boot: nothing here fills a
 	# mailbox, and a refusal for `state` means an endpoint resolved and then named a
