@@ -57,9 +57,11 @@ cd "$(dirname "$0")/../.."
 # never opens it (excellence review 2026-08-08, F-13: `taskcap::revoke_task`
 # landed inside exactly such a region, benign but unwatched). The region cannot
 # be walked the same way — `switch_with` legitimately contains the switch — so
-# this refuses *new sites* instead. The two allowed files are the primitive's
-# own implementation and the scheduler's switch path, each argued in place.
-allowed_raw='src/arch/aarch64/cpu.rs src/sched/mod.rs'
+# this refuses *new sites* instead. The allowed files are each ISA's own
+# implementation of the primitive and the scheduler's switch path, each argued
+# in place — `x86_64/cpu.rs` is the lab ISA's copy of the same primitive
+# (ADR-0071), not a second hand-rolled region.
+allowed_raw='src/arch/aarch64/cpu.rs src/arch/x86_64/cpu.rs src/sched/mod.rs'
 raw_violations=0
 while IFS= read -r hit; do
 	[[ -z "${hit}" ]] && continue
