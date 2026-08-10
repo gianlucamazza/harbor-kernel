@@ -1,22 +1,37 @@
 //! ARM Generic Timer — EL1 physical timer (`CNTP_*`).
 //!
 //! Board-agnostic. Interrupt routing (PPI 30 → GIC) is the BSP's job.
+//! Per-CPU deadlines (ADR-0078/0079): each core programs its own CNTP series;
+//! `INTERVAL_COUNTS` is shared after primary `init`.
 
 use core::sync::atomic::{AtomicU64, Ordering};
 
 use kernel_core::timer;
 
+use crate::arch::cpu;
+
 /// Interval between ticks, in timer counts (derived from `CNTFRQ_EL0`).
 ///
-/// Written once by `init` during bootstrap, read from the IRQ path. Relaxed is
-/// enough: the value is published before interrupts are ever unmasked.
+/// Written once by `init` during bootstrap, read from every core's IRQ path.
+/// Relaxed is enough: published before secondary arms and before IRQs unmask.
 static INTERVAL_COUNTS: AtomicU64 = AtomicU64::new(0);
 
-/// The deadline currently programmed into the comparator.
+/// Per-CPU absolute deadline currently programmed into that core's comparator.
 ///
-/// The series is anchored here, not on the counter at handler time: that is
-/// what keeps the phase from sliding by one interrupt latency per tick.
-static DEADLINE: AtomicU64 = AtomicU64::new(0);
+/// Index is affinity (0 .. N). The series is anchored here, not on the counter
+/// at handler time: that is what keeps the phase from sliding by one interrupt
+/// latency per tick.
+static DEADLINE: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
+
+#[inline]
+fn cpu_index() -> usize {
+    let a = cpu::affinity() as usize;
+    if a < DEADLINE.len() {
+        a
+    } else {
+        0
+    }
+}
 
 /// Read the timer frequency programmed by platform firmware (Hz).
 #[inline]
@@ -42,15 +57,14 @@ pub enum TimerError {
     NoCounterFrequency,
     /// The requested rate is faster than the counter can express.
     RateTooHigh { requested_hz: u32, counter_hz: u64 },
+    /// Primary has not published an interval yet.
+    NotInited,
 }
 
-/// Program a periodic physical timer at `hz` ticks per second and start it.
+/// Program a periodic physical timer at `hz` ticks per second on **this** core
+/// (the bootstrap / primary path) and publish the shared interval.
 ///
 /// Does not touch the GIC. Caller must enable PPI 30 and unmask DAIF.I.
-///
-/// Returns an error rather than panicking: a board that cannot start its timer
-/// can still run a polled console and report why, which is strictly more
-/// useful than a kernel panic at boot.
 pub fn init(hz: u32) -> Result<(), TimerError> {
     if hz == 0 {
         return Err(TimerError::ZeroRate);
@@ -69,42 +83,64 @@ pub fn init(hz: u32) -> Result<(), TimerError> {
     }
 
     INTERVAL_COUNTS.store(interval, Ordering::Relaxed);
-    // The series starts here, and every later deadline is derived from this one
-    // rather than from the count at the time the handler runs.
-    let first = physical_count().saturating_add(interval);
-    DEADLINE.store(first, Ordering::Relaxed);
-    write_cval(first);
-    // ENABLE=1, IMASK=0.
-    write_ctl(0b001);
+    arm_this_core(interval);
     Ok(())
 }
 
-/// Bring the next absolute deadline forward to roughly `counts` after *now*.
+/// Arm **this** core's CNTP using the interval published by primary [`init`].
 ///
-/// Updates [`DEADLINE`] so the next [`on_interrupt`] keeps the absolute phase
-/// series (not a one-shot detour). Used when an EL0 session must observe a
-/// timer IRQ promptly without waiting a full idle period.
+/// ADR-0078/0079: secondary path after banked GIC. Does not touch global ticks.
+pub fn init_secondary() -> Result<(), TimerError> {
+    let interval = INTERVAL_COUNTS.load(Ordering::Relaxed);
+    if interval == 0 {
+        return Err(TimerError::NotInited);
+    }
+    arm_this_core(interval);
+    Ok(())
+}
+
+#[inline]
+fn arm_this_core(interval: u64) {
+    let first = physical_count().saturating_add(interval);
+    let i = cpu_index();
+    DEADLINE[i].store(first, Ordering::Relaxed);
+    write_cval(first);
+    // ENABLE=1, IMASK=0.
+    write_ctl(0b001);
+}
+
+/// Bring the next absolute deadline forward to roughly `counts` after *now*
+/// on **this** core.
+///
+/// Updates this core's deadline so the next [`on_interrupt`] keeps the absolute
+/// phase series (not a one-shot detour). Used when an EL0 session must observe
+/// a timer IRQ promptly without waiting a full idle period.
 ///
 /// **Caller must hold the EL1 IRQ mask** if the intent is for lower-EL to see
 /// the tick: with DAIF.I clear at EL1 the line is claimed by
 /// `exception_irq_el1` before `el0::enter` runs.
 pub fn accelerate_next_tick(counts: u64) {
     let d = physical_count().saturating_add(counts.max(1));
-    DEADLINE.store(d, Ordering::Relaxed);
+    let i = cpu_index();
+    DEADLINE[i].store(d, Ordering::Relaxed);
     write_cval(d);
     write_ctl(0b001);
 }
 
-/// Re-arm the next deadline. Called from the IRQ path only.
+/// Re-arm the next deadline on **this** core. Called from the IRQ path only.
 ///
 /// Returns the number of periods that expired unserviced, which is normally
 /// zero. See [`kernel_core::timer`] for why the deadline is absolute.
 pub fn on_interrupt() -> u64 {
     let interval = INTERVAL_COUNTS.load(Ordering::Relaxed);
-    let previous = DEADLINE.load(Ordering::Relaxed);
+    if interval == 0 {
+        return 0;
+    }
+    let i = cpu_index();
+    let previous = DEADLINE[i].load(Ordering::Relaxed);
     let next = timer::next_deadline(previous, interval, physical_count());
 
-    DEADLINE.store(next.deadline, Ordering::Relaxed);
+    DEADLINE[i].store(next.deadline, Ordering::Relaxed);
     write_cval(next.deadline);
     // Keep ENABLE=1, IMASK=0 after reprogram.
     write_ctl(0b001);

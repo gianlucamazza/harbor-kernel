@@ -15,7 +15,8 @@ related: [0006, 0008, 0048, 0051, 0064, 0068, 0070, 0074, 0075, 0076, 0077]
 **done (HW)** ([ADR-0076](0076-k8-per-core-queues-first-slice.md)/[0077](0077-smp-shared-state-discipline.md)):
 CPU 1 can run tasks but has **no quantum IRQ path**, so a non-yielding worker
 on affinity 1 owns the core forever. This ADR is the design for closing that
-gap. First **code** is a follow-on ADR (expected **0079**).
+gap. First **code**: [ADR-0079](0079-k8-per-core-timer-preemption-first-slice.md)
+(**done (QEMU)**; HW stamp residual).
 
 ## Context
 

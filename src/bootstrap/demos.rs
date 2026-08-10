@@ -1330,6 +1330,93 @@ pub(super) fn preempt_el1_peer() {
     PREEMPT_EL1_STOP.store(1, Ordering::Release);
 }
 
+// --- ADR-0079: EL1 preemption on CPU 1 (no console TX from secondary) ---
+
+/// Spinner heartbeat on home=1. Advances only while the non-yielding
+/// worker holds the core.
+static PREEMPT_EL1_CPU1_HEART: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+/// Stop word for the CPU1 spinner; set by the peer on success/give-up.
+static PREEMPT_EL1_CPU1_STOP: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+/// Peer outcome: 0 = running, 1 = rotated, 2 = gave up. Watched on CPU 0.
+static PREEMPT_EL1_CPU1_RESULT: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+/// Spinner observed the stop word and left its loop.
+static PREEMPT_EL1_CPU1_EXITED: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+/// ADR-0079: non-yielding EL1 spinner **pinned to CPU 1**. Never yields;
+/// quantum IRQ + EL1 epilogue is the only way the peer can run. No
+/// `kprintln` — secondary must not touch the console (ADR-0070).
+pub(super) fn preempt_el1_cpu1_spinner() {
+    use core::sync::atomic::Ordering;
+    while PREEMPT_EL1_CPU1_STOP.load(Ordering::Acquire) == 0 {
+        PREEMPT_EL1_CPU1_HEART.fetch_add(1, Ordering::Relaxed);
+        core::hint::spin_loop();
+    }
+    PREEMPT_EL1_CPU1_EXITED.store(1, Ordering::Release);
+}
+
+/// ADR-0079 peer of [`preempt_el1_cpu1_spinner`]: same heartbeat-round
+/// proof as ADR-0068, but records the result in an atomic for the CPU0
+/// watcher (no console TX from core 1).
+pub(super) fn preempt_el1_cpu1_peer() {
+    use core::sync::atomic::Ordering;
+    let mut last = PREEMPT_EL1_CPU1_HEART.load(Ordering::Relaxed);
+    let mut rounds = 0u32;
+    for _ in 0..4096 {
+        let now = PREEMPT_EL1_CPU1_HEART.load(Ordering::Relaxed);
+        if now != last {
+            last = now;
+            rounds += 1;
+            if rounds >= 2 {
+                PREEMPT_EL1_CPU1_RESULT.store(1, Ordering::Release);
+                PREEMPT_EL1_CPU1_STOP.store(1, Ordering::Release);
+                return;
+            }
+        }
+        crate::sched::yield_now();
+    }
+    PREEMPT_EL1_CPU1_RESULT.store(2, Ordering::Release);
+    PREEMPT_EL1_CPU1_STOP.store(1, Ordering::Release);
+}
+
+/// ADR-0079: primary-side watcher. Prints oracle lines once the CPU1 peer
+/// proves rotation (or gives up) and the spinner has exited.
+pub(super) fn preempt_el1_cpu1_watch() {
+    use core::sync::atomic::Ordering;
+    let mut saw_result = false;
+    for _ in 0..8192 {
+        match PREEMPT_EL1_CPU1_RESULT.load(Ordering::Acquire) {
+            1 => {
+                crate::kprintln!("preempt-el1-cpu1: rotated");
+                saw_result = true;
+                break;
+            }
+            2 => {
+                crate::kprintln!("preempt-el1-cpu1: peer gave up");
+                saw_result = true;
+                break;
+            }
+            _ => crate::sched::yield_now(),
+        }
+    }
+    if !saw_result {
+        crate::kprintln!("preempt-el1-cpu1: watch timeout");
+        PREEMPT_EL1_CPU1_STOP.store(1, Ordering::Release);
+        return;
+    }
+    for _ in 0..4096 {
+        if PREEMPT_EL1_CPU1_EXITED.load(Ordering::Acquire) != 0 {
+            crate::kprintln!("preempt-el1-cpu1: spinner exited");
+            return;
+        }
+        crate::sched::yield_now();
+    }
+    crate::kprintln!("preempt-el1-cpu1: spinner exit timeout");
+}
+
 /// Stop-word physical address of the live preempt spinner (ADR-0064).
 /// Zero = no spinner window open. Written by [`preempt_agent_task`], consumed
 /// by [`preempt_peer_task`].

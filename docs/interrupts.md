@@ -78,11 +78,12 @@ exception_irq_el0        ← lower-EL IRQ during an unmasked EL0 session
     → save user context → El0Outcome::Irq
     → agent: irq::handle_cpu_irq() then el0::resume (re-execute)
 
-time::on_timer_irq       ← TIMER_IRQ (PPI 30)
+time::on_timer_irq       ← TIMER_IRQ (PPI 30) — each core re-arms local CNTP;
+                           only affinity 0 advances global ticks (ADR-0078/0079)
 console::on_uart_rx_irq  ← UART_IRQ  (SPI 153) → RX ring only (when kernel owns drain)
-arch/timer               ← CNTP only (no GIC)
+arch/timer               ← CNTP only (no GIC); per-CPU DEADLINE + init_secondary
 drivers/gicv2            ← IrqChip (+ SPI target/level)
-bsp/rpi4                 ← static GIC + bind
+bsp/rpi4                 ← static GIC + bind; secondary enables SGI 0 + PPI 30
 ```
 
 ## Masking discipline: the scope, not just the state

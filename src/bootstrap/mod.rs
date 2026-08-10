@@ -962,6 +962,19 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("preempt-el1: peer spawn FAILED {e:?}"),
         }
 
+        // ADR-0079 / K8: same claim on home=1 — local CNTP + EL1 epilogue.
+        // Watcher on CPU0 prints (no TX from core 1); peer then spinner on 1.
+        match crate::sched::spawn_thin(demos::preempt_el1_cpu1_watch) {
+            Ok(_) => match crate::sched::spawn_on(1, demos::preempt_el1_cpu1_peer) {
+                Ok(_) => match crate::sched::spawn_on(1, demos::preempt_el1_cpu1_spinner) {
+                    Ok(_) => crate::kprintln!("preempt-el1-cpu1: workers spawned"),
+                    Err(e) => crate::kprintln!("preempt-el1-cpu1: spinner spawn FAILED {e:?}"),
+                },
+                Err(e) => crate::kprintln!("preempt-el1-cpu1: peer spawn FAILED {e:?}"),
+            },
+            Err(e) => crate::kprintln!("preempt-el1-cpu1: watch spawn FAILED {e:?}"),
+        }
+
         // ADR-0064 / K4: IRQ-side preemption of a non-syscalling EL0 spinner.
         // Peer first, so it is already in the rotation when the window opens.
         match crate::sched::spawn_thin(demos::preempt_peer_task) {

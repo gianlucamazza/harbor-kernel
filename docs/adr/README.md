@@ -97,7 +97,8 @@ the code that follows.
 | [0075](0075-k8-per-core-queues-design.md)                    | K8 design — per-core ready queues and current (code: 0076)                                   | accepted   |
 | [0076](0076-k8-per-core-queues-first-slice.md)               | K8 third slice — per-core queues, dual current, pinned CPU1 worker                           | accepted   |
 | [0077](0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — IrqSpinLock, per-CPU mirrors, honest dual-current            | accepted   |
-| [0078](0078-k8-per-core-timer-preemption-design.md)          | K8 design — per-core timer and IRQ preemption on CPU 1 (code follow-on)                    | accepted   |
+| [0078](0078-k8-per-core-timer-preemption-design.md)          | K8 design — per-core timer and IRQ preemption on CPU 1 (code: 0079)                        | accepted   |
+| [0079](0079-k8-per-core-timer-preemption-first-slice.md)     | K8 fourth slice — per-core timer + EL1 preemption on CPU 1                                 | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

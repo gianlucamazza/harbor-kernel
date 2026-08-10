@@ -26,11 +26,16 @@ static MISSED: AtomicU64 = AtomicU64::new(0);
 
 /// IRQ handler registered for the platform timer line (BSP supplies the id).
 ///
-/// Re-arms the arch timer and advances the monotonic tick counter.
-/// Must not perform console I/O. Cookie is the ADR-0008 id (timer = 1) and is
-/// signalled for K1 waiters ([ADR-0028](../../docs/adr/0028-wait-on-irq.md)).
+/// Always re-arms **this** core's CNTP (ADR-0078/0079). Only affinity 0 advances
+/// the global tick counter and signals timer waiters — dual producers would
+/// double the rate. Must not perform console I/O. Cookie is the ADR-0008 id
+/// (timer = 1).
 pub fn on_timer_irq(cookie: u32) {
     let missed = timer::on_interrupt();
+    // Secondary: local quantum IRQ only — no global timekeeping.
+    if crate::arch::cpu::affinity() != 0 {
+        return;
+    }
     if missed != 0 {
         MISSED.fetch_add(missed, Ordering::Relaxed);
     }

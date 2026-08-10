@@ -62,8 +62,10 @@ use crate::time;
 /// 40 → 42 for the ADR-0064 preemption oracle pair (spinner host + peer),
 /// which are live across the window the ADR-0031 auto-reap oracle spawns in.
 /// 42 → 43 for ADR-0076/0077: CPU1 idle identity (marker exits and frees).
+/// 43 → 46 for ADR-0079: CPU1 EL1 preempt oracle (watcher + peer + spinner)
+/// concurrent with the primary preempt pair and auto-reap spawns.
 /// Raising it costs task stacks and page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 43;
+pub const MAX_TASKS: usize = 46;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -76,8 +78,8 @@ pub const MAX_CAPS_PER_TASK: usize = 4;
 /// Cooperative quantum in timer ticks (ADR-0046 / K4).
 pub const BUDGET_QUANTUM_TICKS: u64 = 2;
 
-/// Slice start tick per CPU (set on switch-in). K4 preemption reads index 0
-/// until core1 has a timer (honest non-goal of ADR-0077).
+/// Slice start tick per CPU (set on switch-in). Both affinities evaluate
+/// quantum against global `time::ticks()` (ADR-0078/0079).
 static SLICE_START: [core::sync::atomic::AtomicU64; 2] = [
     core::sync::atomic::AtomicU64::new(0),
     core::sync::atomic::AtomicU64::new(0),
@@ -746,14 +748,14 @@ pub extern "C" fn el1_preempt_pending() -> u32 {
     if STARTED.load(Ordering::Acquire) == 0 {
         return 0;
     }
-    // No timer PPI / quantum path on core 1 yet (ADR-0077 non-goal): refuse
-    // the epilogue pivot rather than reading empty mirrors. Not a queues fence.
+    // ADR-0078/0079: every schedulable CPU with a live timer evaluates its own
+    // mirrors. Affinity past our table is a Stay (no pivot).
     let cpu = cpu::affinity() as usize;
-    if cpu != 0 {
+    if cpu >= SLICE_START.len() {
         return 0;
     }
-    let start = SLICE_START[0].load(Ordering::Relaxed);
-    let idle = CURRENT_IS_IDLE[0].load(Ordering::Relaxed);
+    let start = SLICE_START[cpu].load(Ordering::Relaxed);
+    let idle = CURRENT_IS_IDLE[cpu].load(Ordering::Relaxed);
     u32::from(kernel_core::preempt::should_set(
         start,
         time::ticks(),

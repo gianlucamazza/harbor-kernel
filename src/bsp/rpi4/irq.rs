@@ -132,10 +132,12 @@ pub unsafe extern "C" fn harbor_secondary_idle() -> ! {
 
     // Banked GICC + SGI/PPI Group 0 on this core; distributor already open.
     GIC.init_this_cpu();
-    // Priority + group + banked enable for SGI 0 only (no timer on secondary).
-    // Goes through the shared chip pointer so the secondary does not need a
-    // second `GicV2` owner of the same MMIO.
+    // SGI 0 (resched) + PPI 30 (local CNTP quantum — ADR-0078/0079).
+    // Shared sealed table already has the timer handler; enable is banked.
     irq::enable(WAKE_SGI);
+    // Arm this core's CNTP from the interval primary published.
+    let _ = timer::init_secondary();
+    irq::enable(TIMER_IRQ);
     smp::mark_secondary_irq_ready();
 
     cpu::sync_pipeline();

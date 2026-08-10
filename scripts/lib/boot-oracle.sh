@@ -391,6 +391,15 @@ assert_boot_oracle() {
 		fail "EL1 preemption did not rotate the non-yielding spinner (ADR-0068)"
 	grep -qa 'preempt-el1: spinner exited' "${log}" ||
 		fail "the preempted EL1 spinner did not observe the stop word and exit (ADR-0068)"
+	# ADR-0079 / K8: EL1 quantum preemption on CPU 1 (local CNTP + epilogue).
+	grep -qa 'preempt-el1-cpu1: rotated' "${log}" ||
+		fail "EL1 preemption on CPU 1 did not rotate the non-yielding spinner (ADR-0079)"
+	grep -qa 'preempt-el1-cpu1: spinner exited' "${log}" ||
+		fail "the CPU1 preempted EL1 spinner did not exit after the stop word (ADR-0079)"
+	grep -qa 'preempt-el1-cpu1: peer gave up' "${log}" &&
+		fail "CPU1 EL1 preemption peer gave up (ADR-0079)"
+	grep -qa 'preempt-el1-cpu1: watch timeout' "${log}" &&
+		fail "CPU1 EL1 preemption watch timed out (ADR-0079)"
 	# ADR-0064 / K4: IRQ preemption — a non-syscalling EL0 spinner loses the CPU.
 	grep -qa 'preempt: rotated' "${log}" ||
 		fail "IRQ preemption did not rotate the EL0 spinner (ADR-0064)"
