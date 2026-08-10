@@ -136,7 +136,7 @@ make qemu         # boot in QEMU
 make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence, then clippy
 ```
 
-On a Pi 4B (FAT boot partition + 3.3 V USB-serial):
+On a Pi 4B (FAT boot partition + 3.3 V USB-serial):
 
 ```bash
 make blobs
