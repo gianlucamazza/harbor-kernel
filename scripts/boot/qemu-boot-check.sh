@@ -73,6 +73,39 @@ read_cpu_hz_of() {
 	CPU_HZ=$((${12} + ${13}))
 }
 
+# Busy CPU across the whole host, in USER_HZ: everything in `/proc/stat`'s
+# summary line except idle and iowait.
+#
+# The fallback for the case the reading above cannot cover: CI does not run
+# QEMU as a child at all. It installs a wrapper that `exec docker run`s an Arch
+# container, so the process this script starts is a docker *client* — the
+# emulator is a child of the daemon, in another namespace, and no amount of
+# sampling our own pid will ever see it. That is why both earlier attempts read
+# essentially zero there.
+#
+# Containers share the host kernel, so the emulator's cycles do land in
+# `/proc/stat` even when they land nowhere this script can attribute. The
+# number is therefore about the *host*, not the emulator: it answers "was there
+# CPU being spent while this boot ran", which is the only question the
+# indeterminate verdict actually asks. It is labelled as such wherever it is
+# printed, because a share that includes a noisy neighbour would read as a
+# generous one.
+read_host_busy_hz() {
+	local cpu user nice system irq softirq steal rest
+	# `idle` and `iowait` are read into `rest` on purpose: busy is everything
+	# else, and naming them would only invite someone to add them to the sum.
+	HOST_BUSY_HZ=0
+	read -r cpu user nice system rest </proc/stat || return 0
+	[[ "${cpu}" == "cpu" ]] || return 0
+	# `rest` is idle iowait irq softirq steal guest guest_nice.
+	# shellcheck disable=SC2086  # deliberate word splitting into positionals
+	set -- ${rest}
+	irq="$3"
+	softirq="$4"
+	steal="$5"
+	HOST_BUSY_HZ=$((user + nice + system + irq + softirq + steal))
+}
+
 # ADR-0066: a scratch SD card image, partitioned exactly as the host tool
 # partitions a real card (one MBR entry of type 0x7f). Sparse, so the 8 GiB
 # the QEMU SD model wants (power-of-two) costs kilobytes of real disk. Two
@@ -149,7 +182,9 @@ run_boot() {
 	local seconds="$1"
 	shift
 	: >"${log}"
-	local deadline=$((SECONDS + seconds)) pid
+	local deadline=$((SECONDS + seconds)) pid busy_before
+	read_host_busy_hz
+	busy_before="${HOST_BUSY_HZ}"
 	# raspi4b requires min 4 CPUs; ADR-0070 needs secondaries present to unpark.
 	"${QEMU}" \
 		-M "${QEMU_MACHINE}" -smp 4 -kernel "${IMG}" \
@@ -165,8 +200,21 @@ run_boot() {
 	done
 	kill -TERM "${pid}" 2>/dev/null || true
 	wait "${pid}" 2>/dev/null || true
+	read_host_busy_hz
+
 	emulator_cores=$((RUN_CPU_HZ * 100 / (clk_tck * seconds)))
-	cores_seen+=("$(printf '%s.%02d' $((emulator_cores / 100)) $((emulator_cores % 100)))")
+	share_is_host_wide=0
+	if ((emulator_cores < CORES_TO_BE_CREDIBLE)); then
+		# The emulator was not ours to watch. Fall back to what the host as a
+		# whole burned, and say so — never silently, and never the other way
+		# round: a process we *can* see is always the better answer.
+		emulator_cores=$(((HOST_BUSY_HZ - busy_before) * 100 / (clk_tck * seconds)))
+		share_is_host_wide=1
+	fi
+	# `*` marks a host-wide reading, expanded in the closing line.
+	local mark=""
+	((share_is_host_wide == 1)) && mark="*"
+	cores_seen+=("$(printf '%s.%02d%s' $((emulator_cores / 100)) $((emulator_cores % 100)) "${mark}")")
 }
 
 # Boot 1: with -dtb fixture (FDT parse path).
@@ -176,7 +224,10 @@ run_boot "${SECONDS_TO_RUN}" -dtb "${DTB_FIXTURE}" -drive "if=sd,format=raw,file
 # blame the environment: a FAIL whose host share is unknown cannot be told from
 # a FAIL on a host that had the CPU, and the difference is the whole question.
 print_cpu_share() {
-	printf '  emulator share: %s.%02d cores of host CPU over %ss (%s)\n' \
+	printf '  %s: %s.%02d cores over %ss (%s)\n' \
+		"$(if ((share_is_host_wide == 1)); then
+			echo "host-wide CPU, the emulator is not this shell's child"
+		else echo "emulator share"; fi)" \
 		$((emulator_cores / 100)) $((emulator_cores % 100)) "${SECONDS_TO_RUN}" \
 		"$(if [[ "${emulator_cores}" -lt "${CORES_TO_BE_CREDIBLE}" ]]; then
 			echo "not credible — treat as unmeasured"
@@ -265,9 +316,10 @@ run_boot 8
 grep -qa 'durable-media: no-card (no SDHC/SDXC answered)' "${log}" ||
 	fail "without a card the boot did not report the honest no-card line (ADR-0066)"
 
-printf 'boot-check: clean (%s + %s tick reports over two media boots, emulator had %s cores)\n' \
+printf 'boot-check: clean (%s + %s tick reports over two media boots, %s cores per boot%s)\n' \
 	"${ticks_first}" "${ticks_second}" \
 	"$(
 		IFS='/'
 		echo "${cores_seen[*]}"
-	)"
+	)" \
+	"$(if ((share_is_host_wide == 1)); then echo " — * is host-wide, not the emulator's own"; fi)"
