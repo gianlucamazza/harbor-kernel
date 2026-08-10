@@ -47,8 +47,12 @@ trap 'rm -f "${log}"' EXIT
 # the measurement adds no dependency to a script `make check` always runs.
 #
 # The comm field can contain spaces, so everything up to the last `)` is
-# dropped before counting: the remaining fields start at `state`, which puts
-# cutime and cstime at offsets 13 and 14.
+# dropped before counting: the remaining fields start at `state`, so positional
+# `n` is `proc(5)` field `n + 2`. cutime is field 16 and cstime is field 17,
+# which is `${14}` and `${15}` — not `${13}` and `${14}`, which are the
+# *shell's own* stime and the children's utime. Reading those two summed a
+# number that is always ~0 with one that happened to be most of TCG's cost, so
+# the total looked plausible on an idle laptop and told the truth nowhere else.
 #
 # The result goes into a global rather than being echoed for a caller to
 # capture. `$(…)` runs in a subshell, and a subshell's `/proc/self/stat` is its
@@ -62,7 +66,7 @@ read_child_cpu_hz() {
 	rest="${stat##*) }"
 	# shellcheck disable=SC2086  # deliberate word splitting into positionals
 	set -- ${rest}
-	CHILD_CPU_HZ=$((${13} + ${14}))
+	CHILD_CPU_HZ=$((${14} + ${15}))
 }
 
 read_child_cpu_hz
@@ -118,8 +122,31 @@ read_child_cpu_hz
 emulator_cores=$(((CHILD_CPU_HZ - cpu_before) * 100 / (clk_tck * SECONDS_TO_RUN)))
 CORES_TO_BE_MEASURABLE=100 # one whole core, averaged over the run
 
+# Below this the reading is not a small share, it is a failed measurement. A
+# guest that boots through to steady state costs the host seconds of CPU; an
+# accounting that reports a hundredth of a core for it is not describing the
+# emulator. Seen on GitHub's runners, where the number read 0.00 for a run the
+# serial log shows going all the way to `ticks=140` — and 0.00 silently
+# satisfies every "starved?" test, which would turn the indeterminate verdict
+# into a rubber stamp on the one host where it fires.
+CORES_TO_BE_CREDIBLE=10 # 0.10 core
+
+# The environment reading belongs on every verdict, not only the ones that
+# blame the environment: a FAIL whose host share is unknown cannot be told from
+# a FAIL on a host that had the CPU, and the difference is the whole question.
+print_cpu_share() {
+	printf '  emulator share: %s.%02d cores of host CPU over %ss (%s)\n' \
+		$((emulator_cores / 100)) $((emulator_cores % 100)) "${SECONDS_TO_RUN}" \
+		"$(if [[ "${emulator_cores}" -lt "${CORES_TO_BE_CREDIBLE}" ]]; then
+			echo "not credible — treat as unmeasured"
+		elif [[ "${emulator_cores}" -lt "${CORES_TO_BE_MEASURABLE}" ]]; then
+			echo "starved"
+		else echo "enough to meet deadlines"; fi)" >&2
+}
+
 fail() {
 	echo "boot-check: FAIL — $1" >&2
+	print_cpu_share
 	echo "--- serial log ---" >&2
 	cat "${log}" >&2
 	exit 1
@@ -130,11 +157,29 @@ fail() {
 # unestablished claim for a verified one.
 indeterminate() {
 	echo "boot-check: INDETERMINATE — $1" >&2
-	printf '  the emulator got %s.%02d cores of host CPU over %ss; under 1.00 it\n' \
-		$((emulator_cores / 100)) $((emulator_cores % 100)) "${SECONDS_TO_RUN}" >&2
-	echo "  cannot be asked to meet a deadline. Re-run on an idle machine." >&2
+	print_cpu_share
+	echo "  A deadline cannot be demanded of an emulator that did not get a core," >&2
+	echo "  nor of one whose share this host will not report. Re-run on an idle" >&2
+	echo "  machine that accounts for its children." >&2
 	echo "  This is not a kernel failure, and it is not a pass." >&2
 	exit 3
+}
+
+# The verdict for an assertion that can only be met by running fast enough:
+# timer deadlines, and every rotation or exit an oracle waits a bounded number
+# of yields for. `scripts/lib/boot-oracle.sh` decides *what* a sound boot says;
+# this decides who is to blame when a host could not host the question.
+#
+# Silicon has no such excuse, which is why `hw-transcript-check.sh` shares the
+# assertions and not this function (ADR-0087).
+deadline_verdict() {
+	if [[ "${emulator_cores}" -lt "${CORES_TO_BE_CREDIBLE}" ]]; then
+		indeterminate "$1, on a host that did not report what the emulator got"
+	fi
+	if [[ "${emulator_cores}" -lt "${CORES_TO_BE_MEASURABLE}" ]]; then
+		indeterminate "$1, on a host that starved the emulator"
+	fi
+	fail "$1, and the emulator had the CPU to meet it"
 }
 
 # The assertions themselves live in one place, shared with the hardware
@@ -143,10 +188,12 @@ indeterminate() {
 source "$(dirname "$0")/../lib/boot-oracle.sh"
 
 on_timer_missed() {
-	if [[ "${emulator_cores}" -lt "${CORES_TO_BE_MEASURABLE}" ]]; then
-		indeterminate "the timer missed deadlines on a host that starved the emulator"
-	fi
-	fail "timer deadlines expired unserviced, and the emulator had the CPU to meet them"
+	deadline_verdict "timer deadlines expired unserviced"
+}
+
+# Rotation and exit under preemption: same shape as the timer, same verdict.
+on_deadline_missed() {
+	deadline_verdict "$1"
 }
 
 # Boot 1 on fresh media: the durable window exists and has never been
