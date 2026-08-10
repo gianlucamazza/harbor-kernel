@@ -64,7 +64,7 @@ there is **no quantum path**, not because queues are incomplete.
 
 ### 6. Residuals (honest only)
 
-- Work stealing  
+- Work stealing — **design** [ADR-0082](0082-k8-work-stealing-design.md); code residual
 - Per-core timer / K4 preemption on core 1 — **done (HW)** [ADR-0079](0079-k8-per-core-timer-preemption-first-slice.md) (design [0078](0078-k8-per-core-timer-preemption-design.md); stamp 2026-08-10)
 - EL0 agents with home on CPU 1 — **done (HW)** [ADR-0081](0081-k8-el0-on-cpu1-first-slice.md) (design [0080](0080-k8-el0-on-cpu1-design.md); stamp 2026-08-10)
 - Lock refinement if measured contention requires it  

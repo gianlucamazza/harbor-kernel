@@ -59,7 +59,7 @@ durable store and K4 preemption oracles also clean on the same boot.
 ### 5. Residuals after ADR-0077 cleanup
 
 - Per-core preemption / timer PPI on core 1 — **done (HW)** via [ADR-0079](0079-k8-per-core-timer-preemption-first-slice.md)
-- Work stealing; lock refinement if measured  
+- Work stealing — **design** [ADR-0082](0082-k8-work-stealing-design.md); code residual; lock refinement if measured
 - EL0 agents with home on CPU 1
 
 ## Related

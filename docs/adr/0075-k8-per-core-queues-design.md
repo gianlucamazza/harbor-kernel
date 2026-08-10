@@ -80,7 +80,7 @@ allowed; the split stays “decide pure / act in `sched`”.
 | Default spawn | `home = 0` |
 | Explicit spawn | `spawn_on(cpu, …)` for lab/oracle (and any future product need) |
 | Migration | **None** in the first code slice and not implied by this design |
-| Work stealing | **Out of scope** — later ADR, as ADR-0048 already said |
+| Work stealing | **Out of scope** of this design — later [ADR-0082](0082-k8-work-stealing-design.md) |
 
 A task always becomes Ready on its home queue. Soft affinity and load
 hints are not part of this design.

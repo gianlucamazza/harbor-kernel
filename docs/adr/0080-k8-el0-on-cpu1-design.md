@@ -28,7 +28,7 @@ design for closing that gap. First **code**: [ADR-0081](0081-k8-el0-on-cpu1-firs
 | `el0::current()` contract | Documents single-core + local IRQ mask |
 | Product agents / loader | Always admitted on the spawning core’s default (CPU 0) |
 | Console TX from core 1 | **Forbidden** (ADR-0070); agents print via `SYS_SEND` → console server |
-| Steal | Out of scope (ADR-0075); still residual |
+| Steal | Out of scope here; design [ADR-0082](0082-k8-work-stealing-design.md) |
 
 Without per-CPU published sessions, two concurrent EL0 entries (one per core)
 silently share one pointer — the class of bug ADR-0017’s “published session

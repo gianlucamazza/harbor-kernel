@@ -59,7 +59,7 @@ oracles also clean on the same boot.
 
 ### 5. Residuals (honest)
 
-- Work stealing  
+- Work stealing — **design** [ADR-0082](0082-k8-work-stealing-design.md); code residual  
 - Cores 2–3  
 - Product default home still 0 (explicit pin only)  
 - TLB IPI if steal lands later  
