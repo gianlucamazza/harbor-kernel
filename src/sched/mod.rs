@@ -65,8 +65,9 @@ use crate::time;
 /// 43 → 46 for ADR-0079: CPU1 EL1 preempt oracle (watcher + peer + spinner)
 /// concurrent with the primary preempt pair and auto-reap spawns.
 /// 46 → 49 for ADR-0081: CPU1 EL0 preempt oracle (watcher + peer + spinner).
+/// 49 → 52 for ADR-0083: steal oracle (watch + two thin victims).
 /// Raising it costs task stacks and page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 49;
+pub const MAX_TASKS: usize = 52;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -391,17 +392,38 @@ pub unsafe extern "C" fn harbor_secondary_sched() -> ! {
 fn secondary_idle_loop() -> ! {
     // Permanent CPU1 idle: same shape as the product idle (poll → yield/WFI),
     // without console TX. Contends the sched/heap locks briefly and honestly
-    // (ADR-0077) — no quiet-park workaround.
+    // (ADR-0077) — no quiet-park workaround. ADR-0083: also schedule when the
+    // peer has stealeable Ready (pull-on-idle); timer IRQ wakes WFI so steal
+    // is attempted without a dedicated push IPI.
     loop {
         poll_wakes();
         let cpu = this_cpu();
-        let work = take_resched(cpu) || with_sched(|s| s.tasks.has_ready_on(cpu));
+        let work = take_resched(cpu)
+            || with_sched(|s| s.tasks.has_ready_on(cpu) || s.tasks.can_steal_into(cpu));
         if work {
             switch_with(Switch::Yield);
         } else {
             cpu::wait_for_interrupt();
         }
     }
+}
+
+/// Mark the current task as not stealeable (ADR-0082/0083 — agents with AS).
+pub fn mark_current_not_stealeable() {
+    let cpu = this_cpu();
+    with_sched(|sched| {
+        let id = sched.tasks.current_on(cpu);
+        let _ = sched.tasks.set_stealeable(id, false);
+    });
+}
+
+/// Opt the current task into work stealing (ADR-0082/0083 first code is opt-in).
+pub fn mark_current_stealeable() {
+    let cpu = this_cpu();
+    with_sched(|sched| {
+        let id = sched.tasks.current_on(cpu);
+        let _ = sched.tasks.set_stealeable(id, true);
+    });
 }
 
 /// Create a ready task that starts at `entry` with no capabilities.

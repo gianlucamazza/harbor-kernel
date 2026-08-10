@@ -409,6 +409,11 @@ assert_boot_oracle() {
 		fail "CPU1 EL0 preemption peer gave up (ADR-0081)"
 	grep -qa 'preempt-el0-cpu1: watch timeout' "${log}" &&
 		fail "CPU1 EL0 preemption watch timed out (ADR-0081)"
+	# ADR-0083 / K8: work steal — victim admitted on CPU0 only, ran on affinity 1.
+	grep -qa 'smp: steal ok' "${log}" ||
+		fail "work steal did not run a CPU0-only worker on affinity 1 (ADR-0083)"
+	grep -qa 'smp: steal timeout' "${log}" &&
+		fail "work steal oracle timed out (ADR-0083)"
 	# ADR-0064 / K4: IRQ preemption — a non-syscalling EL0 spinner loses the CPU.
 	grep -qa 'preempt: rotated' "${log}" ||
 		fail "IRQ preemption did not rotate the EL0 spinner (ADR-0064)"

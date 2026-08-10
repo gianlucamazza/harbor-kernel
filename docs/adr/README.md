@@ -101,7 +101,8 @@ the code that follows.
 | [0079](0079-k8-per-core-timer-preemption-first-slice.md)     | K8 fourth slice — per-core timer + EL1 preemption on CPU 1                                 | accepted   |
 | [0080](0080-k8-el0-on-cpu1-design.md)                        | K8 design — EL0 sessions and agents with home on CPU 1 (code: 0081)                        | accepted   |
 | [0081](0081-k8-el0-on-cpu1-first-slice.md)                   | K8 fifth slice — EL0 sessions and preemption on CPU 1                                      | accepted   |
-| [0082](0082-k8-work-stealing-design.md)                      | K8 design — work stealing between per-core ready queues (code follow-on)                   | accepted   |
+| [0082](0082-k8-work-stealing-design.md)                      | K8 design — work stealing between per-core ready queues (code: 0083)                       | accepted   |
+| [0083](0083-k8-work-stealing-first-slice.md)                 | K8 sixth slice — work stealing first code                                                  | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

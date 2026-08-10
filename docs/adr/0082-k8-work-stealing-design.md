@@ -16,7 +16,8 @@ quantum on both CPUs, and EL0-on-CPU1 (**done (HW)** —
 [ADR-0075](0075-k8-per-core-queues-design.md)–[0081](0081-k8-el0-on-cpu1-first-slice.md)),
 the last structural multi-core residual named since
 [ADR-0048](0048-k8-smp-design.md) is **load balance without explicit pin**.
-This ADR is the design. First **code** is a follow-on ADR (expected **0083**).
+This ADR is the design. First **code**: [ADR-0083](0083-k8-work-stealing-first-slice.md)
+(**done (QEMU)**; HW stamp residual).
 
 ## Context
 
@@ -87,14 +88,13 @@ steal (overloaded core kicking a peer) is a residual.
 | Task that **owns a user address space** but is between sessions (session ended, AS still held) | **No** in first code | Conservative: AS may still have nG TLB residue on peer |
 | Console server / tasks that must stay on CPU 0 by product rule | **No** if tagged; first code may simply never steal tasks that hold the console-server role role — or never pin them as stealeable | Policy; code ADR may use a simple “not stealeable” bit or role check |
 
-**First-code stealeable = Ready worker without an agent user AS (no
-`AddressSpace` / never prepared EL0 program), or an explicit stealeable flag
-defaulting true only for plain `spawn` / `spawn_on` EL1 bodies.**
+**First-code stealeable = opt-in flag** (`stealeable` default **false** on
+admit). Oracle victims call `mark_current_stealeable`; agents force clear on
+AS create. This avoids migrating console printers (task-a/b interleave) and
+any user-AS task without a TLB story.
 
-The pure model may expose `try_steal_into` without AS knowledge; the kernel
-filters candidates (or only enqueues plain workers on queues that participate).
-Exact filter lives in the code ADR; this design forbids stealing mid-EL0 and
-forbids claiming agent migration without a TLB story.
+The pure model owns `try_steal_into` + the flag; the kernel sets the flag.
+This design forbids claiming agent migration without a TLB story.
 
 ### 4. Locks and IPI (unchanged doctrine)
 

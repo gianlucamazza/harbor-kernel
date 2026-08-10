@@ -327,6 +327,9 @@ pub struct Agent {
 impl Agent {
     /// Allocate, prepare (kernel clone + user window).
     pub fn create_prepared() -> Result<Self, AgentError> {
+        // ADR-0082/0083: tasks that own a user AS are not stealeable until a
+        // TLB-IPI slice exists — pin the driver for the rest of its life.
+        crate::sched::mark_current_not_stealeable();
         let mut aspace = AddressSpace::create()?;
         aspace.prepare_for_el0()?;
         Ok(Self { aspace })
@@ -338,6 +341,7 @@ impl Agent {
     /// are applied to the address space before an agent exists to own it
     /// (ADR-0021 §5).
     pub fn from_aspace(aspace: AddressSpace) -> Self {
+        crate::sched::mark_current_not_stealeable();
         Self { aspace }
     }
 

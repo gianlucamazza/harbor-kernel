@@ -988,6 +988,19 @@ pub fn run() -> ! {
             Err(e) => crate::kprintln!("preempt-el0-cpu1: watch spawn FAILED {e:?}"),
         }
 
+        // ADR-0083 / K8: work steal — all admitted on CPU0; no spawn_on(1).
+        // Two cooperative victims so one is Ready while the other runs; CPU1 pulls.
+        match crate::sched::spawn_thin(demos::steal_watch) {
+            Ok(_) => match crate::sched::spawn_thin(demos::steal_victim) {
+                Ok(_) => match crate::sched::spawn_thin(demos::steal_victim) {
+                    Ok(_) => crate::kprintln!("smp: steal workers spawned"),
+                    Err(e) => crate::kprintln!("smp: steal victim2 spawn FAILED {e:?}"),
+                },
+                Err(e) => crate::kprintln!("smp: steal victim spawn FAILED {e:?}"),
+            },
+            Err(e) => crate::kprintln!("smp: steal watch spawn FAILED {e:?}"),
+        }
+
         // ADR-0064 / K4: IRQ-side preemption of a non-syscalling EL0 spinner.
         // Peer first, so it is already in the rotation when the window opens.
         match crate::sched::spawn_thin(demos::preempt_peer_task) {

@@ -4,10 +4,11 @@
 //! [`RunQueue`] answers *which task runs next* on one CPU. This answers the
 //! rest: what happens to the one leaving, whether a switch is worth making, and
 //! whose stack is now safe to release. Multi-current (ADR-0075/0076) keeps one
-//! ready queue and one `current` per CPU with hard sticky affinity. It decides
-//! and does not act — the caller performs the context switch and frees the
-//! memory, which is what keeps this testable on a host with no MMU. Idle is
-//! never preempted into idle.
+//! ready queue and one `current` per CPU with hard sticky affinity (ADR-0075).
+//! Work stealing (ADR-0082/0083) may re-home a Ready task onto an empty local
+//! queue under pure rules. It decides and does not act — the caller performs
+//! the context switch and frees the memory, which is what keeps this testable
+//! on a host with no MMU. Idle is never preempted into idle.
 //!
 //! # The stack a task cannot free
 //!
@@ -82,8 +83,13 @@ pub struct Tasks<const N: usize> {
     /// Tenancy epoch per slot (ADR-0062). Bumped on exit; `admit` mints ids
     /// carrying it, and `state`/`wake` refuse an id whose epoch has moved on.
     epochs: [u16; N],
-    /// Sticky home CPU for each slot (hard affinity; ADR-0075).
+    /// Sticky home CPU for each slot (hard affinity; ADR-0075). Updated on
+    /// successful steal (ADR-0082 hard re-home).
     home: [u8; N],
+    /// Whether this slot may be stolen onto another CPU (ADR-0082/0083).
+    /// Default **false** on admit (first code: opt-in). Victims of the steal
+    /// oracle mark themselves; agents and console printers stay pinned.
+    stealeable: [bool; N],
     queues: [RunQueue<N>; N_CPUS],
     current: [TaskId; N_CPUS],
     /// Idle identity per CPU. `[0]` is always [`Self::IDLE`]; `[1]` is set by
@@ -110,6 +116,7 @@ impl<const N: usize> Tasks<N> {
             states: [State::Empty; N],
             epochs: [0; N],
             home: [0; N],
+            stealeable: [false; N],
             queues: [RunQueue::new(), RunQueue::new()],
             current: [Self::IDLE; N_CPUS],
             idle: [Self::IDLE; N_CPUS],
@@ -268,7 +275,88 @@ impl<const N: usize> Tasks<N> {
         }
         self.states[slot] = State::Ready;
         self.home[slot] = cpu as u8;
+        self.stealeable[slot] = false;
         Some(id)
+    }
+
+    /// Mark whether `id` may be stolen (ADR-0082). Refuses stale ids and idle.
+    pub fn set_stealeable(&mut self, id: TaskId, yes: bool) -> bool {
+        let idx = id.slot();
+        if idx >= N || self.epochs[idx] != id.epoch() {
+            return false;
+        }
+        if id == self.idle[0] || id == self.idle[1] {
+            return false;
+        }
+        self.stealeable[idx] = yes;
+        true
+    }
+
+    /// Whether `id` is currently marked stealeable.
+    #[inline]
+    pub fn is_stealeable(&self, id: TaskId) -> bool {
+        let idx = id.slot();
+        idx < N
+            && self.epochs[idx] == id.epoch()
+            && self.stealeable[idx]
+            && id != self.idle[0]
+            && id != self.idle[1]
+    }
+
+    /// True if the thief has no local ready work and the peer has some
+    /// stealeable Ready (ADR-0082 pull-on-idle probe).
+    pub fn can_steal_into(&self, thief: u8) -> bool {
+        let t = thief as usize;
+        if t >= N_CPUS || !self.queues[t].is_empty() {
+            return false;
+        }
+        let peer = 1 - t;
+        let mut found = false;
+        self.queues[peer].for_each_ready(|id| {
+            if !found && self.states[id.slot()] == State::Ready && self.is_stealeable(id) {
+                found = true;
+            }
+        });
+        found
+    }
+
+    /// Pull one stealeable Ready from the peer onto `thief` and re-home it
+    /// (ADR-0082). Returns true if a task moved.
+    ///
+    /// Call only under the caller's mutual exclusion. Never steals Running or
+    /// idle. Non-stealeable Ready entries are rotated to the tail so a
+    /// stealeable task deeper in the peer queue can still be found (one pass).
+    pub fn try_steal_into(&mut self, thief: u8) -> bool {
+        let t = thief as usize;
+        if t >= N_CPUS || !self.queues[t].is_empty() {
+            return false;
+        }
+        let peer = 1 - t;
+        let n = self.queues[peer].len();
+        for _ in 0..n {
+            let Some(id) = self.queues[peer].front() else {
+                return false;
+            };
+            if self.states[id.slot()] != State::Ready {
+                // Inconsistent head — refuse rather than corrupt.
+                return false;
+            }
+            if !self.is_stealeable(id) {
+                // Rotate non-stealeable to tail and keep looking.
+                let id = self.queues[peer].dequeue().unwrap();
+                let _ = self.queues[peer].enqueue(id);
+                continue;
+            }
+            let id = self.queues[peer].dequeue().unwrap();
+            self.home[id.slot()] = thief;
+            if self.queues[t].enqueue(id).is_err() {
+                let _ = self.queues[peer].enqueue(id);
+                self.home[id.slot()] = peer as u8;
+                return false;
+            }
+            return true;
+        }
+        false
     }
 
     /// Make a blocked task runnable again on its **home** queue. `false` if it
@@ -333,6 +421,12 @@ impl<const N: usize> Tasks<N> {
         let idle = self.idle[cpu];
         let current = self.current[cpu];
         let cur = current.slot();
+
+        // ADR-0082: if this CPU is idle with an empty ready list, pull one
+        // stealeable Ready from the peer before selecting the next task.
+        if current == idle && self.queues[cpu].is_empty() {
+            let _ = self.try_steal_into(cpu as u8);
+        }
 
         let requeue = match kind {
             Switch::Preempt if current == idle => {
@@ -870,6 +964,95 @@ mod tests {
         assert!(t.wake(w));
         assert!(t.has_ready_on(1));
         assert!(!t.has_ready_on(0));
+    }
+
+    #[test]
+    fn try_steal_into_rehomes_ready_from_peer() {
+        // ADR-0082: two Ready on CPU0, CPU1 idle empty → steal one onto CPU1.
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let idle1 = t.start_cpu1().unwrap();
+        let a = t.admit_on(0).unwrap();
+        let b = t.admit_on(0).unwrap();
+        assert!(t.set_stealeable(a, true));
+        assert!(t.set_stealeable(b, true));
+        assert!(t.has_ready_on(0));
+        assert!(!t.has_ready_on(1));
+        assert!(t.can_steal_into(1));
+        assert!(t.try_steal_into(1));
+        assert_eq!(t.home_of(a), Some(1), "FIFO head is re-homed");
+        assert_eq!(t.home_of(b), Some(0));
+        assert!(t.has_ready_on(1));
+        assert!(t.has_ready_on(0));
+        // Second steal while local non-empty fails.
+        assert!(!t.try_steal_into(1));
+        // Idle on CPU1 can switch onto the stolen worker.
+        assert!(matches!(
+            t.switch_on(1, Switch::Yield),
+            Decision::Switch { from, to, .. } if from == idle1 && to == a
+        ));
+    }
+
+    #[test]
+    fn try_steal_into_skips_non_stealeable_and_takes_next() {
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let _idle1 = t.start_cpu1().unwrap();
+        let pinned = t.admit_on(0).unwrap();
+        let free = t.admit_on(0).unwrap();
+        // pinned stays default false; free opts in.
+        assert!(t.set_stealeable(free, true));
+        assert!(t.try_steal_into(1));
+        assert_eq!(t.home_of(pinned), Some(0), "pinned stays");
+        assert_eq!(t.home_of(free), Some(1), "next stealeable moves");
+        assert!(t.has_ready_on(0));
+        assert!(t.has_ready_on(1));
+    }
+
+    #[test]
+    fn try_steal_into_refuses_when_only_non_stealeable() {
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let _idle1 = t.start_cpu1().unwrap();
+        let pinned = t.admit_on(0).unwrap();
+        // default not stealeable
+        assert!(!t.try_steal_into(1));
+        assert_eq!(t.home_of(pinned), Some(0));
+        assert!(t.has_ready_on(0));
+        assert!(!t.has_ready_on(1));
+    }
+
+    #[test]
+    fn wake_after_steal_uses_new_home() {
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let idle1 = t.start_cpu1().unwrap();
+        let w = t.admit_on(0).unwrap();
+        assert!(t.set_stealeable(w, true));
+        assert!(t.try_steal_into(1));
+        assert_eq!(t.home_of(w), Some(1));
+        t.switch_on(1, Switch::Yield); // → w
+        t.switch_on(1, Switch::Block); // → idle1
+        assert!(t.wake(w));
+        assert!(t.has_ready_on(1));
+        assert!(!t.has_ready_on(0));
+        let _ = idle1;
+    }
+
+    #[test]
+    fn idle_yield_steals_before_stay() {
+        // switch_on from idle with empty local queue pulls peer Ready.
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let idle1 = t.start_cpu1().unwrap();
+        let w = t.admit_on(0).unwrap();
+        assert!(t.set_stealeable(w, true));
+        assert!(matches!(
+            t.switch_on(1, Switch::Yield),
+            Decision::Switch { from, to, .. } if from == idle1 && to == w
+        ));
+        assert_eq!(t.home_of(w), Some(1));
+        assert_eq!(t.current_on(1), w);
     }
 
     #[cfg_attr(

@@ -144,6 +144,24 @@ impl<const CAP: usize> RunQueue<CAP> {
         Some(id)
     }
 
+    /// Head of the ready queue without removing it (ADR-0082 steal peeks).
+    #[inline]
+    pub fn front(&self) -> Option<TaskId> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.slots[self.head])
+        }
+    }
+
+    /// Call `f` for each ready id from head to tail (ADR-0082 steal probe).
+    #[inline]
+    pub fn for_each_ready(&self, mut f: impl FnMut(TaskId)) {
+        for i in 0..self.len {
+            f(self.slots[(self.head + i) % CAP]);
+        }
+    }
+
     /// Select who runs after a voluntary yield.
     ///
     /// - `requeue = Some(id)`: the current task remains runnable — enqueue it,

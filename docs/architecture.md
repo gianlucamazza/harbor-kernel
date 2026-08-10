@@ -333,8 +333,8 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
 | **H1 next**                  | P3\|P4 only with composition (deferred) · K5 driver-half residual                                                                                                 |
-| **H2 depth**                 | K4 EL0+EL1 preemption done (HW); K7 first slice done (HW); K8 unpark+IPI+queues+EL1/EL0 preempt-cpu1 done (HW, stamps 2026-08-10); steal design ADR-0082 (code residual); K7 TTBR1 |
-| **open (kernel)**            | K8 steal **code** (design ADR-0082); K7 residuals (TTBR1 / switch-cost); K5 driver-half                                            |
+| **H2 depth**                 | K4 EL0+EL1 preemption done (HW); K7 first slice done (HW); K8 unpark+IPI+queues+EL1/EL0 preempt-cpu1 done (HW); steal done (QEMU, ADR-0083); residual steal HW stamp; K7 TTBR1 |
+| **open (kernel)**            | K8 steal **HW stamp**; K7 residuals (TTBR1 / switch-cost); K5 driver-half                                            |
 | **open (product)**           | P3/P4 deferred (ADR-0049); K5 driver-half residual                                                                                                                |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
@@ -427,7 +427,8 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)     | K8 fourth slice — per-core timer + EL1 preempt on CPU 1 (**accepted**); done (HW), stamp 2026-08-10                                                    |
 | [ADR-0080](adr/0080-k8-el0-on-cpu1-design.md)                        | K8 design — EL0 sessions/agents home on CPU 1 (**accepted**); code [0081](adr/0081-k8-el0-on-cpu1-first-slice.md)                                    |
 | [ADR-0081](adr/0081-k8-el0-on-cpu1-first-slice.md)                   | K8 fifth slice — EL0 on CPU 1 (**accepted**); done (HW), stamp 2026-08-10                                                                              |
-| [ADR-0082](adr/0082-k8-work-stealing-design.md)                      | K8 design — work stealing (**accepted**); code residual                                                                                                |
+| [ADR-0082](adr/0082-k8-work-stealing-design.md)                      | K8 design — work stealing (**accepted**); code [0083](adr/0083-k8-work-stealing-first-slice.md)                                                      |
+| [ADR-0083](adr/0083-k8-work-stealing-first-slice.md)                 | K8 sixth slice — work stealing first code (**accepted**); done (QEMU)                                                                                  |
 | [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)                   | H3 L0 — x86_64 QEMU first slice (**accepted**); done (QEMU-x86)                                                                                        |
 | [ADR-0072](adr/0072-hardware-self-discovery-design.md)               | Hardware self-discovery as boot evidence — verify, don't select (**accepted**); first code [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)    |
 | [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)             | Discovery first slice — FDT reader + `discover:` report (**accepted**); done (HW), stamp 2026-08-10                                                    |

@@ -1532,6 +1532,40 @@ pub(super) fn el0_cpu1_watch() {
     crate::kprintln!("preempt-el0-cpu1: spinner exit timeout");
 }
 
+// --- ADR-0083: work steal (victims on CPU0 only; no spawn_on(1)) ---
+
+/// Set when a steal victim observes affinity 1.
+static STEAL_RAN: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// ADR-0083: EL1 worker admitted on **CPU0 only**. Opts into stealeable,
+/// then cooperative yields so a peer victim sits Ready and CPU1 can pull.
+pub(super) fn steal_victim() {
+    use core::sync::atomic::Ordering;
+    crate::sched::mark_current_stealeable();
+    for _ in 0..8192 {
+        if crate::arch::cpu::affinity() == 1 {
+            STEAL_RAN.store(true, Ordering::Release);
+            return;
+        }
+        crate::sched::yield_now();
+    }
+}
+
+/// ADR-0083: primary watcher — proves steal without `spawn_on(1)`.
+/// Not stealeable (console TX stays on CPU0).
+pub(super) fn steal_watch() {
+    use core::sync::atomic::Ordering;
+    crate::sched::mark_current_not_stealeable();
+    for _ in 0..16384 {
+        if STEAL_RAN.load(Ordering::Acquire) {
+            crate::kprintln!("smp: steal ok");
+            return;
+        }
+        crate::sched::yield_now();
+    }
+    crate::kprintln!("smp: steal timeout");
+}
+
 /// Stop-word physical address of the live preempt spinner (ADR-0064).
 /// Zero = no spinner window open. Written by [`preempt_agent_task`], consumed
 /// by [`preempt_peer_task`].
