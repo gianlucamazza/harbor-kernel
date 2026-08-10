@@ -111,6 +111,7 @@ the code that follows.
 | [0089](0089-k5-b-pair-collapse-design.md)                    | K5-B design — pair collapse (session schedulable); no code                                   | accepted   |
 | [0090](0090-k10-force-exit-running.md)                       | K10 force-exit Running at a safe point                                                       | accepted   |
 | [0091](0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` replaces the cell/lock pair                                    | accepted   |
+| [0092](0092-lifecycle-verdicts.md)                  | Supervisor lifecycle verdicts as a pure decision           | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:
