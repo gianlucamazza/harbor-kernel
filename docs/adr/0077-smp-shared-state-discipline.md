@@ -77,8 +77,8 @@ there is **no quantum path**, not because queues are incomplete.
 ### 6. Residuals (honest only)
 
 - Work stealing / EL0-on-CPU1 / per-core timer — **done (HW)** (0079/0081/0083)
-- **F-R1-P1 global-table discipline** — **done (QEMU)** code complete 2026-08-10
-  (post multi-role review); dual-current paths exercise locks every boot-check
+- **F-R1-P1 global-table discipline** — **done (HW)** 2026-08-10
+  (post multi-role review; stamp transcript `20260810-160227.log`, `src=05a38149`)
 - Agent+TLB steal — only if product needs auto-balance of agents
 - Lock refinement if measured contention requires it
 - Bootstrap-only `without_irqs` / "single core" SAFETY on early init (pre-secondary) remains correct
