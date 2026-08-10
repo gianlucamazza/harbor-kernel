@@ -6,9 +6,10 @@
 #   HOST    — test, miri, fmt, layering, doc gates
 #
 #   make                 PRODUCT: release kernel8.img
-#   make check           HOST gates + PRODUCT boot-check (+ clippy)
+#   make check           HOST gates + PRODUCT boot/product-boot/oracle-census (+ clippy)
 #   make test / miri     HOST: kernel-core
-#   make boot-check      PRODUCT QEMU oracle
+#   make boot-check      PRODUCT QEMU oracle (full demo fleet)
+#   make product-boot-check / oracle-census   PRODUCT composition minimum + MAX_TASKS ratchet
 #   make x86-elf / x86-boot-check / qemu-x86   LAB (ADR-0071)
 #   make deploy / serial / blobs               PRODUCT board ops
 #   make clean
@@ -142,7 +143,7 @@ img: elf
 # `miri`/`shellcheck` fail loudly when their tool is absent rather than letting
 # the claim quietly become false (skip only with ALLOW_MIRI_SKIP=1 /
 # ALLOW_SHELLCHECK_SKIP=1, same shape as boot-check's ALLOW_BOOT_SKIP).
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
+check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check oracle-census miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -282,8 +283,14 @@ product-builds:
 	./scripts/boot/product-image.sh
 
 # M8: product image (no oracle) must actually run beacon + console server.
+# Composition-minimum QEMU smoke (excellence F-R5-2): not a second oracle.
 product-boot-check: product-builds
 	./scripts/boot/qemu-product-boot-check.sh
+
+# ADR-0085 / multi-role F-R7-1: MAX_TASKS is oracle tax, not density.
+# Source, architecture table, and documented last raise must agree.
+oracle-census:
+	./scripts/check/oracle-census.sh
 
 # Miri interprets the host tests and checks the aliasing and provenance rules
 # that running the code cannot sample. It covers the only `unsafe` in

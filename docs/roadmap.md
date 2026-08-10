@@ -114,7 +114,7 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 
 | Step | Track(s)                                             | Why now                                  |
 | ---- | ---------------------------------------------------- | ---------------------------------------- |
-| —    | Product-boot-check / oracle census                    | Excellence (multi-role F-R5-2 / F-R7-1)  |
+| —    | ~~Product-boot-check / oracle census~~               | **Paid** — composition-minimum product gate + `oracle-census` (F-R5-2 / F-R7-1) |
 | —    | **K5-H** multiplex                                    | Only after slot pressure (0085)          |
 | —    | **K5-B** pair collapse                                | Only if 0085 §3 trigger                  |
 | —    | **K7-M** / **K7-T** / agent+TLB / **H3 L1+** / **P3–P4** | Trigger or composition target only     |
@@ -140,8 +140,9 @@ stamp 2026-08-10, transcript `20260810-144305.log`: `smp: steal ok`).
 option C current; K7-M optional lab; K7-T trigger-gated; K7-R under pressure).
 **K5 residual policy** paid ([ADR-0085](adr/0085-k5-density-residual-design.md)).
 **K5-S Mini** **done (HW)** ([ADR-0086](adr/0086-k5-mini-stack-first-slice.md),
-stamp 2026-08-10). F-R1-P1 shared-state **done (HW)**. **Next:** product
-evidence hygiene; K5-H/B and K7-T only with triggers.
+stamp 2026-08-10). F-R1-P1 shared-state **done (HW)**. Product evidence hygiene
+**paid** (`product-boot-check` composition minimum + `make oracle-census`).
+**Next:** K5-H/B and K7-T only with triggers.
 
 ```text
 Mission: agents · grants · evidence · finish the OS

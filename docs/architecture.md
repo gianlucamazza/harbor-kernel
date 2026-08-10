@@ -367,7 +367,8 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | **H1 next**                  | P3\|P4 only with composition (deferred)                                                                                                                            |
 | **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1+K5-S done (HW); K7 residual ADR-0084; K5-H/B later (0085)                                                                                     |
 | **open (kernel)**            | K5-H/B if trigger (0085); K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                                                                          |
-| **open (product)**           | P3/P4 deferred (ADR-0049); product evidence hygiene; denser composition (K5-H if slots bind)                                                                        |
+| **open (product)**           | P3/P4 deferred (ADR-0049); denser composition (K5-H if slots bind)                                                                                                   |
+| **paid (hygiene)**           | Product composition-minimum boot + `oracle-census` (multi-role F-R5-2 / F-R7-1)                                                                                      |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
 K/P tables here. Horizon mapping and working order also live in `roadmap.md`.

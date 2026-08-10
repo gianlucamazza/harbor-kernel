@@ -15,16 +15,15 @@
 #
 # ## What this gate also reports, and why it is not a failure
 #
-# Without the oracle a large part of the kernel becomes unreachable: `Agent`,
-# `AddressSpace`, the EL0 session machinery, the PL011 RX handover. That is not
-# rot. **Nothing in the product creates an agent**, because an agent's text has
-# to be compiled into the kernel — there is no loader. The count below is that
-# gap expressed as a number instead of an opinion, and it is the argument for the
-# loader milestone.
+# Without the oracle, demo tasks and subsystem probes become unreachable —
+# that is intentional (rule 9), not rot. The product path **does** create
+# agents: console server + the injected multi-agent store (ADR-0029 beacon +
+# chirp). What stays unreachable is scaffolding that only the oracle feature
+# exercises. The unreachable-item count below is that gap as a number.
 #
 # So this gate does not run clippy with `-D warnings` on the product
-# configuration. Refusing an unreachable `Agent` would be refusing the kernel for
-# a missing feature it has never claimed to have.
+# configuration. Refusing every unreachable demo helper would refuse the
+# kernel for not compiling the lab into the shipped image.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."

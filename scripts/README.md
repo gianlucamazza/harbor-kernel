@@ -5,7 +5,7 @@ stay in one place ([`Makefile`](../Makefile)).
 
 | Directory | Owns | Examples |
 | --- | --- | --- |
-| [`check/`](check/) | Invariants and doc/code agreement | layering, irq-scope, doc-claims, xrefs |
+| [`check/`](check/) | Invariants and doc/code agreement | layering, irq-scope, doc-claims, xrefs, oracle-census |
 | [`boot/`](boot/) | Images and QEMU oracles | product-image, qemu-boot-check, qemu-x86-boot-check, qemu-product-boot-check |
 | [`agent/`](agent/) | Composition store tooling (ADR-0029) | pack-store, inject-store, inspect-store |
 | [`host/`](host/) | Board and lab host ops | deploy-sd, serial, fetch-blobs, mutants |

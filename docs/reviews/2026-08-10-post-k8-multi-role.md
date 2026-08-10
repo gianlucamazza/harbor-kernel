@@ -271,3 +271,9 @@ Order: **A → B**. Do not implement TTBR1 or P3/P4 without triggers/targets.
 Tier A fixes that land with or immediately after this report are **responses**
 to findings, not part of the audit method. Status flips remain owned by
 `roadmap.md` with evidence.
+
+| Finding / backlog | Response |
+| --- | --- |
+| F-R5-2 / Tier **C** stronger product-boot-check | **Paid:** composition-minimum `qemu-product-boot-check.sh` (~35 layered asserts on the shipped path) + `make oracle-census` in `make check` (MAX_TASKS source ↔ architecture table ↔ documented raise). Not a second full oracle. |
+| Tier **C** product multi-core policy enforcement | **Open** (manifest home / pin) — separate from the boot-gate hygiene slice. |
+| Tier **A** SECURITY re-baseline / remaining SSOT | **Open** as standing hygiene; capacity model already in `architecture.md`. |
