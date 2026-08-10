@@ -36,7 +36,9 @@ def main() -> int:
         off += 8
         slots = list(raw[off : off + 4])
         off += 4
-        off += 4  # reserved
+        (reserved,) = struct.unpack_from("<I", raw, off)
+        off += 4
+        home_cpu = reserved & 0xFF
         (image_len,) = struct.unpack_from("<I", raw, off)
         off += 4
         image = raw[off : off + image_len]
@@ -46,7 +48,7 @@ def main() -> int:
         slot_s = ",".join("_" if s == SLOT_NONE else str(s) for s in slots)
         print(
             f"  [{i}] name={name!r} text_pages={text_pages} stack_pages={stack_pages} "
-            f"slots=[{slot_s}] image_len={len(image)}"
+            f"home_cpu={home_cpu} slots=[{slot_s}] image_len={len(image)}"
         )
     return 0
 

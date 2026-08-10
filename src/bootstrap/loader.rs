@@ -69,6 +69,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                 stack_pages: 3,
                 slots: slots_with(Some(HELD_CONSOLE)),
                 device: None,
+                home_cpu: 0,
             },
             AgentEntry {
                 name: "mute",
@@ -77,6 +78,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                 stack_pages: 3,
                 slots: slots_with(None),
                 device: None,
+                home_cpu: 0,
             },
         ];
         &M
@@ -90,6 +92,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
             stack_pages: 3,
             slots: slots_with(Some(HELD_CONSOLE)),
             device: None,
+            home_cpu: 0,
         }];
         &M
     }
@@ -156,6 +159,7 @@ fn try_store_manifest() -> Option<&'static [AgentEntry]> {
         text_pages: 0,
         stack_pages: 0,
         slots: [agentstore::SLOT_NONE; MAX_SLOTS],
+        home_cpu: 0,
         image: b"",
     }; MAX_AGENTS];
     let agents = agentstore::parse(raw, &mut parsed).ok()?;
@@ -223,19 +227,27 @@ pub fn load_all(held: &[CapId]) {
         return;
     }
     for (index, entry) in table.iter().enumerate() {
+        if let Err(e) = entry.validate(kernel_core::paging::PAGE_SIZE as usize) {
+            crate::kprintln!("loader: {} refused — {e:?}", entry.name);
+            continue;
+        }
         match bind(entry, held) {
-            Ok(slots) => match sched::spawn_with_slots(agent_body, &slots) {
-                Ok(task) => {
-                    remember(task, index as u8);
-                    crate::kprintln!(
-                        "loader: {} loaded text={} stack={}",
-                        entry.name,
-                        entry.text_pages,
-                        entry.stack_pages
-                    );
+            Ok(slots) => {
+                // ADR-0088: sticky home from the entry (store or builtin).
+                match sched::spawn_with_slots_on(entry.home_cpu, agent_body, &slots) {
+                    Ok(task) => {
+                        remember(task, index as u8);
+                        crate::kprintln!(
+                            "loader: {} loaded text={} stack={} home={}",
+                            entry.name,
+                            entry.text_pages,
+                            entry.stack_pages,
+                            entry.home_cpu
+                        );
+                    }
+                    Err(e) => crate::kprintln!("loader: {} spawn FAILED {e:?}", entry.name),
                 }
-                Err(e) => crate::kprintln!("loader: {} spawn FAILED {e:?}", entry.name),
-            },
+            }
             Err(BindError::NoSuchCapability { slot, index, held }) => crate::kprintln!(
                 "loader: {} refused — slot {slot} names capability {index} of {held}",
                 entry.name

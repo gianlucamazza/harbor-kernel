@@ -313,10 +313,13 @@ Code is authoritative; this table is the map.
 | Park timeouts armed | **16** | `kernel_core::parktime` | Under full task census |
 | Durable / storage blobs | **4** | storage/durable pure | P2 first depth |
 
-**Product SMP policy:** loader/spawn default **home = CPU 0**. Explicit
-`spawn_on(1, …)` and lab oracles exercise CPU 1. Work stealing pulls only
-**stealeable** Ready EL1 tasks (opt-in; agents with an AS mark non-stealeable).
-Global tick advance for timeouts remains **CPU 0** (per-core quantum is local).
+**Product SMP policy ([ADR-0088](adr/0088-product-home-cpu.md)):** each manifest /
+store entry may name sticky **`home_cpu`** (`0 .. N_CPUS`). Absent / zero →
+product default **CPU 0**. Default pack pins **chirp** on CPU 1 for dual-current
+composition evidence; lab oracles may still `spawn_on` directly. Work stealing
+pulls only **stealeable** Ready EL1 tasks (opt-in; agents with an AS mark
+non-stealeable). Global tick advance for timeouts remains **CPU 0** (per-core
+quantum is local).
 
 ### An agent is data
 
@@ -434,6 +437,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0085](adr/0085-k5-density-residual-design.md)                   | K5 density residual — K5-S/H/B split; Mini first code (**accepted**)                                                                                    |
 | [ADR-0086](adr/0086-k5-mini-stack-first-slice.md)                    | K5-S Mini stacks — one page, no unmapped guard (**accepted**)                                                                                           |
 | [ADR-0087](adr/0087-oracle-waits-and-the-hosts-verdict.md)            | Oracle cross-core waits in guest time; a starved host earns no verdict (**accepted**)                                                                   |
+| [ADR-0088](adr/0088-product-home-cpu.md)                             | Product multi-core — manifest `home_cpu` + loader pin (**accepted**); done (QEMU)                                                                      |
 | [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                                              |
 | [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                                               |
 | [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md) |

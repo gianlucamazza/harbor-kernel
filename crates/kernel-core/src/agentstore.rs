@@ -31,6 +31,8 @@ pub enum ParseError {
     BadName,
     BadGeometry,
     ImageTooLarge,
+    /// Reserved word high bytes non-zero, or `home_cpu` ≥ `N_CPUS` (ADR-0088).
+    BadHome,
 }
 
 /// One agent record borrowing image bytes from the store blob.
@@ -40,6 +42,8 @@ pub struct StoreAgent<'a> {
     pub text_pages: u32,
     pub stack_pages: u32,
     pub slots: [u8; MAX_SLOTS],
+    /// Sticky home CPU (ADR-0088); low byte of the wire reserved word.
+    pub home_cpu: u8,
     pub image: &'a [u8],
 }
 
@@ -109,7 +113,16 @@ pub fn parse<'a>(
         slots.copy_from_slice(slots_raw);
         off = slots_end;
 
-        off = off.checked_add(4).ok_or(ParseError::Truncated)?; // reserved
+        // ADR-0088: reserved u32 — bits 7:0 = home_cpu; 31:8 must be zero.
+        let reserved = read_u32(buf, off)?;
+        off = off.checked_add(4).ok_or(ParseError::Truncated)?;
+        if reserved & !0xff != 0 {
+            return Err(ParseError::BadHome);
+        }
+        let home_cpu = (reserved & 0xff) as u8;
+        if (home_cpu as usize) >= crate::tasks::N_CPUS {
+            return Err(ParseError::BadHome);
+        }
 
         let image_len = read_u32(buf, off)? as usize;
         off += 4;
@@ -127,6 +140,7 @@ pub fn parse<'a>(
             text_pages,
             stack_pages,
             slots,
+            home_cpu,
             image,
         };
     }
@@ -142,6 +156,7 @@ pub fn append_agent(
     text_pages: u32,
     stack_pages: u32,
     slots: [u8; MAX_SLOTS],
+    home_cpu: u8,
     image: &[u8],
 ) {
     let mut name_field = [0u8; NAME_LEN];
@@ -152,7 +167,7 @@ pub fn append_agent(
     buf.extend_from_slice(&text_pages.to_le_bytes());
     buf.extend_from_slice(&stack_pages.to_le_bytes());
     buf.extend_from_slice(&slots);
-    buf.extend_from_slice(&0u32.to_le_bytes());
+    buf.extend_from_slice(&(home_cpu as u32).to_le_bytes());
     buf.extend_from_slice(&(image.len() as u32).to_le_bytes());
     buf.extend_from_slice(image);
     while !buf.len().is_multiple_of(4) {
@@ -162,7 +177,7 @@ pub fn append_agent(
 
 /// One agent argument to [`pack`] (host / packer helper).
 #[cfg(test)]
-type PackAgent<'a> = (&'a str, u32, u32, [u8; MAX_SLOTS], &'a [u8]);
+type PackAgent<'a> = (&'a str, u32, u32, [u8; MAX_SLOTS], u8, &'a [u8]);
 
 /// Build a complete store blob (host / packer helper).
 #[cfg(test)]
@@ -172,8 +187,8 @@ pub fn pack(agents: &[PackAgent<'_>]) -> Vec<u8> {
     buf.extend_from_slice(&VERSION.to_le_bytes());
     buf.extend_from_slice(&(agents.len() as u32).to_le_bytes());
     buf.extend_from_slice(&0u32.to_le_bytes());
-    for (name, tp, sp, slots, image) in agents {
-        append_agent(&mut buf, name, *tp, *sp, *slots, image);
+    for (name, tp, sp, slots, home, image) in agents {
+        append_agent(&mut buf, name, *tp, *sp, *slots, *home, image);
     }
     buf
 }
@@ -194,6 +209,7 @@ pub fn to_entry(agent: &StoreAgent<'_>, name: &'static str, image: &'static [u8]
         stack_pages: agent.stack_pages as usize,
         slots,
         device: None,
+        home_cpu: agent.home_cpu,
     }
 }
 
@@ -202,40 +218,60 @@ mod tests {
     use super::*;
     use crate::prog;
 
+    fn empty_slot() -> StoreAgent<'static> {
+        StoreAgent {
+            name: b"",
+            text_pages: 0,
+            stack_pages: 0,
+            slots: [SLOT_NONE; MAX_SLOTS],
+            home_cpu: 0,
+            image: b"",
+        }
+    }
+
     #[test]
     fn round_trip_beacon_shaped_agent() {
         let image = prog::encode_console_hi_exit(1);
         let mut slots = [SLOT_NONE; MAX_SLOTS];
         slots[1] = 0; // held console at index 0
-        let blob = pack(&[("beacon", 1, 3, slots, &image)]);
+        let blob = pack(&[("beacon", 1, 3, slots, 0, &image)]);
 
-        let mut out = [StoreAgent {
-            name: b"",
-            text_pages: 0,
-            stack_pages: 0,
-            slots: [SLOT_NONE; MAX_SLOTS],
-            image: b"",
-        }; MAX_AGENTS];
+        let mut out = [empty_slot(); MAX_AGENTS];
         let agents = parse(&blob, &mut out).expect("parse");
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].name, b"beacon");
         assert_eq!(agents[0].text_pages, 1);
         assert_eq!(agents[0].stack_pages, 3);
         assert_eq!(agents[0].slots[1], 0);
+        assert_eq!(agents[0].home_cpu, 0);
         assert_eq!(agents[0].image, &image);
     }
 
     #[test]
+    fn home_cpu_round_trips_in_reserved_word() {
+        let image = prog::encode_console_hi_exit(1);
+        let mut slots = [SLOT_NONE; MAX_SLOTS];
+        slots[1] = 0;
+        let blob = pack(&[("chirp", 1, 3, slots, 1, &image)]);
+        let mut out = [empty_slot(); MAX_AGENTS];
+        let agents = parse(&blob, &mut out).expect("parse");
+        assert_eq!(agents[0].home_cpu, 1);
+        assert_eq!(agents[0].name, b"chirp");
+    }
+
+    #[test]
+    fn home_cpu_out_of_range_is_refused() {
+        let image = [0u8; 4];
+        let blob = pack(&[("x", 1, 1, [SLOT_NONE; MAX_SLOTS], 2, &image)]);
+        let mut out = [empty_slot(); MAX_AGENTS];
+        assert!(matches!(parse(&blob, &mut out), Err(ParseError::BadHome)));
+    }
+
+    #[test]
     fn bad_magic_is_refused() {
-        let mut blob = pack(&[("x", 1, 1, [SLOT_NONE; MAX_SLOTS], &[0u8; 4])]);
+        let mut blob = pack(&[("x", 1, 1, [SLOT_NONE; MAX_SLOTS], 0, &[0u8; 4])]);
         blob[0] = b'X';
-        let mut out = [StoreAgent {
-            name: b"",
-            text_pages: 0,
-            stack_pages: 0,
-            slots: [SLOT_NONE; MAX_SLOTS],
-            image: b"",
-        }; MAX_AGENTS];
+        let mut out = [empty_slot(); MAX_AGENTS];
         assert!(matches!(parse(&blob, &mut out), Err(ParseError::BadMagic)));
     }
 
@@ -246,13 +282,7 @@ mod tests {
         blob.extend_from_slice(&VERSION.to_le_bytes());
         blob.extend_from_slice(&0u32.to_le_bytes());
         blob.extend_from_slice(&0u32.to_le_bytes());
-        let mut out = [StoreAgent {
-            name: b"",
-            text_pages: 0,
-            stack_pages: 0,
-            slots: [SLOT_NONE; MAX_SLOTS],
-            image: b"",
-        }; MAX_AGENTS];
+        let mut out = [empty_slot(); MAX_AGENTS];
         assert!(matches!(parse(&blob, &mut out), Err(ParseError::BadCount)));
     }
 }

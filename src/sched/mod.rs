@@ -470,8 +470,22 @@ pub fn spawn_with_caps(entry: fn(), caps: &[CapId]) -> Result<TaskId, SpawnError
 /// (ADR-0017 §2). A gap is not padding: an agent that miscounts its own slots
 /// is refused rather than handed whatever sits next to the one it meant, and
 /// the boot oracle uses exactly that to show the refusal on the good path.
+///
+/// Admits on **CPU 0** (product default home). For an explicit sticky home see
+/// [`spawn_with_slots_on`] (ADR-0088).
 pub fn spawn_with_slots(entry: fn(), slots: &[Option<CapId>]) -> Result<TaskId, SpawnError> {
-    spawn_inner(entry, slots, StackClass::Full)
+    spawn_with_slots_on(0, entry, slots)
+}
+
+/// Like [`spawn_with_slots`], with sticky home `cpu` (ADR-0088).
+///
+/// `cpu` must be `< N_CPUS` and, for CPU 1, secondary must already be online.
+pub fn spawn_with_slots_on(
+    cpu: u8,
+    entry: fn(),
+    slots: &[Option<CapId>],
+) -> Result<TaskId, SpawnError> {
+    spawn_on_inner(cpu, entry, slots, StackClass::Full)
 }
 
 fn spawn_with_class(entry: fn(), caps: &[CapId], class: StackClass) -> Result<TaskId, SpawnError> {

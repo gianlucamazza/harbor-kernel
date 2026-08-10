@@ -86,9 +86,8 @@ H0 is complete on Pi 4B and H1 is **done (HW)** — stamp 2026-08-08, with
 residuals carrying into H2. H2 is open: P3–P4, H3 L1+ and the remaining
 platform paths.
 
-Next: **product multi-core** (`home_cpu`, [#24](https://github.com/gianlucamazza/harbor-kernel/issues/24))
-· K5-B design [#25] · K10 force-kill [#26] — [roadmap](docs/roadmap.md). Product
-evidence hygiene is paid (composition-minimum `product-boot-check` + `oracle-census`).
+Next: K5-B design [#25] · K10 force-kill [#26] — [roadmap](docs/roadmap.md).
+Product multi-core `home_cpu` **done (QEMU)** ([ADR-0088](docs/adr/0088-product-home-cpu.md)).
 
 **Working today (high level).** Preemptible tasks on both cores — voluntary
 yield plus IRQ-epilogue quantum preemption, EL0+EL1 — with dual-current SMP
@@ -99,7 +98,7 @@ classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |
 | ------------ | ------------------------------------------------------------ |
-| Verification | 463 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 466 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

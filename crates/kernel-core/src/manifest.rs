@@ -64,6 +64,11 @@ pub struct AgentEntry {
     pub slots: [Option<u8>; MAX_SLOTS],
     /// One optional device page.
     pub device: Option<DeviceGrant>,
+    /// Sticky home CPU for the EL1 driver task ([ADR-0088](../../../docs/adr/0088-product-home-cpu.md)).
+    ///
+    /// Domain is `0 .. crate::tasks::N_CPUS`. Default product home is **0**;
+    /// a store may pin an agent to another online core without ambient spread.
+    pub home_cpu: u8,
 }
 
 /// Why an entry could not be turned into a task's capability table or a window.
@@ -82,6 +87,8 @@ pub enum BindError {
         text_pages: usize,
         stack_pages: usize,
     },
+    /// `home_cpu` outside `0 .. N_CPUS` ([ADR-0088](../../../docs/adr/0088-product-home-cpu.md)).
+    BadHome { home_cpu: u8, max: u8 },
 }
 
 impl AgentEntry {
@@ -112,6 +119,13 @@ impl AgentEntry {
                 capacity,
             });
         }
+        let max = crate::tasks::N_CPUS as u8;
+        if self.home_cpu >= max {
+            return Err(BindError::BadHome {
+                home_cpu: self.home_cpu,
+                max,
+            });
+        }
         Ok(())
     }
 }
@@ -135,6 +149,7 @@ impl AgentEntry {
 ///     stack_pages: 3,
 ///     slots: [Some(1), None, None, None],
 ///     device: None,
+///     home_cpu: 0,
 /// };
 /// let held = [CapId::new(7, 1), CapId::new(8, 1)];
 /// assert_eq!(bind(&entry, &held).unwrap()[0], Some(CapId::new(8, 1)));
@@ -182,7 +197,21 @@ mod tests {
             stack_pages: 3,
             slots,
             device: None,
+            home_cpu: 0,
         }
+    }
+
+    #[test]
+    fn home_cpu_out_of_range_is_refused() {
+        let mut e = entry([None; MAX_SLOTS]);
+        e.home_cpu = crate::tasks::N_CPUS as u8;
+        assert_eq!(
+            e.validate(4096),
+            Err(BindError::BadHome {
+                home_cpu: crate::tasks::N_CPUS as u8,
+                max: crate::tasks::N_CPUS as u8,
+            })
+        );
     }
 
     #[test]

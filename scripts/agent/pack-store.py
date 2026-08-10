@@ -84,24 +84,27 @@ def append_agent(
     stack_pages: int,
     slots: list[int],
     image: bytes,
+    home_cpu: int = 0,
 ) -> None:
     assert len(slots) == 4
+    assert 0 <= home_cpu < 256
     buf += pad_name(name)
     buf += struct.pack("<II", text_pages, stack_pages)
     buf += bytes(slots)
-    buf += struct.pack("<I", 0)  # reserved
+    # ADR-0088: reserved u32 low byte = home_cpu
+    buf += struct.pack("<I", home_cpu & 0xFF)
     buf += struct.pack("<I", len(image))
     buf += image
     while len(buf) % 4:
         buf += b"\x00"
 
 
-def pack(agents: list[tuple[str, int, int, list[int], bytes]]) -> bytes:
+def pack(agents: list[tuple[str, int, int, list[int], bytes, int]]) -> bytes:
     buf = bytearray()
     buf += MAGIC
     buf += struct.pack("<III", VERSION, len(agents), 0)
-    for name, tp, sp, slots, image in agents:
-        append_agent(buf, name, tp, sp, slots, image)
+    for name, tp, sp, slots, image, home in agents:
+        append_agent(buf, name, tp, sp, slots, image, home_cpu=home)
     return bytes(buf)
 
 
@@ -131,17 +134,19 @@ def main() -> int:
     # slot 1 → held index 0 (console send); others empty
     slots = [SLOT_NONE, 0, SLOT_NONE, SLOT_NONE]
     if args.single_beacon:
-        agents = [("beacon", 1, 3, slots, beacon)]
+        # (name, text, stack, slots, image, home_cpu)
+        agents = [("beacon", 1, 3, slots, beacon, 0)]
     else:
-        # P1: two product agents share the same held console grant.
+        # P1 + ADR-0088: beacon homes on product CPU 0; chirp pins to CPU 1
+        # so the shipped composition exercises dual-current without oracle demos.
         agents = [
-            ("beacon", 1, 3, slots, beacon),
-            ("chirp", 1, 3, slots, chirp),
+            ("beacon", 1, 3, slots, beacon, 0),
+            ("chirp", 1, 3, slots, chirp, 1),
         ]
     blob = pack(agents)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(blob)
-    names = ",".join(a[0] for a in agents)
+    names = ",".join(f"{a[0]}@cpu{a[5]}" for a in agents)
     print(
         f"pack-agent-store: wrote {args.output} ({len(blob)} bytes, n={len(agents)} [{names}])"
     )
