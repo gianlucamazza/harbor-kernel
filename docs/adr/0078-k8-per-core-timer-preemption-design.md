@@ -164,7 +164,7 @@ Ordered:
 
 ### Residual after first code
 
-- EL0-on-CPU1 + EL0 preempt on secondary  
+- EL0-on-CPU1 + EL0 preempt on secondary — **design** [ADR-0080](0080-k8-el0-on-cpu1-design.md)  
 - Steal  
 - Optional local quantum metric if global ticks granularity is too coarse  
 

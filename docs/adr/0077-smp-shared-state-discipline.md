@@ -59,14 +59,14 @@ there is **no quantum path**, not because queues are incomplete.
 
 - CPU1 marker sets `CORE1_RAN` and **exits**; stack is collected.  
 - Secondary idle loop is permanent (`poll_wakes` → yield / WFI), no quiet-park.  
-- EL0 publish remains CPU0-only: no product agent home on CPU 1 (honest
-  non-goal until an EL0-on-secondary ADR).
+- EL0 publish remains CPU0-only until [ADR-0080](0080-k8-el0-on-cpu1-design.md)
+  code: no product agent home on CPU 1 in the paid queues/preempt slices.
 
 ### 6. Residuals (honest only)
 
 - Work stealing  
 - Per-core timer / K4 preemption on core 1 — **done (HW)** [ADR-0079](0079-k8-per-core-timer-preemption-first-slice.md) (design [0078](0078-k8-per-core-timer-preemption-design.md); stamp 2026-08-10)
-- EL0 agents with home on CPU 1  
+- EL0 agents with home on CPU 1 — **design** [ADR-0080](0080-k8-el0-on-cpu1-design.md); code residual  
 - Lock refinement if measured contention requires it  
 
 ## Related

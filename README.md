@@ -94,7 +94,7 @@ Snapshot, 2026-08-10 — status of record is [`docs/roadmap.md`](docs/roadmap.md
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Foundation**      | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits                                                                            |
 | **H1 slices**       | done (HW): wait-on-IRQ (**K1**), auto-reap (**K2**), RNG (**K9**), supervisor (**K10**), names ambient era (**P5**) · done (QEMU): store (**K6**), revoke + peer transfer (**K3**), multi-agent (**P1**), resolve-grant (**P5**), compose (**P6**) |
-| **Next**            | EL0-on-CPU1 · K8 steal · K7 TTBR1/switch-cost · K5 driver-half — [roadmap](docs/roadmap.md)                                                                                                      |
+| **Next**            | EL0-on-CPU1 **code** ([ADR-0080](docs/adr/0080-k8-el0-on-cpu1-design.md); design paid) — [roadmap](docs/roadmap.md)                                                                                                      |
 | **Not yet (later)** | P3–P4 · H3 L1+, …                                                                                                                                                                 |
 
 **What works today (short list):** preemptible tasks (voluntary yield +

@@ -72,10 +72,10 @@ peer + spinner live across the ADR-0031 auto-reap spawn window).
 
 ### 6. Residuals (honest)
 
-- EL0 agents / EL0 preemption with `home = 1`
-- Work stealing
-- Cores 2–3
-- Dual-core global tick producers (explicit non-goal)
+- EL0 agents / EL0 preemption with `home = 1` — **design** [ADR-0080](0080-k8-el0-on-cpu1-design.md); code residual  
+- Work stealing  
+- Cores 2–3  
+- Dual-core global tick producers (explicit non-goal)  
 - Optional local quantum metric if global tick grain is too coarse
 
 ## Related

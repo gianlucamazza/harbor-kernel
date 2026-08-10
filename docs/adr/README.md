@@ -99,6 +99,7 @@ the code that follows.
 | [0077](0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — IrqSpinLock, per-CPU mirrors, honest dual-current            | accepted   |
 | [0078](0078-k8-per-core-timer-preemption-design.md)          | K8 design — per-core timer and IRQ preemption on CPU 1 (code: 0079)                        | accepted   |
 | [0079](0079-k8-per-core-timer-preemption-first-slice.md)     | K8 fourth slice — per-core timer + EL1 preemption on CPU 1                                 | accepted   |
+| [0080](0080-k8-el0-on-cpu1-design.md)                        | K8 design — EL0 sessions and agents with home on CPU 1 (code follow-on)                    | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

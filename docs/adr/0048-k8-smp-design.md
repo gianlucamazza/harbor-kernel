@@ -47,7 +47,8 @@ dual-core gate investment after K4/K7; K4/K7 first slices are paid (HW), and the
 unpark/idle gate is paid on QEMU and on silicon (ADR-0070; Pi stamp
 2026-08-09). IPI + queues first + shared-state are paid on silicon
 (ADR-0074/0076/0077; stamp 2026-08-10, transcript `20260810-130305.log`).
-Residual: **steal / per-core preempt / EL0-on-CPU1**.
+Residual (live): **EL0-on-CPU1** (design [ADR-0080](0080-k8-el0-on-cpu1-design.md))
+and **steal**. Per-core EL1 preempt **done (HW)** via [ADR-0079](0079-k8-per-core-timer-preemption-first-slice.md).
 
 > **Amendment (2026-08-09).** First unpark/idle slice implemented in
 > [ADR-0070](0070-k8-smp-first-slice.md) (**done (QEMU)**). Steps 1 and 3 above
