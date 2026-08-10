@@ -57,8 +57,19 @@ impl<T> SyncCell<T> {
 
 /// Test-and-set spinlock that always runs with local IRQs masked.
 ///
-/// Use for every SMP-shared mutable structure (heap, scheduler, …). Do **not**
-/// call from an IRQ handler that might nest against a holder on the same core.
+/// Use for every SMP-shared mutable structure (heap, scheduler, IPC, frame
+/// pool, name/storage/taskcap tables, console TX, durable region, …). Do
+/// **not** call from an IRQ handler that might nest against a holder on the
+/// same core.
+///
+/// # Lock order (deadlock avoidance)
+///
+/// When two of these locks can nest on a path, the order is fixed:
+/// **IPC → SCHED** is allowed only as separate critical sections (IPC dropped
+/// before `wake_task` / `block_current`). Never hold **SCHED** while taking
+/// **IPC** (spawn registers holds after `with_sched` returns). Other global
+/// tables (naming, storage, taskcap, frames, asid, durable, TX) do not nest
+/// under each other or under SCHED on current product paths.
 pub struct IrqSpinLock {
     locked: AtomicBool,
 }

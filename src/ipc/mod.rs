@@ -17,7 +17,7 @@
 //! surface, and it used to be checked by a single `grep` over a boot log.
 //!
 //! What is left here is the four things a pure table cannot do: hold the
-//! global, take the interrupt mask, ask the scheduler whether the calling task
+//! global under [`IrqSpinLock`], ask the scheduler whether the calling task
 //! actually holds the capability, and wake a task the table says to wake.
 //!
 //! # Two ways in, one authority model
@@ -63,9 +63,8 @@ pub enum DrainError {
     Timeout,
 }
 
-use crate::arch::cpu;
 use crate::sched;
-use crate::sync::SyncCell;
+use crate::sync::{IrqSpinLock, SyncCell};
 
 /// Mailboxes, endpoint capacity, and messages per mailbox.
 ///
@@ -81,6 +80,7 @@ pub const MAILBOX_DEPTH: usize = 4;
 
 static IPC: SyncCell<Table<MAX_MAILBOXES, MAX_ENDPOINTS, MAILBOX_DEPTH>> =
     SyncCell::new(Table::new());
+static IPC_LOCK: IrqSpinLock = IrqSpinLock::new();
 
 /// Mirrors of [`Refusals`], published for callers that cannot take the mask.
 ///
@@ -101,14 +101,16 @@ fn publish(refusals: Refusals) {
     REFUSED_STATE.store(refusals.state, Ordering::Relaxed);
 }
 
-/// Run `f` against the table with IRQs masked, then republish the counts.
+/// Run `f` against the table under [`IrqSpinLock`], then republish the counts.
+///
+/// Dual-current cores may send/recv concurrently; IRQ mask alone is not enough
+/// (ADR-0077). No IRQ handler touches the table — wake remains voluntary
+/// (ADR-0008), so the lock is never taken from a device handler.
 fn with_table<R>(
     f: impl FnOnce(&mut Table<MAX_MAILBOXES, MAX_ENDPOINTS, MAILBOX_DEPTH>) -> R,
 ) -> R {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked and one core, so this `&mut` cannot overlap
-        // another. No IRQ handler touches IPC — the wake path is voluntary-only
-        // by ADR-0008, which is what makes a plain `&mut` sound here.
+    IPC_LOCK.with(|| {
+        // SAFETY: exclusivity from IPC_LOCK (IRQ mask + spin).
         let table = unsafe { &mut *IPC.get() };
         let result = f(table);
         publish(table.refusals());
@@ -294,15 +296,14 @@ pub fn clear_waiter(id: kernel_core::runqueue::TaskId) {
 
 /// Abort a blocked peer's IPC wait (ADR-0025 creator/supervisor reaping).
 ///
-/// Marks the task, wakes it, and clears its mailbox waiter so a later send
-/// does not invent a stale wake. The waiter resumes from `block_current` and
-/// `recv` returns [`RecvError::Cancelled`].
+/// Clears the mailbox waiter first, then marks/wakes the task. Lock order is
+/// **IPC then SCHED** (never SCHED while holding IPC, never SCHED→IPC nesting).
+/// The waiter resumes from `block_current` and `recv` returns
+/// [`RecvError::Cancelled`].
 pub fn cancel_blocked(id: kernel_core::runqueue::TaskId) -> bool {
-    if !sched::prepare_cancel_blocked(id) {
-        return false;
-    }
+    // Drop the waiter under IPC_LOCK before taking SCHED_LOCK.
     clear_waiter(id);
-    true
+    sched::prepare_cancel_blocked(id)
 }
 
 /// Kill both ends of the channel named by `cap` (ADR-0032 / K3).

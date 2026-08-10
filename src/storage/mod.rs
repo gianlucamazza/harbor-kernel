@@ -1,20 +1,20 @@
 //! EL1 keyed blob store façade (ADR-0036 / P2).
 //!
-//! Pure table in [`kernel_core::storage`]; this module owns the global and the
-//! interrupt mask. Put/get are trusted creator paths for this slice.
+//! Pure table in [`kernel_core::storage`]; this module owns the global and
+//! serialises access with [`IrqSpinLock`] (ADR-0077).
 
 use kernel_core::storage::Table;
 
-use crate::arch::cpu;
-use crate::sync::SyncCell;
+use crate::sync::{IrqSpinLock, SyncCell};
 
 pub use kernel_core::storage::{GetError, PutError};
 
 static STORE: SyncCell<Table> = SyncCell::new(Table::new());
+static STORE_LOCK: IrqSpinLock = IrqSpinLock::new();
 
 fn with_table<R>(f: impl FnOnce(&mut Table) -> R) -> R {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
+    STORE_LOCK.with(|| {
+        // SAFETY: exclusivity from STORE_LOCK (IRQ mask + spin).
         let table = unsafe { &mut *STORE.get() };
         f(table)
     })

@@ -6,11 +6,10 @@
 
 use kernel_core::frame::{FrameFreeError, FrameId, FramePool, MAX_FRAMES};
 
-use crate::arch::cpu;
 use crate::bsp::board::memmap::{
     FRAME_POOL_BYTES, FRAME_POOL_FRAMES, FRAME_SIZE, IDENTITY_RAM_END,
 };
-use crate::sync::SyncCell;
+use crate::sync::{IrqSpinLock, SyncCell};
 
 /// Kernel-side frame pool + phys base of frame 0.
 struct Owner {
@@ -32,6 +31,14 @@ impl Owner {
 }
 
 static OWNER: SyncCell<Owner> = SyncCell::new(Owner::uninitialised());
+static OWNER_LOCK: IrqSpinLock = IrqSpinLock::new();
+
+fn with_owner<R>(f: impl FnOnce(&mut Owner) -> R) -> R {
+    OWNER_LOCK.with(|| {
+        // SAFETY: exclusivity from OWNER_LOCK (IRQ mask + spin).
+        f(unsafe { &mut *OWNER.get() })
+    })
+}
 
 /// Compute the named frame-pool window immediately after `heap_end`.
 ///
@@ -77,9 +84,7 @@ pub unsafe fn init(base: usize, end: usize) -> bool {
         n
     };
 
-    cpu::without_irqs(|| {
-        // SAFETY: single core; first init; IRQs masked.
-        let owner = unsafe { &mut *OWNER.get() };
+    with_owner(|owner| {
         owner.base = base;
         owner.end = base + (n as usize) * FRAME_SIZE;
         owner.pool = FramePool::new(n);
@@ -89,34 +94,23 @@ pub unsafe fn init(base: usize, end: usize) -> bool {
 
 /// Frames still free (0 if uninitialised).
 pub fn free_count() -> u32 {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        unsafe { (*OWNER.get()).pool.free_count() }
-    })
+    with_owner(|owner| owner.pool.free_count())
 }
 
 /// Configured capacity (0 if uninitialised).
 pub fn capacity() -> u32 {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        unsafe { (*OWNER.get()).pool.capacity() }
-    })
+    with_owner(|owner| owner.pool.capacity())
 }
 
 /// Phys base of the pool (0 if uninitialised).
 #[expect(dead_code, reason = "S2 AddressSpace / diagnostics")]
 pub fn pool_base() -> usize {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        unsafe { (*OWNER.get()).base }
-    })
+    with_owner(|owner| owner.base)
 }
 
 /// Allocate one frame. Returns `(id, phys)` under the identity map.
 pub fn alloc() -> Option<(FrameId, usize)> {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let owner = unsafe { &mut *OWNER.get() };
+    with_owner(|owner| {
         let id = owner.pool.alloc()?;
         let phys = owner.base + (id.index() as usize) * FRAME_SIZE;
         Some((id, phys))
@@ -125,19 +119,13 @@ pub fn alloc() -> Option<(FrameId, usize)> {
 
 /// Free a frame previously returned by [`alloc`].
 pub fn free(id: FrameId) -> Result<(), FrameFreeError> {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let owner = unsafe { &mut *OWNER.get() };
-        owner.pool.free(id)
-    })
+    with_owner(|owner| owner.pool.free(id))
 }
 
 /// Physical address of `id` if it lies in this pool's index range.
 #[expect(dead_code, reason = "S2 map helpers")]
 pub fn phys(id: FrameId) -> Option<usize> {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let owner = unsafe { &*OWNER.get() };
+    with_owner(|owner| {
         if id.index() >= owner.pool.capacity() {
             return None;
         }

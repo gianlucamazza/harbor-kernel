@@ -303,6 +303,11 @@ fn spawn_on_inner(
     let usable = density::usable_bytes(class);
     let stack = TaskStack::allocate(usable).map_err(SpawnError::Stack)?;
 
+    let mut held = [None; MAX_CAPS_PER_TASK];
+    held[..slots.len()].copy_from_slice(slots);
+
+    // IPC holds register *outside* SCHED_LOCK: lock order is never
+    // SCHED → IPC (send path is IPC then SCHED via wake). ADR-0077 residual.
     let id = with_sched(move |sched| {
         let Some(id) = sched.tasks.admit_on(cpu) else {
             // SAFETY: never scheduled.
@@ -315,8 +320,6 @@ fn spawn_on_inner(
         context.x30 = task_trampoline as *const () as u64;
         context.sp = stack.initial_sp() as u64;
 
-        let mut held = [None; MAX_CAPS_PER_TASK];
-        held[..slots.len()].copy_from_slice(slots);
         let creator = sched.tasks.current_on(this_cpu());
 
         sched.tcbs[slot] = Tcb {
@@ -329,9 +332,9 @@ fn spawn_on_inner(
             may_resolve: false,
         };
         sched.caps.seed(slot, &held);
-        ipc::register_holds(&held);
         Ok(id)
     })?;
+    ipc::register_holds(&held);
 
     // Kick the home CPU if it is not us.
     if cpu != this_cpu() {
@@ -487,10 +490,14 @@ fn spawn_inner(
     let usable = density::usable_bytes(class);
     let stack = TaskStack::allocate(usable).map_err(SpawnError::Stack)?;
 
+    let mut held = [None; MAX_CAPS_PER_TASK];
+    held[..slots.len()].copy_from_slice(slots);
+
     // Restore rather than unmask: bootstrap spawns before the IRQ path is
     // necessarily live, and a caller that arrived here with IRQs masked must
-    // leave with them masked.
-    with_sched(move |sched| {
+    // leave with them masked. IPC holds are registered after SCHED_LOCK
+    // (lock order: never SCHED → IPC).
+    let id = with_sched(move |sched| {
         let Some(id) = sched.tasks.admit_on(0) else {
             // SAFETY: never scheduled.
             unsafe { stack.release() };
@@ -502,8 +509,6 @@ fn spawn_inner(
         context.x30 = task_trampoline as *const () as u64;
         context.sp = stack.initial_sp() as u64;
 
-        let mut held = [None; MAX_CAPS_PER_TASK];
-        held[..slots.len()].copy_from_slice(slots);
         let creator = sched.tasks.current_on(this_cpu());
 
         sched.tcbs[slot] = Tcb {
@@ -519,10 +524,11 @@ fn spawn_inner(
             may_resolve: false,
         };
         sched.caps.seed(slot, &held);
-        // ADR-0031: SEND holds are TCB slots, not stack CapId copies.
-        ipc::register_holds(&held);
         Ok(id)
-    })
+    })?;
+    // ADR-0031: SEND holds are TCB slots, not stack CapId copies.
+    ipc::register_holds(&held);
+    Ok(id)
 }
 
 /// Running task id (including idle).

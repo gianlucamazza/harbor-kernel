@@ -35,8 +35,14 @@ Every SMP-shared mutable structure is entered as:
 4. release spinlock  
 5. restore IRQs  
 
-Implemented as `sync::IrqSpinLock`. Used by the kernel heap and the scheduler
-(and park-deadline table). Device/SGI handlers never take these locks.
+Implemented as `sync::IrqSpinLock`. **First payment:** heap, scheduler, park
+deadlines. **Post multi-role P1 (2026-08-10):** also IPC table, frame pool,
+ASID pool, naming, storage, taskcap, durable region, console TX. Device/SGI
+handlers never take these locks.
+
+**Lock order:** never hold **SCHED** while taking **IPC** (spawn registers
+holds after `with_sched`; cancel clears waiter under IPC then prepares under
+SCHED). Send drops IPC before `wake_task`.
 
 ### 2. Heap is multi-core-safe
 

@@ -348,8 +348,8 @@ impl AddressSpace {
         }
         self.owned.clear();
         let asid = self.asid;
-        // Invalidate before free so a concurrent (future SMP) alloc cannot
-        // install the tag while stale entries remain. Single-core today.
+        // Invalidate before free so a concurrent alloc cannot install the tag
+        // while stale entries remain (ASID pool is IrqSpinLock-serialised).
         mmu::invalidate_asid(asid);
         let _ = crate::mm::asid::free(asid);
         core::mem::forget(self);

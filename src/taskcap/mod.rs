@@ -1,22 +1,22 @@
 //! Kernel owner of the task-cap table (ADR-0054 / K3).
 //!
 //! Pure arithmetic lives in [`kernel_core::taskcap`]. This module holds the
-//! single table and serialises access with IRQ masking.
+//! single table and serialises access with [`IrqSpinLock`] (ADR-0077).
 
 use kernel_core::cap::CapId;
 use kernel_core::runqueue::TaskId;
 use kernel_core::taskcap::Table;
 
-use crate::arch::cpu;
-use crate::sync::SyncCell;
+use crate::sync::{IrqSpinLock, SyncCell};
 
 pub use kernel_core::taskcap::{LookupError, MintError};
 
 static TABLE: SyncCell<Table> = SyncCell::new(Table::new());
+static TABLE_LOCK: IrqSpinLock = IrqSpinLock::new();
 
 fn with_table<R>(f: impl FnOnce(&mut Table) -> R) -> R {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
+    TABLE_LOCK.with(|| {
+        // SAFETY: exclusivity from TABLE_LOCK (IRQ mask + spin).
         let table = unsafe { &mut *TABLE.get() };
         f(table)
     })

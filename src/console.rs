@@ -100,10 +100,11 @@ fn apply(line: &mut RxLine, step: Step) -> bool {
 /// the compare-and-set behaves. This stays correct when a second core appears.
 static CLAIMED: AtomicBool = AtomicBool::new(false);
 
-/// Live TX handle after [`install_tx`], shared by cooperative tasks under
-/// [`with_tx`]. Idle and worker tasks serialize here (ADR-0006): one core, IRQ
-/// masked across the write, no second `Pl011` in the wild.
+/// Live TX handle after [`install_tx`], shared by tasks under [`with_tx`].
+/// Dual-current cores serialise with [`TX_LOCK`] (ADR-0077); no second `Pl011`
+/// in the wild.
 static TX: SyncCell<Option<Pl011>> = SyncCell::new(None);
+static TX_LOCK: crate::sync::IrqSpinLock = crate::sync::IrqSpinLock::new();
 
 /// Bring up the board serial console and take exclusive TX ownership.
 ///
@@ -127,20 +128,20 @@ pub unsafe fn acquire() -> Option<Pl011> {
 /// Call once after bring-up printing is done, before spawning tasks. Moves the
 /// handle into kernel storage so idle and workers share one path.
 pub fn install_tx(uart: Pl011) {
-    cpu::without_irqs(|| {
-        // SAFETY: single core; IRQs masked; install is once after acquire.
+    TX_LOCK.with(|| {
+        // SAFETY: exclusivity from TX_LOCK; install is once after acquire.
         unsafe {
             *TX.get() = Some(uart);
         }
     });
 }
 
-/// Run `f` with the installed TX handle, IRQs masked for the duration.
+/// Run `f` with the installed TX handle under the TX lock.
 ///
 /// `None` if [`install_tx`] has not run (or after a panic [`steal`]).
 pub fn with_tx<R>(f: impl FnOnce(&mut Pl011) -> R) -> Option<R> {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; only cooperative tasks call this on one core.
+    TX_LOCK.with(|| {
+        // SAFETY: exclusivity from TX_LOCK.
         unsafe { (*TX.get()).as_mut().map(f) }
     })
 }
@@ -159,8 +160,8 @@ pub fn kprint_fmt(args: core::fmt::Arguments<'_>) {
 pub unsafe fn steal() -> Pl011 {
     CLAIMED.store(true, Ordering::Release);
     // Drop the shared handle first so `with_tx` cannot race the panic writer.
-    cpu::without_irqs(|| {
-        // SAFETY: panic path; cooperative tasks are not running.
+    TX_LOCK.with(|| {
+        // SAFETY: exclusivity from TX_LOCK; panic path takes over the UART.
         unsafe {
             *TX.get() = None;
         }
