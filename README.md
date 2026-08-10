@@ -86,8 +86,9 @@ H0 is complete on Pi 4B and H1 is **done (HW)** — stamp 2026-08-08, with
 residuals carrying into H2. H2 is open: P3–P4, H3 L1+ and the remaining
 platform paths.
 
-Next: K5-B design [#25] · K10 force-kill [#26] — [roadmap](docs/roadmap.md).
-Product multi-core `home_cpu` **done (QEMU)** ([ADR-0088](docs/adr/0088-product-home-cpu.md)).
+Next: K10 force-kill [#26] — [roadmap](docs/roadmap.md). Product multi-core
+`home_cpu` **done (QEMU)** ([ADR-0088](docs/adr/0088-product-home-cpu.md));
+K5-B **design** paid ([ADR-0089](docs/adr/0089-k5-b-pair-collapse-design.md)).
 
 **Working today (high level).** Preemptible tasks on both cores — voluntary
 yield plus IRQ-epilogue quantum preemption, EL0+EL1 — with dual-current SMP

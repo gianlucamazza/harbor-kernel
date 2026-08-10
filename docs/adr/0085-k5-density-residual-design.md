@@ -175,4 +175,5 @@ are **out of model**.
 - Completeness: [0026](0026-kernel-and-product-completeness.md)  
 - Map density orthog: [0084](0084-k7-residual-policy.md)  
 - Multi-role inventory: [../reviews/2026-08-10-post-k8-multi-role.md](../reviews/2026-08-10-post-k8-multi-role.md)  
-- Code follow-on: ~0086 (K5-S Mini first slice)
+- Code follow-on: [0086](0086-k5-mini-stack-first-slice.md) (K5-S Mini first slice)
+- K5-B design: [0089](0089-k5-b-pair-collapse-design.md) (no code until trigger)

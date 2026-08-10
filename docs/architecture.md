@@ -369,7 +369,7 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
 | **H1 next**                  | P3\|P4 only with composition (deferred)                                                                                                                            |
 | **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1+K5-S done (HW); K7 residual ADR-0084; K5-H/B later (0085)                                                                                     |
-| **open (kernel)**            | K5-H/B if trigger (0085); K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                                                                          |
+| **open (kernel)**            | K5-H if trigger (0085); K5-B **design paid** (0089), code only if trigger; K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                         |
 | **open (product)**           | P3/P4 deferred (ADR-0049); denser composition (K5-H if slots bind)                                                                                                   |
 | **paid (hygiene)**           | Product composition-minimum boot + `oracle-census` (multi-role F-R5-2 / F-R7-1)                                                                                      |
 
@@ -438,6 +438,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0086](adr/0086-k5-mini-stack-first-slice.md)                    | K5-S Mini stacks — one page, no unmapped guard (**accepted**)                                                                                           |
 | [ADR-0087](adr/0087-oracle-waits-and-the-hosts-verdict.md)            | Oracle cross-core waits in guest time; a starved host earns no verdict (**accepted**)                                                                   |
 | [ADR-0088](adr/0088-product-home-cpu.md)                             | Product multi-core — manifest `home_cpu` + loader pin (**accepted**); done (QEMU)                                                                      |
+| [ADR-0089](adr/0089-k5-b-pair-collapse-design.md)                    | K5-B pair collapse design — session as schedulable; **no code** until trigger (**accepted**)                                                           |
 | [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                                              |
 | [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                                               |
 | [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md) |
