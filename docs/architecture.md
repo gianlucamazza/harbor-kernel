@@ -66,13 +66,17 @@ Three consequences that look unrelated are the same shape fact:
    [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)).
 
 None of this claims superiority over production kernels. **POSIX remains out
-of model.** SMP first depth is **done (HW)** (unpark [ADR-0070](adr/0070-k8-smp-first-slice.md),
-IPI [ADR-0074](adr/0074-k8-ipi-wake-second-slice.md), dual-current queues
-[ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md);
-stamp 2026-08-10): product agents still home on CPU 0; residuals are steal,
-per-core preemption, and EL0-on-CPU1 — honest in [`SECURITY.md`](../SECURITY.md).
-Fairness under a hostile busy-loop is enforced at both ELs by the IRQ
-epilogue on the primary.
+of model.** SMP first depth is **done (HW)** through steal (unpark
+[ADR-0070](adr/0070-k8-smp-first-slice.md), IPI [ADR-0074](adr/0074-k8-ipi-wake-second-slice.md),
+dual-current queues [ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md),
+per-core timer + EL1/EL0 on CPU 1 [ADR-0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)/[0081](adr/0081-k8-el0-on-cpu1-first-slice.md),
+steal [ADR-0083](adr/0083-k8-work-stealing-first-slice.md); stamps 2026-08-10).
+**Product SMP policy** (honest, not a missing mechanism): default home remains
+CPU 0; steal is opt-in for EL1 workers without a live agent AS; agents are not
+auto-balanced (agent+TLB steal residual). Fairness under a hostile busy-loop is
+enforced at both ELs by the IRQ epilogue on each scheduled core. Details and
+threat residuals: [`SECURITY.md`](../SECURITY.md). Multi-role inventory:
+[post-K8 review](reviews/2026-08-10-post-k8-multi-role.md).
 The payoff of the shape is that each boundary is named, gated, and
 demonstrable rather than implied by a large ABI.
 
@@ -272,19 +276,44 @@ as amended by [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)).
 `Agent::run_user_prog_resuming` is a **synchronous loop owned by an EL1 task**:
 it enters EL0, handles each SVC, resumes, and returns when the session ends. So
 what `sched` admits and switches to is the _driver_, not the EL0 context —
-and an agent costs one of `MAX_TASKS` slots plus a 16 KiB kernel stack on top of
-its address space, however small its program.
+and an agent costs one of `MAX_TASKS` slots plus a kernel stack (default
+**Full** 16 KiB; **Thin** 4 KiB via [ADR-0044](adr/0044-k5-agent-density.md)) on
+top of its address space, however small its program. Collapsing the driver half
+of the pair is the open **K5** residual (roadmap).
 
 [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) records the
 shape rather than changing it, because three things that look unrelated are the
-same fact: preemption would have to preempt the driver mid-session with a live
+same fact: preemption has to preempt the driver mid-session with a live
 EL0 context; ADR-0018's _"the creator decides what happens to the task"_ means
 the driver task, so an agent cannot be killed without killing its watcher; and
 `MAX_TASKS` is scarce because every agent spends a slot on the loop that drives
-it.
+it. Oracle demos have raised the ceiling over time (census tax); density work is
+not “raise `MAX_TASKS` again.”
 
 Where the distinction matters, this document says **driver task** or **EL0
 program** rather than "agent".
+
+### Capacity model (today)
+
+Bounds are intentional under-/over-caps relative to each other — not one number.
+Code is authoritative; this table is the map.
+
+| Bound | Value (today) | Owns | Note |
+| --- | ---: | --- | --- |
+| `sched::MAX_TASKS` | **52** | `src/sched/mod.rs` | Includes dual idle + oracle census; product image uses far fewer |
+| Caps per task | **4** | `sched` / manifest | Slot ABI width |
+| Task-caps (system) | **32** | `kernel_core::taskcap` | Deliberately &lt; `MAX_TASKS` |
+| Agent store entries | **8** | `kernel_core::agentstore` | Composition scale ≠ scheduler scale |
+| Manifest grant slots | **4** | `kernel_core::manifest` | Per-entry grant table |
+| Name registry | **8** | `kernel_core::naming` | P5 |
+| IRQ waiters / task-id bitmap | 8 / **64** | `kernel_core::irqwait` | Bitmap covers `MAX_TASKS` |
+| Park timeouts armed | **16** | `kernel_core::parktime` | Under full task census |
+| Durable / storage blobs | **4** | storage/durable pure | P2 first depth |
+
+**Product SMP policy:** loader/spawn default **home = CPU 0**. Explicit
+`spawn_on(1, …)` and lab oracles exercise CPU 1. Work stealing pulls only
+**stealeable** Ready EL1 tasks (opt-in; agents with an AS mark non-stealeable).
+Global tick advance for timeouts remains **CPU 0** (per-core quantum is local).
 
 ### An agent is data
 

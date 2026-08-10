@@ -1,10 +1,12 @@
 # Security — Harbor Kernel
 
-Threat model and reporting for **harbor-kernel** as of the **H1 depth stamp**
-(EL0 authority by capability slot, agents described by a manifest, wait /
-timeout / transfer / creator-exit cascade — stamped on Pi 4B silicon
-2026-08-08; peer transfer and resolve-grant are QEMU-only). This document exists
-because [ADR-0017](docs/adr/0017-el0-capability-abi.md) finally makes authority
+Threat model and reporting for **harbor-kernel** as of the **post-K8 boundary
+depth** (H1 composition + wait/timeout/transfer/cascade on Pi 2026-08-08; K4
+preemption, K7 ASID first, and K8 through steal on Pi 2026-08-09…10). Peer
+transfer and resolve-grant carry QEMU and HW evidence rows in
+[`docs/verification.md`](docs/verification.md) — prefer that table over this
+paragraph for status. This document exists because
+[ADR-0017](docs/adr/0017-el0-capability-abi.md) finally makes authority
 _enumerable_; before that, a threat model would have been fiction about code
 that had not drawn the boundary.
 [ADR-0021](docs/adr/0021-agents-as-data-and-the-manifest.md) took the step that
@@ -38,19 +40,20 @@ where appropriate ([`docs/blobs.md`](docs/blobs.md)).
 
 | Role        | Description                                                                                                                                                                             |
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Product** | Single-core AArch64 agent-based kernel on Raspberry Pi 4 Model B (foundation done; K/P completeness in progress)                                                                        |
+| **Product** | AArch64 agent-based kernel on Raspberry Pi 4 Model B; **dual-current** schedule (CPU 0+1) with product default home on CPU 0 (foundation + H1 + H2 depth in progress)                    |
 | **Goal**    | Complete agent-based microkernel **and** product OS ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md))                                                                      |
-| **Today**   | Foundation + H1 depth on Pi 4B (wait-on-IRQ, auto-reap, transfer, recv timeout, cascade, budget); peer transfer / resolve-grant / agent store (K6) QEMU. See [roadmap](docs/roadmap.md) |
+| **Today**   | Foundation + H1 depth + K4/K7-first/K8-through-steal on Pi 4B; residuals (K5 driver-half, optional K7-M, agent+TLB steal, P3/P4). See [roadmap](docs/roadmap.md)                         |
 
 Assets worth defending, in order of load:
 
 1. **Kernel integrity** — code, page tables, heap metadata, GIC/timer/UART driver state.
 2. **Authority tables** — who may send/recv on which endpoint, who may print.
-3. **Agent isolation** — one EL0 context must not read/write another’s memory or session state.
-4. **Availability of the kernel** — a faulting agent must not take down EL1 (ADR-0018).
+3. **Agent isolation** — one EL0 context must not read/write another’s memory or session state (including across cores via per-CPU `CURRENT_EL0`).
+4. **Availability of the kernel** — a faulting agent must not take down EL1 (ADR-0018); hostile busy-loops are quantum-preempted at both ELs on scheduled cores.
 
 Non-assets (out of threat model until named otherwise): multi-user login, network
-stack, disk encryption, remote attestation, SMP, preemption fairness.
+stack, disk encryption, remote attestation, multi-tenant cloud isolation,
+automatic agent load-balancing across cores (agent+TLB steal residual).
 
 ---
 
@@ -58,8 +61,9 @@ stack, disk encryption, remote attestation, SMP, preemption fairness.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-/* TCB — trusted computing base (single core, lab board)     */
+/* TCB — trusted computing base (dual-current, lab board)     */
 │  EL1 kernel: arch, mm, sched, ipc, irq, drivers, bootstrap │
+│  Per-CPU schedule current + EL0 publish (CPU 0 and CPU 1)  │
 │  Platform firmware (start4.elf) — Group 0 GIC pin, boot    │
 │  Creator of agents: bootstrap::loader + the manifest it reads│
 └──────────────────────────▲──────────────────────────────────┘
@@ -147,8 +151,9 @@ and host-tested per variant. `x2`/`x3` remain untouched on refusal.
 Constants load-bearing for the model: mailboxes **16**, endpoints **32**,
 mailbox depth **4** ([ADR-0056](docs/adr/0056-ipc-abi-capacities.md) owns
 these; `make doc-claims` compares them to the code); capability slots per task
-**4**; concurrent tasks including idle **40** (`sched::MAX_TASKS` — it bounds
-how many agents can be parked at once, see the residual risk below); task-caps
+**4**; concurrent tasks including idle **52** (`sched::MAX_TASKS` — ceiling
+includes dual idle and the full oracle census; product images use far fewer;
+see capacity model in [`docs/architecture.md`](docs/architecture.md)); task-caps
 **32** (`kernel_core::taskcap::MAX_TASK_CAPS`, deliberately < `MAX_TASKS`,
 ADR-0057 §2); executable pages an agent may declare **16**
 (`mm::aspace::MAX_TEXT_PAGES`, 64 KiB).
@@ -164,7 +169,7 @@ ADR-0057 §2); executable pages an agent may declare **16**
 | Page-sized device maps for agents                                                                                       | Yes (M6, PL011)       | Kernel EL1 keeps coarse `DEVICE_REGIONS` (16 MiB peripherals + GIC) — **risk-accepted** 2026-08-07; agents never receive those blankets ([ADR-0013](docs/adr/0013-narrow-device-windows.md))                                                                                                                                                                                                                                             |
 | Slot-indexed caps                                                                                                       | Yes (M7 HW)           | Creator channel revoke (ADR-0032, QEMU); EL0 transfer self/creator (ADR-0041, HW) and peer via task-cap (ADR-0054, QEMU); only endpoint caps move (ADR-0055)                                                                                                                                                                                                                                                                             |
 | Fault → end session, creator decides                                                                                    | Yes (ADR-0018, M7 HW) | Creator exit leaves agents unsupervised; no restart policy                                                                                                                                                                                                                                                                                                                                                                               |
-| Published `CURRENT_EL0` (`AtomicPtr`, ADR-0019)                                                                         | Yes (HW 2026-08-07)   | Stale publish panics on entry; residual: assembly assumes symbol is a pointer                                                                                                                                                                                                                                                                                                                                                            |
+| Published `CURRENT_EL0` (`[AtomicPtr; N_CPUS]`, ADR-0019 + per-CPU [ADR-0081](docs/adr/0081-k8-el0-on-cpu1-first-slice.md)) | Yes (HW; dual-core 2026-08-10) | Stale publish panics on entry; asm indexes Aff0 into the array (not a single pointer)                                                                                                                                                                                                                                                                                                                                                 |
 | Grants bounded by the loader's own table ([ADR-0021](docs/adr/0021-agents-as-data-and-the-manifest.md))                 | Yes (HW 2026-08-07)   | Manifest is **in the image** — as trusted as the code it replaced. Channel **revoke** exists for creator/EL1 ([ADR-0032](docs/adr/0032-k3-channel-revoke.md)). EL0 **transfer** exists (ADR-0041/0054): a task's grant set is bounded by the manifest **plus pushes from peers holding its task-cap** — the system-wide set stays loader-bounded. Delegation chains refuse by band ([ADR-0055](docs/adr/0055-transferable-cap-bands.md)) |
 | Per-agent window geometry, W^X inside it                                                                                | Yes (HW 2026-08-07)   | `text_pages` executable, the rest writable, never both. A larger window costs frames from a 512-frame pool and is refused as an error, not a panic                                                                                                                                                                                                                                                                                       |
 | One mask per session step, never across a switch ([ADR-0022](docs/adr/0022-blocking-recv-and-the-mask-that-travels.md)) | Yes                   | `make irq-scope` is **lexical**: a call that switches three frames down passes it. The indirect form is review's                                                                                                                                                                                                                                                                                                                         |

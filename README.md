@@ -51,7 +51,7 @@ page carries a snapshot, never a second table. Product shape and use cases:
 | -------- | ------------------------------------------------------------------------------------- |
 | Language | Rust, edition 2024, `no_std`, **zero dependencies**                                   |
 | Target   | `aarch64-unknown-none-softfloat` (pinned toolchain, `panic = "abort"`)                |
-| Platform | Raspberry Pi 4B / BCM2711, AArch64, **single core** for now                           |
+| Platform | Raspberry Pi 4B / BCM2711, AArch64, **dual-current** (product home CPU 0)             |
 | Build    | `make` over `cargo`; `kernel8.img` at `0x80000`, EL2 → EL1h                           |
 | Model    | Cooperative tasks · slot-indexed capabilities · agent = EL1 driver task + EL0 program |
 | Evidence | Host tests · Miri · QEMU oracles in `make check`; Pi 4B serial stamps by hand         |
@@ -106,8 +106,8 @@ auto-reap (ephemeral channels); channel revoke (stale CapId refused).
 
 | Area         | State                                                                                                                                                                                      |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Platform     | AArch64 Pi 4B (quad-core; dual-current schedule, agents home CPU 0), early MMU, W^X, heap, guarded stacks                                                                                  |
-| Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068; CPU1 EL1+EL0 **done (HW)** ADR-0079/0081, stamps 2026-08-10); K8 unpark+IPI+queues first **done (HW)**; product default home still CPU 0 |
+| Platform     | AArch64 Pi 4B (quad-core; dual-current schedule, product home CPU 0), early MMU, W^X, heap, guarded stacks                                                                                 |
+| Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068; CPU1 EL1+EL0 **done (HW)** ADR-0079/0081); K8 through steal **done (HW)** ADR-0070…0083; product default home still CPU 0 |
 | Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade                                     |
 | Product OS   | Multi-agent store composition (QEMU); broader services **open**                                                                                                                            |
 | Verification | 461 host tests, model checks, Miri, QEMU and hardware stamps                                                                                                                               |
