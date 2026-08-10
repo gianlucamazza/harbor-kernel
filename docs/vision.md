@@ -86,13 +86,14 @@ If a word here does not mean what you expect — **agent** most of all — start
 | Evidence ≠ compile                | Boundaries stay claims with gates                             |
 
 Open work that realises these at scale (design ADR before code where needed):
-**K5** driver-half collapse residual (thin stacks done HW); **K7** residual
-policy ([ADR-0084](adr/0084-k7-residual-policy.md): option C current; optional
+**K5** residual policy ([ADR-0085](adr/0085-k5-density-residual-design.md): thin
+done HW; **K5-S** Mini next code; **K5-H/B** deferred); **K7** residual policy
+([ADR-0084](adr/0084-k7-residual-policy.md): option C current; optional
 switch-cost lab; TTBR1 only if a named trigger fires); optional **K8** agent
 steal + TLB IPI; product network/display only with a composition target
 (**P3**, **P4** deferred). Closed on HW for fairness and multi-core depth:
 **K4** EL0+EL1 preemption; **K7** ASID first; **K8** unpark through steal
-(ADR-0070…0083). Status and order: [roadmap](roadmap.md).
+(ADR-0070…0083); F-R1-P1 shared-state. Status and order: [roadmap](roadmap.md).
 
 ---
 
@@ -166,17 +167,20 @@ product store (**P1**); on-target keyed blobs (**P2**,
 residuals, **K5** thin stacks, **P2** durable + SD power-cycle, **K4** budget +
 EL0/EL1 preemption). Still open: network (**P3**) and product display (**P4**)
 **only when a composition needs them** (deferred without a target); **K5**
-driver-half collapse residual. Working order:
+residuals under [ADR-0085](adr/0085-k5-density-residual-design.md) (**K5-S** Mini
+code next; **K5-H/B** later). Working order:
 [roadmap § H1 working order](roadmap.md#next-working-order-post-h1-hw-stamp).
 
 ### H2 — Boundary operating system
 
-Remaining **K** and **P** for full boundary-OS depth: **K5** driver-half;
+Remaining **K** and **P** for full boundary-OS depth: **K5-S** Mini code then
+optional **K5-H/B** ([ADR-0085](adr/0085-k5-density-residual-design.md));
 **K7-T** TTBR1 only if [ADR-0084](adr/0084-k7-residual-policy.md) triggers;
 optional **K7-M** lab and **K8** agent+TLB steal; deferred **P3**/**P4**.
-**K4**, **K7** ASID first, and **K8** through steal are closed on HW. Resolve-grant
-is done (HW) ([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this
-model — still not Linux.
+**K4**, **K7** ASID first, **K8** through steal, and F-R1-P1 shared-state are
+closed on HW. Resolve-grant is done (HW)
+([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this model —
+still not Linux.
 
 | Traditional OS                    | Harbor (vision)                            |
 | --------------------------------- | ------------------------------------------ |

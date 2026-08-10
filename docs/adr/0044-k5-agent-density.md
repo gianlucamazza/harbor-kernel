@@ -39,9 +39,11 @@ is visible without claiming unlimited scale.
 
 ### 4. Non-goals
 
-- Collapsing the EL1 driver half of the agent pair (later K5).
+- Collapsing the EL1 driver half of the agent pair — residual policy
+  [ADR-0085](0085-k5-density-residual-design.md) (**K5-H** / **K5-B** deferred;
+  first follow-on code is **K5-S** Mini).
 - Dynamic stack growth.
-- Changing `MAX_TASKS` as the density solution.
+- Changing `MAX_TASKS` as the density solution (restated in ADR-0085).
 
 ## Gates
 

@@ -42,7 +42,7 @@ where appropriate ([`docs/blobs.md`](docs/blobs.md)).
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Product** | AArch64 agent-based kernel on Raspberry Pi 4 Model B; **dual-current** schedule (CPU 0+1) with product default home on CPU 0 (foundation + H1 + H2 depth in progress)                    |
 | **Goal**    | Complete agent-based microkernel **and** product OS ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md))                                                                      |
-| **Today**   | Foundation + H1 depth + K4/K7-first/K8-through-steal on Pi 4B; residuals (K5 driver-half, optional K7-M, agent+TLB steal, P3/P4). See [roadmap](docs/roadmap.md)                         |
+| **Today**   | Foundation + H1 depth + K4/K7-first/K8-through-steal + F-R1-P1 on Pi 4B; residuals (K5-S Mini code, K5-H/B if trigger [ADR-0085](docs/adr/0085-k5-density-residual-design.md), optional K7-M, agent+TLB steal, P3/P4). See [roadmap](docs/roadmap.md) |
 
 Assets worth defending, in order of load:
 
