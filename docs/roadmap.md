@@ -83,7 +83,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | K2  | Park reclaim (timeout and/or auto-reap on last send drop) | **done (HW)** ([ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md) + [ADR-0040](adr/0040-k2-park-timeout.md) + [ADR-0042](adr/0042-el0-recv-timeout.md); Pi stamp 2026-08-08)                                                                                                                                         | Last SEND hold drop; EL1/EL0 tick timeout → Cancelled                      | 0025 → 0031 → 0040 → 0042                           |
 | K3  | Cap transfer / revoke / endpoint release                  | **done (QEMU)** depth ([ADR-0032](adr/0032-k3-channel-revoke.md) + [ADR-0037](adr/0037-k3-cap-transfer.md) + [ADR-0041](adr/0041-el0-cap-transfer.md) + [ADR-0054](adr/0054-k3-peer-transfer-first-slice.md)); HW stamp 2026-08-09 covers peer/band/stale too (`hw-transcript-check` clean)                           | Revoke; transfer; EL0 self/creator/peer; band + stale refusal oracles      | 0017 → 0032 → 0037 → 0041 → 0053 → 0054 → 0055/0057 |
 | K4  | Preemption or CPU budget                                  | budget **done (HW)** ([ADR-0046](adr/0046-k4-cooperative-cpu-budget.md); Pi stamp 2026-08-08); EL0 IRQ preemption **done (HW)** ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md); Pi stamp 2026-08-09); same-EL (EL1) preemption **done (HW)** ([ADR-0068](adr/0068-k4-el1-preemption-second-slice.md): frame-on-own-stack pivot; stamp 2026-08-09, transcript `20260809-151021.log`) | Tick quantum + voluntary yield; any spinner, EL0 or EL1, loses CPU on the IRQ epilogue | 0006 → 0046 → 0051 → 0064 → 0068                           |
-| K5  | Agent density (shrink/collapse driver half)               | **done (HW)** thin ([ADR-0044](adr/0044-k5-agent-density.md)); residual policy [ADR-0085](adr/0085-k5-density-residual-design.md); **K5-S** Mini **done (QEMU)** ([ADR-0086](adr/0086-k5-mini-stack-first-slice.md): `density: mini n=`); **K5-H**/**K5-B** deferred                                                                                                                                                                                              | Thin + Mini; no `MAX_TASKS++` as density                                   | 0023 → 0044 → 0085 → 0086                           |
+| K5  | Agent density (shrink/collapse driver half)               | **done (HW)** thin ([ADR-0044](adr/0044-k5-agent-density.md)); residual policy [ADR-0085](adr/0085-k5-density-residual-design.md); **K5-S** Mini **done (HW)** ([ADR-0086](adr/0086-k5-mini-stack-first-slice.md): stamp 2026-08-10, `20260810-162926-boot2-k5s.log`); **K5-H**/**K5-B** deferred                                                                                                                                                                                              | Thin + Mini HW; no `MAX_TASKS++` as density                                | 0023 → 0044 → 0085 → 0086                           |
 | K6  | External agent load + byte manifest                       | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement)                                                                                                                                                                                      | Image store inject; product prefers store, oracle empty → builtin          | ADR-0021 → 0027 → 0029                              |
 | K7  | ASID (+ TTBR1 if required)                                | **done (HW)** first slice, stamp 2026-08-09 ([ADR-0047](adr/0047-k7-asid-isolation-design.md) + [ADR-0050](adr/0050-k7-asid-first-slice.md)); residual policy [ADR-0084](adr/0084-k7-residual-policy.md): **K7-M** switch-cost lab (optional), **K7-T** TTBR1 deferred-with-triggers, **K7-R** ASID rollover under pressure                                                                                                  | First slice: ASID + dual-AS HW; TTBR1 only if trigger                      | 0014 → 0047 → 0050 → 0084                           |
 | K8  | SMP                                                       | **done (HW)** unpark ([ADR-0070](adr/0070-k8-smp-first-slice.md)); **done (HW)** IPI ([ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)); **done (HW)** queues + shared-state ([ADR-0075](adr/0075-k8-per-core-queues-design.md)/[0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md): stamp 2026-08-10); per-core timer+EL1 preempt **done (HW)** ([ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md)/[0079](adr/0079-k8-per-core-timer-preemption-first-slice.md): stamp 2026-08-10); EL0-on-CPU1 **done (HW)** ([ADR-0080](adr/0080-k8-el0-on-cpu1-design.md)/[0081](adr/0081-k8-el0-on-cpu1-first-slice.md): stamp 2026-08-10); steal **done (HW)** ([ADR-0082](adr/0082-k8-work-stealing-design.md)/[0083](adr/0083-k8-work-stealing-first-slice.md): stamp 2026-08-10, `20260810-144305.log`); residual agent+TLB steal; parent [ADR-0048](adr/0048-k8-smp-design.md)                                                                                                                                 | Unpark + IPI + queues + fair dual-core + steal HW; agent TLB residual       | 0006 → 0048 → 0070 → 0074 → 0075 → 0076 → 0077 → 0078 → 0079 → 0080 → 0081 → 0082 → 0083 |
@@ -114,7 +114,6 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 
 | Step | Track(s)                                             | Why now                                  |
 | ---- | ---------------------------------------------------- | ---------------------------------------- |
-| 1    | **K5-S** Mini HW stamp (code [ADR-0086](adr/0086-k5-mini-stack-first-slice.md) **done (QEMU)**) | Silicon residual only |
 | —    | Product-boot-check / oracle census                    | Excellence (multi-role F-R5-2 / F-R7-1)  |
 | —    | **K5-H** multiplex                                    | Only after slot pressure (0085)          |
 | —    | **K5-B** pair collapse                                | Only if 0085 §3 trigger                  |
@@ -140,9 +139,9 @@ stamp 2026-08-10, transcript `20260810-144305.log`: `smp: steal ok`).
 **K7 residual policy** paid ([ADR-0084](adr/0084-k7-residual-policy.md):
 option C current; K7-M optional lab; K7-T trigger-gated; K7-R under pressure).
 **K5 residual policy** paid ([ADR-0085](adr/0085-k5-density-residual-design.md)).
-**K5-S Mini** **done (QEMU)** ([ADR-0086](adr/0086-k5-mini-stack-first-slice.md)).
-F-R1-P1 shared-state **done (HW)**. **Next:** K5-S HW stamp; product evidence
-hygiene; K5-H/B and K7-T only with triggers.
+**K5-S Mini** **done (HW)** ([ADR-0086](adr/0086-k5-mini-stack-first-slice.md),
+stamp 2026-08-10). F-R1-P1 shared-state **done (HW)**. **Next:** product
+evidence hygiene; K5-H/B and K7-T only with triggers.
 
 ```text
 Mission: agents · grants · evidence · finish the OS
@@ -151,7 +150,7 @@ Mission: agents · grants · evidence · finish the OS
                 │
     H1 composition ████████ done (HW) stamp 2026-08-08
                 │
-    H2 boundary    ████████ K4+K7+K8+F-R1 HW; K5-S QEMU; residual K5-S HW / K5-H·B·K7-T if trigger
+    H2 boundary    ████████ K4+K7+K8+F-R1+K5-S HW; residual K5-H·B / K7-T if trigger
                 │
     H3 host-class  █░░░░░░░ L0 done (QEMU-x86); L1+ open
 ```

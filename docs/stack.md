@@ -139,7 +139,7 @@ vocabulary: [`docs/README.md`](README.md).
 | Preemption (IRQ epilogue)             | **Present** EL0+EL1 on HW ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md)); device handlers never switch |
 | SMP residual                          | **K8** through steal **done (HW)** (ADR-0070…0083); residual agent+TLB steal only if product needs auto-balance of EL0 agents |
 | ASID / TTBR residual                  | **K7** first slice done (HW); policy [ADR-0084](adr/0084-k7-residual-policy.md): option C current; K7-M lab optional; K7-T TTBR1 trigger-gated; K7-R rollover |
-| Agent density residual                | **K5** thin done (HW); **K5-S** Mini done (QEMU) [ADR-0086](adr/0086-k5-mini-stack-first-slice.md); K5-H/B deferred [ADR-0085](adr/0085-k5-density-residual-design.md) |
+| Agent density residual                | **K5** thin + **K5-S** Mini **done (HW)** [ADR-0086](adr/0086-k5-mini-stack-first-slice.md); K5-H/B deferred [ADR-0085](adr/0085-k5-density-residual-design.md) |
 | A device tree parser                  | Board truth is compiled-in BSP constants; the DTB is mapped read-only for a future parser ([ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md))         |
 | A filesystem, network or window stack | They belong **above** the kernel as agents, when a composition needs them (P2–P5)                                                                                  |
 | An LLM / agent framework              | "Agent" here is the isolation unit — [`glossary.md`](glossary.md)                                                                                                  |

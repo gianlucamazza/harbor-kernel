@@ -87,7 +87,7 @@ If a word here does not mean what you expect — **agent** most of all — start
 
 Open work that realises these at scale (design ADR before code where needed):
 **K5** residual policy ([ADR-0085](adr/0085-k5-density-residual-design.md): thin
-done HW; **K5-S** Mini **done (QEMU)** [ADR-0086](adr/0086-k5-mini-stack-first-slice.md);
++ **K5-S** Mini **done (HW)** [ADR-0086](adr/0086-k5-mini-stack-first-slice.md);
 **K5-H/B** deferred); **K7** residual policy
 ([ADR-0084](adr/0084-k7-residual-policy.md): option C current; optional
 switch-cost lab; TTBR1 only if a named trigger fires); optional **K8** agent

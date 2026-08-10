@@ -363,9 +363,9 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | Snapshot                     | Tracks                                                                                                                                                            |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
-| **H1 next**                  | P3\|P4 only with composition (deferred) · K5-S Mini HW stamp                                                                                                       |
-| **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1 done (HW); K5-S Mini done (QEMU) ADR-0086; K7 residual ADR-0084; K5-H/B later (0085)                                                          |
-| **open (kernel)**            | K5-S HW stamp; K5-H/B if trigger (0085); K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                                                            |
+| **H1 next**                  | P3\|P4 only with composition (deferred)                                                                                                                            |
+| **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1+K5-S done (HW); K7 residual ADR-0084; K5-H/B later (0085)                                                                                     |
+| **open (kernel)**            | K5-H/B if trigger (0085); K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                                                                          |
 | **open (product)**           | P3/P4 deferred (ADR-0049); denser composition after K5-S                                                                                                            |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full

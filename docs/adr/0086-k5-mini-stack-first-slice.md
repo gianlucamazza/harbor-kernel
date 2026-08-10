@@ -16,8 +16,10 @@ related: [0006, 0023, 0044, 0085]
 **halves Thin’s heap cost** for short EL1 workers without raising `MAX_TASKS`
 and without collapsing the agent pair.
 
-Status: **done (QEMU)** via `make boot-check` (`density: mini n=…`); HW stamp
-when a Pi transcript carries the same lines.
+Status: **done (QEMU)** via `make boot-check`; **done (HW)** Pi stamp 2026-08-10,
+transcript `.serial-log/20260810-162926-boot2-k5s.log` (`density: mini n=2
+bytes_each=4096`, Cortex-A72, `hw-transcript-check` clean; image `src=afde0d22-dirty`
+with Mini code; clean tree `2cffdf8`).
 
 ## Context
 
