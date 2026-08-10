@@ -1342,8 +1342,7 @@ pub(super) fn preempt_el1_peer() {
 static PREEMPT_EL1_CPU1_HEART: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
 /// Stop word for the CPU1 spinner; set by the peer on success/give-up.
-static PREEMPT_EL1_CPU1_STOP: core::sync::atomic::AtomicU32 =
-    core::sync::atomic::AtomicU32::new(0);
+static PREEMPT_EL1_CPU1_STOP: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 /// Peer outcome: 0 = running, 1 = rotated, 2 = gave up. Watched on CPU 0.
 static PREEMPT_EL1_CPU1_RESULT: core::sync::atomic::AtomicU32 =
     core::sync::atomic::AtomicU32::new(0);
@@ -1425,16 +1424,12 @@ pub(super) fn preempt_el1_cpu1_watch() {
 // --- ADR-0081: EL0 session + preemption on CPU 1 (no console TX) ---
 
 /// Stop-word PA for the CPU1 EL0 spinner (peer writes; spinner host owns).
-static EL0_CPU1_STOP_PA: core::sync::atomic::AtomicUsize =
-    core::sync::atomic::AtomicUsize::new(0);
-static EL0_CPU1_PEER_TURNS: core::sync::atomic::AtomicU32 =
-    core::sync::atomic::AtomicU32::new(0);
+static EL0_CPU1_STOP_PA: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+static EL0_CPU1_PEER_TURNS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 /// 0 = running, 1 = rotated, 2 = peer gave up.
-static EL0_CPU1_RESULT: core::sync::atomic::AtomicU32 =
-    core::sync::atomic::AtomicU32::new(0);
+static EL0_CPU1_RESULT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 /// Spinner host finished (session ended / destroy done).
-static EL0_CPU1_EXITED: core::sync::atomic::AtomicU32 =
-    core::sync::atomic::AtomicU32::new(0);
+static EL0_CPU1_EXITED: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 const EL0_CPU1_STOP_OFF: usize = 0x800;
 

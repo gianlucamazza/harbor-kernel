@@ -250,45 +250,45 @@ pub unsafe fn map(region: &Region) -> Result<(), MmuError> {
 /// or data accesses there will fault. Serialised by [`MAP_LOCK`].
 pub unsafe fn unmap(base: u64, len: u64) -> Result<(), MmuError> {
     MAP_LOCK.with(|| {
-    // SAFETY: root is non-zero (checked); MAP_LOCK excludes concurrent map/unmap.
-    // `ensure_mapped` runs before any page is cleared, so a range that is only
-    // partly mapped is refused whole rather than half-unmapped.
-    unsafe {
-        let root = ROOT.load(Ordering::Acquire);
-        if root == 0 {
-            return Err(MmuError::NotActivated);
-        }
-        if !base.is_multiple_of(paging::PAGE_SIZE)
-            || !len.is_multiple_of(paging::PAGE_SIZE)
-            || len == 0
-        {
-            return Err(MmuError::Unaligned {
-                va: base,
-                pa: base,
-                len,
-            });
-        }
+        // SAFETY: root is non-zero (checked); MAP_LOCK excludes concurrent map/unmap.
+        // `ensure_mapped` runs before any page is cleared, so a range that is only
+        // partly mapped is refused whole rather than half-unmapped.
+        unsafe {
+            let root = ROOT.load(Ordering::Acquire);
+            if root == 0 {
+                return Err(MmuError::NotActivated);
+            }
+            if !base.is_multiple_of(paging::PAGE_SIZE)
+                || !len.is_multiple_of(paging::PAGE_SIZE)
+                || len == 0
+            {
+                return Err(MmuError::Unaligned {
+                    va: base,
+                    pa: base,
+                    len,
+                });
+            }
 
-        let root = root as *mut Table;
-        let end = base.checked_add(len).ok_or(MmuError::OutOfRange(base))?;
+            let root = root as *mut Table;
+            let end = base.checked_add(len).ok_or(MmuError::OutOfRange(base))?;
 
-        // Fail closed before mutating: a hole mid-range would leave a half
-        // unmapped region with no honest recovery short of a reboot.
-        let mut va = base;
-        while va < end {
-            ensure_mapped(root, va)?;
-            va += paging::PAGE_SIZE;
+            // Fail closed before mutating: a hole mid-range would leave a half
+            // unmapped region with no honest recovery short of a reboot.
+            let mut va = base;
+            while va < end {
+                ensure_mapped(root, va)?;
+                va += paging::PAGE_SIZE;
+            }
+
+            va = base;
+            while va < end {
+                unmap_page(root, va)?;
+                va += paging::PAGE_SIZE;
+            }
+
+            publish_and_invalidate(base, len);
+            Ok(())
         }
-
-        va = base;
-        while va < end {
-            unmap_page(root, va)?;
-            va += paging::PAGE_SIZE;
-        }
-
-        publish_and_invalidate(base, len);
-        Ok(())
-    }
     })
 }
 

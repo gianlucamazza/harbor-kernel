@@ -185,9 +185,7 @@ impl GicV2 {
     /// Returns `false` if `sgi_id` is not an SGI. Does not require the
     /// sender to have the line enabled; the **target** must.
     pub fn send_sgi_raw(&self, sgi_id: u32, cpu_target_list: u8) -> bool {
-        let Some(word) =
-            gic::sgir_word(sgi_id, cpu_target_list, gic::SgiFilter::TargetList)
-        else {
+        let Some(word) = gic::sgir_word(sgi_id, cpu_target_list, gic::SgiFilter::TargetList) else {
             return false;
         };
         // Order prior Normal-memory handoff against the device write that

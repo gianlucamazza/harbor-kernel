@@ -183,7 +183,11 @@ pub fn enable(irq: u32) {
 /// Raise an SGI on the named CPU target list (ADR-0074/0076). No-op if no chip.
 #[inline]
 pub fn send_sgi(sgi_id: u32, cpu_target_list: u8) -> bool {
-    with_state(|s| s.chip.map(|c| c.send_sgi(sgi_id, cpu_target_list)).unwrap_or(false))
+    with_state(|s| {
+        s.chip
+            .map(|c| c.send_sgi(sgi_id, cpu_target_list))
+            .unwrap_or(false)
+    })
 }
 
 /// Disable `irq` on the platform chip. No-op if no chip is installed.

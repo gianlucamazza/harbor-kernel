@@ -95,9 +95,7 @@ pub const fn sgir_word(sgi_id: u32, cpu_target_list: u8, filter: SgiFilter) -> O
     if sgi_id > 15 {
         return None;
     }
-    let word = (filter as u32) << 24
-        | (cpu_target_list as u32) << 16
-        | sgi_id;
+    let word = (filter as u32) << 24 | (cpu_target_list as u32) << 16 | sgi_id;
     Some(word)
 }
 

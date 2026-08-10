@@ -106,7 +106,10 @@ mod tests {
         assert_eq!(thin_advantage(heap), thin - full);
         assert_eq!(mini_advantage(heap), mini - thin);
         // Mini is half Thin's heap per task (4 KiB vs 8 KiB).
-        assert_eq!(bytes_per_task(StackClass::Thin), 2 * bytes_per_task(StackClass::Mini));
+        assert_eq!(
+            bytes_per_task(StackClass::Thin),
+            2 * bytes_per_task(StackClass::Mini)
+        );
     }
 
     #[test]

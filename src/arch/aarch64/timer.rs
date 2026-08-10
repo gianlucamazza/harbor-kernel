@@ -26,11 +26,7 @@ static DEADLINE: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
 #[inline]
 fn cpu_index() -> usize {
     let a = cpu::affinity() as usize;
-    if a < DEADLINE.len() {
-        a
-    } else {
-        0
-    }
+    if a < DEADLINE.len() { a } else { 0 }
 }
 
 /// Read the timer frequency programmed by platform firmware (Hz).

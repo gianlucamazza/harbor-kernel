@@ -401,11 +401,7 @@ static CURRENT_EL0: [AtomicPtr<El0Session>; N_EL0_PUBLISH] = [
 #[inline]
 fn publish_index() -> usize {
     let a = cpu::affinity() as usize;
-    if a < N_EL0_PUBLISH {
-        a
-    } else {
-        0
-    }
+    if a < N_EL0_PUBLISH { a } else { 0 }
 }
 
 /// Publish `session` as the one **this** core's assembly will use.
