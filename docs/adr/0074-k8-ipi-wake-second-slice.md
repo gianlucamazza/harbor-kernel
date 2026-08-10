@@ -4,7 +4,8 @@ title: K8 second slice — SGI IPI wake core 1 (no runqueue yet)
 status: accepted
 date: 2026-08-10
 accepted: 2026-08-10
-related: [0006, 0008, 0048, 0068, 0070]
+related: [0006, 0008, 0048, 0068, 0070, 0075]
+amended: 2026-08-10
 ---
 
 # ADR-0074: K8 second slice (IPI wake)
@@ -74,8 +75,15 @@ SPIs (unchanged).
 ### 4. Preemption stays on affinity 0
 
 `el1_preempt_pending` returns 0 when `cpu::affinity() != 0`. Core 1 may take
-IRQs; it must never enter `el1_preempt_pivot` against the single shared
-scheduler. Documented residual until per-core queues exist.
+IRQs; it must never enter `el1_preempt_pivot` against a scheduler that is not
+yet multi-current. [ADR-0075](0075-k8-per-core-queues-design.md) owns
+per-core queues; **per-core preemption** (timer PPI + quantum on core 1)
+stays a later ADR — this fence remains until that slice, not merely until
+queues land.
+
+> **Amendment (2026-08-10).** Cross-link to ADR-0075: SGI 0 is promoted there
+> to permanent RESCHED; the affinity preemption fence is tied to per-core
+> preemption, not to queues alone.
 
 ### 5. Evidence
 
@@ -90,8 +98,9 @@ Handler count seal line becomes **3** (timer + UART + wake SGI).
 
 ### 6. Explicit non-goals (still residual)
 
-- Per-core runqueue / `current` array / work stealing
-- IPI remote resched of tasks
+- Per-core runqueue / `current` array — **design** in ADR-0075; code residual
+- Work stealing — later than queues code
+- IPI remote **resched of tasks** — design in ADR-0075 (SGI 0 as RESCHED); code residual
 - Per-core timer / PPI on core 1
 - Unparking cores 2–3
 - Cross-core K4 preemption

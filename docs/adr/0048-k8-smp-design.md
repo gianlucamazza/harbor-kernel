@@ -5,7 +5,7 @@ status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
 amended: 2026-08-10
-related: [0006, 0026, 0070, 0074]
+related: [0006, 0026, 0070, 0074, 0075]
 ---
 
 # ADR-0048: SMP design (K8 — design; first code in ADR-0070)
@@ -31,14 +31,14 @@ product path still schedules on one core until queue work.
 
 1. Unpark core 1 into idle WFI loop. — **paid (HW)** via ADR-0070
 2. IPI wake (SGI 0 → core 1). — **paid (QEMU)** via ADR-0074; HW stamp residual
-3. Per-core `current` + runqueues. — residual
+3. Per-core `current` + runqueues. — **design** [ADR-0075](0075-k8-per-core-queues-design.md); code residual (follow-on)
 4. Oracle: `smp: core1 alive`. — **paid (HW)** via ADR-0070
 5. Oracle: `smp: core1 ipi`. — **paid (QEMU)** via ADR-0074
 
 ### Non-goals of this document
 
-Full cache-coherent driver model; per-core runqueue (deferred to a later K8
-slice). First unpark/idle is ADR-0070; IPI wake is ADR-0074.
+Full cache-coherent driver model; work stealing (still later). First
+unpark/idle is ADR-0070; IPI wake is ADR-0074; queue **design** is ADR-0075.
 
 ## Deferral (historical)
 
@@ -62,3 +62,7 @@ queues / current** depth (+ HW stamp for IPI).
 > **Amendment (2026-08-10).** IPI wake paid on QEMU via
 > [ADR-0074](0074-k8-ipi-wake-second-slice.md) (`smp: core1 ipi`). Residual is
 > per-core queues / current and the IPI HW stamp.
+
+> **Amendment (2026-08-10, later).** Queue / multi-current **design** accepted
+> in [ADR-0075](0075-k8-per-core-queues-design.md). Code residual + steal +
+> per-core preemption remain; IPI HW stamp still open.
