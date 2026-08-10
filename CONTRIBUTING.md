@@ -15,13 +15,26 @@ successor ADR, not a patch.
    ([ADR-0058](docs/adr/0058-adr-amendments-and-mutation-freshness.md)).
 2. **Evidence before “done”.** Host test, QEMU gate, or Pi stamp — see
    [`docs/verification.md`](docs/verification.md). Status vocabulary lives in
-   [`docs/README.md`](docs/README.md).
+   [`docs/README.md`](docs/README.md). A status flip needs a row in the evidence
+   index (`make roadmap-evidence`).
 3. **One owner per fact.** Completeness track status →
    [`docs/roadmap.md`](docs/roadmap.md) only. Do not copy full K/P tables into
    README or vision. After a status flip, refresh residual prose in
-   `SECURITY.md` / `verification.md` / issue #17 only if they restate status.
+   `SECURITY.md` / `verification.md` only if they restate status — and **close
+   or update any GitHub issue that tracked the paid work** (do not leave a second
+   stale tracker; #14 is a standing watch, not a status table).
 4. **`make check` predicts CI.** Local green must mean remote green.
    Doc drift is a failed gate (`doc-claims`, `xrefs`, `doc-symbols`).
+5. **Ship path ≠ lab path.** The oracle image (`make boot-check`) proves
+   subsystem demos. The **product** image is proven by
+   `make product-boot-check` (composition minimum on lines the shipped path
+   already prints) and kept free of demo strings by `make product-builds`.
+   Prefer strengthening the product gate over growing the oracle fleet
+   ([ADR-0085](docs/adr/0085-k5-density-residual-design.md)).
+6. **`MAX_TASKS` is not density.** Raising the ceiling for concurrent demos is
+   oracle tax. Update `scripts/check/oracle-census.sh` (and the architecture
+   capacity table) in the same commit; density wins are stack classes / K5, not
+   `MAX_TASKS++`.
 
 ## Layout (scalable map)
 
@@ -55,10 +68,12 @@ Details: [`docs/README.md`](docs/README.md), [`docs/design/README.md`](docs/desi
 
 | Kind of change | Steps |
 | --- | --- |
-| Completeness track | Row in `docs/roadmap.md` → design ADR → code + gate → status flip |
+| Completeness track | Row in `docs/roadmap.md` → design ADR → code + gate → status flip → evidence row → close/update tracker issues |
 | Stack assumption (toolchain, target, feature, host tool) | `docs/stack.md` in the same commit; a boundary move needs its ADR first |
 | New term a reader will guess wrong | Row in `docs/glossary.md` pointing at the owning document |
 | Gate | Script under `scripts/check/` or `scripts/boot/` → `Makefile` → README `make check` line stays in sync (`doc-claims`) |
+| Product-path claim | Prefer a product-boot assert (or invariant beacon) over a new oracle demo; demos stay behind `feature = "oracle"` |
+| Concurrent-demo slot need | Justify vs density (ADR-0085); bump `oracle-census` `EXPECTED_MAX_TASKS` + architecture table with the ADR reason |
 | Agent composition | `scripts/agent/pack-store.py` + inject in product image path |
 | Port (ISA/board) | [`docs/porting.md`](docs/porting.md), [`docs/arch-contract.md`](docs/arch-contract.md) |
 

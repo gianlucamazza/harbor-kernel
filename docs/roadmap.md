@@ -185,7 +185,8 @@ These are **not** completeness tracks ([ADR-0026](adr/0026-kernel-and-product-co
    say which horizon and which use case it serves.
 2. Write/accept a design ADR before boundary code.
 3. Land code + gates; flip status only with evidence named in the row.
-4. Point GitHub tracking ([#17](https://github.com/gianlucamazza/harbor-kernel/issues/17))
-   at this file — do not invent a second status table.
+4. Point any GitHub tracker at **this file** — do not invent a second status
+   table. When a track is paid, **close or refresh** the issue in the same
+   pass (stale open issues are a second, lying dashboard).
 5. Keep [vision.md](vision.md) narrative aligned when a horizon’s “paid / still
    pay” list changes (vision may lag a day; **status** never leaves this file).
