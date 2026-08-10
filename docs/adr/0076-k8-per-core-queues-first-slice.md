@@ -15,7 +15,10 @@ amended: 2026-08-10
 **Accepted** (2026-08-10). Implements the first **code** slice of
 [ADR-0075](0075-k8-per-core-queues-design.md): dual-current pure model, coarse
 sched lock, CPU1 idle + hard-affinity spawn, SGI resched kick, oracle
-`smp: core1 ran`. Status **done (QEMU)**; HW stamp residual.
+`smp: core1 ran`. Status **done (QEMU)** and **done (HW)** — Pi stamp
+2026-08-10, transcript `.serial-log/20260810-130305.log` (`smp: core1 ran` +
+`alive` + `ipi` + `cpu: Cortex-A72 r0p3` + `CNTFRQ=54000000`;
+`hw-transcript-check` clean). Shared-state cleanup: [ADR-0077](0077-smp-shared-state-discipline.md).
 
 ## Decision (what landed)
 
@@ -47,13 +50,16 @@ sched lock, CPU1 idle + hard-affinity spawn, SGI resched kick, oracle
 | `smp: core1 ran` | Primary observed the pinned worker (printed on CPU 0) |
 | `smp: core1 ran timeout` | Fail the boot oracle |
 
-Gate: `boot-check` / `hw-transcript-check`. `MAX_TASKS` 42 → 44 (idle1 + marker).
+Gate: `boot-check` / `hw-transcript-check`. `MAX_TASKS` 42 → 43 (idle1; marker exits).
+
+**HW stamp (2026-08-10):** transcript `.serial-log/20260810-130305.log` —
+`smp: core1 alive` + `smp: core1 ipi` + `smp: core1 ran` on Cortex-A72;
+durable store and K4 preemption oracles also clean on the same boot.
 
 ### 5. Residuals after ADR-0077 cleanup
 
 - Per-core preemption / timer PPI on core 1  
 - Work stealing; lock refinement if measured  
-- HW stamp for `smp: core1 ran`  
 - EL0 agents with home on CPU 1
 
 ## Related

@@ -13,8 +13,9 @@ related: [0008, 0048, 0074, 0075, 0076]
 
 **Accepted** (2026-08-10). Retires the ADR-0076 workarounds (immortal marker,
 quiet-park secondary, dual resched flags, global quantum clobber shields) with
-the discipline those workarounds were hiding. Evidence remains **done (QEMU)**
-for queues (`smp: core1 ran`); no new horizon claim.
+the discipline those workarounds were hiding. Queues evidence: **done (QEMU)**
+and **done (HW)** with [ADR-0076](0076-k8-per-core-queues-first-slice.md)
+(stamp 2026-08-10, transcript `20260810-130305.log`).
 
 ## Context
 
@@ -65,7 +66,7 @@ there is **no quantum path**, not because queues are incomplete.
 
 - Work stealing  
 - Per-core timer / K4 preemption on core 1  
-- HW stamp for `smp: core1 ran`  
+- EL0 agents with home on CPU 1  
 - Lock refinement if measured contention requires it  
 
 ## Related

@@ -18,6 +18,10 @@ prove that core 1 can take a **software-generated interrupt** raised by the
 primary, run the shared IRQ dispatch path, and signal completion. Still **no**
 per-core runqueue, no work stealing, no task migration.
 
+**Evidence:** **done (QEMU)**; **done (HW)** Pi stamp 2026-08-10, transcript
+`.serial-log/20260810-130305.log` (`smp: core1 ipi` + `cpu: Cortex-A72 r0p3` +
+`CNTFRQ=54000000`; `hw-transcript-check` clean).
+
 ## Context
 
 ADR-0070 leaves core 1 in `WFE` with IRQs **masked** forever. ADR-0048's next

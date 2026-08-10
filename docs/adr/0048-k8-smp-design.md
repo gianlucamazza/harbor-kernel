@@ -30,10 +30,10 @@ product path still schedules on one core until queue work.
 ### First implementation slice
 
 1. Unpark core 1 into idle WFI loop. — **paid (HW)** via ADR-0070
-2. IPI wake (SGI 0 → core 1). — **paid (QEMU)** via ADR-0074; HW stamp residual
-3. Per-core `current` + runqueues. — **design** [ADR-0075](0075-k8-per-core-queues-design.md); first **code** [ADR-0076](0076-k8-per-core-queues-first-slice.md) **done (QEMU)**
+2. IPI wake (SGI 0 → core 1). — **paid (HW)** via ADR-0074 (stamp 2026-08-10)
+3. Per-core `current` + runqueues. — **design** [ADR-0075](0075-k8-per-core-queues-design.md); first **code** [ADR-0076](0076-k8-per-core-queues-first-slice.md)/[0077](0077-smp-shared-state-discipline.md) **done (HW)** (stamp 2026-08-10)
 4. Oracle: `smp: core1 alive`. — **paid (HW)** via ADR-0070
-5. Oracle: `smp: core1 ipi`. — **paid (QEMU)** via ADR-0074
+5. Oracle: `smp: core1 ipi` / `smp: core1 ran`. — **paid (HW)** via ADR-0074/0076 (transcript `20260810-130305.log`)
 
 ### Non-goals of this document
 
@@ -70,3 +70,8 @@ queues / current** depth (+ HW stamp for IPI).
 > **Amendment (2026-08-10, queues code).** First queues code paid on QEMU via
 > [ADR-0076](0076-k8-per-core-queues-first-slice.md) (`smp: core1 ran`). Residual:
 > steal, per-core preemption, multi-core heap, HW stamps.
+
+> **Amendment (2026-08-10, HW stamp).** IPI + queues first + shared-state
+> discipline paid on silicon: transcript `20260810-130305.log` (`smp: core1
+> alive` + `ipi` + `ran`, Cortex-A72, `hw-transcript-check` clean). Residual:
+> steal, per-core preemption, EL0-on-CPU1.
