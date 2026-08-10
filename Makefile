@@ -65,8 +65,11 @@ QEMU_X86_CPU     ?= qemu64
 QEMU_X86_FLAGS   ?= -machine $(QEMU_X86_MACHINE) -cpu $(QEMU_X86_CPU) -m 128M \
 	-kernel $(X86_ELF) -serial mon:stdio -display none -no-reboot
 
-# Long enough for the boot assertions (two tick reports at 10 Hz) with margin.
-BOOT_CHECK_SECONDS ?= 15
+# A **ceiling**, not a duration (ADR-0087): the boot check stops as soon as the
+# guest has printed everything the oracle needs, so a fast host still finishes
+# in about ten seconds and a slow one is not cut off mid-oracle. 15 was the old
+# fixed window and was, on CI, occasionally a second short of the tail.
+BOOT_CHECK_SECONDS ?= 45
 # Lab L0 is banner + cpu + halt. Slightly longer than bare minimum so a
 # busy host still reaches long mode before `timeout` fires (seen empty
 # serial at load ≥15 with a 3s budget).

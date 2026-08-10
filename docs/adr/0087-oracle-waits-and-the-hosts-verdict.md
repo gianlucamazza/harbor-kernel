@@ -19,7 +19,7 @@ here rather than left implicit in a script.
 
 Implemented in the same series: `src/bootstrap/demos.rs` (cross-core waits),
 `scripts/boot/qemu-boot-check.sh` (measurement and verdict).
-`scripts/lib/boot-oracle.sh` is **unchanged** — deliberately, see §3.
+`scripts/lib/boot-oracle.sh` is **unchanged** — deliberately, see §5.
 
 ## Context
 
@@ -91,22 +91,38 @@ then the agent's bytes arriving before its report, then the pl011 RX loopback,
 then the received payload. They were never a class. They were the assertions
 that happened to come first.
 
-### 3. The bar is measured, and the measurement says how it was taken
+### 3. A run ends when the guest has said what the oracle needs
 
-`CORES_TO_BE_MEASURABLE` is 0.20 cores, one rung under the last clean run of a
-`CPUQuota` ladder recorded in the script. The share is read from the emulator's
-own `/proc/<pid>/stat` while it runs; when that reads _exactly_ zero — the
-docker-client case, where there is no process of ours to watch — the runner
-falls back to the host's `/proc/stat` busy delta and labels the number
-host-wide wherever it prints it. Never the other way round, and never on a
-merely small reading: a 10%-capped emulator still reports 0.10 of a core from
-its own entry, and letting a busy host's 1.54 host-wide cores overrule that was
-a real misfire on the ladder.
+The boot window is a ceiling, not a duration. A fixed fifteen seconds is a
+host-sensitive way to ask a fixed question, and a run that fell a second short
+of the tail looked exactly like a kernel that never printed it. Each boot now
+ends when the log carries the oracle's last stage **and** the steady-state soak
+the old window bought (ten tick reports — the assertions about what must *not*
+appear are only as strong as the time the kernel was left running, so the soak
+is kept and expressed in the guest's clock rather than the host's).
+
+### 4. The bar is measured, and the measurement says how it was taken
+
+`CORES_TO_BE_MEASURABLE` is 0.40 cores. The ladder is in the script: clean at
+2.14, frayed at 0.23 — where what breaks first is not an assertion timing out
+but the serial console dropping a line mid-run — unusable at 0.13. The bar sits
+clear of that edge rather than on it.
+
+The share is read from the emulator's own `/proc/<pid>/stat` while it runs.
+When the process this script started is not the emulator — `comm` says
+`docker`, because CI's wrapper runs QEMU in a container — the runner falls back
+to the host's `/proc/stat` busy delta and labels the number host-wide wherever
+it prints it. The discriminator is the process's name, not the size of its
+reading: that client still burns 0.06 s relaying serial, so "is the reading
+zero?" answered no and an earlier version of this fallback never fired.
+
+Never the other way round: on CI the host-wide reading is 2.1 cores per boot,
+so a failure there is a plain red, as it should be.
 
 Every verdict, red or indeterminate, prints the share it was decided on, and
 the clean line prints one per boot.
 
-### 4. Silicon has no verdict to soften
+### 5. Silicon has no verdict to soften
 
 `scripts/lib/boot-oracle.sh` — the single definition of "this boot is sound",
 shared verbatim by the QEMU gate and `hw-transcript-check.sh` — is untouched by
@@ -129,7 +145,7 @@ its `fail` is unconditional.
 
 | Check       | Evidence                                                                                     |
 | ----------- | -------------------------------------------------------------------------------------------- |
-| QEMU        | `make boot-check` clean at 2.00 and at 0.22 cores; `INDETERMINATE` (exit 3) at 0.13 and 0.08 |
+| QEMU        | `make boot-check` clean at 2.14 cores; `INDETERMINATE` (exit 3) at 0.22, 0.13 and 0.08     |
 | Measurement | Sampler agrees with `/usr/bin/time` on an identical run (1.89 vs 2.06 cores)                 |
 | HW          | `hw-transcript-check.sh` unchanged and still sharing every assertion                         |
 

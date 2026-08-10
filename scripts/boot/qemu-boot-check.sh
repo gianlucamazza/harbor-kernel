@@ -8,8 +8,12 @@
 # verdict a starved host earns instead of a red.
 set -euo pipefail
 
-IMG="${1:?usage: $0 <kernel8.img> [seconds]}"
-SECONDS_TO_RUN="${2:-15}"
+IMG="${1:?usage: $0 <kernel8.img> [ceiling-seconds]}"
+# A ceiling on each boot, not a duration: a run ends when the guest has printed
+# what the oracle needs of it (ADR-0087).
+SECONDS_TO_RUN="${2:-45}"
+last_run_seconds="${SECONDS_TO_RUN}"
+watched_comm=unknown
 QEMU="${QEMU:-qemu-system-aarch64}"
 QEMU_MACHINE="${QEMU_MACHINE:-raspi4b}"
 
@@ -135,22 +139,27 @@ fi
 # ladder on one idle machine, same image, same 15s window (2026-08-10, after
 # the ADR-0087 cross-core waits were put on the guest clock):
 #
-#   2.00 cores  unthrottled     clean
-#   0.22        25% quota       clean
+#   2.14 cores  unthrottled     clean
+#   0.23        25% quota       marginal — a console line goes missing mid-run
 #   0.13        15% quota       the run no longer gets far enough
 #   0.08        10% quota       below the credible floor as well
 #
-# So the oracle set holds on a fifth of a core. It is worth recording what the
-# same ladder said *before* the oracles stopped counting cross-core waits in
-# yields: clean at 0.37, broken at 0.23. Half of what looked like the emulator
-# needing CPU was the oracles needing this host's scheduler to be fair.
+# The bar is 0.40 rather than 0.25: what breaks first around a quarter of a
+# core is not an assertion timing out but the serial console dropping a line
+# (`task-a 1`, with `task-a 2` onwards present — not truncation), and a gate
+# should sit clear of the edge it was calibrated against, not on it.
+#
+# It is worth recording what the same ladder said *before* the oracles stopped
+# counting cross-core waits in yields: broken already at 0.23 with the failure
+# blamed on rotation. Half of what looked like the emulator needing CPU was the
+# oracles needing this host'"'"'s scheduler to be fair.
 #
 # Guest tick reports were tried first as the starvation signal and are the
 # wrong one: TCG drives the guest timer from wall-clock time, so the count
 # tracks how long the run lasted rather than how much CPU it received. At a 20%
 # quota the guest still reported 12 ticks while running on a fifth of one core.
 clk_tck="$(getconf CLK_TCK 2>/dev/null || echo 100)"
-CORES_TO_BE_MEASURABLE=20 # 0.20 cores, just under the last clean rung
+CORES_TO_BE_MEASURABLE=40 # 0.40 cores, clear of the 0.23 rung that frayed
 
 # Below this the reading is not a small share, it is a failed measurement. A
 # guest that boots through to steady state costs the host seconds of CPU; an
@@ -167,20 +176,55 @@ CORES_TO_BE_CREDIBLE=10 # 0.10 core
 # the day it starts failing.
 cores_seen=()
 
-# Run one boot for `seconds` and leave its serial output in `${log}`, the CPU it
-# consumed in `RUN_CPU_HZ`, and its share of a core in `emulator_cores`.
+# Guest time a boot must spend in steady state before the run has done its job,
+# in tick reports (one per ten ticks, so one per second of guest time).
+#
+# The old fixed 15s window bought about fourteen of these, and they are not
+# incidental: the assertions about what must *not* appear — an unhandled
+# interrupt, a panic, an invariant drifting off zero — are only as strong as
+# the time the kernel was left running. Stopping at the first tick would have
+# turned a fourteen-second soak into a one-second one while every assertion
+# still passed, which is the quietest way to lose a gate.
+#
+# Ten is that soak, minus the margin the old window needed for slow hosts —
+# and because TCG drives the guest timer from wall-clock time, ten reports cost
+# about ten seconds anywhere.
+STEADY_STATE_REPORTS=10
+
+# The boot has printed everything the oracle needs from it: the last stage it
+# waits for, plus the soak above.
+oracle_boot_done() {
+	grep -qa 'smp: steal ok' "${log}" &&
+		(($(grep -ac 'ticks=' "${log}") >= STEADY_STATE_REPORTS))
+}
+
+# The no-card phase asserts one line, printed during bring-up.
+nocard_boot_done() {
+	grep -qa 'durable-media: no-card' "${log}"
+}
+
+# Run one boot until `done_when` holds or `seconds` elapse, and leave its serial
+# output in `${log}`, the CPU it consumed in `RUN_CPU_HZ`, and its share of a
+# core in `emulator_cores`.
+#
+# `seconds` is a **ceiling**, not a duration (ADR-0087). A fixed window is a
+# host-sensitive way to ask a fixed question: the same image needs a different
+# amount of wall time to print the same lines on a workstation, on a laptop in
+# a throttled slice, and inside CI's container, and the run that fell just
+# short of the tail looked exactly like a kernel that never printed it. Stopping
+# on the boot's own output asks the guest, and costs the fast hosts nothing.
 #
 # The emulator is backgrounded and timed here rather than wrapped in
 # `timeout(1)`, because the CPU reading has to be taken while the process still
 # exists: `/proc/<pid>/stat` is gone the instant it exits, and the reap-side
 # number this used to rely on is not trustworthy on every host (see
-# `read_cpu_hz_of`). Same deadline, same SIGTERM, same "the log is the oracle,
-# not the exit status" contract as before.
+# `read_cpu_hz_of`). Same SIGTERM, same "the log is the oracle, not the exit
+# status" contract as before.
 run_boot() {
-	local seconds="$1"
-	shift
+	local seconds="$1" done_when="$2"
+	shift 2
 	: >"${log}"
-	local deadline=$((SECONDS + seconds)) pid busy_before
+	local deadline=$((SECONDS + seconds)) started=${SECONDS} pid busy_before
 	read_host_busy_hz
 	busy_before="${HOST_BUSY_HZ}"
 	# raspi4b requires min 4 CPUs; ADR-0070 needs secondaries present to unpark.
@@ -189,27 +233,32 @@ run_boot() {
 		-serial mon:stdio -display none "$@" </dev/null >"${log}" 2>&1 &
 	pid=$!
 	RUN_CPU_HZ=0
+	watched_comm="$(cat "/proc/${pid}/comm" 2>/dev/null || echo unknown)"
 	while ((SECONDS < deadline)) && kill -0 "${pid}" 2>/dev/null; do
 		read_cpu_hz_of "${pid}"
 		# The last reading before exit, not the first: a boot that ends early
 		# still reports what it burned. Zero only if it was never observable.
 		((CPU_HZ > RUN_CPU_HZ)) && RUN_CPU_HZ="${CPU_HZ}"
+		"${done_when}" && break
 		sleep 0.2
 	done
+	seconds=$((SECONDS - started))
+	((seconds > 0)) || seconds=1
+	last_run_seconds="${seconds}"
 	kill -TERM "${pid}" 2>/dev/null || true
 	wait "${pid}" 2>/dev/null || true
 	read_host_busy_hz
 
 	emulator_cores=$((RUN_CPU_HZ * 100 / (clk_tck * seconds)))
 	share_is_host_wide=0
-	if ((RUN_CPU_HZ == 0)); then
-		# Exactly zero, not merely small: an emulator that ran for seconds
-		# always accumulates ticks, however starved — walking the quota ladder,
-		# a 10%-capped run still reported 0.10 of a core from its own entry.
-		# Zero means what we watched never executed, which is the docker-client
-		# case and nothing else. Falling back on "small" instead would let a
-		# busy host's 1.54 host-wide cores overrule a genuinely starved
-		# emulator's own 0.09 — seen, and the reason this reads `== 0`.
+	if [[ "${watched_comm}" != qemu* ]]; then
+		# What we started is not the emulator. Ask the process itself rather
+		# than inferring it from a small number: CI's wrapper `exec docker
+		# run`s the emulator in a container, and the client left behind reads
+		# `comm=docker` while still burning 0.06s of its own relaying serial —
+		# enough that "is the reading zero?" answered no and the fallback
+		# never fired. The name answers exactly, and answers on the first
+		# sample.
 		#
 		# Never the other way round: a process we *can* see is always the
 		# better answer, and the fallback says so wherever it is printed.
@@ -223,7 +272,7 @@ run_boot() {
 }
 
 # Boot 1: with -dtb fixture (FDT parse path).
-run_boot "${SECONDS_TO_RUN}" -dtb "${DTB_FIXTURE}" -drive "if=sd,format=raw,file=${sd_img}"
+run_boot "${SECONDS_TO_RUN}" oracle_boot_done -dtb "${DTB_FIXTURE}" -drive "if=sd,format=raw,file=${sd_img}"
 
 # The environment reading belongs on every verdict, not only the ones that
 # blame the environment: a FAIL whose host share is unknown cannot be told from
@@ -233,7 +282,7 @@ print_cpu_share() {
 		"$(if ((share_is_host_wide == 1)); then
 			echo "host-wide CPU, the emulator is not this shell's child"
 		else echo "emulator share"; fi)" \
-		$((emulator_cores / 100)) $((emulator_cores % 100)) "${SECONDS_TO_RUN}" \
+		$((emulator_cores / 100)) $((emulator_cores % 100)) "${last_run_seconds}" \
 		"$(if [[ "${emulator_cores}" -lt "${CORES_TO_BE_CREDIBLE}" ]]; then
 			echo "not credible — treat as unmeasured"
 		elif [[ "${emulator_cores}" -lt "${CORES_TO_BE_MEASURABLE}" ]]; then
@@ -301,10 +350,7 @@ ticks_first="$(grep -ac 'ticks=' "${log}")"
 
 # Boot 2: DTB-less power cycle (degraded discover: unknown (no dtb) + durable).
 # DRAM is gone; only the card can carry the counter across.
-run_boot "${SECONDS_TO_RUN}" -drive "if=sd,format=raw,file=${sd_img}"
-# This boot's own share, not a running average of both: the verdict below is
-# about the run it is judging.
-emulator_cores=$((RUN_CPU_HZ * 100 / (clk_tck * SECONDS_TO_RUN)))
+run_boot "${SECONDS_TO_RUN}" oracle_boot_done -drive "if=sd,format=raw,file=${sd_img}"
 DURABLE_MEDIA_EXPECT=previous assert_boot_oracle
 grep -qaE 'durable-media: boot=2 from=Previous part=0x7f slot=(A|B) seq=1' "${log}" ||
 	fail "the second boot did not read the first boot's committed state (ADR-0066)"
@@ -316,7 +362,7 @@ ticks_second="$(grep -ac 'ticks=' "${log}")"
 # unanswered), not `absent` (no controller). A short run suffices: the
 # line prints during bring-up, well before steady state, so this phase
 # asserts it alone rather than the whole oracle.
-run_boot 8
+run_boot 8 nocard_boot_done
 grep -qa 'durable-media: no-card (no SDHC/SDXC answered)' "${log}" ||
 	fail "without a card the boot did not report the honest no-card line (ADR-0066)"
 
