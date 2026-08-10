@@ -275,5 +275,6 @@ to findings, not part of the audit method. Status flips remain owned by
 | Finding / backlog | Response |
 | --- | --- |
 | F-R5-2 / Tier **C** stronger product-boot-check | **Paid:** composition-minimum `qemu-product-boot-check.sh` (~35 layered asserts on the shipped path) + `make oracle-census` in `make check` (MAX_TASKS source ↔ architecture table ↔ documented raise). Not a second full oracle. |
-| Tier **C** product multi-core policy enforcement | **Open** (manifest home / pin) — separate from the boot-gate hygiene slice. |
-| Tier **A** SECURITY re-baseline / remaining SSOT | **Open** as standing hygiene; capacity model already in `architecture.md`. |
+| Tier **C** product multi-core policy enforcement | **Partial:** policy prose in architecture + SECURITY residual “product multi-core placement”; manifest `home_cpu` field still **open**. |
+| Tier **A** SECURITY re-baseline / remaining SSOT | **Paid (doc pass):** dual-current TCB, `MAX_TASKS=52`, per-CPU `CURRENT_EL0`, product-boot + census guarantees, product home-CPU residual. Capacity model already in `architecture.md`. |
+| Tracker hygiene | Closed stale issues #17/#19/#20/#22; #21 kept as K7-M/T watch; #14 SpiDevice watch remains. |

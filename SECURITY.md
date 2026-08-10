@@ -1,9 +1,10 @@
 # Security — Harbor Kernel
 
 Threat model and reporting for **harbor-kernel** as of the **post-K8 boundary
-depth** (H1 composition + wait/timeout/transfer/cascade on Pi 2026-08-08; K4
-preemption, K7 ASID first, and K8 through steal on Pi 2026-08-09…10). Peer
-transfer and resolve-grant carry QEMU and HW evidence rows in
+depth** plus **product evidence hygiene** (H1 composition + wait/timeout/transfer/cascade
+on Pi 2026-08-08; K4 preemption, K7 ASID first, and K8 through steal on Pi
+2026-08-09…10; composition-minimum product QEMU gate + `oracle-census` for
+`MAX_TASKS`). Peer transfer and resolve-grant carry QEMU and HW evidence rows in
 [`docs/verification.md`](docs/verification.md) — prefer that table over this
 paragraph for status. This document exists because
 [ADR-0017](docs/adr/0017-el0-capability-abi.md) finally makes authority
@@ -54,6 +55,9 @@ Assets worth defending, in order of load:
 Non-assets (out of threat model until named otherwise): multi-user login, network
 stack, disk encryption, remote attestation, multi-tenant cloud isolation,
 automatic agent load-balancing across cores (agent+TLB steal residual).
+**Dual-current SMP and IRQ preemption are in the TCB today** (not non-assets);
+what remains residual is *product* agent placement (default home CPU 0) and
+agent+TLB steal if product needs auto-balance of EL0 agents.
 
 ---
 
@@ -198,6 +202,8 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | The syscall ABI here matches the kernel's                          | `make doc-claims` compares this table's immediates with `kernel_core::syscall` (the set); the reply semantics — which outcome yields which status, payload and counter, and which `x1` detail — are host-tested in `kernel_core::reply` ([ADR-0060](docs/adr/0060-syscall-reply-layer.md)/[0061](docs/adr/0061-refusal-detail-taxonomy.md)). The prose of each row is still review's job |
 | Only endpoint caps transfer; task-caps and IRQ caps refuse by band | `xfer-peer: band refused` in `make boot-check` (ADR-0055)                                                                                                                                                                                                                                                                                                                                |
 | A task-cap goes stale when its target exits                        | `xfer-peer: stale refused` end-to-end (ADR-0057); the id itself carries an epoch, so a stale reference is unrepresentable as a live task (ADR-0062)                                                                                                                                                                                                                                      |
+| Product image boots composition path without oracle demos          | `make product-boot-check` — composition minimum (~35 layered asserts: identity, memory, IRQ/SMP dual-current, console + multi-agent store, invariant beacon, oracle-string ban); static half in `make product-builds`                                                                                                                                                                    |
+| `MAX_TASKS` ceiling is oracle tax, not a silent density win        | `make oracle-census` — source ↔ architecture capacity table ↔ documented last raise (ADR-0085); product peak occupancy stays well below the ceiling                                                                                                                                                                                                                                      |
 
 ---
 
@@ -217,6 +223,7 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | **DTB**                                    | Mapped RO; board truth is compiled-in (ADR-0011).                                                                                                                                                                                                                                                                                                                     |
 | **Firmware / GIC Group 0**                 | Inherited from pinned `start4.elf` (ADR-0004).                                                                                                                                                                                                                                                                                                                        |
 | **SMP / ASID / TTBR1**                     | **K7** ASID first **done (HW)** (ADR-0050); VA regime remains option C; residual policy [ADR-0084](docs/adr/0084-k7-residual-policy.md) (K7-M lab optional, K7-T TTBR1 trigger-gated, K7-R rollover). **K8** through steal **done (HW)** (0070/74/76/77/79/81/83, stamps 2026-08-09…10); residual agent+TLB steal only if product needs it. |
+| **Product multi-core placement**           | Mechanism dual-current is proven; **product agents default home CPU 0** (loader/spawn). Steal is opt-in EL1-only; agents with a live AS mark non-stealeable. Not the same claim as “product multi-agent SMP by default.” See product SMP policy in [`docs/architecture.md`](docs/architecture.md).                                                                      |
 | **Threat coverage of `debug-display`**     | Lab path; not part of the agent TCB story.                                                                                                                                                                                                                                                                                                                            |
 
 ---
