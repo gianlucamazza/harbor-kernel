@@ -96,20 +96,21 @@ the code that follows.
 | [0074](0074-k8-ipi-wake-second-slice.md)                     | K8 second slice — SGI IPI wake core 1 (no runqueue yet)                                      | accepted   |
 | [0075](0075-k8-per-core-queues-design.md)                    | K8 design — per-core ready queues and current (code: 0076)                                   | accepted   |
 | [0076](0076-k8-per-core-queues-first-slice.md)               | K8 third slice — per-core queues, dual current, pinned CPU1 worker                           | accepted   |
-| [0077](0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — IrqSpinLock, per-CPU mirrors, honest dual-current            | accepted   |
-| [0078](0078-k8-per-core-timer-preemption-design.md)          | K8 design — per-core timer and IRQ preemption on CPU 1 (code: 0079)                        | accepted   |
-| [0079](0079-k8-per-core-timer-preemption-first-slice.md)     | K8 fourth slice — per-core timer + EL1 preemption on CPU 1                                 | accepted   |
-| [0080](0080-k8-el0-on-cpu1-design.md)                        | K8 design — EL0 sessions and agents with home on CPU 1 (code: 0081)                        | accepted   |
-| [0081](0081-k8-el0-on-cpu1-first-slice.md)                   | K8 fifth slice — EL0 sessions and preemption on CPU 1                                      | accepted   |
-| [0082](0082-k8-work-stealing-design.md)                      | K8 design — work stealing between per-core ready queues (code: 0083)                       | accepted   |
-| [0083](0083-k8-work-stealing-first-slice.md)                 | K8 sixth slice — work stealing first code                                                  | accepted   |
-| [0084](0084-k7-residual-policy.md)                           | K7 residual policy — switch-cost evidence, TTBR1 triggers, ASID honesty                  | accepted   |
-| [0085](0085-k5-density-residual-design.md)                   | K5 density residual policy — K5-S/H/B split; Mini first code                             | accepted   |
-| [0086](0086-k5-mini-stack-first-slice.md)                    | K5-S first slice — Mini stacks (one page, no unmapped guard)                             | accepted   |
-| [0087](0087-oracle-waits-and-the-hosts-verdict.md) | Oracle waits in guest time; a starved host gets no verdict | accepted |
-| [0088](0088-product-home-cpu.md)                   | Product multi-core — manifest `home_cpu` and loader pin    | accepted |
-| [0089](0089-k5-b-pair-collapse-design.md)          | K5-B design — pair collapse (session schedulable); no code | accepted |
-| [0090](0090-k10-force-exit-running.md)             | K10 force-exit Running at a safe point                     | accepted |
+| [0077](0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — IrqSpinLock, per-CPU mirrors, honest dual-current              | accepted   |
+| [0078](0078-k8-per-core-timer-preemption-design.md)          | K8 design — per-core timer and IRQ preemption on CPU 1 (code: 0079)                          | accepted   |
+| [0079](0079-k8-per-core-timer-preemption-first-slice.md)     | K8 fourth slice — per-core timer + EL1 preemption on CPU 1                                   | accepted   |
+| [0080](0080-k8-el0-on-cpu1-design.md)                        | K8 design — EL0 sessions and agents with home on CPU 1 (code: 0081)                          | accepted   |
+| [0081](0081-k8-el0-on-cpu1-first-slice.md)                   | K8 fifth slice — EL0 sessions and preemption on CPU 1                                        | accepted   |
+| [0082](0082-k8-work-stealing-design.md)                      | K8 design — work stealing between per-core ready queues (code: 0083)                         | accepted   |
+| [0083](0083-k8-work-stealing-first-slice.md)                 | K8 sixth slice — work stealing first code                                                    | accepted   |
+| [0084](0084-k7-residual-policy.md)                           | K7 residual policy — switch-cost evidence, TTBR1 triggers, ASID honesty                      | accepted   |
+| [0085](0085-k5-density-residual-design.md)                   | K5 density residual policy — K5-S/H/B split; Mini first code                                 | accepted   |
+| [0086](0086-k5-mini-stack-first-slice.md)                    | K5-S first slice — Mini stacks (one page, no unmapped guard)                                 | accepted   |
+| [0087](0087-oracle-waits-and-the-hosts-verdict.md)           | Oracle waits in guest time; a starved host gets no verdict                                   | accepted   |
+| [0088](0088-product-home-cpu.md)                             | Product multi-core — manifest `home_cpu` and loader pin                                      | accepted   |
+| [0089](0089-k5-b-pair-collapse-design.md)                    | K5-B design — pair collapse (session schedulable); no code                                   | accepted   |
+| [0090](0090-k10-force-exit-running.md)                       | K10 force-exit Running at a safe point                                                       | accepted   |
+| [0091](0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` replaces the cell/lock pair                                    | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

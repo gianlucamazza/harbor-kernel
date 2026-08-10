@@ -303,19 +303,19 @@ program** rather than "agent".
 Bounds are intentional under-/over-caps relative to each other — not one number.
 Code is authoritative; this table is the map.
 
-| Bound | Value (today) | Owns | Note |
-| --- | ---: | --- | --- |
-| `sched::MAX_TASKS` | **54** | `src/sched/mod.rs` | Includes dual idle + oracle census; product image uses far fewer; **do not raise for density** (ADR-0085) |
-| Stack classes | Full 20 KiB · Thin 8 KiB · Mini 4 KiB heap | `kernel_core::density` | Mini = one page, no unmapped guard (ADR-0086) |
-| Caps per task | **4** | `sched` / manifest | Slot ABI width |
-| Task-caps (system) | **32** | `kernel_core::taskcap` | Deliberately &lt; `MAX_TASKS` |
-| Agent store entries | **8** | `kernel_core::agentstore` | Composition scale ≠ scheduler scale |
-| Manifest grant slots | **4** | `kernel_core::manifest` | Per-entry grant table |
-| Name registry | **8** | `kernel_core::naming` | P5 |
-| IRQ waiters / task-id bitmap | 8 / **64** | `kernel_core::irqwait` | Bitmap covers `MAX_TASKS` (≤64) |
-| IRQ wake SPSC queue | **32** | `src/irq/wait.rs` | Deliberately &lt; oracle `MAX_TASKS`; full = drop + count, not lost task |
-| Park timeouts armed | **16** | `kernel_core::parktime` | Under full task census |
-| Durable / storage blobs | **4** | storage/durable pure | P2 first depth |
+| Bound                        |                              Value (today) | Owns                      | Note                                                                                                      |
+| ---------------------------- | -----------------------------------------: | ------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `sched::MAX_TASKS`           |                                     **54** | `src/sched/mod.rs`        | Includes dual idle + oracle census; product image uses far fewer; **do not raise for density** (ADR-0085) |
+| Stack classes                | Full 20 KiB · Thin 8 KiB · Mini 4 KiB heap | `kernel_core::density`    | Mini = one page, no unmapped guard (ADR-0086)                                                             |
+| Caps per task                |                                      **4** | `sched` / manifest        | Slot ABI width                                                                                            |
+| Task-caps (system)           |                                     **32** | `kernel_core::taskcap`    | Deliberately &lt; `MAX_TASKS`                                                                             |
+| Agent store entries          |                                      **8** | `kernel_core::agentstore` | Composition scale ≠ scheduler scale                                                                       |
+| Manifest grant slots         |                                      **4** | `kernel_core::manifest`   | Per-entry grant table                                                                                     |
+| Name registry                |                                      **8** | `kernel_core::naming`     | P5                                                                                                        |
+| IRQ waiters / task-id bitmap |                                 8 / **64** | `kernel_core::irqwait`    | Bitmap covers `MAX_TASKS` (≤64)                                                                           |
+| IRQ wake SPSC queue          |                                     **32** | `src/irq/wait.rs`         | Deliberately &lt; oracle `MAX_TASKS`; full = drop + count, not lost task                                  |
+| Park timeouts armed          |                                     **16** | `kernel_core::parktime`   | Under full task census                                                                                    |
+| Durable / storage blobs      |                                      **4** | storage/durable pure      | P2 first depth                                                                                            |
 
 **Product SMP policy ([ADR-0088](adr/0088-product-home-cpu.md)):** each manifest /
 store entry may name sticky **`home_cpu`** (`0 .. N_CPUS`). Absent / zero →
@@ -371,12 +371,12 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | Snapshot                     | Tracks                                                                                                                                                            |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
-| **H1 next**                  | P3\|P4 only with composition (deferred)                                                                                                                            |
-| **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1+K5-S done (HW); K7 residual ADR-0084; K5-H / K5-B **code** if trigger (0085/0089)                                                             |
-| **open (kernel)**            | K5-H if trigger (0085); K5-B **design paid** (0089), code only if trigger; K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                         |
-| **open (product)**           | P3/P4 deferred (ADR-0049); denser composition (K5-H if slots bind)                                                                                                   |
-| **paid (QEMU)**              | Product `home_cpu` (0088); K10 force-exit (0090); composition-minimum product-boot + `oracle-census`                                                                |
-| **paid (hygiene)**           | SMP shared tables including loader (0077 amended 2026-08-11); multi-role F-R5-2 / F-R7-1                                                                           |
+| **H1 next**                  | P3\|P4 only with composition (deferred)                                                                                                                           |
+| **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1+K5-S done (HW); K7 residual ADR-0084; K5-H / K5-B **code** if trigger (0085/0089)                                                           |
+| **open (kernel)**            | K5-H if trigger (0085); K5-B **design paid** (0089), code only if trigger; K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                        |
+| **open (product)**           | P3/P4 deferred (ADR-0049); denser composition (K5-H if slots bind)                                                                                                |
+| **paid (QEMU)**              | Product `home_cpu` (0088); K10 force-exit (0090); composition-minimum product-boot + `oracle-census`                                                              |
+| **paid (hygiene)**           | SMP shared tables including loader (0077 amended 2026-08-11); multi-role F-R5-2 / F-R7-1                                                                          |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
 K/P tables here. Horizon mapping and working order also live in `roadmap.md`.
@@ -439,12 +439,13 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0047](adr/0047-k7-asid-isolation-design.md)                     | K7 ASID design (**accepted**)                                                                                                                          |
 | [ADR-0050](adr/0050-k7-asid-first-slice.md)                          | K7 first slice — ASID pool + CONTEXTIDR (**accepted**); done (HW)                                                                                      |
 | [ADR-0084](adr/0084-k7-residual-policy.md)                           | K7 residual policy — measure / TTBR1 triggers / rollover (**accepted**)                                                                                |
-| [ADR-0085](adr/0085-k5-density-residual-design.md)                   | K5 density residual — K5-S/H/B split; Mini first code (**accepted**)                                                                                    |
-| [ADR-0086](adr/0086-k5-mini-stack-first-slice.md)                    | K5-S Mini stacks — one page, no unmapped guard (**accepted**)                                                                                           |
-| [ADR-0087](adr/0087-oracle-waits-and-the-hosts-verdict.md)            | Oracle cross-core waits in guest time; a starved host earns no verdict (**accepted**)                                                                   |
+| [ADR-0085](adr/0085-k5-density-residual-design.md)                   | K5 density residual — K5-S/H/B split; Mini first code (**accepted**)                                                                                   |
+| [ADR-0086](adr/0086-k5-mini-stack-first-slice.md)                    | K5-S Mini stacks — one page, no unmapped guard (**accepted**)                                                                                          |
+| [ADR-0087](adr/0087-oracle-waits-and-the-hosts-verdict.md)           | Oracle cross-core waits in guest time; a starved host earns no verdict (**accepted**)                                                                  |
 | [ADR-0088](adr/0088-product-home-cpu.md)                             | Product multi-core — manifest `home_cpu` + loader pin (**accepted**); done (QEMU)                                                                      |
 | [ADR-0089](adr/0089-k5-b-pair-collapse-design.md)                    | K5-B pair collapse design — session as schedulable; **no code** until trigger (**accepted**)                                                           |
 | [ADR-0090](adr/0090-k10-force-exit-running.md)                       | K10 force-exit Running at safe point (**accepted**); done (QEMU)                                                                                       |
+| [ADR-0091](adr/0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` owns its datum; `SyncCell` a closed residual (**accepted**); done (QEMU)                                                 |
 | [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                                              |
 | [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                                               |
 | [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md) |
@@ -467,15 +468,15 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)               | K4 second code slice — same-EL (EL1) IRQ preemption (**accepted**)                                                                                     |
 | [ADR-0069](adr/0069-harbor-host-class-north-star.md)                 | Host-class north star — native primary OS intent (**accepted**)                                                                                        |
 | [ADR-0070](adr/0070-k8-smp-first-slice.md)                           | K8 first slice — unpark core 1, idle only (**accepted**); done (HW), stamp 2026-08-09                                                                  |
-| [ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)                     | K8 second slice — SGI IPI wake core 1 (**accepted**); done (HW), stamp 2026-08-10                                                                       |
+| [ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)                     | K8 second slice — SGI IPI wake core 1 (**accepted**); done (HW), stamp 2026-08-10                                                                      |
 | [ADR-0075](adr/0075-k8-per-core-queues-design.md)                    | K8 design — per-core queues / multi-current (**accepted**); code [0076](adr/0076-k8-per-core-queues-first-slice.md)                                    |
 | [ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)               | K8 third slice — dual current + pinned CPU1 worker (**accepted**); done (HW), stamp 2026-08-10                                                         |
 | [ADR-0077](adr/0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — IrqSpinLock, per-CPU mirrors (**accepted**); HW with 0076 stamp                                                          |
-| [ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md)          | K8 design — per-core timer + preemption on CPU 1 (**accepted**); code [0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)                   |
+| [ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md)          | K8 design — per-core timer + preemption on CPU 1 (**accepted**); code [0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)                     |
 | [ADR-0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)     | K8 fourth slice — per-core timer + EL1 preempt on CPU 1 (**accepted**); done (HW), stamp 2026-08-10                                                    |
-| [ADR-0080](adr/0080-k8-el0-on-cpu1-design.md)                        | K8 design — EL0 sessions/agents home on CPU 1 (**accepted**); code [0081](adr/0081-k8-el0-on-cpu1-first-slice.md)                                    |
+| [ADR-0080](adr/0080-k8-el0-on-cpu1-design.md)                        | K8 design — EL0 sessions/agents home on CPU 1 (**accepted**); code [0081](adr/0081-k8-el0-on-cpu1-first-slice.md)                                      |
 | [ADR-0081](adr/0081-k8-el0-on-cpu1-first-slice.md)                   | K8 fifth slice — EL0 on CPU 1 (**accepted**); done (HW), stamp 2026-08-10                                                                              |
-| [ADR-0082](adr/0082-k8-work-stealing-design.md)                      | K8 design — work stealing (**accepted**); code [0083](adr/0083-k8-work-stealing-first-slice.md)                                                      |
+| [ADR-0082](adr/0082-k8-work-stealing-design.md)                      | K8 design — work stealing (**accepted**); code [0083](adr/0083-k8-work-stealing-first-slice.md)                                                        |
 | [ADR-0083](adr/0083-k8-work-stealing-first-slice.md)                 | K8 sixth slice — work stealing first code (**accepted**); done (HW), stamp 2026-08-10                                                                  |
 | [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)                   | H3 L0 — x86_64 QEMU first slice (**accepted**); done (QEMU-x86)                                                                                        |
 | [ADR-0072](adr/0072-hardware-self-discovery-design.md)               | Hardware self-discovery as boot evidence — verify, don't select (**accepted**); first code [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)    |
