@@ -564,6 +564,12 @@ pub extern "C" fn el1_preempt_pending() -> u32 {
     if STARTED.load(Ordering::Acquire) == 0 {
         return 0;
     }
+    // K8 second slice (ADR-0074): core 1 may take IRQs (wake SGI) but must
+    // not pivot against the single shared scheduler. Per-core runqueues
+    // retire this fence.
+    if cpu::affinity() != 0 {
+        return 0;
+    }
     let start = SLICE_START.load(Ordering::Relaxed);
     let idle = CURRENT_IS_IDLE.load(Ordering::Relaxed);
     u32::from(kernel_core::preempt::should_set(

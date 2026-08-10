@@ -71,6 +71,36 @@ pub const fn classify(irq: u32) -> IrqClass {
     }
 }
 
+/// How `GICD_SGIR.TargetListFilter` picks the set of CPUs that receive an SGI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum SgiFilter {
+    /// Forward to the CPUs named in `CPUTargetList` (one bit per interface).
+    TargetList = 0b00,
+    /// All interfaces except the requester.
+    AllButSelf = 0b01,
+    /// The requesting CPU only.
+    SelfOnly = 0b10,
+}
+
+/// Encode a GICv2 `GICD_SGIR` write (ADR-0074).
+///
+/// - `sgi_id` is 0…15 (software-generated id).
+/// - `cpu_target_list` is the 8-bit target mask used when `filter` is
+///   [`SgiFilter::TargetList`]; ignored for the other filters but still
+///   placed in the word so a host test can pin the field layout.
+///
+/// Returns `None` if `sgi_id` is not an SGI.
+pub const fn sgir_word(sgi_id: u32, cpu_target_list: u8, filter: SgiFilter) -> Option<u32> {
+    if sgi_id > 15 {
+        return None;
+    }
+    let word = (filter as u32) << 24
+        | (cpu_target_list as u32) << 16
+        | sgi_id;
+    Some(word)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,5 +160,23 @@ mod tests {
         assert_eq!(classify(1019), IrqClass::Spi);
         assert_eq!(classify(1020), IrqClass::Invalid);
         assert_eq!(classify(SPURIOUS_ID), IrqClass::Invalid);
+    }
+
+    #[test]
+    fn sgir_word_targets_cpu1_with_sgi0() {
+        // ADR-0074: primary wakes core 1 via SGI 0 + CPUTargetList bit 1.
+        assert_eq!(
+            sgir_word(0, 1 << 1, SgiFilter::TargetList),
+            Some(0x0002_0000)
+        );
+    }
+
+    #[test]
+    fn sgir_word_refuses_non_sgi_ids() {
+        assert_eq!(sgir_word(16, 0x01, SgiFilter::SelfOnly), None);
+        assert_eq!(
+            sgir_word(15, 0x00, SgiFilter::AllButSelf),
+            Some((0b01 << 24) | 15)
+        );
     }
 }

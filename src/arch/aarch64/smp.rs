@@ -1,7 +1,9 @@
-//! K8 first slice — unpark core 1 into an idle loop ([ADR-0070]).
+//! K8 SMP: unpark core 1 (ADR-0070) and SGI IPI wake (ADR-0074).
 //!
-//! No per-core runqueue, no IPI scheduler: prove the secondary leaves `WFE`,
-//! enables the shared kernel map, and signals alive.
+//! First slice: secondary leaves `WFE`, enables the shared kernel map, signals
+//! alive. Second slice: after the primary opens the GIC, secondary brings up
+//! its banked CPU interface, takes SGI 0, and signals `CORE1_IPI`. Still no
+//! per-core runqueue.
 
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -26,6 +28,16 @@ static secondary_entry: [AtomicU64; 4] = [
 static secondary_seen: AtomicU64 = AtomicU64::new(0);
 
 static CORE1_ALIVE: AtomicBool = AtomicBool::new(false);
+
+/// Primary has finished GICD init + SGI handler registration; secondary may
+/// program its banked GICC and unmask IRQs (ADR-0074).
+static SECONDARY_MAY_IRQ: AtomicBool = AtomicBool::new(false);
+
+/// Core 1 finished banked GIC bring-up and is ready to take SGI 0.
+static SECONDARY_IRQ_READY: AtomicBool = AtomicBool::new(false);
+
+/// Core 1 handled the wake SGI.
+static CORE1_IPI: AtomicBool = AtomicBool::new(false);
 
 /// Kernel page-table root PA for the secondary, published + cleaned to PoC by
 /// the primary before SEV. Must not use [`mmu::kernel_root_phys`] alone on the
@@ -81,10 +93,14 @@ pub unsafe extern "C" fn secondary_main() -> ! {
         cache::clean_dcache_poc(core::ptr::addr_of!(CORE1_ALIVE) as usize, 8);
         core::arch::asm!("dsb ish", options(nostack, preserves_flags));
     }
-    // IRQs stay masked; WFE until SEV (none expected) — pure park.
-    loop {
-        cpu::wait_for_event();
+
+    // Policy idle (GIC banked bring-up + WFI) lives in the board IRQ bind —
+    // arch must not import bsp/drivers (layering). Symbol seam like boot.s.
+    unsafe extern "C" {
+        fn harbor_secondary_idle() -> !;
     }
+    // SAFETY: product image always provides the symbol; IRQs still masked.
+    unsafe { harbor_secondary_idle() }
 }
 
 /// QEMU `raspi*_64` spin-table base (absolute PA). Secondary *n* polls
@@ -160,4 +176,73 @@ pub fn unpark_core1() -> bool {
 #[inline]
 pub fn secondary_seen_count() -> u64 {
     secondary_seen.load(Ordering::Acquire)
+}
+
+/// Allow core 1 to program its banked GICC and unmask IRQs (ADR-0074).
+pub fn release_secondary_irq_bringup() {
+    SECONDARY_MAY_IRQ.store(true, Ordering::Release);
+    // SAFETY: PoC-clean + SEV so a secondary parked on WFE sees the flag.
+    unsafe {
+        cache::clean_dcache_poc(core::ptr::addr_of!(SECONDARY_MAY_IRQ) as usize, 8);
+        core::arch::asm!("dsb ish", "sev", options(nostack, preserves_flags));
+    }
+}
+
+/// Whether the primary has authorised secondary IRQ bring-up.
+#[inline]
+pub fn secondary_may_irq() -> bool {
+    SECONDARY_MAY_IRQ.load(Ordering::Acquire)
+}
+
+/// Core 1 finished banked GIC init and is about to unmask.
+pub fn mark_secondary_irq_ready() {
+    SECONDARY_IRQ_READY.store(true, Ordering::Release);
+    // SAFETY: as release_secondary_irq_bringup — primary polls this flag.
+    unsafe {
+        cache::clean_dcache_poc(core::ptr::addr_of!(SECONDARY_IRQ_READY) as usize, 8);
+        core::arch::asm!("dsb ish", options(nostack, preserves_flags));
+    }
+}
+
+/// Spin until core 1 reports banked GIC ready, or the budget expires.
+pub fn wait_secondary_irq_ready(budget: u64) -> bool {
+    let mut spins = 0u64;
+    while spins < budget {
+        if SECONDARY_IRQ_READY.load(Ordering::Acquire) {
+            return true;
+        }
+        if spins.is_multiple_of(100_000) {
+            // SAFETY: nudge a secondary still in WFE.
+            unsafe {
+                core::arch::asm!("sev", options(nostack, preserves_flags));
+            }
+        }
+        core::hint::spin_loop();
+        spins += 1;
+    }
+    SECONDARY_IRQ_READY.load(Ordering::Acquire)
+}
+
+/// Handler path: core 1 took the wake SGI.
+#[inline]
+pub fn note_core1_ipi() {
+    CORE1_IPI.store(true, Ordering::Release);
+    // SAFETY: primary may poll without snoop if caches are eccentric.
+    unsafe {
+        cache::clean_dcache_poc(core::ptr::addr_of!(CORE1_IPI) as usize, 8);
+        core::arch::asm!("dsb ish", options(nostack, preserves_flags));
+    }
+}
+
+/// Spin until the IPI flag is set, or the budget expires.
+pub fn wait_core1_ipi(budget: u64) -> bool {
+    let mut spins = 0u64;
+    while spins < budget {
+        if CORE1_IPI.load(Ordering::Acquire) {
+            return true;
+        }
+        core::hint::spin_loop();
+        spins += 1;
+    }
+    CORE1_IPI.load(Ordering::Acquire)
 }

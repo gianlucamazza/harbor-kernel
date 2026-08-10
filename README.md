@@ -109,7 +109,7 @@ auto-reap (ephemeral channels); channel revoke (stale CapId refused).
 | Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068); SMP first slice done (HW) (core1 idle, ADR-0070); product still single schedulable core |
 | Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade        |
 | Product OS   | Multi-agent store composition (QEMU); broader services **open**                                                                                               |
-| Verification | 452 host tests, model checks, Miri, QEMU and hardware stamps                                                                                                  |
+| Verification | 454 host tests, model checks, Miri, QEMU and hardware stamps                                                                                                  |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

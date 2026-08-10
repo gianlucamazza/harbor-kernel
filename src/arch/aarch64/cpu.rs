@@ -120,6 +120,24 @@ pub fn sync_pipeline() {
     }
 }
 
+/// Affinity level 0 of `MPIDR_EL1` — the core id within the cluster.
+///
+/// Used by K8 (ADR-0074) so IRQ-epilogue preemption stays on the primary
+/// until per-core runqueues exist. One `mrs`, no decode tables.
+#[inline]
+pub fn affinity() -> u8 {
+    let mpidr: u64;
+    // SAFETY: reading MPIDR_EL1 has no side effects.
+    unsafe {
+        core::arch::asm!(
+            "mrs {}, mpidr_el1",
+            out(reg) mpidr,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    (mpidr & 0xFF) as u8
+}
+
 /// `MIDR_EL1` — implementer, part and stepping of this core.
 ///
 /// One `mrs`, no logic: the decode is [`kernel_core::cpuid`]'s, where it is

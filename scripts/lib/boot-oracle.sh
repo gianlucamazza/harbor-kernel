@@ -375,6 +375,13 @@ assert_boot_oracle() {
 		fail "core 1 did not unpark (ADR-0070): $(grep -a 'smp:' "${log}" | head -1)"
 	grep -qa 'smp: core1 timeout' "${log}" &&
 		fail "core 1 unpark timed out (ADR-0070)"
+	# ADR-0074 / K8 second slice: core 1 took SGI 0 from the primary.
+	grep -qa 'smp: core1 ipi' "${log}" ||
+		fail "core 1 did not handle the wake SGI (ADR-0074): $(grep -a 'smp:' "${log}" | head -3)"
+	grep -qa 'smp: core1 ipi timeout' "${log}" &&
+		fail "core 1 wake SGI timed out (ADR-0074)"
+	grep -qa 'smp: core1 ipi skipped' "${log}" &&
+		fail "core 1 IPI probe skipped because IRQs were unbound (ADR-0074)"
 	grep -qa 'preempt-el1: rotated' "${log}" ||
 		fail "EL1 preemption did not rotate the non-yielding spinner (ADR-0068)"
 	grep -qa 'preempt-el1: spinner exited' "${log}" ||
@@ -519,7 +526,8 @@ assert_boot_oracle() {
 	# Both handlers registered before the table froze. A boot that registered none
 	# looks exactly like a healthy one until the first interrupt nobody answers, and
 	# by then the evidence is a counter rather than the moment it went wrong.
-	grep -qa 'irq: sealed with 2 handlers registered' "${log}" ||
+	# timer + UART RX + wake SGI (ADR-0074)
+	grep -qa 'irq: sealed with 3 handlers registered' "${log}" ||
 		fail "dispatch table sealed with the wrong number of handlers: $(grep -a '^irq: sealed' "${log}" || echo '(no seal line at all)')"
 	# The allocator refuses frees it cannot justify — a double free, or a pointer it
 	# never handed out. Refusing keeps the heap intact, so nothing else here would

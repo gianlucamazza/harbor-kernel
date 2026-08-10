@@ -21,6 +21,8 @@ const GICD_ICPENDR: usize = 0x280;
 const GICD_IPRIORITYR: usize = 0x400;
 const GICD_ITARGETSR: usize = 0x800;
 const GICD_ICFGR: usize = 0xC00;
+/// Software Generated Interrupt Register (write-only). ADR-0074.
+const GICD_SGIR: usize = 0xF00;
 
 const GICC_CTLR: usize = 0x000;
 const GICC_PMR: usize = 0x004;
@@ -56,15 +58,10 @@ impl GicV2 {
 
 impl IrqChip for GicV2 {
     fn init(&self) {
-        // Banked SGI+PPI → Group 0 (IAR/EOIR path).
-        self.dist.write32(GICD_IGROUPR, 0x0000_0000);
-
-        self.cpu.write32(GICC_PMR, 0xFF);
-        self.cpu.write32(GICC_BPR, 0);
-
-        // Force classic EOI, enable groups (overwrite EOImode from firmware).
-        self.cpu
-            .write32(GICC_CTLR, CTLR_ENABLE_GRP0 | CTLR_ENABLE_GRP1);
+        // Primary: banked SGI+PPI + this CPU's interface, then open the
+        // distributor for the whole chip (shared). Secondaries use
+        // [`init_this_cpu`] only — they must not rewrite GICD_CTLR.
+        self.init_this_cpu();
         self.dist
             .write32(GICD_CTLR, CTLR_ENABLE_GRP0 | CTLR_ENABLE_GRP1);
     }
@@ -158,6 +155,49 @@ impl GicV2 {
         unsafe {
             core::arch::asm!("dsb sy", options(nostack, preserves_flags));
         }
+    }
+}
+
+impl GicV2 {
+    /// Program **this CPU's** banked GICC + SGI/PPI Group 0 (ADR-0074).
+    ///
+    /// Call on every core that will take IRQs. Does not touch the shared
+    /// distributor enable — primary [`IrqChip::init`] owns that.
+    pub fn init_this_cpu(&self) {
+        // Banked SGI+PPI → Group 0 (IAR/EOIR path).
+        self.dist.write32(GICD_IGROUPR, 0x0000_0000);
+
+        self.cpu.write32(GICC_PMR, 0xFF);
+        self.cpu.write32(GICC_BPR, 0);
+
+        // Force classic EOI, enable groups (overwrite EOImode from firmware).
+        self.cpu
+            .write32(GICC_CTLR, CTLR_ENABLE_GRP0 | CTLR_ENABLE_GRP1);
+    }
+
+    /// Raise an SGI on the CPUs named by `cpu_target_list` (one bit per
+    /// interface). Encoding is pure in `kernel_core::gic` (ADR-0074).
+    ///
+    /// Returns `false` if `sgi_id` is not an SGI. Does not require the
+    /// sender to have the line enabled; the **target** must.
+    pub fn send_sgi(&self, sgi_id: u32, cpu_target_list: u8) -> bool {
+        let Some(word) =
+            gic::sgir_word(sgi_id, cpu_target_list, gic::SgiFilter::TargetList)
+        else {
+            return false;
+        };
+        // Order prior Normal-memory handoff against the device write that
+        // may wake another core into that memory.
+        // SAFETY: barrier only.
+        unsafe {
+            core::arch::asm!("dsb ishst", options(nostack, preserves_flags));
+        }
+        self.dist.write32(GICD_SGIR, word);
+        // SAFETY: complete the distributor write before the sender polls.
+        unsafe {
+            core::arch::asm!("dsb sy", options(nostack, preserves_flags));
+        }
+        true
     }
 }
 

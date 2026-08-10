@@ -1,15 +1,14 @@
-//! Board IRQ bind: GIC-400 instance + timer PPI + UART0 SPI wiring.
+//! Board IRQ bind: GIC-400 instance + timer PPI + UART0 SPI + wake SGI.
 
-use crate::arch::timer;
+use crate::arch::{cpu, smp, timer};
 use crate::bsp::rpi4::memmap::{GICC_BASE, GICD_BASE, TIMER_PPI, UART0_SPI};
 use crate::console;
 use crate::drivers::gicv2::GicV2;
 use crate::irq;
 use crate::time;
 
-/// Platform GIC — single distributor owner: core 0 programs GICD and claims
-/// via CPU interface 0. Core 1 (ADR-0070) keeps IRQs masked and never touches
-/// the GIC; per-core banked SGI/PPI bring-up is future SMP work.
+/// Platform GIC — single distributor owner: core 0 programs GICD; each core
+/// that takes IRQs programs its banked GICC (ADR-0070/0074).
 // SAFETY: `GICD_BASE` / `GICC_BASE` are this board's distributor and CPU
 // interface, compiled in rather than read from the device tree (ADR-0011), and
 // both are inside the GIC region `mm::layout` maps Device-nGnRnE. A `static`
@@ -23,7 +22,18 @@ pub const TIMER_IRQ: u32 = TIMER_PPI;
 /// PL011 UART0 RX (and other UART events) on this board — GIC SPI 153.
 pub const UART_IRQ: u32 = UART0_SPI;
 
-/// Initialise irqchip, register timer + UART handlers, program timer, enable lines.
+/// Software-generated wake line for core 1 (ADR-0074). Banked; enabled only
+/// on the secondary.
+pub const WAKE_SGI: u32 = 0;
+
+/// CPU interface bit for core 1 in `GICD_SGIR.CPUTargetList`.
+const CORE1_TARGET_BIT: u8 = 1 << 1;
+
+/// Spin budget for secondary IRQ ready / IPI flags (~same order as unpark).
+const SECONDARY_SPIN_BUDGET: u64 = 200_000_000;
+
+/// Initialise irqchip, register timer + UART + wake-SGI handlers, program
+/// timer, enable lines.
 ///
 /// IRQs must remain **masked** until bootstrap finishes soft proof and arms
 /// PL011 `IMSC` via [`console::enable_rx_irq`].
@@ -44,7 +54,7 @@ pub enum BindError {
 }
 
 /// # Safety
-/// Single core; exclusive GIC ownership; call once.
+/// Primary core; exclusive GIC distributor ownership; call once.
 pub unsafe fn init(timer_hz: u32) -> Result<(), BindError> {
     // SAFETY: the caller guarantees this runs once, on the primary core, with
     // IRQs masked — which is what makes registering handlers and then sealing
@@ -59,12 +69,72 @@ pub unsafe fn init(timer_hz: u32) -> Result<(), BindError> {
         if let Err(e) = irq::register(UART_IRQ, console::on_uart_rx_irq, 2) {
             return Err(BindError::HandlerNotRegistered(e));
         }
+        // Wake SGI: registered on the shared table so core 1's claim path
+        // finds a handler. Enabled only on the secondary (banked ISENABLER).
+        if let Err(e) = irq::register(WAKE_SGI, on_wake_sgi, 3) {
+            return Err(BindError::HandlerNotRegistered(e));
+        }
 
         timer::init(timer_hz).map_err(BindError::Timer)?;
 
         irq::enable(TIMER_IRQ);
         irq::enable(UART_IRQ);
         Ok(())
+    }
+}
+
+/// Primary: release secondary IRQ bring-up, wait ready, send SGI 0, wait flag.
+///
+/// Returns whether core 1 handled the IPI. Call only when core 1 is alive and
+/// the dispatch table is sealed (handler registered).
+pub fn probe_core1_ipi() -> bool {
+    smp::release_secondary_irq_bringup();
+    if !smp::wait_secondary_irq_ready(SECONDARY_SPIN_BUDGET) {
+        return false;
+    }
+    if !GIC.send_sgi(WAKE_SGI, CORE1_TARGET_BIT) {
+        return false;
+    }
+    smp::wait_core1_ipi(SECONDARY_SPIN_BUDGET)
+}
+
+/// Shared-table handler for the wake SGI (ADR-0074).
+fn on_wake_sgi(_cookie: irq::IrqCookie) {
+    // Only core 1 is expected to receive this line; still gate the flag so a
+    // mis-targeted delivery on CPU0 does not forge the oracle.
+    if cpu::affinity() == 1 {
+        smp::note_core1_ipi();
+    }
+}
+
+/// Core 1 idle after MMU/VBAR/alive (ADR-0070/0074).
+///
+/// Linked by symbol from `arch::smp::secondary_main` so arch never imports
+/// this board module. Waits for the primary's GICD + seal, programs banked
+/// GICC, enables SGI 0, unmasks IRQs, then `WFI` forever.
+///
+/// # Safety
+/// Runs only on affinity 1 with IRQs masked on entry.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn harbor_secondary_idle() -> ! {
+    while !smp::secondary_may_irq() {
+        cpu::wait_for_event();
+    }
+
+    // Banked GICC + SGI/PPI Group 0 on this core; distributor already open.
+    GIC.init_this_cpu();
+    // Priority + group + banked enable for SGI 0 only (no timer on secondary).
+    // Goes through the shared chip pointer so the secondary does not need a
+    // second `GicV2` owner of the same MMIO.
+    irq::enable(WAKE_SGI);
+    smp::mark_secondary_irq_ready();
+
+    cpu::sync_pipeline();
+    cpu::irq_enable();
+    cpu::sync_pipeline();
+
+    loop {
+        cpu::wait_for_interrupt();
     }
 }
 

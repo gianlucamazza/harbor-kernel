@@ -467,6 +467,19 @@ pub fn run() -> ! {
         irq::registered()
     );
 
+    // ADR-0074 / K8 second slice: core 1 banked GICC + SGI 0 wake. Needs the
+    // shared table sealed (handler present) and the distributor open. Runs
+    // before primary unmask — the *target* unmasks inside secondary idle.
+    if core1 && interrupts_bound {
+        if board::irq::probe_core1_ipi() {
+            println!(uart, "smp: core1 ipi");
+        } else {
+            println!(uart, "smp: core1 ipi timeout");
+        }
+    } else if core1 {
+        println!(uart, "smp: core1 ipi skipped (irq unbound)");
+    }
+
     // Arm PL011 RX IRQ into the console ring (GIC line already enabled).
     if interrupts_bound {
         // SAFETY: `uart` is the live console handle this function acquired and

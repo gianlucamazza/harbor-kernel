@@ -84,6 +84,12 @@ pub fn sync_pipeline() {
     }
 }
 
+/// Lab L0 is single-core; affinity is always 0 (arch-contract surface).
+#[inline]
+pub fn affinity() -> u8 {
+    0
+}
+
 /// Raw CPUID leaf (eax in, eax/ebx/ecx/edx out).
 #[inline]
 pub fn cpuid(leaf: u32) -> (u32, u32, u32, u32) {
