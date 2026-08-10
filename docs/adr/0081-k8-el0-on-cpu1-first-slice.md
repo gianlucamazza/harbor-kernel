@@ -59,7 +59,7 @@ oracles also clean on the same boot.
 
 ### 5. Residuals (honest)
 
-- Work stealing — **done (QEMU)** [ADR-0083](0083-k8-work-stealing-first-slice.md)
+- Work stealing — **done (HW)** [ADR-0083](0083-k8-work-stealing-first-slice.md)
 - Cores 2–3  
 - Product default home still 0 (explicit pin only)  
 - TLB IPI if steal lands later  

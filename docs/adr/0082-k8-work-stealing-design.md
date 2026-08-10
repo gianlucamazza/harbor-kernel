@@ -17,7 +17,7 @@ quantum on both CPUs, and EL0-on-CPU1 (**done (HW)** —
 the last structural multi-core residual named since
 [ADR-0048](0048-k8-smp-design.md) is **load balance without explicit pin**.
 This ADR is the design. First **code**: [ADR-0083](0083-k8-work-stealing-first-slice.md)
-(**done (QEMU)**; HW stamp residual).
+(**done (QEMU)** + **done (HW)**, stamp 2026-08-10, transcript `20260810-144305.log`).
 
 ## Context
 

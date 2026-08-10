@@ -13,8 +13,10 @@ related: [0008, 0048, 0075, 0076, 0077, 0080, 0081, 0082]
 
 **Accepted** (2026-08-10). Implements the first **code** slice of
 [ADR-0082](0082-k8-work-stealing-design.md): hard re-home pull-on-idle steal
-of **opt-in** Ready workers. Status **done (QEMU)** with oracle
-`smp: steal ok`. HW stamp residual.
+of **opt-in** Ready workers. Status **done (QEMU)** and **done (HW)** — Pi
+stamp 2026-08-10, transcript `.serial-log/20260810-144305.log` (`smp: steal ok`
++ `cpu: Cortex-A72 r0p3` + `CNTFRQ=54000000`; `hw-transcript-check` clean;
+build `src=5c7c4d2c`).
 
 ## Decision (what landed)
 
@@ -45,7 +47,11 @@ of **opt-in** Ready workers. Status **done (QEMU)** with oracle
 No non-yielding holder (would break task-a/b interleave). Two cooperative
 victims provide Ready work for the thief.
 
-Gate: `boot-check` / later `hw-transcript-check`.
+Gate: `boot-check` / `hw-transcript-check`.
+
+**HW stamp (2026-08-10):** transcript `.serial-log/20260810-144305.log` —
+`smp: core1 alive` + `ipi` + `ran` + `preempt-el0-cpu1:*` + `smp: steal ok`
+on Cortex-A72; primary K4 oracles also clean on the same boot.
 
 ### 4. Residuals (honest)
 
