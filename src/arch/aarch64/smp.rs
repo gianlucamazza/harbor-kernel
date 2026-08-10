@@ -234,23 +234,27 @@ pub fn note_core1_ipi() {
     }
 }
 
-/// SGI handler-safe resched request for CPU 1 (ADR-0076).
+/// Per-CPU resched bits (ADR-0077). Single owner: handlers (via bsp → smp) and
+/// `sched` both use this array — no second flag in the scheduler.
 ///
-/// Forwards to the sched atomics without importing `sched` from board code —
-/// `bsp` layering forbids that edge. Implemented as a function pointer the
-/// sched module installs at init, or a local atomic polled by secondary idle.
-static RESCHED1: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+/// Index is affinity (0 .. N_CPUS). Handlers never take the sched lock.
+static RESCHED: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
 
+/// Request a reschedule on `cpu` (handler-safe, no lock).
 #[inline]
 pub fn request_resched(cpu: u8) {
-    if cpu == 1 {
-        RESCHED1.store(true, Ordering::Release);
+    if let Some(slot) = RESCHED.get(cpu as usize) {
+        slot.store(true, Ordering::Release);
     }
 }
 
+/// Consume a pending reschedule for `cpu`. Returns whether one was set.
 #[inline]
-pub fn take_resched1() -> bool {
-    RESCHED1.swap(false, Ordering::AcqRel)
+pub fn take_resched(cpu: u8) -> bool {
+    RESCHED
+        .get(cpu as usize)
+        .map(|s| s.swap(false, Ordering::AcqRel))
+        .unwrap_or(false)
 }
 
 /// Spin until the IPI flag is set, or the budget expires.

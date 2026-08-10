@@ -38,6 +38,8 @@ allowed_for() {
 	panic*) echo "arch console mm status" ;;
 	# Lab maturity path: arch + board bind only (project-topology).
 	lab*) echo "arch bsp" ;;
+	# ADR-0077: IrqSpinLock needs cpu::irq_save/restore only.
+	sync*) echo "arch" ;;
 	mm*) echo "arch bsp" ;;
 	# Cooperative scheduler: TCBs, stacks, switch, wake queue - not drivers/board.
 	# ADR-0028: drains irq::wait and exposes wait_for_irq.

@@ -1,6 +1,6 @@
 //! Scheduler: voluntary switches (ADR-0006) + IRQ wakes (ADR-0008) +
 //! quantum preemption on the IRQ-return epilogue (ADR-0064/0068) +
-//! per-core queues (ADR-0075/0076).
+//! per-core queues (ADR-0075/0076) and SMP shared-state discipline (ADR-0077).
 //!
 //! Per-CPU FIFO runqueues from `kernel-core`, dual idle (console on CPU 0).
 //! Device IRQ *handlers* still must not call
@@ -43,7 +43,7 @@ use crate::arch::switch::{Context, context_switch};
 use crate::ipc;
 use crate::irq;
 use crate::mm::{StackError, TaskStack};
-use crate::sync::SyncCell;
+use crate::sync::{IrqSpinLock, SyncCell};
 use crate::time;
 
 /// Maximum concurrent tasks including idle.
@@ -61,10 +61,9 @@ use crate::time;
 /// (ADR-0062) makes a leaked reference to the previous tenant refusable.
 /// 40 → 42 for the ADR-0064 preemption oracle pair (spinner host + peer),
 /// which are live across the window the ADR-0031 auto-reap oracle spawns in.
-/// 42 → 44 for ADR-0076: CPU1 idle identity + pinned core1 marker (never
-/// reaped in the first slice — marker stays parked on affinity 1).
+/// 42 → 43 for ADR-0076/0077: CPU1 idle identity (marker exits and frees).
 /// Raising it costs task stacks and page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 44;
+pub const MAX_TASKS: usize = 43;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -77,13 +76,18 @@ pub const MAX_CAPS_PER_TASK: usize = 4;
 /// Cooperative quantum in timer ticks (ADR-0046 / K4).
 pub const BUDGET_QUANTUM_TICKS: u64 = 2;
 
-/// Slice start tick for the current task (set on switch-in).
-static SLICE_START: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+/// Slice start tick per CPU (set on switch-in). K4 preemption reads index 0
+/// until core1 has a timer (honest non-goal of ADR-0077).
+static SLICE_START: [core::sync::atomic::AtomicU64; 2] = [
+    core::sync::atomic::AtomicU64::new(0),
+    core::sync::atomic::AtomicU64::new(0),
+];
 
-/// Mirror of "the running task is idle", written on switch-in beside
-/// [`SLICE_START`] so [`preempt_switch`] reads both without opening `SCHED`.
-/// Idle is current from boot, hence `true`.
-static CURRENT_IS_IDLE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(true);
+/// Per-CPU idle mirror for preemption epilogue (ADR-0077). Index 0 starts true.
+static CURRENT_IS_IDLE: [core::sync::atomic::AtomicBool; 2] = [
+    core::sync::atomic::AtomicBool::new(true),
+    core::sync::atomic::AtomicBool::new(true),
+];
 
 /// Quantum expiries consumed by [`preempt_switch`] (ADR-0064).
 static PREEMPT_SWITCHES: AtomicU32 = AtomicU32::new(0);
@@ -169,16 +173,8 @@ impl Sched {
 static SCHED: SyncCell<Sched> = SyncCell::new(Sched::new());
 static STARTED: AtomicUsize = AtomicUsize::new(0);
 
-/// Coarse sched lock (ADR-0075). Always taken with local IRQs already masked.
-static SCHED_LOCK: core::sync::atomic::AtomicBool =
-    core::sync::atomic::AtomicBool::new(false);
-
-/// Per-CPU resched request. SGI handler sets bit; voluntary path consumes it.
-/// Handlers never take [`SCHED_LOCK`] (ADR-0075 §4).
-static NEED_RESCHED: [core::sync::atomic::AtomicBool; 2] = [
-    core::sync::atomic::AtomicBool::new(false),
-    core::sync::atomic::AtomicBool::new(false),
-];
+/// Coarse sched lock (ADR-0077). Held only with local IRQs masked.
+static SCHED_LOCK: IrqSpinLock = IrqSpinLock::new();
 
 /// Primary has reserved CPU1 idle; secondary may enter the schedule loop.
 static CPU1_ONLINE: core::sync::atomic::AtomicBool =
@@ -190,29 +186,20 @@ static CORE1_RAN: core::sync::atomic::AtomicBool =
 
 #[inline]
 fn sched_lock() {
-    while SCHED_LOCK
-        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-        .is_err()
-    {
-        core::hint::spin_loop();
-    }
+    SCHED_LOCK.lock_already_masked();
 }
 
 #[inline]
 fn sched_unlock() {
-    SCHED_LOCK.store(false, Ordering::Release);
+    SCHED_LOCK.unlock_already_masked();
 }
 
 /// Run `f` with IRQs masked and the sched lock held.
 fn with_sched<R>(f: impl FnOnce(&mut Sched) -> R) -> R {
-    let daif = cpu::irq_save();
-    sched_lock();
-    // SAFETY: exclusive via lock + local IRQ mask.
-    let r = f(unsafe { &mut *SCHED.get() });
-    sched_unlock();
-    // SAFETY: paired with irq_save above.
-    unsafe { cpu::irq_restore(daif) };
-    r
+    SCHED_LOCK.with(|| {
+        // SAFETY: exclusive via IrqSpinLock.
+        f(unsafe { &mut *SCHED.get() })
+    })
 }
 
 #[inline]
@@ -220,22 +207,15 @@ fn this_cpu() -> u8 {
     cpu::affinity()
 }
 
-/// SGI / remote kick: set resched for `cpu` (0 or 1). Handler-safe.
+/// Request a reschedule on `cpu` (handler-safe). Single path via `arch::smp`.
 #[inline]
 pub fn request_resched(cpu: u8) {
-    if (cpu as usize) < NEED_RESCHED.len() {
-        NEED_RESCHED[cpu as usize].store(true, Ordering::Release);
-    }
-    // Board SGI handler uses `arch::smp::request_resched`; keep both bits in
-    // sync when policy kicks without going through the handler.
-    if cpu == 1 {
-        crate::arch::smp::request_resched(1);
-    }
+    crate::arch::smp::request_resched(cpu);
 }
 
 #[inline]
 fn take_resched(cpu: u8) -> bool {
-    NEED_RESCHED[cpu as usize].swap(false, Ordering::AcqRel)
+    crate::arch::smp::take_resched(cpu)
 }
 
 /// Exits that found a stack still parked from an earlier exit. See
@@ -368,16 +348,9 @@ pub fn spawn_core1_marker() -> Result<TaskId, SpawnError> {
 }
 
 fn core1_marker_entry() {
-    // Primary polls with Acquire; both cores share Normal WB identity map
-    // (hardware coherent on A72). No console TX from core 1 (ADR-0070).
-    //
-    // Stay here forever: exiting would `stack.release()` on CPU 1 while the
-    // primary may be in the global allocator (not multi-core-safe yet). Parking
-    // the marker keeps the proof without a concurrent free.
+    // Primary polls with Acquire. No console TX from core 1 (ADR-0070).
+    // Heap is SMP-safe (ADR-0077); exit and free the stack like any worker.
     CORE1_RAN.store(true, Ordering::Release);
-    loop {
-        cpu::wait_for_interrupt();
-    }
 }
 
 /// Whether the CPU1 marker has run.
@@ -413,23 +386,14 @@ pub unsafe extern "C" fn harbor_secondary_sched() -> ! {
 }
 
 fn secondary_idle_loop() -> ! {
+    // Permanent CPU1 idle: same shape as the product idle (poll → yield/WFI),
+    // without console TX. Contends the sched/heap locks briefly and honestly
+    // (ADR-0077) — no quiet-park workaround.
     loop {
-        // After the oracle marker has run, park forever without touching
-        // SCHED. First slice (ADR-0076) only needs one dual-current proof;
-        // continuing to contend the coarse lock against primary boot demos
-        // is not product work yet.
-        if CORE1_RAN.load(Ordering::Acquire) {
-            loop {
-                cpu::wait_for_interrupt();
-            }
-        }
         poll_wakes();
         let cpu = this_cpu();
-        let work = take_resched(cpu)
-            || crate::arch::smp::take_resched1()
-            || with_sched(|s| s.tasks.has_ready_on(cpu));
+        let work = take_resched(cpu) || with_sched(|s| s.tasks.has_ready_on(cpu));
         if work {
-            // Voluntary rotation on this CPU (may Stay if only idle).
             switch_with(Switch::Yield);
         } else {
             cpu::wait_for_interrupt();
@@ -609,9 +573,7 @@ pub fn my_cap_slot(slot: usize) -> Result<CapId, SlotError> {
 /// against what it has published before it will enter or resume EL0, which is
 /// what makes a missing publication loud.
 pub fn current_el0_session() -> *mut El0Session {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked, single core.
-        let sched = unsafe { &mut *SCHED.get() };
+    with_sched(|sched| {
         let idx = sched.tasks.current_on(this_cpu()).slot();
         match sched.tcbs[idx].el0.as_mut() {
             Some(session) => session as *mut El0Session,
@@ -760,8 +722,10 @@ pub fn cascade_events() -> u32 {
 /// without a stale flag ever outliving the slice that earned it. Call
 /// outside any [`cpu::without_irqs`] region, never from an IRQ handler.
 pub fn preempt_switch() {
-    let start = SLICE_START.load(Ordering::Relaxed);
-    let idle = CURRENT_IS_IDLE.load(Ordering::Relaxed);
+    // Voluntary safe-point: only the calling CPU's mirrors matter.
+    let cpu = this_cpu() as usize;
+    let start = SLICE_START[cpu].load(Ordering::Relaxed);
+    let idle = CURRENT_IS_IDLE[cpu].load(Ordering::Relaxed);
     if kernel_core::preempt::should_set(start, time::ticks(), BUDGET_QUANTUM_TICKS, idle) {
         PREEMPT_SWITCHES.fetch_add(1, Ordering::Relaxed);
         poll_wakes();
@@ -782,14 +746,14 @@ pub extern "C" fn el1_preempt_pending() -> u32 {
     if STARTED.load(Ordering::Acquire) == 0 {
         return 0;
     }
-    // K8 second slice (ADR-0074): core 1 may take IRQs (wake SGI) but must
-    // not pivot against the single shared scheduler. Per-core runqueues
-    // retire this fence.
-    if cpu::affinity() != 0 {
+    // No timer PPI / quantum path on core 1 yet (ADR-0077 non-goal): refuse
+    // the epilogue pivot rather than reading empty mirrors. Not a queues fence.
+    let cpu = cpu::affinity() as usize;
+    if cpu != 0 {
         return 0;
     }
-    let start = SLICE_START.load(Ordering::Relaxed);
-    let idle = CURRENT_IS_IDLE.load(Ordering::Relaxed);
+    let start = SLICE_START[0].load(Ordering::Relaxed);
+    let idle = CURRENT_IS_IDLE[0].load(Ordering::Relaxed);
     u32::from(kernel_core::preempt::should_set(
         start,
         time::ticks(),
@@ -873,11 +837,12 @@ pub fn poll_wakes() {
 }
 
 static PARK_DEADLINES: SyncCell<parktime::Table> = SyncCell::new(parktime::Table::new());
+static PARK_LOCK: IrqSpinLock = IrqSpinLock::new();
 
 /// Arm an absolute tick deadline for a parked wait (ADR-0040).
 pub fn arm_park_deadline(id: TaskId, deadline: u64) -> Result<(), parktime::ArmError> {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
+    PARK_LOCK.with(|| {
+        // SAFETY: exclusivity from PARK_LOCK.
         let table = unsafe { &mut *PARK_DEADLINES.get() };
         table.arm(id, deadline)
     })
@@ -885,8 +850,8 @@ pub fn arm_park_deadline(id: TaskId, deadline: u64) -> Result<(), parktime::ArmE
 
 /// Clear a park deadline (after recv returns or cancel).
 pub fn disarm_park_deadline(id: TaskId) {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
+    PARK_LOCK.with(|| {
+        // SAFETY: exclusivity from PARK_LOCK.
         let table = unsafe { &mut *PARK_DEADLINES.get() };
         table.disarm(id);
     });
@@ -895,8 +860,8 @@ pub fn disarm_park_deadline(id: TaskId) {
 fn poll_park_timeouts() {
     let now = time::ticks();
     let mut expired = [Tasks::<MAX_TASKS>::IDLE; parktime::MAX_ARMED];
-    let n = cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
+    let n = PARK_LOCK.with(|| {
+        // SAFETY: exclusivity from PARK_LOCK.
         let table = unsafe { &mut *PARK_DEADLINES.get() };
         table.poll(now, &mut expired)
     });
@@ -1124,10 +1089,7 @@ pub fn stack_map(out: &mut [StackReport]) -> usize {
 /// The running task's id.
 #[cfg(feature = "bringup")]
 pub fn current_id() -> TaskId {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
-        /* use with_sched */
-    })
+    current_task_id()
 }
 
 /// True when the ready queue holds at least one task.
@@ -1262,14 +1224,16 @@ fn switch_with(kind: Switch) {
         }
     }
 
-    // ADR-0017 EL0 session publish and K4 quantum mirrors are core-0 only
-    // until per-core EL0/preemption (ADR-0075). Secondary switches must not
-    // clobber the primary's CURRENT_EL0 or slice accounting.
+    // Per-CPU quantum mirrors (ADR-0077). EL0 publish stays CPU0-only: no
+    // agent home on CPU1 in this product path (honest non-goal, not a fence).
+    let idle_here = sched.tasks.idle_of(cpu);
+    let idx = cpu as usize;
+    if idx < SLICE_START.len() {
+        SLICE_START[idx].store(time::ticks(), Ordering::Relaxed);
+        CURRENT_IS_IDLE[idx].store(to == idle_here, Ordering::Relaxed);
+    }
     if cpu == 0 {
         publish_el0(sched, to);
-        SLICE_START.store(time::ticks(), Ordering::Relaxed);
-        let idle_here = sched.tasks.idle_of(0);
-        CURRENT_IS_IDLE.store(to == idle_here, Ordering::Relaxed);
     }
 
     let prev = &raw mut sched.tcbs[from.slot()].context;

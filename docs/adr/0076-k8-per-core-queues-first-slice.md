@@ -4,7 +4,8 @@ title: K8 third slice — per-core queues, dual current, pinned CPU1 worker
 status: accepted
 date: 2026-08-10
 accepted: 2026-08-10
-related: [0006, 0008, 0048, 0070, 0074, 0075]
+related: [0006, 0008, 0048, 0070, 0074, 0075, 0077]
+amended: 2026-08-10
 ---
 
 # ADR-0076: K8 third slice (per-core queues first code)
@@ -35,10 +36,9 @@ sched lock, CPU1 idle + hard-affinity spawn, SGI resched kick, oracle
 
 - After banked GIC bring-up: `harbor_secondary_sched` waits `CPU1_ONLINE`,
   then runs voluntary schedule on affinity 1
-- Pinned marker sets `CORE1_RAN` and **never exits** (avoids concurrent
-  `GlobalAlloc` free on CPU 1 — heap not multi-core-safe yet)
-- After the marker has run, secondary quiet-parks (WFI only) so primary boot
-  demos do not contend the coarse lock
+- Pinned marker sets `CORE1_RAN` and exits (stack free is SMP-safe after
+  [ADR-0077](0077-smp-shared-state-discipline.md))
+- Secondary remains a permanent schedule idle (no quiet-park; ADR-0077)
 
 ### 4. Evidence
 
@@ -49,13 +49,12 @@ sched lock, CPU1 idle + hard-affinity spawn, SGI resched kick, oracle
 
 Gate: `boot-check` / `hw-transcript-check`. `MAX_TASKS` 42 → 44 (idle1 + marker).
 
-### 5. Explicit residuals
+### 5. Residuals after ADR-0077 cleanup
 
-- Heap multi-core safety (marker must not exit/free)
-- Full dual-current for product work after boot
-- Per-core preemption / timer PPI on core 1
-- Work stealing; lock refinement
-- HW stamp for `smp: core1 ran`
+- Per-core preemption / timer PPI on core 1  
+- Work stealing; lock refinement if measured  
+- HW stamp for `smp: core1 ran`  
+- EL0 agents with home on CPU 1
 
 ## Related
 

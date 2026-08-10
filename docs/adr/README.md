@@ -96,6 +96,7 @@ the code that follows.
 | [0074](0074-k8-ipi-wake-second-slice.md)                     | K8 second slice — SGI IPI wake core 1 (no runqueue yet)                                      | accepted   |
 | [0075](0075-k8-per-core-queues-design.md)                    | K8 design — per-core ready queues and current (code: 0076)                                   | accepted   |
 | [0076](0076-k8-per-core-queues-first-slice.md)               | K8 third slice — per-core queues, dual current, pinned CPU1 worker                           | accepted   |
+| [0077](0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — IrqSpinLock, per-CPU mirrors, honest dual-current            | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

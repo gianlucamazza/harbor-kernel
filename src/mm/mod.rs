@@ -28,9 +28,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use kernel_core::heap::FreeList;
 
-use crate::arch::cpu;
 use crate::bsp::board::memmap::IDENTITY_RAM_END;
-use crate::sync::SyncCell;
+use crate::sync::{IrqSpinLock, SyncCell};
 
 // Linker symbol (physical = virtual after identity map).
 unsafe extern "C" {
@@ -63,7 +62,7 @@ impl KernelHeap {
     /// # Safety
     /// The heap must be initialised and the region mapped writable. Only one
     /// such slice may exist at a time — guaranteed by every caller running
-    /// inside `cpu::without_irqs`.
+    /// inside `HEAP_LOCK.with`.
     unsafe fn arena(&mut self) -> &mut [u8] {
         // SAFETY: `base` and `len` describe the mapped heap region, and taking
         // `&mut self` is what makes the "one slice at a time" half of the
@@ -76,11 +75,11 @@ impl KernelHeap {
 
 /// The single kernel heap.
 ///
-/// Accessed from the main loop and, once M3 arrives, from IRQ context. Every
-/// accessor takes the critical section rather than assuming single-core
-/// exclusivity, because an allocator interrupted mid-splice corrupts its own
-/// free list and the damage surfaces arbitrarily later.
+/// Every accessor takes IRQ mask + spinlock (ADR-0077): an allocator interrupted
+/// mid-splice or raced from a second core corrupts its free list, and the
+/// damage surfaces arbitrarily later.
 static HEAP: SyncCell<KernelHeap> = SyncCell::new(KernelHeap::uninitialised());
+static HEAP_LOCK: IrqSpinLock = IrqSpinLock::new();
 
 /// Initialise the kernel heap from `__heap_start` up to `end` (exclusive).
 ///
@@ -96,7 +95,7 @@ pub unsafe fn init_heap(end: usize) -> bool {
         return false;
     }
 
-    cpu::without_irqs(|| {
+    HEAP_LOCK.with(|| {
         // SAFETY: the caller established that this region is mapped writable
         // and that no other accessor exists yet.
         unsafe {
@@ -109,16 +108,15 @@ pub unsafe fn init_heap(end: usize) -> bool {
     })
 }
 
-/// Run `f` against the heap with interrupts masked.
+/// Run `f` against the heap under IRQ mask + spinlock (ADR-0077).
 ///
 /// `f` receives the arena base as well, so callers that need to turn an offset
 /// into a pointer can do it inside the same critical section instead of taking
 /// a second one — two sections in a row read as a protection the code does not
 /// actually provide.
 fn with_heap<R>(f: impl FnOnce(&mut FreeList, &mut [u8], usize) -> R) -> Option<R> {
-    cpu::without_irqs(|| {
-        // SAFETY: interrupts are masked and this is the only accessor path, so
-        // no second `&mut` to the heap or its arena can exist.
+    HEAP_LOCK.with(|| {
+        // SAFETY: exclusivity from HEAP_LOCK; only accessor path to the list.
         unsafe {
             let heap = &mut *HEAP.get();
             let mut list = heap.list?;
@@ -191,7 +189,7 @@ pub unsafe fn dealloc(ptr: *mut u8) {
 /// Adapter making the kernel heap the Rust global allocator.
 struct KernelAllocator;
 
-// SAFETY: `alloc`/`dealloc` serialise on the interrupt-masked critical section
+// SAFETY: `alloc`/`dealloc` serialise on IRQ mask + heap spinlock (ADR-0077)
 // and hand out non-overlapping regions of the mapped heap.
 unsafe impl GlobalAlloc for KernelAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {

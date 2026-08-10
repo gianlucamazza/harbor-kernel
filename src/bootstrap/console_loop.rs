@@ -54,14 +54,17 @@ pub fn heap_check(uart: &mut Pl011) {
     }
 
     let after = mm::heap_remaining();
+    // Under SMP (ADR-0077) another core may free while we held allocations, so
+    // free_bytes can rise. "LEAKED" means *we* lost memory (after < before).
+    // Equality or growth both mean our Box/Vec reclaimed.
+    let reclaim = if after < before {
+        "LEAKED"
+    } else {
+        "fully reclaimed"
+    };
     println!(
         uart,
-        "heap: {after} bytes free after drop ({}), {} fragments",
-        if after == before {
-            "fully reclaimed"
-        } else {
-            "LEAKED"
-        },
+        "heap: {after} bytes free after drop ({reclaim}), {} fragments",
         mm::heap_fragments()
     );
 
