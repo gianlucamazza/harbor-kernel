@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn unknown_class_says_so_rather_than_guessing() {
-        let f = describe(0x2c << 26 | 0);
+        let f = describe(0x2c << 26);
         assert_eq!(f.class, "floating-point exception");
         let f = describe(0x1f << 26);
         assert_eq!(f.class, "unrecognised exception class");

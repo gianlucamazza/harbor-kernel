@@ -79,7 +79,10 @@ impl TaskStack {
         };
         validate_guarded_stack(&geometry).map_err(StackError::Layout)?;
 
-        // mmu::unmap serialises under MAP_LOCK (ADR-0077 / F-R1-P1).
+        // SAFETY: the range is this allocation's own first page, validated by
+        // `validate_guarded_stack` above and not yet handed to any task, so no
+        // live SP points into it. `mmu::unmap` serialises under MAP_LOCK
+        // (ADR-0077 / F-R1-P1).
         let unmap_err = unsafe { mmu::unmap(geometry.guard.0, PAGE_SIZE) };
         if let Err(error) = unmap_err {
             // Remap is not needed — still fully mapped. Return the pages.
@@ -149,6 +152,9 @@ impl TaskStack {
                 perms: Perms::RW,
                 name: "task stack guard restore",
             };
+            // SAFETY: restores the mapping this stack itself removed, over the
+            // guard page of an allocation the caller guarantees is dead (see
+            // the fn contract). The physical pages never left the allocation.
             let remapped = unsafe { mmu::map(&region) };
 
             if remapped.is_err() {

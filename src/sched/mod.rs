@@ -181,12 +181,10 @@ static STARTED: AtomicUsize = AtomicUsize::new(0);
 static SCHED_LOCK: IrqSpinLock = IrqSpinLock::new();
 
 /// Primary has reserved CPU1 idle; secondary may enter the schedule loop.
-static CPU1_ONLINE: core::sync::atomic::AtomicBool =
-    core::sync::atomic::AtomicBool::new(false);
+static CPU1_ONLINE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 /// Oracle: a pinned CPU1 worker ran (printed by primary — no TX from core1).
-static CORE1_RAN: core::sync::atomic::AtomicBool =
-    core::sync::atomic::AtomicBool::new(false);
+static CORE1_RAN: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 #[inline]
 fn sched_lock() {
@@ -610,7 +608,9 @@ pub fn my_cap_slot(slot: usize) -> Result<CapId, SlotError> {
     with_sched(|sched| {
         // A corrupted row index is a refusal rather than a panic in a syscall
         // — the table answers an out-of-range row as a row with no slots.
-        sched.caps.get(sched.tasks.current_on(this_cpu()).slot(), slot)
+        sched
+            .caps
+            .get(sched.tasks.current_on(this_cpu()).slot(), slot)
     })
 }
 
@@ -632,7 +632,9 @@ pub fn current_el0_session() -> *mut El0Session {
 /// True if the current task holds `cap` in its local table.
 pub fn current_holds(cap: CapId) -> bool {
     with_sched(|sched| {
-        sched.caps.holds(sched.tasks.current_on(this_cpu()).slot(), cap)
+        sched
+            .caps
+            .holds(sched.tasks.current_on(this_cpu()).slot(), cap)
     })
 }
 
@@ -961,16 +963,12 @@ pub fn pending_overwrites() -> u32 {
 /// Includes intentional waiters such as the console server. Observability only
 /// — nothing reclaims them.
 pub fn blocked_count() -> u32 {
-    with_sched(|sched| {
-        sched.tasks.blocked_count()
-    })
+    with_sched(|sched| sched.tasks.blocked_count())
 }
 
 /// Cumulative successful entries into `Blocked` since boot (ADR-0024).
 pub fn block_events() -> u32 {
-    with_sched(|sched| {
-        sched.tasks.block_events()
-    })
+    with_sched(|sched| sched.tasks.block_events())
 }
 
 /// Successful supervisor cancels of a blocked wait (ADR-0025).
@@ -1040,9 +1038,7 @@ static REAP_EVENTS: AtomicU32 = AtomicU32::new(0);
 
 /// Observe a task's lifecycle state (creator/supervisor path, ADR-0033).
 pub fn task_state(id: TaskId) -> Option<kernel_core::tasks::State> {
-    with_sched(|sched| {
-        sched.tasks.state(id)
-    })
+    with_sched(|sched| sched.tasks.state(id))
 }
 
 /// Reap a **blocked** non-idle task: cancel its wait so it can exit (ADR-0033).
@@ -1084,8 +1080,9 @@ pub fn wake_drops() -> u32 {
 #[derive(Clone, Copy)]
 pub struct StackReport {
     pub id: TaskId,
-    /// Unmapped guard page, `[low, high)`.
-    pub guard: (u64, u64),
+    /// Unmapped guard page, `[low, high)` — `None` for a Mini stack, which
+    /// buys its density by having no guard at all (ADR-0086).
+    pub guard: Option<(u64, u64)>,
     /// Usable stack, `[low, high)`.
     pub stack: (u64, u64),
 }
@@ -1095,7 +1092,7 @@ impl StackReport {
     pub const fn empty() -> Self {
         Self {
             id: Tasks::<MAX_TASKS>::IDLE,
-            guard: (0, 0),
+            guard: None,
             stack: (0, 0),
         }
     }
@@ -1256,8 +1253,10 @@ fn switch_with(kind: Switch) {
         }
     }
 
-    // SAFETY: IRQs still masked; re-take lock for context pointers.
+    // IRQs still masked; re-take the lock for the context pointers.
     sched_lock();
+    // SAFETY: IRQs are masked and the lock above is held, so this is the only
+    // reference to `SCHED` on any core for the length of this section.
     let sched = unsafe { &mut *SCHED.get() };
 
     if let Some(stranded) = release {

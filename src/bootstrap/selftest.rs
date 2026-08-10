@@ -222,14 +222,25 @@ pub fn guard_probe_task() {
     );
     for report in &map[..count] {
         let tag = if report.id == me { "self" } else { "peer" };
-        crate::kprintln!(
-            "PROBE: {tag} task {} guard {:#x}..{:#x} stack {:#x}..{:#x}",
-            report.id.slot(),
-            report.guard.0,
-            report.guard.1,
-            report.stack.0,
-            report.stack.1
-        );
+        // A Mini stack has no guard (ADR-0086). Printing `0x0..0x0` for it would
+        // read as a range the captured `FAR` could be compared against, so the
+        // absence is stated instead.
+        match report.guard {
+            Some((low, high)) => crate::kprintln!(
+                "PROBE: {tag} task {} guard {:#x}..{:#x} stack {:#x}..{:#x}",
+                report.id.slot(),
+                low,
+                high,
+                report.stack.0,
+                report.stack.1
+            ),
+            None => crate::kprintln!(
+                "PROBE: {tag} task {} guard none (mini) stack {:#x}..{:#x}",
+                report.id.slot(),
+                report.stack.0,
+                report.stack.1
+            ),
+        }
     }
     crate::kprintln!("PROBE: recursing until the guard faults");
 

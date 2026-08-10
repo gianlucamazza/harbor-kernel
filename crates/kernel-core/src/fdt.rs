@@ -460,7 +460,7 @@ mod tests {
         body.extend_from_slice(&FDT_BEGIN_NODE.to_be_bytes());
         body.extend_from_slice(name.as_bytes());
         body.push(0);
-        while body.len() % 4 != 0 {
+        while !body.len().is_multiple_of(4) {
             body.push(0);
         }
     }
@@ -474,7 +474,7 @@ mod tests {
         body.extend_from_slice(&(value.len() as u32).to_be_bytes());
         body.extend_from_slice(&name_off.to_be_bytes());
         body.extend_from_slice(value);
-        while body.len() % 4 != 0 {
+        while !body.len().is_multiple_of(4) {
             body.push(0);
         }
     }

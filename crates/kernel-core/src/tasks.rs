@@ -143,9 +143,10 @@ impl<const N: usize> Tasks<N> {
         if self.idle[1] != Self::IDLE {
             return Some(self.idle[1]);
         }
-        let slot = self.states.iter().enumerate().position(|(i, s)| {
-            *s == State::Empty && self.parked.is_none_or(|p| p.slot() != i)
-        })?;
+        let slot =
+            self.states.iter().enumerate().position(|(i, s)| {
+                *s == State::Empty && self.parked.is_none_or(|p| p.slot() != i)
+            })?;
         let id = TaskId::new(slot as u16, self.epochs[slot]);
         self.states[slot] = State::Running;
         self.home[slot] = 1;
@@ -175,9 +176,7 @@ impl<const N: usize> Tasks<N> {
     /// Sticky home of a live id, if any.
     #[inline]
     pub fn home_of(&self, id: TaskId) -> Option<u8> {
-        if self.state(id).is_none() {
-            return None;
-        }
+        self.state(id)?;
         Some(self.home[id.slot()])
     }
 

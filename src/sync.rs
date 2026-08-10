@@ -83,27 +83,26 @@ impl IrqSpinLock {
     }
 
     /// Run `f` under IRQ mask + exclusive spin.
+    ///
+    /// Built on [`cpu::without_irqs`] rather than a hand-rolled
+    /// `irq_save`/`irq_restore` pair: the mask sequence keeps exactly one
+    /// definition (`arch::cpu`), and the region stays visible to the
+    /// `irq-scope` gate's scope walker, which only opens `without_irqs(`.
     #[inline]
     pub fn with<R>(&self, f: impl FnOnce() -> R) -> R {
-        let daif = cpu::irq_save();
-        while self
-            .locked
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            core::hint::spin_loop();
-        }
-        let r = f();
-        self.locked.store(false, Ordering::Release);
-        // SAFETY: closes the section opened above.
-        unsafe { cpu::irq_restore(daif) };
-        r
+        cpu::without_irqs(|| {
+            self.lock_already_masked();
+            let r = f();
+            self.unlock_already_masked();
+            r
+        })
     }
 
     /// Acquire without restoring IRQs — caller already masked and will restore.
     ///
-    /// Used by the scheduler switch path, which must keep IRQs masked across
-    /// `context_switch` while releasing the lock before the stack swap.
+    /// Used by [`Self::with`] inside its mask, and by the scheduler switch
+    /// path, which must keep IRQs masked across `context_switch` while
+    /// releasing the lock before the stack swap.
     #[inline]
     pub fn lock_already_masked(&self) {
         while self
