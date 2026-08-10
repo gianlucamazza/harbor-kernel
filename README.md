@@ -98,18 +98,19 @@ Snapshot, 2026-08-10 — status of record is [`docs/roadmap.md`](docs/roadmap.md
 | **Not yet (later)** | P3–P4 · H3 L1+, …                                                                                                                                                                 |
 
 **What works today (short list):** preemptible tasks (voluntary yield +
-IRQ-epilogue quantum preemption, EL0+EL1); dual-current SMP first depth
-(`smp: core1 alive` / `ipi` / `ran` on HW); message IPC; EL0 agents
-with private memory; least-privilege console; PL011 driver-agent; product
-composition via injected store (beacon + chirp); EL1+EL0 IRQ wait; last-SEND-hold
-auto-reap (ephemeral channels); channel revoke (stale CapId refused).
+IRQ-epilogue quantum preemption, EL0+EL1 on both cores); dual-current SMP
+through steal (`smp: core1 alive` / `ipi` / `ran` / `steal ok` on HW); message
+IPC; EL0 agents with private memory and per-CPU publish; least-privilege
+console; PL011 driver-agent; product composition via injected store; density
+stack classes Full / Thin / **Mini** (`density: mini n=` on HW); EL1+EL0 IRQ
+wait; last-SEND-hold auto-reap; channel revoke (stale CapId refused).
 
 | Area         | State                                                                                                                                                                                      |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Platform     | AArch64 Pi 4B (quad-core; dual-current schedule, product home CPU 0), early MMU, W^X, heap, guarded stacks                                                                                 |
-| Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068; CPU1 EL1+EL0 **done (HW)** ADR-0079/0081); K8 through steal **done (HW)** ADR-0070…0083; product default home still CPU 0 |
+| Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068; CPU1 EL1+EL0 **done (HW)**); K8 through steal **done (HW)**; K5-S Mini **done (HW)**; product default home still CPU 0 |
 | Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade                                     |
-| Product OS   | Multi-agent store composition (QEMU); broader services **open**                                                                                                                            |
+| Product OS   | Multi-agent store composition (QEMU); broader services **open** (P3/P4 deferred)                                                                                                           |
 | Verification | 463 host tests, model checks, Miri, QEMU and hardware stamps                                                                                                                               |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).

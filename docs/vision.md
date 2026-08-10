@@ -167,19 +167,18 @@ product store (**P1**); on-target keyed blobs (**P2**,
 **H1 entry + first-slice depth are paid (HW)** (composition bar, lifecycle
 residuals, **K5** thin stacks, **P2** durable + SD power-cycle, **K4** budget +
 EL0/EL1 preemption). Still open: network (**P3**) and product display (**P4**)
-**only when a composition needs them** (deferred without a target); **K5**
-residuals under [ADR-0085](adr/0085-k5-density-residual-design.md) (**K5-S** Mini
-code next; **K5-H/B** later). Working order:
-[roadmap § H1 working order](roadmap.md#next-working-order-post-h1-hw-stamp).
+**only when a composition needs them** (deferred without a target). Working
+order: [roadmap § next working order](roadmap.md#next-working-order-post-h1-hw-stamp).
 
 ### H2 — Boundary operating system
 
-Remaining **K** and **P** for full boundary-OS depth: **K5-S** Mini code then
-optional **K5-H/B** ([ADR-0085](adr/0085-k5-density-residual-design.md));
-**K7-T** TTBR1 only if [ADR-0084](adr/0084-k7-residual-policy.md) triggers;
-optional **K7-M** lab and **K8** agent+TLB steal; deferred **P3**/**P4**.
-**K4**, **K7** ASID first, **K8** through steal, and F-R1-P1 shared-state are
-closed on HW. Resolve-grant is done (HW)
+**Closed on HW:** **K4** preemption, **K7** ASID first, **K8** through steal,
+F-R1-P1 shared-state, **K5-S** Mini stacks
+([ADR-0086](adr/0086-k5-mini-stack-first-slice.md)). Remaining depth is
+trigger-gated or product-target: optional **K5-H/B**
+([ADR-0085](adr/0085-k5-density-residual-design.md)), **K7-T** TTBR1 only if
+[ADR-0084](adr/0084-k7-residual-policy.md) triggers, optional **K7-M** lab and
+**K8** agent+TLB steal, deferred **P3**/**P4**. Resolve-grant is done (HW)
 ([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this model —
 still not Linux.
 

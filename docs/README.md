@@ -117,9 +117,9 @@ Do **not** treat this block as a second status table — it only steers readers.
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **H0 foundation**    | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                                                                                  |
 | **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                                                                                      |
-| **H1 next**          | P3\|P4 if composition · K5 driver-half residual                                                                                                                                 |
-| **H2**               | K4 EL0+EL1 done (HW); K7 first done (HW); K8 unpark+IPI+queues first **done (HW)** (ADR-0070/0074/0076/0077, stamp 2026-08-10); residual steal·preempt·EL0-CPU1 · K7 TTBR1 · K5 |
-| **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020; lab x86 intent [ADR-0067](adr/0067-host-lab-second-isa-intent.md)                         |
+| **H1 next**          | P3\|P4 only with a composition target (deferred)                                                                                                                                |
+| **H2**               | K4 + K7-ASID first + K8 through steal + F-R1-P1 + **K5-S** Mini **done (HW)** (stamps 2026-08-09…10); residual K5-H/B · K7-T if trigger · agent+TLB if product needs it         |
+| **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020; lab x86 L0 done (QEMU-x86) [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)              |
 
 ## Decision records and reviews
 

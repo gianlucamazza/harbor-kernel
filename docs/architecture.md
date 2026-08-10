@@ -302,7 +302,8 @@ Code is authoritative; this table is the map.
 
 | Bound | Value (today) | Owns | Note |
 | --- | ---: | --- | --- |
-| `sched::MAX_TASKS` | **52** | `src/sched/mod.rs` | Includes dual idle + oracle census; product image uses far fewer |
+| `sched::MAX_TASKS` | **52** | `src/sched/mod.rs` | Includes dual idle + oracle census; product image uses far fewer; **do not raise for density** (ADR-0085) |
+| Stack classes | Full 20 KiB · Thin 8 KiB · Mini 4 KiB heap | `kernel_core::density` | Mini = one page, no unmapped guard (ADR-0086) |
 | Caps per task | **4** | `sched` / manifest | Slot ABI width |
 | Task-caps (system) | **32** | `kernel_core::taskcap` | Deliberately &lt; `MAX_TASKS` |
 | Agent store entries | **8** | `kernel_core::agentstore` | Composition scale ≠ scheduler scale |
@@ -366,7 +367,7 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | **H1 next**                  | P3\|P4 only with composition (deferred)                                                                                                                            |
 | **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1+K5-S done (HW); K7 residual ADR-0084; K5-H/B later (0085)                                                                                     |
 | **open (kernel)**            | K5-H/B if trigger (0085); K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                                                                          |
-| **open (product)**           | P3/P4 deferred (ADR-0049); denser composition after K5-S                                                                                                            |
+| **open (product)**           | P3/P4 deferred (ADR-0049); product evidence hygiene; denser composition (K5-H if slots bind)                                                                        |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
 K/P tables here. Horizon mapping and working order also live in `roadmap.md`.

@@ -16,12 +16,11 @@ slice (thin stacks) is already **done (HW)**
 ([ADR-0044](0044-k5-agent-density.md)). What remained was an undifferentiated
 residual (“driver-half collapse”) that mixed a small stack refinement, a
 medium multiplex redesign, and a large pair rewrite. This ADR **splits and
-governs** those residuals and names the **first code slice** (follow-on ADR
-~0086, not written yet).
+governs** those residuals and named the **first code slice**
+([ADR-0086](0086-k5-mini-stack-first-slice.md) — **done (HW)** 2026-08-10).
 
-This document does **not** implement Mini stacks, shared drivers, or
-session-as-schedulable. It is the standing policy until a follow-on code ADR
-lands under §4.
+This document does **not** implement shared drivers or session-as-schedulable
+(**K5-H/B** remain deferred under §1–§3).
 
 ## Context
 
@@ -33,7 +32,7 @@ lands under §4.
 | `MAX_TASKS` | **52** (oracle census tax; not a density design) |
 | Cost axes | **Slot** (one task per agent) · **heap stack** · **AS frames** (option C clone — [ADR-0084](0084-k7-residual-policy.md) K7-T if *map* density) |
 | Preemption / SMP / EL0-on-CPU1 / steal | **done (HW)**; agents non-stealeable without TLB IPI |
-| Roadmap next | “K5 driver-half” without residual IDs |
+| Roadmap next (at acceptance) | “K5 driver-half” without residual IDs — superseded in prose by K5-S/H/B after this ADR; **K5-S** later **done (HW)** [ADR-0086](0086-k5-mini-stack-first-slice.md) |
 
 Thin stacks fix **heap per worker**. They do **not** remove one slot per
 agent, nor the synchronous driver loop cost named in ADR-0023. Raising
