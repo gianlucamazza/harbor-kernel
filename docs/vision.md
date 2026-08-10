@@ -17,7 +17,7 @@ all.
 
 That is a **goal**, not a claim that the product is finished today.
 
-Harbor is not a small Linux. The system *is* isolated agents, talking only over
+Harbor is not a small Linux. The system _is_ isolated agents, talking only over
 controlled channels, authorized only by explicit grants. The name means a
 protected place for bounded components
 ([ADR-0007](adr/0007-project-identity-harbor-kernel.md)).
@@ -25,14 +25,14 @@ protected place for bounded components
 **“Agent” is not an LLM runtime.** It is the isolation unit (today: an EL1
 driver task plus an EL0 program —
 [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)). Hosting
-tool-limited software inside an agent is a future *use* of that unit.
+tool-limited software inside an agent is a future _use_ of that unit.
 
-| This document | Elsewhere |
-| --- | --- |
-| Product shape, horizons, use cases | — |
+| This document                             | Elsewhere                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------------------ |
+| Product shape, horizons, use cases        | —                                                                              |
 | Completeness **policy** and K/P **table** | [ADR-0026](adr/0026-kernel-and-product-completeness.md), [roadmap](roadmap.md) |
-| What is done on silicon | [architecture](architecture.md), [verification](verification.md) |
-| Threat model | [`SECURITY.md`](../SECURITY.md) |
+| What is done on silicon                   | [architecture](architecture.md), [verification](verification.md)               |
+| Threat model                              | [`SECURITY.md`](../SECURITY.md)                                                |
 
 Dropping completeness as the project goal needs a successor to ADR-0026.
 Horizon narrative may change without an ADR; structural boundaries become
@@ -42,12 +42,12 @@ design ADRs.
 
 ## Who this is for
 
-| Written for | What they get |
-| --- | --- |
-| Systems contributors on bare metal | A small AArch64 kernel where every boundary has a gate and an ADR behind it |
-| Capability / isolation researchers | A working slot-indexed authority model on real silicon, with the residuals named ([`SECURITY.md`](../SECURITY.md)) |
-| Anyone building a composable appliance on a Pi 4 | Agents + a grant graph instead of a distro to strip down |
-| Anyone evaluating the project | Status that distinguishes `done (QEMU)` from `done (HW)`, and open work called open |
+| Written for                                      | What they get                                                                                                      |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Systems contributors on bare metal               | A small AArch64 kernel where every boundary has a gate and an ADR behind it                                        |
+| Capability / isolation researchers               | A working slot-indexed authority model on real silicon, with the residuals named ([`SECURITY.md`](../SECURITY.md)) |
+| Anyone building a composable appliance on a Pi 4 | Agents + a grant graph instead of a distro to strip down                                                           |
+| Anyone evaluating the project                    | Status that distinguishes `done (QEMU)` from `done (HW)`, and open work called open                                |
 
 **Not written for** people who want Linux/POSIX or a distro, a cloud
 hypervisor, or an LLM/agent chat framework. A board other than the Raspberry
@@ -62,28 +62,28 @@ If a word here does not mean what you expect — **agent** most of all — start
 
 ## In one page
 
-| | |
-| --- | --- |
-| **Shape** | Small kernel TCB · agents (app/driver/service) · compositions (manifest / grant graph) |
-| **Invariants** | No ambient authority · messages as boundary · enumerable grants · evidence ≠ compile |
-| **H0 (today)** | Foundation complete on Pi 4B; kernel/product **not yet** complete |
-| **H1** | Appliance / composition OS (early K + multi-agent product) |
-| **H2** | Full boundary OS (remaining K/P: preemption, network, naming, tooling, …) |
+|                     |                                                                                                                                                                               |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Shape**           | Small kernel TCB · agents (app/driver/service) · compositions (manifest / grant graph)                                                                                        |
+| **Invariants**      | No ambient authority · messages as boundary · enumerable grants · evidence ≠ compile                                                                                          |
+| **H0 (today)**      | Foundation complete on Pi 4B; kernel/product **not yet** complete                                                                                                             |
+| **H1**              | Appliance / composition OS (early K + multi-agent product)                                                                                                                    |
+| **H2**              | Full boundary OS (remaining K/P: preemption, network, naming, tooling, …)                                                                                                     |
 | **H3 (north star)** | Host-class **native** Harbor — usable in place of the previous OS for a named workload ([ADR-0069](adr/0069-harbor-host-class-north-star.md)); not a claim of readiness today |
-| **Roadmap** | [K and P tracks](roadmap.md) |
+| **Roadmap**         | [K and P tracks](roadmap.md)                                                                                                                                                  |
 
 ---
 
 ## Invariants that survive into an OS
 
-| Invariant | Implication |
-| --- | --- |
-| No ambient authority | Software owns only the slots it was given |
-| Messages as the logical boundary | No ambient shared-heap API between agents |
-| Agent as uniform isolation unit | Apps, drivers, and services differ by **grants**, not by kind |
-| Creator / supervisor decides fate | Fault and kill are policy, not silent kernel magic |
-| Authority is enumerable | Audit reads a grant table |
-| Evidence ≠ compile | Boundaries stay claims with gates |
+| Invariant                         | Implication                                                   |
+| --------------------------------- | ------------------------------------------------------------- |
+| No ambient authority              | Software owns only the slots it was given                     |
+| Messages as the logical boundary  | No ambient shared-heap API between agents                     |
+| Agent as uniform isolation unit   | Apps, drivers, and services differ by **grants**, not by kind |
+| Creator / supervisor decides fate | Fault and kill are policy, not silent kernel magic            |
+| Authority is enumerable           | Audit reads a grant table                                     |
+| Evidence ≠ compile                | Boundaries stay claims with gates                             |
 
 Open work that realises these at scale (design ADR before code where needed):
 **peer** cap transfer depth residuals, **K5** driver-half collapse residual
@@ -147,12 +147,12 @@ early device/supervisor story, and enough authority lifecycle that compositions
 are not reboot-scoped demos. Storage/net/display land as **agents** when a
 concrete composition needs them — not as ambient kernel features.
 
-| Use case | Why the shape fits |
-| --- | --- |
-| Modular robot / industrial stacks | Sensor, control, logging as separate agents |
-| Least-privilege edge gateways | Only the net agent holds the NIC (when it exists) |
-| Sealed composition firmware | Kernel + grant table; update one agent without every device |
-| Third-party sandbox on-device | They supply text; you supply grants |
+| Use case                          | Why the shape fits                                          |
+| --------------------------------- | ----------------------------------------------------------- |
+| Modular robot / industrial stacks | Sensor, control, logging as separate agents                 |
+| Least-privilege edge gateways     | Only the net agent holds the NIC (when it exists)           |
+| Sealed composition firmware       | Kernel + grant table; update one agent without every device |
+| Third-party sandbox on-device     | They supply text; you supply grants                         |
 
 **Paid (first slices, QEMU):** external load (**K6**,
 [ADR-0027](adr/0027-h1-external-agent-store.md) +
@@ -183,15 +183,15 @@ transfer depth residuals ([ADR-0053](adr/0053-k3-peer-transfer-design.md)), and
 remaining product-path depth. **K4** IRQ preemption is closed on HW
 ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md);
 design [ADR-0051](adr/0051-k4-irq-preemption-design.md)). Resolve-grant is done
-QEMU ([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this model
+(HW) ([ADR-0052](adr/0052-p5-resolve-grant.md); Pi stamp 2026-08-09). Full OS sense under this model
 — still not Linux.
 
-| Traditional OS | Harbor (vision) |
-| --- | --- |
-| Process + ambient files/sockets | Agent + slots; nothing exists until passed |
-| In-kernel or half-trusted drivers | Driver-agents with named maps |
-| Coarse install permissions | Authority *is* the grant row / graph |
-| Huge compatibility ABI | Small versioned surface |
+| Traditional OS                    | Harbor (vision)                            |
+| --------------------------------- | ------------------------------------------ |
+| Process + ambient files/sockets   | Agent + slots; nothing exists until passed |
+| In-kernel or half-trusted drivers | Driver-agents with named maps              |
+| Coarse install permissions        | Authority _is_ the grant row / graph       |
+| Huge compatibility ABI            | Small versioned surface                    |
 
 **Use cases:** multi-app capability-first devices; grant-graph distribution;
 supervised long-lived systems; tool-limited autonomous workers; least-privilege
@@ -211,13 +211,13 @@ until a successor expands it. H0–H2 still prove and complete the model.
 
 Path (maturity levels in ADR-0069):
 
-| Level | Sketch |
-| ----- | ------ |
-| **L0** | Lab x86 guest under QEMU ([ADR-0067](adr/0067-host-lab-second-isa-intent.md)) |
-| **L1** | Bare-metal laptop bring-up (console-class) |
-| **L2** | Self-host tools on Harbor |
-| **L3** | Daily slice — named workload without rebooting to Linux for that work |
-| **L4** | Primary OS for the declared life-slice; Linux optional recovery only |
+| Level  | Sketch                                                                        |
+| ------ | ----------------------------------------------------------------------------- |
+| **L0** | Lab x86 guest under QEMU — **done (QEMU-x86)** ([ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md); intent [ADR-0067](adr/0067-host-lab-second-isa-intent.md)) |
+| **L1** | Bare-metal laptop bring-up (console-class)                                    |
+| **L2** | Self-host tools on Harbor                                                     |
+| **L3** | Daily slice — named workload without rebooting to Linux for that work         |
+| **L4** | Primary OS for the declared life-slice; Linux optional recovery only          |
 
 Lab QEMU and multi-arch practices are **steps**, not the ceiling. Replacement
 means Harbor underneath, not Linux ABI compatibility.
@@ -226,11 +226,11 @@ means Harbor underneath, not Linux ABI compatibility.
 
 ## What this vision refuses
 
-- Linux/POSIX parity as a goal (including “run unmodified Linux apps” as the path to daily use)  
-- Multi-tenant cloud hypervisor (unless a future ADR owns it)  
-- Being an AI agent framework (may *host* workers; is not a chat SDK)  
-- Microkernel fashion without the confinement story  
-- Claiming host-class primary OS readiness before L3 evidence ([ADR-0069](adr/0069-harbor-host-class-north-star.md))  
+- Linux/POSIX parity as a goal (including “run unmodified Linux apps” as the path to daily use)
+- Multi-tenant cloud hypervisor (unless a future ADR owns it)
+- Being an AI agent framework (may _host_ workers; is not a chat SDK)
+- Microkernel fashion without the confinement story
+- Claiming host-class primary OS readiness before L3 evidence ([ADR-0069](adr/0069-harbor-host-class-north-star.md))
 
 ---
 

@@ -12,7 +12,7 @@ related: [0002, 0007, 0015, 0026, 0065]
 
 ## Acceptance status
 
-**Accepted as design intent** (2026-08-09). Records *why* and *what* a second
+**Accepted as design intent** (2026-08-09). Records _why_ and _what_ a second
 ISA is for Harbor, and what it is not. **No `src/arch/x86_64/` (or board
 package) lands under this ADR alone** — implementation follows
 [`porting.md`](../porting.md) only when a boot gate exists.
@@ -23,21 +23,21 @@ make Harbor multi-product.
 
 ## Context
 
-Harbor is multi-arch *ready* ([ADR-0015](0015-multi-arch-scaffold.md)):
+Harbor is multi-arch _ready_ ([ADR-0015](0015-multi-arch-scaffold.md)):
 `crate::arch` is `target_arch`-selected, boards are `board-*` features, and
 policy must not import ISA or board paths. The product combo is still only
 AArch64 + `board-rpi4`.
 
-“Host” in the tree today means three *other* things:
+“Host” in the tree today means three _other_ things:
 
-| Surface | Meaning today |
-| --- | --- |
-| Host tests | `kernel-core` on `x86_64-unknown-linux-gnu` — pure logic, no kernel image |
-| `scripts/host/` | Lab tooling (SD, serial, mutants) on the development machine |
-| QEMU CI/lab | Guest still AArch64 (`raspi4b`), not an x86 kernel |
+| Surface         | Meaning today                                                             |
+| --------------- | ------------------------------------------------------------------------- |
+| Host tests      | `kernel-core` on `x86_64-unknown-linux-gnu` — pure logic, no kernel image |
+| `scripts/host/` | Lab tooling (SD, serial, mutants) on the development machine              |
+| QEMU CI/lab     | Guest still AArch64 (`raspi4b`), not an x86 kernel                        |
 
 None of those is “Harbor boots on the laptop.” Supporting the lab laptop as a
-**runner for a second guest ISA** is a new product *path*, not an extension of
+**runner for a second guest ISA** is a new product _path_, not an extension of
 host tests. Without an intent ADR, the tree either grows empty stubs (forbidden
 by ADR-0015 / porting) or renames AArch64-shaped APIs “in preparation” (also
 forbidden until a second consumer exists —
@@ -47,35 +47,35 @@ forbidden until a second consumer exists —
 
 ### 1. Mode: QEMU x86 bare guest (not bare-metal PC, not hosted process)
 
-| Choice | Detail |
-| --- | --- |
-| **Execution** | Harbor as a **bare-metal guest** under `qemu-system-x86_64` |
-| **Machine (intent)** | Prefer **q35**; `virt` is acceptable if it shortens the first slice |
+| Choice                 | Detail                                                                                                                                                                                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Execution**          | Harbor as a **bare-metal guest** under `qemu-system-x86_64`                                                                                                                                                                                                       |
+| **Machine (intent)**   | Prefer **q35**; `virt` is acceptable if it shortens the first slice                                                                                                                                                                                               |
 | **Boot path (intent)** | Prefer **QEMU `-kernel` freestanding ELF** + `-serial stdio` — no GRUB, no Linux EFI stub, no disk image bootloader chain ([native practices](../design/native-multiarch-practices.md) §0.2). Multiboot2 only if a later impl ADR needs it for memory-map handoff |
-| **ISA** | `x86_64` — new `src/arch/x86_64/` when implemented |
-| **Board** | New `board-*` (working name **`qemu-q35`**) — **compiled** memmap, COM1, IRQ line ids (no mandatory DT) |
-| **Host laptop role** | Runs the emulator only (e.g. Tiger Lake lab machine). It is **not** a Harbor BSP |
-| **Linux stack** | Guest and boot path are **Linux-free** (plane A/B). Dev host OS and QEMU runner are non-TCB (plane C) — see [native-multiarch-practices](../design/native-multiarch-practices.md) |
+| **ISA**                | `x86_64` — new `src/arch/x86_64/` when implemented                                                                                                                                                                                                                |
+| **Board**              | New `board-*` (working name **`qemu-q35`**) — **compiled** memmap, COM1, IRQ line ids (no mandatory DT)                                                                                                                                                           |
+| **Host laptop role**   | Runs the emulator only (e.g. Tiger Lake lab machine). It is **not** a Harbor BSP                                                                                                                                                                                  |
+| **Linux stack**        | Guest and boot path are **Linux-free** (plane A/B). Dev host OS and QEMU runner are non-TCB (plane C) — see [native-multiarch-practices](../design/native-multiarch-practices.md)                                                                                 |
 
 **Rejected for this intent (or separate ADR if ever wanted):**
 
-| Mode | Why not here |
-| --- | --- |
-| Bare-metal boot on the physical laptop | UEFI/ACPI/PCIe/GPU — wrong order of magnitude for validating agents/caps |
-| Hosted userspace kernel (process on Linux) | Different threat model and evidence claim; not a second ISA under ADR-0015 |
-| Second AArch64 board only | Does not exercise the multi-arch facade with a non-AArch64 consumer |
-| GRUB / Linux EFI stub / `vmlinuz`-shaped images | Couples lab boot to desktop Linux stack; fails independence bar |
-| In-tree Linux drivers or `linux/arch` clone | Wrong model, license surface, and dependency graph |
+| Mode                                            | Why not here                                                               |
+| ----------------------------------------------- | -------------------------------------------------------------------------- |
+| Bare-metal boot on the physical laptop          | UEFI/ACPI/PCIe/GPU — wrong order of magnitude for validating agents/caps   |
+| Hosted userspace kernel (process on Linux)      | Different threat model and evidence claim; not a second ISA under ADR-0015 |
+| Second AArch64 board only                       | Does not exercise the multi-arch facade with a non-AArch64 consumer        |
+| GRUB / Linux EFI stub / `vmlinuz`-shaped images | Couples lab boot to desktop Linux stack; fails independence bar            |
+| In-tree Linux drivers or `linux/arch` clone     | Wrong model, license surface, and dependency graph                         |
 
 ### 2. Identity: lab target secondary to Pi 4
 
-| Surface | Rule |
-| --- | --- |
-| Product board | Remains Pi 4B (ADR-0007). README/stack marketing stay Pi-first |
-| Lab target | x86_64 + QEMU board is **development / CI lab** when a boot gate exists |
-| Evidence label | Prefer **`done (QEMU-x86)`** (or equivalent) — never collapse into `done (HW)` Pi stamps |
-| Elevating to product combo | Requires a **successor** to this ADR and ADR-0007 — not implied by first boot |
-| Host-class north star | Lab QEMU is **L0** on the path to native Harbor on the laptop as primary OS ([ADR-0069](0069-harbor-host-class-north-star.md)); bare-metal laptop is out of *this* first slice, not out of the project |
+| Surface                    | Rule                                                                                                                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Product board              | Remains Pi 4B (ADR-0007). README/stack marketing stay Pi-first                                                                                                                                         |
+| Lab target                 | x86_64 + QEMU board is **development / CI lab** when a boot gate exists                                                                                                                                |
+| Evidence label             | Prefer **`done (QEMU-x86)`** (or equivalent) — never collapse into `done (HW)` Pi stamps                                                                                                               |
+| Elevating to product combo | Requires a **successor** to this ADR and ADR-0007 — not implied by first boot                                                                                                                          |
+| Host-class north star      | Lab QEMU is **L0** on the path to native Harbor on the laptop as primary OS ([ADR-0069](0069-harbor-host-class-north-star.md)); bare-metal laptop is out of _this_ first slice, not out of the project |
 
 ### 3. “Supported” means boot gate, not compile
 
@@ -104,12 +104,12 @@ APIC/IOAPIC or PIC, timer) — not GIC/PL011 reuse unless silicon matches.
 
 ### 5. Naming and Makefile (when code lands)
 
-| Item | Intent name (may refine in implementation ADR) |
-| --- | --- |
-| `ARCH` | `x86_64` |
-| Cargo target | `x86_64-unknown-none` (or project-chosen equivalent with softfloat/SIMD policy settled) |
-| `BOARD` / feature | `qemu-q35` / `board-qemu-q35` |
-| Image | Not `kernel8.img` — that name is Pi firmware-specific (ADR-0007) |
+| Item              | Intent name (may refine in implementation ADR)                                          |
+| ----------------- | --------------------------------------------------------------------------------------- |
+| `ARCH`            | `x86_64`                                                                                |
+| Cargo target      | `x86_64-unknown-none` (or project-chosen equivalent with softfloat/SIMD policy settled) |
+| `BOARD` / feature | `qemu-q35` / `board-qemu-q35`                                                           |
+| Image             | Not `kernel8.img` — that name is Pi firmware-specific (ADR-0007)                        |
 
 AArch64-shaped facade names (`el0`, `switch_ttbr0`, …) stay until the second
 consumer **forces** alias or rename — no prep rename commit.
@@ -133,13 +133,13 @@ stay Pi-only unless a named composition needs them on the lab target.
 ### 7. Explicit non-goals of this intent
 
 - Claiming multi-arch product support in the public README
-- SMP on the lab target (K8 remains Pi track — design [ADR-0048](0048-k8-smp-design.md); first unpark slice [ADR-0070](0070-k8-smp-first-slice.md) is QEMU on Pi target, not this lab ISA)
+- SMP on the lab target (K8 remains Pi track — design [ADR-0048](0048-k8-smp-design.md); first unpark slice [ADR-0070](0070-k8-smp-first-slice.md) is on the Pi target, not this lab ISA)
 - Network / durable storage / product display on the lab target (P3/P4/P2 media)
 - `dyn Arch` / runtime ISA switch
 - Softfloat/SIMD policy on x86 — **open**; either a follow-on ADR or an explicit
   “allow SSE in lab images” decision before the first binary lands
   ([ADR-0002](0002-softfloat-kernel.md) is AArch64 product history)
-- Reordering residual H2 Pi work (K8 HW stamp / per-core queue depth, K7 TTBR1/switch-cost) behind this lab port by default
+- Reordering residual H2 Pi work (K8 per-core queue depth, K7 TTBR1/switch-cost) behind this lab port by default
 
 ## Platform matrix and native practices
 
@@ -172,23 +172,23 @@ change to mode (QEMU x86 bare guest) or product identity (Pi 4B).
 
 ### Gates that catch reversal
 
-| Reversal | Gate |
-| --- | --- |
-| Empty `arch/x86_64` without boot-check | Review + this ADR; porting checklist |
-| Policy imports `arch::x86_64` / `bsp::qemu_q35` | `make layering` (once modules exist) |
-| Claiming `done (HW)` for QEMU-x86 | Evidence vocabulary in this ADR + verification discipline |
-| Marketing multi-arch without runner | README/stack ownership; ADR-0007 until successor |
-| Hosted process sold as this port | Explicit reject table above |
+| Reversal                                        | Gate                                                      |
+| ----------------------------------------------- | --------------------------------------------------------- |
+| Empty `arch/x86_64` without boot-check          | Review + this ADR; porting checklist                      |
+| Policy imports `arch::x86_64` / `bsp::qemu_q35` | `make layering` (once modules exist)                      |
+| Claiming `done (HW)` for QEMU-x86               | Evidence vocabulary in this ADR + verification discipline |
+| Marketing multi-arch without runner             | README/stack ownership; ADR-0007 until successor          |
+| Hosted process sold as this port                | Explicit reject table above                               |
 
 ## Alternatives rejected
 
-| Alternative | Why not |
-| --- | --- |
-| Compile-only x86 skeleton now | ADR-0015 / porting: bitrots, dilutes CI |
-| Hosted Linux process as “the” host support | Different architecture; separate ADR if wanted |
-| Bare-metal laptop as first slice | Scope explosion unrelated to agent/cap proof |
-| Rename EL0/TTBR everywhere first | Zero second consumer; churn without payoff |
-| Treat as K-track peer to K4/K8 | Lab path; must not silently steal Pi completeness order |
+| Alternative                                | Why not                                                 |
+| ------------------------------------------ | ------------------------------------------------------- |
+| Compile-only x86 skeleton now              | ADR-0015 / porting: bitrots, dilutes CI                 |
+| Hosted Linux process as “the” host support | Different architecture; separate ADR if wanted          |
+| Bare-metal laptop as first slice           | Scope explosion unrelated to agent/cap proof            |
+| Rename EL0/TTBR everywhere first           | Zero second consumer; churn without payoff              |
+| Treat as K-track peer to K4/K8             | Lab path; must not silently steal Pi completeness order |
 
 ## Related
 

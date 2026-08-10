@@ -114,9 +114,9 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 
 | Step | Track(s)                                             | Why now                                  |
 | ---- | ---------------------------------------------------- | ---------------------------------------- |
-| 1    | **H3 L0** QEMU x86 ([ADR-0067](adr/0067-host-lab-second-isa-intent.md)) | Dual-core gate paid; host-class path    |
-| 2    | **K7** switch-cost measurement / TTBR1 residual      | Lab when free                            |
-| —    | **K5** driver-half residual / K8 queue depth          | Density / multi-core sched               |
+| 1    | **K7** switch-cost measurement / TTBR1 residual      | Lab when free                            |
+| 2    | **K5** driver-half residual / K8 queue depth          | Density / multi-core sched               |
+| —    | **H3 L1+** or deeper L0 (timer/sched)                 | After L0 gate; separate ADRs             |
 | —    | **P3** / **P4**                                      | Only with a named composition (ADR-0049) |
 
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
@@ -125,7 +125,11 @@ K7 ASID slice **done (HW)** (stamp 2026-08-09). Resolve-grant + peer transfer
 K8 first slice **done (HW)** (ADR-0070: `smp: core1 alive`, transcript
 `20260809-160348.log`, `hw-transcript-check` clean; PoC-clean handoff for
 secondary root). P3/P4 deferred. P2 power-cycle **done (HW)** (2026-08-09).
-**Next:** H3 L0 (QEMU x86) or K8 queue depth / K7 residual.
+**H3 L0** **done (QEMU-x86)** ([ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md):
+PVH ELF, COM1, CPUID; `make x86-boot-check`). **Discovery first slice**
+**done (QEMU)** ([ADR-0072](adr/0072-hardware-self-discovery-design.md)/[0073](adr/0073-discovery-first-slice-fdt-report.md):
+`discover:` lines, fixture `-dtb` + DTB-less path). **Next:** K7 residual / K8
+queues or deeper lab x86 slices.
 
 ```text
 Mission: agents · grants · evidence · finish the OS
@@ -134,7 +138,9 @@ Mission: agents · grants · evidence · finish the OS
                 │
     H1 composition ████████ done (HW) stamp 2026-08-08
                 │
-    H2 boundary    ████████ K4+K8 first HW; next: H3 L0 / K8 queues
+    H2 boundary    ████████ K4+K8 first HW; next: K7 / K8 queues
+                │
+    H3 host-class  █░░░░░░░ L0 done (QEMU-x86); L1+ open
 ```
 
 ---
@@ -144,8 +150,8 @@ Mission: agents · grants · evidence · finish the OS
 | Work                      | Done when                                                                                 | Issue                                                           |
 | ------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | **ADR-0020 expiry watch** | XPT2046 lands and `SpiDevice` gets a caller, or the trait goes and ADR-0020 is superseded | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) |
-| **Lab second ISA (x86)**  | Intent [ADR-0067](adr/0067-host-lab-second-isa-intent.md) accepted; matrix in [design/host-lab-platform-matrix.md](design/host-lab-platform-matrix.md). **Code** only with boot gate — not a K/P track; does not reorder Pi H2 | — |
-| **Host-class north star** | [ADR-0069](adr/0069-harbor-host-class-north-star.md) + vision **H3**: native Harbor as primary OS (L0–L4). Name stays **Harbor**. QEMU lab = L0 only; not next-working-order unless owner prioritises | — |
+| **Lab second ISA (x86)**  | L0 **done (QEMU-x86)** ([ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)); intent [ADR-0067](adr/0067-host-lab-second-isa-intent.md); matrix in [design/host-lab-platform-matrix.md](design/host-lab-platform-matrix.md). Not a K/P track; does not reorder Pi H2 | — |
+| **Host-class north star** | [ADR-0069](adr/0069-harbor-host-class-north-star.md) + vision **H3**: native Harbor as primary OS (L0–L4). Name stays **Harbor**. QEMU lab L0 paid; L1+ separate ADRs | — |
 
 ---
 

@@ -4,6 +4,7 @@ title: K8 first slice — unpark core 1, idle only, smp: core1 alive
 status: accepted
 date: 2026-08-09
 accepted: 2026-08-09
+amended: 2026-08-09
 related: [0006, 0048, 0068]
 ---
 
@@ -29,11 +30,11 @@ QEMU `raspi4b` requires **min 4 CPUs** (`-smp 4`); cores 2–3 stay parked.
 
 ### 1. Wake mechanism — three release paths
 
-| Path | When | How |
-| --- | --- | --- |
-| **A. In-kernel table** | Real Pi (`start4.elf`): all cores enter `_start` | aff ≠ 0 loops on `secondary_entry[aff]`; primary stores `secondary_el2_entry` in slot 1 + `DSB` + `SEV` |
-| **B. QEMU spin-table** | QEMU `raspi4b -kernel -smp 4` | Secondaries run QEMU's `write_smpboot64` stub, which polls PA **`0xd8 + 8×aff`**. Core 1 → write entry to **`0xe0`**, `DSB`, `SEV` |
-| **C. ARM local mailbox** | Firmware mailbox poke | Write low 32 bits of entry to core1 mbox3 set (`0xFF80_009C`) |
+| Path                     | When                                             | How                                                                                                                                                          |
+| ------------------------ | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **A. In-kernel table**   | Real Pi (`start4.elf`): all cores enter `_start` | aff ≠ 0 loops on `secondary_entry[aff]`; primary stores `secondary_el2_entry` in slot 1, cleans the word to PoC (`dc cvac`) + `DSB` + `SEV`                  |
+| **B. QEMU spin-table**   | QEMU `raspi4b -kernel -smp 4`                    | Secondaries run QEMU's `write_smpboot64` stub, which polls PA **`0xd8 + 8×aff`**. Core 1 → write entry to **`0xe0`**, clean to PoC (`dc cvac`), `DSB`, `SEV` |
+| **C. ARM local mailbox** | Firmware mailbox poke                            | Write low 32 bits of entry to core1 mbox3 set (`0xFF80_009C`)                                                                                                |
 
 Core 0 alone clears BSS, enables the early MMU, and runs `kernel_main`.  
 QEMU does **not** run secondaries through our `_start` (`secondary_seen` stays 0); path B is required for the emulator gate. Real silicon uses path A (and C as belt-and-braces).
@@ -44,8 +45,12 @@ QEMU does **not** run secondaries through our `_start` (`secondary_seen` stays 0
 
 1. `secondary_el2_entry` (asm): same EL2→EL1h drop as primary; install **core1**
    SP_EL1 / SP_EL0 from BSS stacks; branch to `secondary_main`.
-2. `secondary_main` (Rust): `mmu::enable_existing(kernel_root)`; `exception::init`
-   (same VBAR); set `CORE1_ALIVE`; `loop { wfe }` with IRQs **masked**.
+2. `secondary_main` (Rust): load the kernel root PA from the PoC-clean
+   `SECONDARY_ROOT_PHYS` cell published by the primary before `SEV` (fallback:
+   `mmu::kernel_root_phys()` — the cell exists because a spin-table secondary
+   reads MMU-off and saw 0 there, HW timeout `seen=0`); `mmu::enable_existing(root)`;
+   `exception::init` (same VBAR, banked per core); set `CORE1_ALIVE`;
+   `loop { wfe }` with IRQs **masked**.
 3. No GIC init on core 1; no timer; no tasks; no console TX from core 1.
 
 ### 3. Stacks
@@ -63,9 +68,9 @@ primary is fine; core 1 keeps DAIF set forever in this slice.
 
 ### 5. Evidence
 
-| Line | Meaning |
-| --- | --- |
-| `smp: core1 alive` | Core 1 set the alive flag within the spin budget |
+| Line                 | Meaning                                           |
+| -------------------- | ------------------------------------------------- |
+| `smp: core1 alive`   | Core 1 set the alive flag within the spin budget  |
 | `smp: core1 timeout` | Fail the boot oracle (and refuse progress claims) |
 
 Runners: QEMU `-smp 4` (required by `raspi4b`); HW Pi 4B (four cores; 2–3 parked).
@@ -76,38 +81,44 @@ Runners: QEMU `-smp 4` (required by `raspi4b`); HW Pi 4B (four cores; 2–3 park
 words **and** of `SECONDARY_ROOT_PHYS` (MMU-off secondaries do not snoop the
 primary's write-back cache).
 
+> **Amendment (2026-08-09).** Post-acceptance HW bring-up changed the release
+> protocol: entry words and the root PA are cleaned to PoC (`dc cvac` + `DSB`)
+> before `SEV`, and the root PA is handed off via `SECONDARY_ROOT_PHYS`
+> (commits `9216b66`, `935010e`). Decision §1–§2 updated to match; HW stamp
+> recorded above. Reconciled by Claude on delegation from Gianluca.
+
 ### 6. Explicit non-goals (residuals)
 
-- Per-core runqueue / `current` / work stealing  
-- IPI wake and remote resched  
-- Per-core timer / GIC secondary bring-up  
-- Unparking cores 2–3  
-- Cross-core preemption / K4 multi-core  
-- Cache-coherent driver model beyond shared identity map  
+- Per-core runqueue / `current` / work stealing
+- IPI wake and remote resched
+- Per-core timer / GIC secondary bring-up
+- Unparking cores 2–3
+- Cross-core preemption / K4 multi-core
+- Cache-coherent driver model beyond shared identity map
 
 ## Consequences
 
 ### Positive
 
-- Dual-core gate without scheduler rewrite  
-- Honours ADR-0048 sequencing after K4  
-- Thin oracle; HW stamp path clear  
+- Dual-core gate without scheduler rewrite
+- Honours ADR-0048 sequencing after K4
+- Thin oracle; HW stamp path clear
 
 ### Negative / residual
 
-- Full SMP still open (queues, IPI)  
-- Alive-only core 1 does not prove IRQ affinity or TLB maintenance under load  
+- Full SMP still open (queues, IPI)
+- Alive-only core 1 does not prove IRQ affinity or TLB maintenance under load
 
 ### Gates
 
-| Reversal | Catch |
-| --- | --- |
-| No alive line | `boot-check` / `hw-transcript-check` |
-| Unpark before MMU root published | Core 1 faults; timeout |
-| Core 1 runs tasks | Out of scope — code review / no sched call |
+| Reversal                         | Catch                                      |
+| -------------------------------- | ------------------------------------------ |
+| No alive line                    | `boot-check` / `hw-transcript-check`       |
+| Unpark before MMU root published | Core 1 faults; timeout                     |
+| Core 1 runs tasks                | Out of scope — code review / no sched call |
 
 ## Related
 
-- [0048](0048-k8-smp-design.md) — full SMP design  
-- [0006](0006-cooperative-execution-model.md) — still single **schedulable** core for tasks  
-- [0068](0068-k4-el1-preemption-second-slice.md) — preemption remains core-0 only here  
+- [0048](0048-k8-smp-design.md) — full SMP design
+- [0006](0006-cooperative-execution-model.md) — still single **schedulable** core for tasks
+- [0068](0068-k4-el1-preemption-second-slice.md) — preemption remains core-0 only here

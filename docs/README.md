@@ -24,21 +24,22 @@ Depth after that: [`architecture.md`](architecture.md) (normative model),
 
 ## By goal
 
-| Goal                              | Start                              | Then                                                                                                                                            |
-| --------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Understand a term                 | [glossary](glossary.md)            | the owning document named in its row                                                                                                            |
-| Know the toolchain / platform     | [stack](stack.md)                  | [porting](porting.md), [blobs](blobs.md)                                                                                                        |
-| Build and boot                    | [README](../README.md)             | [boot-chain](boot-chain.md), [hardware](hardware.md)                                                                                            |
-| Completeness + product path (K/P) | [roadmap](roadmap.md)              | [ADR-0026](adr/0026-kernel-and-product-completeness.md), [vision](vision.md)                                                                    |
-| Understand the agent model        | [architecture](architecture.md)    | [differs §](architecture.md#how-harbor-differs-from-a-traditional-kernel), [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) |
-| Product vision / use cases        | [vision](vision.md)                | architecture, SECURITY                                                                                                                          |
-| Authority and threats             | [SECURITY](../SECURITY.md)         | architecture agent model                                                                                                                        |
-| Verify a claim                    | [verification](verification.md)    | linked transcript or gate                                                                                                                       |
-| Port ISA/board                    | [porting](porting.md)              | [arch-contract](arch-contract.md), [native practices](design/native-multiarch-practices.md), [ADR-0067](adr/0067-host-lab-second-isa-intent.md), [host-lab matrix](design/host-lab-platform-matrix.md) |
-| Native multi-arch + Linux-free bar | [native practices](design/native-multiarch-practices.md) | [porting](porting.md), [ADR-0015](adr/0015-multi-arch-scaffold.md), [ADR-0067](adr/0067-host-lab-second-isa-intent.md) |
-| Host-class / primary OS north star | [ADR-0069](adr/0069-harbor-host-class-north-star.md) | [vision H3](vision.md), [native practices](design/native-multiarch-practices.md) |
-| Structural decision               | [adr/](adr/README.md)              | the linked ADR                                                                                                                                  |
-| Extend the tree                   | [CONTRIBUTING](../CONTRIBUTING.md) | [scripts map](../scripts/README.md)                                                                                                             |
+| Goal                               | Start                                                    | Then                                                                                                                                                                                    |
+| ---------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Understand a term                  | [glossary](glossary.md)                                  | the owning document named in its row                                                                                                                                                    |
+| Know the toolchain / platform      | [stack](stack.md)                                        | [porting](porting.md), [blobs](blobs.md)                                                                                                                                                |
+| Build and boot                     | [README](../README.md)                                   | [boot-chain](boot-chain.md), [hardware](hardware.md)                                                                                                                                    |
+| Completeness + product path (K/P)  | [roadmap](roadmap.md)                                    | [ADR-0026](adr/0026-kernel-and-product-completeness.md), [vision](vision.md)                                                                                                            |
+| Understand the agent model         | [architecture](architecture.md)                          | [differs §](architecture.md#how-harbor-differs-from-a-traditional-kernel), [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)                                         |
+| Product vision / use cases         | [vision](vision.md)                                      | architecture, SECURITY                                                                                                                                                                  |
+| Authority and threats              | [SECURITY](../SECURITY.md)                               | architecture agent model                                                                                                                                                                |
+| Verify a claim                     | [verification](verification.md)                          | linked transcript or gate                                                                                                                                                               |
+| Where to put new code (scale)      | [project topology](design/project-topology.md)           | [design/](design/README.md), [porting](porting.md)                                                                                                                                      |
+| Port ISA/board                     | [porting](porting.md)                                    | [arch-contract](arch-contract.md), [native practices](design/native-multiarch-practices.md), [topology](design/project-topology.md), [ADR-0067](adr/0067-host-lab-second-isa-intent.md) |
+| Native multi-arch + Linux-free bar | [native practices](design/native-multiarch-practices.md) | [progressive ISA](design/progressive-isa-practices.md), [porting](porting.md), [ADR-0015](adr/0015-multi-arch-scaffold.md)                                                              |
+| Host-class / primary OS north star | [ADR-0069](adr/0069-harbor-host-class-north-star.md)     | [vision H3](vision.md), [native practices](design/native-multiarch-practices.md)                                                                                                        |
+| Structural decision                | [adr/](adr/README.md)                                    | the linked ADR                                                                                                                                                                          |
+| Extend the tree                    | [CONTRIBUTING](../CONTRIBUTING.md)                       | [scripts map](../scripts/README.md)                                                                                                                                                     |
 
 ## Ownership and status vocabulary
 
@@ -77,16 +78,18 @@ not every symbol.
 
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
-  a64, agentstore, asid, budget, bump, cap, capslots, cpuid, delay, density, display, durable, durable_media, font8x8, frame, gic, heap,
-  ipc, irqcap, irqtable, irqwait, layout, manifest, mbr, naming, paging, parktime, poll, preempt, prog, reply, reset, ring, rng,
+  a64, agentstore, asid, budget, bump, cap, capslots, cpuid, delay, density, display, durable, durable_media, fdt, font8x8, frame, gic,
+  heap, hwdesc, ipc, irqcap, irqtable, irqwait, layout, manifest, mbr, naming, paging, parktime, poll, preempt, prog, reply, reset, ring, rng,
   runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, wake
   tests/ public_api, model_sched, model_ipc
 src/
-  arch/           ISA facade and AArch64 entry, exceptions, MMU, switch, EL0
-  bsp/            board selection, Raspberry Pi memory map, GPIO and bindings
-  drivers/        PL011, GICv2, RNG200, power management and optional display
+  main.rs         kernel_main — product vs lab dispatch only
+  arch/           ISA axis (aarch64 product + x86_64 lab roles)
+  bsp/            board axis (rpi4 product + qemu_q35 lab)
+  drivers/        protocol axis (PL011, GICv2, …; uart16550 lab)
+  lab/            lab maturity path (x86 L0 entry + panic; ADR-0071)
   irq/            IRQ ownership, masking, counters, wait port, notification caps
-  bootstrap/      boot sequence, loader, console server, demos and self-tests
+  bootstrap/      product boot sequence, loader, console server, demos
   agent/          EL0 agent shell and session lifecycle
   sched/          TCBs, stacks, context switching and wake drain
   ipc/            kernel IPC policy and capability translation
@@ -95,14 +98,14 @@ src/
   storage/        EL1 keyed blob store (ADR-0036)
   durable/        durable section store (ADR-0045)
   mm/             heap, address spaces, frames, layout and task stacks
-  console.rs      kernel TX/RX policy
-  main.rs         bootstrap entry
-  panic.rs        panic and halt path
+  console.rs      kernel TX/RX policy (product)
+  panic.rs        panic path (product)
   status.rs       optional display status slots
   sync.rs         shared-state cell
   time.rs         tick policy
 boot/             Raspberry Pi firmware configuration
 scripts/          check/ boot/ agent/ host/ lib/ — see scripts/README.md
+docs/design/      scale topology + multi-arch contracts — see design/README.md
 ```
 
 ## Current truth (consolidation pointer)
@@ -110,12 +113,12 @@ scripts/          check/ boot/ agent/ host/ lib/ — see scripts/README.md
 Do **not** treat this block as a second status table — it only steers readers.
 **Status lives in [roadmap.md](roadmap.md).**
 
-| Layer                | State (2026-08-09)                                                                                               |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **H0 foundation**    | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                   |
-| **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                       |
-| **H1 next**          | P3\|P4 if composition · K5 driver-half residual                                                                  |
-| **H2**               | K4 EL0+EL1 done (HW, ADR-0064/0068); K7 first slice done (HW); K8 first slice done (HW, ADR-0070); queues residual |
+| Layer                | State (2026-08-09)                                                                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **H0 foundation**    | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                                                          |
+| **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                                                              |
+| **H1 next**          | P3\|P4 if composition · K5 driver-half residual                                                                                                         |
+| **H2**               | K4 EL0+EL1 done (HW, ADR-0064/0068); K7 first slice done (HW); K8 first slice done (HW, ADR-0070); queues residual                                      |
 | **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020; lab x86 intent [ADR-0067](adr/0067-host-lab-second-isa-intent.md) |
 
 ## Decision records and reviews

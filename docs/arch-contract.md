@@ -10,9 +10,10 @@ What every ISA module must expose through `crate::arch` so policy, `mm`,
 **Enforcement:** outside `src/arch/`, never import `crate::arch::<isa>`
 (`make layering`, ADR-0015).
 
-**Product support today:** AArch64 only. Names below match the current surface;
-a non-AArch64 port may keep the _roles_ while renaming modules if needed (see
-[Known AArch64 shape](#known-aarch64-shape-debt-until-a-real-port)).
+**Product support today:** AArch64 + Raspberry Pi 4.  
+**Lab support:** x86_64 + QEMU q35 L0 ([ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md))
+— progressive fill of the same roles; see
+[progressive-isa-practices.md](design/progressive-isa-practices.md).
 
 ## Required modules
 
@@ -27,8 +28,8 @@ a non-AArch64 port may keep the _roles_ while renaming modules if needed (see
 | `el0`       | User-mode session enter/resume/end, and the published session pointer | `enter`/`resume`/`end_session`/`run`, `El0Outcome`, entry IRQ mask policy, `El0Session` + `publish`/`published`, `saved_gpr`/`set_saved_gpr` (the syscall reply window)                                                                                                            |
 | `mmio`      | Volatile MMIO accessor                                                | `Mmio` used by drivers and BSP                                                                                                                                                                                                                                                     |
 | `probe`     | Deliberate external-abort recovery for soft presence                  | RNG and similar soft-fail paths                                                                                                                                                                                                                                                    |
-| `bootinfo`  | Firmware handoff (e.g. DTB pointer)                                   | early map + optional consume                                                                                                                                                                                                                                                       |
-| `smp`       | Secondary core unpark / alive (optional on uni-core ports)            | first slice: unpark core 1 + idle ([ADR-0070](adr/0070-k8-smp-first-slice.md)); may be empty stubs on a single-core ISA port                                                                                                                                                        |
+| `bootinfo`  | Firmware handoff (e.g. DTB pointer)                                   | early map + optional consume; `device_tree_slice` serves the discovery report (ADR-0072/0073) once the blob is mapped, `None` where the boot protocol has no tree                                                                                                                  |
+| `smp`       | Secondary core unpark / alive (optional on uni-core ports)            | first slice: unpark core 1 + idle ([ADR-0070](adr/0070-k8-smp-first-slice.md)); may be empty stubs on a single-core ISA port                                                                                                                                                       |
 
 A port owes one more thing than the table shows: the session state a lower-EL
 exception needs must be reachable **by linker symbol**, because the vector path
@@ -66,19 +67,21 @@ Boards are **not** part of `arch`. They implement `crate::bsp::board` via a
 
 Policy imports `crate::bsp::board`, never `crate::bsp::rpi4`.
 
-## Known AArch64 shape (debt until a real port)
+## Role names with an AArch64 shape (kept until a rename ADR)
 
-These are intentional until a second ISA exists; do **not** rename preemptively:
+Do **not** rename preemptively (progressive-isa P.1):
 
-- Module name `el0` and TTBR0-centric APIs (`switch_ttbr0`, `ttbr0_phys` fields)
-- DAIF-shaped IRQ save token (`u64` from `cpu::irq_save`)
-- Softfloat / no FPEN (ADR-0002) is an AArch64 product choice
+- Module name `el0` and TTBR0-centric API names (`switch_ttbr0`, …) — x86 lab
+  maps the **role** (user AS switch / session); L0 panics if called
+- IRQ save token as `u64` (`cpu::irq_save`) — RFLAGS.IF on x86
+- Softfloat / no FPEN (ADR-0002) is an **AArch64 product** choice; lab x86
+  documents SIMD allowed (ADR-0071)
 - Early-MMU exclusives story is Cortex-A72 Device-nGnRnE specific (ADR-0003)
 
-A port documents its mapping of these roles in a successor note or ADR.
-The lab x86 intent mapping (not an implementation claim) is
-[`design/host-lab-platform-matrix.md`](design/host-lab-platform-matrix.md)
-([ADR-0067](adr/0067-host-lab-second-isa-intent.md)).
+Lab mapping table:
+[`design/host-lab-platform-matrix.md`](design/host-lab-platform-matrix.md).
+Progressive fill rules:
+[`design/progressive-isa-practices.md`](design/progressive-isa-practices.md).
 
 ## Out of contract
 

@@ -94,21 +94,22 @@ Snapshot, 2026-08-09 — status of record is [`docs/roadmap.md`](docs/roadmap.md
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Foundation**      | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits                                                                            |
 | **H1 slices**       | done (HW): wait-on-IRQ (**K1**), auto-reap (**K2**), RNG (**K9**), supervisor (**K10**), names ambient era (**P5**) · done (QEMU): store (**K6**), revoke + peer transfer (**K3**), multi-agent (**P1**), resolve-grant (**P5**), compose (**P6**) |
-| **Next**            | H3 L0 QEMU x86 or K8 queue depth — [roadmap](docs/roadmap.md)                                                                                                                                                                                      |
-| **Not yet (later)** | K8 per-core queues · ASID residuals (TTBR1/switch-cost) · P3–P4 · full product net/display depth, …                                                                                                                                                 |
+| **Next**            | K7 residual / K8 queues (H3 L0 **done (QEMU-x86)**) — [roadmap](docs/roadmap.md)                                                                                                                                                                   |
+| **Not yet (later)** | K8 per-core queues · ASID residuals (TTBR1/switch-cost) · P3–P4 · full product net/display depth, …                                                                                                                                                |
 
-**What works today (short list):** cooperative tasks; message IPC; EL0 agents
+**What works today (short list):** preemptible tasks (voluntary yield +
+IRQ-epilogue quantum preemption, EL0+EL1); message IPC; EL0 agents
 with private memory; least-privilege console; PL011 driver-agent; product
 composition via injected store (beacon + chirp); EL1+EL0 IRQ wait; last-SEND-hold
 auto-reap (ephemeral channels); channel revoke (stale CapId refused).
 
-| Area         | State                                                                                                                                                  |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Platform     | Single-core AArch64, Pi 4B, early MMU, W^X, heap, guarded stacks                                                                                       |
-| Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068); SMP first slice QEMU (core1 idle); product still single schedulable core          |
-| Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade |
-| Product OS   | Multi-agent store composition (QEMU); broader services **open**                                                                                        |
-| Verification | 430 host tests, model checks, Miri, QEMU and hardware stamps                                                                                           |
+| Area         | State                                                                                                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Platform     | AArch64 Pi 4B (quad-core; one schedulable core), early MMU, W^X, heap, guarded stacks                                                                         |
+| Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068); SMP first slice done (HW) (core1 idle, ADR-0070); product still single schedulable core |
+| Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade        |
+| Product OS   | Multi-agent store composition (QEMU); broader services **open**                                                                                               |
+| Verification | 443 host tests, model checks, Miri, QEMU and hardware stamps                                                                                                  |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

@@ -25,7 +25,7 @@ the code that follows.
 | [0003](0003-early-mmu.md)                                    | MMU enabled before any Rust runs                                                             | accepted   |
 | [0004](0004-gic-group0-firmware-pin.md)                      | GIC Group 0 with IAR/EOIR, and the firmware pin                                              | accepted   |
 | [0005](0005-static-page-table-arena.md)                      | Static page-table arena instead of a frame allocator                                         | accepted   |
-| [0006](0006-cooperative-execution-model.md)                  | Cooperative execution model (M3 tasks)                                                       | accepted   |
+| [0006](0006-cooperative-execution-model.md)                  | Cooperative execution model (M3 tasks) — IRQ-epilogue rule superseded by 0064/0068 (amended) | accepted   |
 | [0007](0007-project-identity-harbor-kernel.md)               | Project identity — Harbor and `harbor-kernel`                                                | accepted   |
 | [0008](0008-irq-handler-policy.md)                           | IRQ handler policy for cooperative wakes (F13/M4)                                            | accepted   |
 | [0009](0009-optional-spi-tft-debug-console.md)               | Optional SPI TFT status surface (ILI9486 HAT)                                                | accepted   |
@@ -85,17 +85,24 @@ the code that follows.
 | [0063](0063-capslots-extraction.md)                          | Capability slots as a pure table                                                             | accepted   |
 | [0064](0064-k4-el0-preemption-first-slice.md)                | K4 first code slice — lower-EL (EL0) IRQ preemption                                          | accepted   |
 | [0065](0065-platform-self-check.md)                          | Platform self-check — CPU identity decoded, printed, asserted at boot                        | accepted   |
-| [0066](0066-sd-media-durable-store.md) | P2 — SD media persistence for the durable store (EMMC2 PIO) | accepted |
-| [0067](0067-host-lab-second-isa-intent.md) | Host/lab second ISA — QEMU x86_64 intent and non-goals | accepted |
-| [0068](0068-k4-el1-preemption-second-slice.md) | K4 second code slice — same-EL (EL1) IRQ preemption | accepted |
-| [0069](0069-harbor-host-class-north-star.md) | Harbor host-class north star — native primary OS intent | accepted |
-| [0070](0070-k8-smp-first-slice.md) | K8 first slice — unpark core 1, idle only | accepted |
+| [0066](0066-sd-media-durable-store.md)                       | P2 — SD media persistence for the durable store (EMMC2 PIO)                                  | accepted   |
+| [0067](0067-host-lab-second-isa-intent.md)                   | Host/lab second ISA — QEMU x86_64 intent and non-goals                                       | accepted   |
+| [0068](0068-k4-el1-preemption-second-slice.md)               | K4 second code slice — same-EL (EL1) IRQ preemption                                          | accepted   |
+| [0069](0069-harbor-host-class-north-star.md)                 | Harbor host-class north star — native primary OS intent                                      | accepted   |
+| [0070](0070-k8-smp-first-slice.md)                           | K8 first slice — unpark core 1, idle only                                                    | accepted   |
+| [0071](0071-h3-l0-x86-qemu-first-slice.md)                   | H3 L0 — x86_64 QEMU first slice (boot, console, cpu identity)                                | accepted   |
+| [0072](0072-hardware-self-discovery-design.md)               | Hardware self-discovery as boot evidence — verify, don't select (first code: 0073)           | accepted   |
+| [0073](0073-discovery-first-slice-fdt-report.md)             | Discovery first slice — FDT reader and the `discover:` report                                | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:
 [`../design/host-lab-platform-matrix.md`](../design/host-lab-platform-matrix.md).
 Native multi-arch + Linux-independence practices:
 [`../design/native-multiarch-practices.md`](../design/native-multiarch-practices.md).
+Progressive second-ISA (no-debt bar):
+[`../design/progressive-isa-practices.md`](../design/progressive-isa-practices.md).
+Project scale axes (where code grows):
+[`../design/project-topology.md`](../design/project-topology.md).
 
 Operational reviews (findings, not decisions): [`../reviews/`](../reviews/).
 
@@ -108,8 +115,11 @@ cover the four choices that already constrain the running kernel and are
 both). 0006 records the execution model (finding F12): cooperative tasks, heap stacks
 with unmapped guards, no preemption, no IRQ-side switch. The **model** is
 accepted and M3 is **done (HW)** (interleaved yield + overflow probe on silicon
-— see [`../verification.md`](../verification.md)). Inventing preemption is not
-allowed without a successor ADR.
+— see [`../verification.md`](../verification.md)). Inventing preemption was not
+allowed without a successor ADR — [0064](0064-k4-el0-preemption-first-slice.md)
+(EL0) and [0068](0068-k4-el1-preemption-second-slice.md) (EL1) are that
+successor pair: quantum preemption on the IRQ epilogue; device IRQ handlers
+still never switch.
 
 Each names **the gate that would catch its own reversal**, and for several of
 them that gate has been seen red — see the mutation table in
