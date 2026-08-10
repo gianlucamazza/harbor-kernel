@@ -72,7 +72,7 @@ peer + spinner live across the ADR-0031 auto-reap spawn window).
 
 ### 6. Residuals (honest)
 
-- EL0 agents / EL0 preemption with `home = 1` — **done (QEMU)** [ADR-0081](0081-k8-el0-on-cpu1-first-slice.md)
+- EL0 agents / EL0 preemption with `home = 1` — **done (HW)** [ADR-0081](0081-k8-el0-on-cpu1-first-slice.md)
 - Work stealing  
 - Cores 2–3  
 - Dual-core global tick producers (explicit non-goal)  

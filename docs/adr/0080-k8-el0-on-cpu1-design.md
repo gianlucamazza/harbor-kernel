@@ -15,7 +15,7 @@ related: [0014, 0016, 0017, 0019, 0023, 0048, 0050, 0051, 0064, 0068, 0070, 0075
 CPU 1 (**done (HW)** — [ADR-0076](0076-k8-per-core-queues-first-slice.md)/[0077](0077-smp-shared-state-discipline.md)/[0079](0079-k8-per-core-timer-preemption-first-slice.md)),
 product agents and EL0 sessions still **home only on CPU 0**. This ADR is the
 design for closing that gap. First **code**: [ADR-0081](0081-k8-el0-on-cpu1-first-slice.md)
-(**done (QEMU)**; HW stamp residual).
+(**done (QEMU)** + **done (HW)**, stamp 2026-08-10, transcript `20260810-134826.log`).
 
 ## Context
 

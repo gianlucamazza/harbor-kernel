@@ -14,8 +14,10 @@ related: [0016, 0017, 0019, 0023, 0048, 0064, 0070, 0075, 0076, 0077, 0078, 0079
 **Accepted** (2026-08-10). Implements the first **code** slice of
 [ADR-0080](0080-k8-el0-on-cpu1-design.md): per-CPU published EL0 sessions,
 publish on every affinity at switch, EL0 quantum preemption on home=1.
-Status **done (QEMU)** with oracle `preempt-el0-cpu1: rotated` +
-`spinner exited`. HW stamp residual.
+Status **done (QEMU)** and **done (HW)** — Pi stamp 2026-08-10, transcript
+`.serial-log/20260810-134826.log` (`preempt-el0-cpu1: rotated` +
+`spinner exited` + `cpu: Cortex-A72 r0p3` + `CNTFRQ=54000000`;
+`hw-transcript-check` clean; build `src=b898ebcd`).
 
 ## Decision (what landed)
 
@@ -49,6 +51,11 @@ Workers on CPU 1 use atomics only (no console TX). Watcher on CPU 0 prints.
 Primary K4/K8 oracles unchanged. `MAX_TASKS` 46 → 49.
 
 Gate: `boot-check` / `hw-transcript-check`.
+
+**HW stamp (2026-08-10):** transcript `.serial-log/20260810-134826.log` —
+`smp: core1 alive` + `ipi` + `ran` + `preempt-el1-cpu1:*` +
+`preempt-el0-cpu1: rotated` + `spinner exited` on Cortex-A72; primary K4
+oracles also clean on the same boot.
 
 ### 5. Residuals (honest)
 

@@ -94,7 +94,7 @@ Snapshot, 2026-08-10 — status of record is [`docs/roadmap.md`](docs/roadmap.md
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Foundation**      | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits                                                                            |
 | **H1 slices**       | done (HW): wait-on-IRQ (**K1**), auto-reap (**K2**), RNG (**K9**), supervisor (**K10**), names ambient era (**P5**) · done (QEMU): store (**K6**), revoke + peer transfer (**K3**), multi-agent (**P1**), resolve-grant (**P5**), compose (**P6**) |
-| **Next**            | EL0-on-CPU1 **HW stamp** ([ADR-0081](docs/adr/0081-k8-el0-on-cpu1-first-slice.md); QEMU paid) — [roadmap](docs/roadmap.md)                                                                                                      |
+| **Next**            | K8 steal · K7 TTBR1/switch-cost · K5 driver-half — [roadmap](docs/roadmap.md)                                                                                                      |
 | **Not yet (later)** | P3–P4 · H3 L1+, …                                                                                                                                                                 |
 
 **What works today (short list):** preemptible tasks (voluntary yield +
@@ -107,7 +107,7 @@ auto-reap (ephemeral channels); channel revoke (stale CapId refused).
 | Area         | State                                                                                                                                                                                      |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Platform     | AArch64 Pi 4B (quad-core; dual-current schedule, agents home CPU 0), early MMU, W^X, heap, guarded stacks                                                                                  |
-| Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068; CPU1 EL1 **done (HW)** ADR-0079, stamp 2026-08-10); K8 unpark+IPI+queues first **done (HW)** (ADR-0070/0074/0076/0077); product agents still home CPU 0 |
+| Execution    | Voluntary primary + IRQ-epilogue preemption (EL0+EL1, ADR-0064/0068; CPU1 EL1+EL0 **done (HW)** ADR-0079/0081, stamps 2026-08-10); K8 unpark+IPI+queues first **done (HW)**; product default home still CPU 0 |
 | Authority    | Slot caps, cancel, auto-reap, revoke, supervisor reap, transfer (self/creator/peer — endpoint caps only, ADR-0055), recv timeout, creator-exit cascade                                     |
 | Product OS   | Multi-agent store composition (QEMU); broader services **open**                                                                                                                            |
 | Verification | 456 host tests, model checks, Miri, QEMU and hardware stamps                                                                                                                               |
