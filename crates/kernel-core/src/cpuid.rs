@@ -170,11 +170,7 @@ pub const fn fp_implemented(pfr0: u64) -> bool {
 pub const fn x86_display_family(leaf1_eax: u32) -> u32 {
     let base = (leaf1_eax >> 8) & 0xf;
     let ext = (leaf1_eax >> 20) & 0xff;
-    if base == 0x0f {
-        base + ext
-    } else {
-        base
-    }
+    if base == 0x0f { base + ext } else { base }
 }
 
 /// Display model from CPUID leaf 1 `eax`.

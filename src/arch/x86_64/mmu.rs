@@ -12,8 +12,15 @@ use kernel_core::layout::Region;
 /// Errors for dynamic map operations. L0 has no Rust-owned page-table arena.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MmuError {
-    Unaligned { va: u64, pa: u64, len: u64 },
-    BadDescriptor { va: u64, pa: u64 },
+    Unaligned {
+        va: u64,
+        pa: u64,
+        len: u64,
+    },
+    BadDescriptor {
+        va: u64,
+        pa: u64,
+    },
     OutOfRange(u64),
     OutOfTables,
     BlockAlreadyMapped(u64),

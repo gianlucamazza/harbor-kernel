@@ -24,9 +24,7 @@ pub mod board {
 }
 
 #[cfg(all(feature = "board-rpi4", feature = "board-qemu-q35"))]
-compile_error!(
-    "harbor-kernel: enable exactly one board-* feature (board-rpi4 or board-qemu-q35)"
-);
+compile_error!("harbor-kernel: enable exactly one board-* feature (board-rpi4 or board-qemu-q35)");
 
 #[cfg(not(any(feature = "board-rpi4", feature = "board-qemu-q35")))]
 compile_error!(
