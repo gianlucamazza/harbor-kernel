@@ -1,32 +1,20 @@
 # Harbor (harbor-kernel) — build and deploy
 #
-#   make            release kernel8.img
-#   make debug      debug kernel8.img
-#   make FEATURES=debug-display img   # lab image with SPI TFT stack
-#   make FEATURES=debug-display deploy SD_MOUNT=...
-#   make check      fmt + tests + no-SIMD + pre-MMU + QEMU boot + clippy
-#   make test       host unit tests for the pure-logic crate
-#   make miri       run those tests under Miri (nightly; checks the unsafe)
-#   make bringup-builds  compile the --features bringup configuration
-#   make fmt        rustfmt
-#   make qemu       boot the image under QEMU (PL011 on stdio)
-#   make qemu-gdb   same, halted, waiting for gdb on :1234
-#   make blobs      fetch pinned platform firmware
-#   make deploy     copy image + config + blobs to SD (SD_MOUNT=...)
-#   make restore-rpios  put Pi OS kernel+config back on the SD
-#   make serial     open serial console (SERIAL_DEV=...)
-#   make serial-capture  record the UART with host timestamps, no terminal
-#   make mutants    mutation-test the authority modules (~7 min, not in check)
+# Scale bands (docs/design/project-topology.md):
+#   PRODUCT — aarch64/rpi4 image, boot-check, deploy
+#   LAB     — dedicated x86-* targets (not ARCH=); ADR-0071
+#   HOST    — test, miri, fmt, layering, doc gates
+#
+#   make                 PRODUCT: release kernel8.img
+#   make check           HOST gates + PRODUCT boot-check (+ clippy)
+#   make test / miri     HOST: kernel-core
+#   make boot-check      PRODUCT QEMU oracle
+#   make x86-elf / x86-boot-check / qemu-x86   LAB (ADR-0071)
+#   make deploy / serial / blobs               PRODUCT board ops
 #   make clean
 #
-# Multi-arch scaffold (ADR-0015): exactly one product combo is supported.
-#
-# These are a refusal, not a selection. Nothing below is derived from them —
-# `TARGET` and the linker-script path are written out, and deriving them from a
-# single case would be an abstraction shaped by one example. They exist so that
-# `make ARCH=riscv64` says why it will not work instead of building an aarch64
-# image and looking like it worked. The port that adds a second ISA replaces
-# this block with real selection, and ADR-0015 says as much.
+# Product ARCH/BOARD allowlist (ADR-0015): refusal, not multi-select.
+# Lab stays outside this allowlist until a multi-product ADR.
 SUPPORTED_ARCH  := aarch64
 SUPPORTED_BOARD := rpi4
 ARCH        ?= $(SUPPORTED_ARCH)
@@ -43,6 +31,15 @@ PROFILE     ?= release
 CARGO_OUT   := target/$(TARGET)/$(PROFILE)
 ELF         := $(CARGO_OUT)/harbor-kernel
 IMG         := $(CARGO_OUT)/kernel8.img
+
+# H3 L0 lab (ADR-0071) — freestanding ELF for QEMU -kernel + PVH note.
+X86_TARGET  := x86_64-unknown-none
+X86_OUT     := target/$(X86_TARGET)/$(PROFILE)
+X86_ELF     := $(X86_OUT)/harbor-x86.elf
+X86_CARGO_FLAGS := --target $(X86_TARGET) --no-default-features --features board-qemu-q35
+ifeq ($(PROFILE),release)
+  X86_CARGO_FLAGS += --release
+endif
 
 SD_MOUNT    ?= /run/media/$(USER)/boot
 SERIAL_DEV  ?= /dev/ttyUSB0
@@ -61,8 +58,19 @@ AGENTS_BIN  ?= target/agents.bin
 # raspi4b: min 4 CPUs (QEMU). -smp 4 so ADR-0070 can unpark core 1.
 QEMU_FLAGS  ?= -M $(QEMU_MACHINE) -smp 4 -kernel $(IMG) -serial mon:stdio -display none
 
+# Lab x86 (ADR-0071): q35 + COM1 16550. Not product.
+QEMU_X86         ?= qemu-system-x86_64
+QEMU_X86_MACHINE ?= q35
+QEMU_X86_CPU     ?= qemu64
+QEMU_X86_FLAGS   ?= -machine $(QEMU_X86_MACHINE) -cpu $(QEMU_X86_CPU) -m 128M \
+	-kernel $(X86_ELF) -serial mon:stdio -display none -no-reboot
+
 # Long enough for the boot assertions (two tick reports at 10 Hz) with margin.
 BOOT_CHECK_SECONDS ?= 15
+# Lab L0 is banner + cpu + halt. Slightly longer than bare minimum so a
+# busy host still reaches long mode before `timeout` fires (seen empty
+# serial at load ≥15 with a 3s budget).
+X86_BOOT_CHECK_SECONDS ?= 5
 
 # Host tests cover the pure-logic crate only: the kernel binary carries its own
 # `#[panic_handler]`, which collides with the one the test harness links in.
@@ -87,7 +95,8 @@ endif
 .PHONY: all debug img elf check test miri bringup-builds debug-display-builds \
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
-	boot-check doc-claims layering fmt fmt-check qemu qemu-gdb blobs deploy \
+	boot-check x86-elf x86-boot-check doc-claims layering fmt fmt-check \
+	qemu qemu-gdb qemu-x86 blobs deploy \
 	restore-rpios serial clean agents
 
 all: img
@@ -193,6 +202,18 @@ agents:
 
 boot-check: img
 	./scripts/boot/qemu-boot-check.sh $(IMG) $(BOOT_CHECK_SECONDS)
+
+# --- LAB band (project-topology; not product ARCH=) -------------------------
+# H3 L0 (ADR-0071): freestanding x86_64 ELF for QEMU -kernel (PVH note).
+# Packaging: cargo bin is `harbor-kernel`; publish as `harbor-x86.elf`.
+x86-elf:
+	cargo build $(X86_CARGO_FLAGS)
+	cp -f $(X86_OUT)/harbor-kernel $(X86_ELF)
+	@echo "built $(X86_ELF)"
+	@ls -la $(X86_ELF)
+
+x86-boot-check: x86-elf
+	./scripts/boot/qemu-x86-boot-check.sh $(X86_ELF) $(X86_BOOT_CHECK_SECONDS)
 
 test:
 	cargo test -p $(TEST_PKG) --target $(HOST_TARGET)
@@ -344,6 +365,12 @@ qemu-gdb: img
 	@command -v $(QEMU) >/dev/null || { \
 	  echo "error: $(QEMU) not found (pacman -S qemu-system-aarch64)" >&2; exit 1; }
 	$(QEMU) $(QEMU_FLAGS) -S -s
+
+# H3 L0 lab guest (ADR-0071). Exit with Ctrl-A x.
+qemu-x86: x86-elf
+	@command -v $(QEMU_X86) >/dev/null || { \
+	  echo "error: $(QEMU_X86) not found (pacman -S qemu-system-x86)" >&2; exit 1; }
+	$(QEMU_X86) $(QEMU_X86_FLAGS)
 
 blobs:
 	./scripts/host/fetch-blobs.sh

@@ -3,12 +3,15 @@
 **Status:** design contract (checklist and bar, not completion evidence).  
 **Related:** [ADR-0015](../adr/0015-multi-arch-scaffold.md) (scaffold),
 [ADR-0067](../adr/0067-host-lab-second-isa-intent.md) (lab x86 intent),
+[ADR-0071](../adr/0071-h3-l0-x86-qemu-first-slice.md) (L0 code),
 [`arch-contract.md`](../arch-contract.md), [`porting.md`](../porting.md),
-[`host-lab-platform-matrix.md`](host-lab-platform-matrix.md).
+[`host-lab-platform-matrix.md`](host-lab-platform-matrix.md),
+[**progressive-isa-practices.md**](progressive-isa-practices.md) (no-debt bar).
 
 This page is the **SSOT for how Harbor does native multi-arch support** and how
-it stays **independent of the Linux stack** on product and guest paths. It does
-not claim a second ISA is implemented.
+it stays **independent of the Linux stack** on product and guest paths.
+Progressive fill of a second ISA without workarounds is owned by
+[progressive-isa-practices.md](progressive-isa-practices.md).
 
 **North star:** host-class native Harbor as primary OS on personal hardware
 (L0 QEMU → L4 primary) is recorded in
@@ -58,7 +61,7 @@ C. Dev host / CI         — where humans and gates run tools
 | ID | Practice | Concrete rule |
 | -- | -------- | ------------- |
 | 0.1 | No Linux ABI or service in the guest | No Linux syscalls, vDSO, glibc, or Linux `init` |
-| 0.2 | No Linux bootloader required | Lab x86 first slice: **`qemu-system-x86_64 -kernel <ELF>`** + `-serial stdio`. Multiboot2 only if an impl ADR needs memory map info (protocol, not “use GRUB”). No GRUB disk image, no Linux EFI stub |
+| 0.2 | No Linux bootloader required | Lab x86 L0 ([ADR-0071](../adr/0071-h3-l0-x86-qemu-first-slice.md)): **`qemu-system-x86_64 -kernel <ELF>`** + PVH `XEN_ELFNOTE_PHYS32_ENTRY` (QEMU 11 ELF64 path). Multiboot1 rejects ELF64; Multiboot2 alone insufficient on this QEMU. No GRUB disk image, no Linux EFI stub |
 | 0.3 | No mandatory Device Tree on x86 lab | Compiled BSP memmap (ADR-0011 spirit); DT is not a Linux dependency to reintroduce |
 | 0.4 | No Linux drivers in-tree | Write protocols from specs; 16550/APIC/… are Harbor drivers |
 | 0.5 | Linux only as prose analogy | ADR comments may cite Linux; code must not import Linux structure names as API |
@@ -74,8 +77,9 @@ C. Dev host / CI         — where humans and gates run tools
 
 | Option | Verdict |
 | ------ | ------- |
-| QEMU `-kernel` ELF 64-bit | **Preferred** (0.2) |
-| Multiboot2 via QEMU (no GRUB in CI) | Acceptable if justified in impl ADR |
+| QEMU `-kernel` ELF64 + **PVH note** | **L0 choice** (ADR-0071; 0.2) |
+| Multiboot2 via QEMU (no GRUB in CI) | Tried; alone not enough on QEMU 11 for this path |
+| Multiboot1 | Rejected for ELF64 (`give a 32bit one`) |
 | GRUB + disk image | Out of first slice; fails independence bar for lab workflow |
 | UEFI + Linux EFI stub | Rejected for lab intent |
 | Hosted `std` process | Rejected (ADR-0067) |
@@ -129,7 +133,7 @@ Rules:
 
 | ID | Practice | Harbor reference |
 | -- | -------- | ---------------- |
-| 4.1 | Boot gate asserts observable lines | `qemu-boot-check`, future `qemu-x86-boot-check` |
+| 4.1 | Boot gate asserts observable lines | `qemu-boot-check` (AArch64); `qemu-x86-boot-check` / `make x86-boot-check` (lab) |
 | 4.2 | INDETERMINATE vs FAIL when the runner is starved or tools missing | verification boot-check CPU quota |
 | 4.3 | No CI skeleton target | porting.md |
 | 4.4 | Product identity separate from lab marketing | ADR-0007, ADR-0067 |
@@ -276,7 +280,7 @@ and boards when those levels start. Practices 0.x–12 still apply.
 | `make boot-check` (AArch64) | 4.1 pattern |
 | `make no-early-exclusives` / pre-MMU | 8.4 (AArch64-specific) |
 | `make xrefs` / doc-claims | 11.5 |
-| Future `qemu-x86-boot-check` | 2, 4.1, 5.2, 0.2 |
+| `make x86-boot-check` / `scripts/boot/qemu-x86-boot-check.sh` | 2, 4.1, 5.2, 0.2 |
 
 ---
 

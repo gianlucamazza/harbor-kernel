@@ -35,3 +35,18 @@ rustflags = [
   "-C",
   "linker=rust-lld",
 ]
+
+# H3 L0 lab guest (ADR-0071). PVH ELF for QEMU -kernel at 1 MiB.
+# code-model must stay **small** (default): `kernel` is the high-half
+# (-2 GiB) model and breaks RIP-relative code linked at 0x100000.
+[target.x86_64-unknown-none]
+rustflags = [
+  "-C",
+  "link-arg=--script=src/arch/x86_64/link.ld",
+  "-C",
+  "relocation-model=static",
+  "-C",
+  "linker=rust-lld",
+  "-C",
+  "link-arg=--image-base=0x100000",
+]

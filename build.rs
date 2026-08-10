@@ -19,5 +19,7 @@ fn main() {
     // `global_asm!(include_str!(...))`, which cargo does not track either.
     println!("cargo:rerun-if-changed=src/arch/aarch64/boot.s");
     println!("cargo:rerun-if-changed=src/arch/aarch64/exception/vectors.s");
+    println!("cargo:rerun-if-changed=src/arch/x86_64/link.ld");
+    println!("cargo:rerun-if-changed=src/arch/x86_64/boot.s");
     println!("cargo:rerun-if-changed=build.rs");
 }

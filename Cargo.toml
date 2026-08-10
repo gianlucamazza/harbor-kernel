@@ -17,6 +17,9 @@ default = ["board-rpi4", "oracle"]
 # Active board package (exactly one board-* for a product image).
 # Selection is compile-time; see docs/porting.md and ADR-0015.
 board-rpi4 = []
+# QEMU q35 lab board (H3 L0 / ADR-0071). Build with:
+#   --no-default-features --features board-qemu-q35 --target x86_64-unknown-none
+board-qemu-q35 = []
 # The boot oracle: the demo tasks and agents whose console lines every gate in
 # `qemu-boot-check.sh` asserts on. Rule 9 of `docs/architecture.md` puts
 # diagnostic scaffolding behind a feature rather than in the production surface,

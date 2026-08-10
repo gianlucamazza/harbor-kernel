@@ -8,15 +8,14 @@
 [`arch-contract.md`](../arch-contract.md), [`porting.md`](../porting.md).
 
 This page maps **roles** (what policy already depends on) to **today’s Pi 4
-implementation** and a **candidate QEMU x86 lab** implementation. It is not a
-completion claim: nothing here is `done (QEMU-x86)` until a boot gate says so.
+implementation** and the **QEMU x86 lab** path. L0 is **done (QEMU-x86)**
+([ADR-0071](../adr/0071-h3-l0-x86-qemu-first-slice.md): `make x86-boot-check`).
+Deeper rows remain candidate until their own gates exist.
 
-Working names (may refine in an implementation ADR):
-
-| Combo | ISA | Board feature | Runner |
-| --- | --- | --- | --- |
-| Product (today) | `aarch64` | `board-rpi4` | Pi 4B + QEMU `raspi4b` |
-| Lab (intent) | `x86_64` | `board-qemu-q35` | `qemu-system-x86_64` (q35 preferred) |
+| Combo | ISA | Board feature | Runner | Status |
+| --- | --- | --- | --- | --- |
+| Product (today) | `aarch64` | `board-rpi4` | Pi 4B + QEMU `raspi4b` | product |
+| Lab L0 | `x86_64` | `board-qemu-q35` | `qemu-system-x86_64` q35 | **done (QEMU-x86)** |
 
 ---
 
@@ -44,10 +43,12 @@ Working names (may refine in an implementation ADR):
 | Linker script | load `0x80000`, `kernel8.img` | Freestanding ELF for **QEMU `-kernel`** (preferred); **not** `kernel8.img`, not `vmlinuz`/`bzImage` |
 | Exception vectors | VBAR table | IDT + stub ISRs |
 
-**Boot path (ADR-0067 + [native practices](native-multiarch-practices.md) §0.2):**
-prefer **`qemu-system-x86_64 -kernel <ELF> -serial stdio`**. Multiboot2 only if
-an implementation ADR needs memory-map handoff. No GRUB disk image, no Linux
-EFI stub. Guest path is Linux-free; the machine running QEMU is non-TCB.
+**Boot path ([ADR-0071](../adr/0071-h3-l0-x86-qemu-first-slice.md) +
+[native practices](native-multiarch-practices.md) §0.2):**
+**`qemu-system-x86_64 -kernel harbor-x86.elf`** with a **PVH**
+`XEN_ELFNOTE_PHYS32_ENTRY` note (ELF64). Multiboot1 rejects ELF64; Multiboot2
+alone is not enough on QEMU 11. No GRUB disk image, no Linux EFI stub. Guest
+path is Linux-free; the machine running QEMU is non-TCB.
 
 ---
 

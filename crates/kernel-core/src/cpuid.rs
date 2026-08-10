@@ -160,6 +160,40 @@ pub const fn fp_implemented(pfr0: u64) -> bool {
     matches!((pfr0 >> 16) & 0xF, 0b0000 | 0b0001)
 }
 
+// --- x86 CPUID leaf 1 (eax) — pure decode for lab / host-class path (ADR-0065) ---
+
+/// Display family from CPUID leaf 1 `eax` (Intel SDM Vol. 2A / AMD APM).
+///
+/// Base family in bits [11:8]; when base is `0x0F`, add extended family [27:20].
+#[inline]
+#[must_use]
+pub const fn x86_display_family(leaf1_eax: u32) -> u32 {
+    let base = (leaf1_eax >> 8) & 0xf;
+    let ext = (leaf1_eax >> 20) & 0xff;
+    if base == 0x0f {
+        base + ext
+    } else {
+        base
+    }
+}
+
+/// Display model from CPUID leaf 1 `eax`.
+///
+/// Base model in bits [7:4]; when base family is `0x06` or `0x0F`, add
+/// extended model [19:16] in the high nibble.
+#[inline]
+#[must_use]
+pub const fn x86_display_model(leaf1_eax: u32) -> u32 {
+    let base_family = (leaf1_eax >> 8) & 0xf;
+    let base_model = (leaf1_eax >> 4) & 0xf;
+    let ext_model = (leaf1_eax >> 16) & 0xf;
+    if base_family == 0x06 || base_family == 0x0f {
+        (ext_model << 4) | base_model
+    } else {
+        base_model
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,5 +277,20 @@ mod tests {
         // FP = 0b1111 is "no FP/AdvSIMD". ADR-0002 keeps the kernel correct
         // on such a core; the decode keeps the transcript honest about it.
         assert!(!fp_implemented(0x000F_2222));
+    }
+
+    #[test]
+    fn x86_leaf1_display_family_model_match_sdm() {
+        // QEMU `-cpu qemu64` style: base family 0xF, ext family 6 → 15;
+        // base model 0xB, ext model 0x6 → 0x6B (107). eax1 = 0x00060fb1.
+        let eax = 0x0006_0fb1;
+        assert_eq!(x86_display_family(eax), 15);
+        assert_eq!(x86_display_model(eax), 107);
+
+        // Family 6 without extended family: model uses ext model nibble.
+        // eax = base family 6, base model 0xA, ext model 0x1 → model 0x1A.
+        let eax6 = (0x6 << 8) | (0xa << 4) | (0x1 << 16);
+        assert_eq!(x86_display_family(eax6), 6);
+        assert_eq!(x86_display_model(eax6), 0x1a);
     }
 }

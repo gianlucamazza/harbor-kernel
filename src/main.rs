@@ -1,36 +1,68 @@
-//! Kernel entry — thin: assembly → bootstrap.
+//! Kernel entry — assembly `_start` → `kernel_main` → product or lab path.
+//!
+//! Module layout follows the scale axes in
+//! [`docs/design/project-topology.md`](../docs/design/project-topology.md):
+//! ISA (`arch`), board (`bsp`), protocol (`drivers`), product policy, lab.
 
 #![no_std]
 #![no_main]
 
-// The kernel heap backs `GlobalAlloc` (see `mm`), so `Box`, `Vec` and the rest
-// of `alloc` are available to the rest of the kernel.
+#[cfg(target_arch = "aarch64")]
 extern crate alloc;
 
-mod agent;
+// --- Shared planes (every freestanding image) ---
 mod arch;
-mod bootstrap;
+
+#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 mod bsp;
-mod console;
+#[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 mod drivers;
+
+// --- Product path (AArch64 + board-rpi4) ---
+#[cfg(target_arch = "aarch64")]
+mod agent;
+#[cfg(target_arch = "aarch64")]
+mod bootstrap;
+#[cfg(target_arch = "aarch64")]
+mod console;
+#[cfg(target_arch = "aarch64")]
 mod durable;
+#[cfg(target_arch = "aarch64")]
 mod ipc;
+#[cfg(target_arch = "aarch64")]
 mod irq;
+#[cfg(target_arch = "aarch64")]
 mod mm;
+#[cfg(target_arch = "aarch64")]
 mod naming;
+#[cfg(target_arch = "aarch64")]
 mod panic;
+#[cfg(target_arch = "aarch64")]
 mod sched;
-#[cfg(feature = "debug-display")]
+#[cfg(all(target_arch = "aarch64", feature = "debug-display"))]
 mod status;
+#[cfg(target_arch = "aarch64")]
 mod storage;
+#[cfg(target_arch = "aarch64")]
 mod sync;
+#[cfg(target_arch = "aarch64")]
 mod taskcap;
+#[cfg(target_arch = "aarch64")]
 mod time;
 
-// Boot assembly is owned by the active ISA module (`arch`); see `arch/mod.rs`.
+// --- Lab path (thin bring-up; not product policy) ---
+#[cfg(target_arch = "x86_64")]
+mod lab;
 
-/// Called from `_start` after EL1, BSS, stack.
+/// Called from `_start` after early CPU setup.
 #[unsafe(no_mangle)]
 pub extern "C" fn kernel_main() -> ! {
-    bootstrap::run()
+    #[cfg(target_arch = "aarch64")]
+    {
+        bootstrap::run()
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        lab::run()
+    }
 }

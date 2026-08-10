@@ -25,30 +25,31 @@ successor ADR, not a patch.
 
 ## Layout (scalable map)
 
+**Where new code goes:** [`docs/design/project-topology.md`](docs/design/project-topology.md)
+(ISA / board / lab / pure axes). Do not invent a second package for a lab ISA.
+
 ```
 docs/
   README.md          documentation map + ownership
-  glossary.md        the words, and who owns each one
-  stack.md           language, target, toolchain, features
-  roadmap.md         K/P completeness SSOT
-  architecture.md    model and layering, as it is today
-  vision.md          mission sentence, product shape / horizons
-  foundation-history.md  M0–M8 record (closed, not planning)
+  design/            topology, multi-arch, progressive ISA (contracts)
   adr/               immutable decisions
-  design/            design contracts (not “done” claims)
-  reviews/           dated findings
+  roadmap.md         K/P completeness SSOT
+  architecture.md    model and layering today
   verification.md    evidence index
 scripts/
   check/             invariant gates
-  boot/              product image + QEMU oracles
-  agent/             agent-store pack/inject/inspect
-  host/              SD, serial, blobs, mutants
-  lib/               shared shell
-crates/kernel-core/  pure, host-tested logic
-src/                 kernel (arch, bsp, drivers, policy)
+  boot/              product + lab oracles
+  agent/ host/ lib/
+crates/kernel-core/  pure, host-tested logic (no MMIO)
+src/
+  main.rs            product vs lab dispatch only
+  arch/ bsp/ drivers/
+  lab/               lab maturity path (thin bring-up)
+  bootstrap/ …       product policy
 ```
 
-Details: [`docs/README.md`](docs/README.md), [`scripts/README.md`](scripts/README.md).
+Details: [`docs/README.md`](docs/README.md), [`docs/design/README.md`](docs/design/README.md),
+[`scripts/README.md`](scripts/README.md).
 
 ## Adding work
 

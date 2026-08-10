@@ -31,8 +31,10 @@ allowed_for() {
 	# ADR-0028: timer/UART signal waiters via irq::wait (no sched import).
 	time*) echo "arch irq" ;;
 	console*) echo "arch bsp drivers irq" ;;
-	# panic may paint the TFT status banner when debug-display is on.
+	# Product panic: console (+ optional TFT). Lab panic lives under lab::*.
 	panic*) echo "arch console status" ;;
+	# Lab maturity path: arch + board bind only (project-topology).
+	lab*) echo "arch bsp" ;;
 	mm*) echo "arch bsp" ;;
 	# Cooperative scheduler: TCBs, stacks, switch, wake queue - not drivers/board.
 	# ADR-0028: drains irq::wait and exposes wait_for_irq.
@@ -54,7 +56,8 @@ allowed_for() {
 	# The board binds protocols together; that is its job (rule 2).
 	bsp*) echo "arch bsp console drivers irq time" ;;
 	# Policy sits on top of everything and is allowed to.
-	bootstrap* | main) echo "agent arch bsp console drivers durable ipc irq mm naming sched status storage taskcap time" ;;
+	# `lab` is maturity dispatch only from main on lab targets.
+	bootstrap* | main) echo "agent arch bsp console drivers durable ipc irq lab mm naming sched status storage taskcap time" ;;
 	# Agent shell: AS + EL0 sessions; SYS_SEND/RECV via ipc; Irq → irq::handle_cpu_irq.
 	# No drivers/board (device PA/VA come from bootstrap demos / BSP constants via mm).
 	#

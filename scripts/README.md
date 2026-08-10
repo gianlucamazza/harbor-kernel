@@ -6,7 +6,7 @@ stay in one place ([`Makefile`](../Makefile)).
 | Directory | Owns | Examples |
 | --- | --- | --- |
 | [`check/`](check/) | Invariants and doc/code agreement | layering, irq-scope, doc-claims, xrefs |
-| [`boot/`](boot/) | Images and QEMU oracles | product-image, qemu-boot-check, qemu-product-boot-check |
+| [`boot/`](boot/) | Images and QEMU oracles | product-image, qemu-boot-check, qemu-x86-boot-check, qemu-product-boot-check |
 | [`agent/`](agent/) | Composition store tooling (ADR-0029) | pack-store, inject-store, inspect-store |
 | [`host/`](host/) | Board and lab host ops | deploy-sd, serial, fetch-blobs, mutants |
 | [`lib/`](lib/) | Shared shell libraries | `sd-target.sh` |
@@ -25,6 +25,7 @@ stay in one place ([`Makefile`](../Makefile)).
 | Target | Script area |
 | --- | --- |
 | `make check` | `check/*` + `boot/*` (+ clippy) |
-| `make boot-check` / `product-boot-check` | `boot/` |
+| `make boot-check` / `product-boot-check` | `boot/` (product) |
+| `make x86-boot-check` / `x86-elf` | `boot/qemu-x86-boot-check.sh` (lab) |
 | `make agents` | `agent/pack-store.py` |
 | `make deploy` / `serial` / `blobs` | `host/` |
