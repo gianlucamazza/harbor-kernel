@@ -34,6 +34,13 @@ pub trait IrqChip: Sync {
 
     /// Complete a previously claimed interrupt.
     fn end(&self, ack: Ack);
+
+    /// Raise a software-generated interrupt on the CPUs named by
+    /// `cpu_target_list` (one bit per interface). Default: unsupported.
+    /// GICv2 implements this (ADR-0074/0076).
+    fn send_sgi(&self, _sgi_id: u32, _cpu_target_list: u8) -> bool {
+        false
+    }
 }
 
 // There is no `peek_pending` here. Reading the highest pending interrupt

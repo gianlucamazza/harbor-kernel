@@ -382,6 +382,11 @@ assert_boot_oracle() {
 		fail "core 1 wake SGI timed out (ADR-0074)"
 	grep -qa 'smp: core1 ipi skipped' "${log}" &&
 		fail "core 1 IPI probe skipped because IRQs were unbound (ADR-0074)"
+	# ADR-0076 / K8 third slice: pinned worker ran on CPU 1 (primary prints).
+	grep -qa 'smp: core1 ran' "${log}" ||
+		fail "core 1 did not run a pinned task (ADR-0076): $(grep -a 'smp:' "${log}" | head -5)"
+	grep -qa 'smp: core1 ran timeout' "${log}" &&
+		fail "core 1 pinned task timed out (ADR-0076)"
 	grep -qa 'preempt-el1: rotated' "${log}" ||
 		fail "EL1 preemption did not rotate the non-yielding spinner (ADR-0068)"
 	grep -qa 'preempt-el1: spinner exited' "${log}" ||

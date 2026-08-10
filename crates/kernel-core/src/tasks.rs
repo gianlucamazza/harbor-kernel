@@ -1,11 +1,13 @@
 //! Task states and the decision half of voluntary and involuntary rotation
 //! (ADR-0006; ADR-0064 for [`Switch::Preempt`]).
 //!
-//! [`RunQueue`] answers *which task runs next*. This answers the rest: what
-//! happens to the one leaving, whether a switch is worth making, and whose
-//! stack is now safe to release. It decides and does not act — the caller
-//! performs the context switch and frees the memory, which is what keeps this
-//! testable on a host with no MMU. Idle is never preempted into idle.
+//! [`RunQueue`] answers *which task runs next* on one CPU. This answers the
+//! rest: what happens to the one leaving, whether a switch is worth making, and
+//! whose stack is now safe to release. Multi-current (ADR-0075/0076) keeps one
+//! ready queue and one `current` per CPU with hard sticky affinity. It decides
+//! and does not act — the caller performs the context switch and frees the
+//! memory, which is what keeps this testable on a host with no MMU. Idle is
+//! never preempted into idle.
 //!
 //! # The stack a task cannot free
 //!
@@ -65,14 +67,28 @@ pub enum Decision {
     },
 }
 
-/// Fixed table of task slots plus the ready queue.
+/// How many CPUs the pure model schedules (ADR-0075 / ADR-0076).
+///
+/// Product path uses affinity 0 and 1; cores 2–3 stay parked at the arch layer.
+pub const N_CPUS: usize = 2;
+
+/// Fixed table of task slots plus **per-CPU** ready queues and currents
+/// (ADR-0075).
+///
+/// CPU 0 keeps the historic single-core shape via convenience methods that
+/// default to affinity 0, so host tests and the model checker stay readable.
 pub struct Tasks<const N: usize> {
     states: [State; N],
     /// Tenancy epoch per slot (ADR-0062). Bumped on exit; `admit` mints ids
     /// carrying it, and `state`/`wake` refuse an id whose epoch has moved on.
     epochs: [u16; N],
-    queue: RunQueue<N>,
-    current: TaskId,
+    /// Sticky home CPU for each slot (hard affinity; ADR-0075).
+    home: [u8; N],
+    queues: [RunQueue<N>; N_CPUS],
+    current: [TaskId; N_CPUS],
+    /// Idle identity per CPU. `[0]` is always [`Self::IDLE`]; `[1]` is set by
+    /// [`Self::start_cpu1`].
+    idle: [TaskId; N_CPUS],
     parked: Option<TaskId>,
     overwrites: u32,
     /// Successful entries into [`State::Blocked`] (ADR-0024).
@@ -93,24 +109,75 @@ impl<const N: usize> Tasks<N> {
         Self {
             states: [State::Empty; N],
             epochs: [0; N],
-            queue: RunQueue::new(),
-            current: Self::IDLE,
+            home: [0; N],
+            queues: [RunQueue::new(), RunQueue::new()],
+            current: [Self::IDLE; N_CPUS],
+            idle: [Self::IDLE; N_CPUS],
             parked: None,
             overwrites: 0,
             block_events: 0,
         }
     }
 
-    /// Claim idle as the running task. Call once, before any spawn.
+    /// Claim idle as the running task on **CPU 0**. Call once, before any spawn.
     pub fn start(&mut self) {
         self.states[Self::IDLE.slot()] = State::Running;
-        self.current = Self::IDLE;
+        self.home[Self::IDLE.slot()] = 0;
+        self.current[0] = Self::IDLE;
+        self.idle[0] = Self::IDLE;
     }
 
-    /// The running task.
+    /// Reserve a non-queued idle task for **CPU 1** (ADR-0076).
+    ///
+    /// Returns `None` if no slot is free (or CPU 1 already started). Does not
+    /// enqueue: the secondary is already executing on its own stacks and becomes
+    /// this identity without a trampoline entry.
+    pub fn start_cpu1(&mut self) -> Option<TaskId> {
+        if self.idle[1] != Self::IDLE {
+            return Some(self.idle[1]);
+        }
+        let slot = self.states.iter().enumerate().position(|(i, s)| {
+            *s == State::Empty && self.parked.is_none_or(|p| p.slot() != i)
+        })?;
+        let id = TaskId::new(slot as u16, self.epochs[slot]);
+        self.states[slot] = State::Running;
+        self.home[slot] = 1;
+        self.current[1] = id;
+        self.idle[1] = id;
+        Some(id)
+    }
+
+    /// Whether CPU 1 has a dedicated idle identity.
     #[inline]
-    pub const fn current(&self) -> TaskId {
-        self.current
+    pub fn cpu1_started(&self) -> bool {
+        self.idle[1] != Self::IDLE
+    }
+
+    /// The running task on `cpu` (0 .. [`N_CPUS`]).
+    #[inline]
+    pub fn current_on(&self, cpu: u8) -> TaskId {
+        self.current[cpu as usize]
+    }
+
+    /// Idle identity for `cpu`.
+    #[inline]
+    pub fn idle_of(&self, cpu: u8) -> TaskId {
+        self.idle[cpu as usize]
+    }
+
+    /// Sticky home of a live id, if any.
+    #[inline]
+    pub fn home_of(&self, id: TaskId) -> Option<u8> {
+        if self.state(id).is_none() {
+            return None;
+        }
+        Some(self.home[id.slot()])
+    }
+
+    /// The running task on CPU 0 (historic single-core view).
+    #[inline]
+    pub fn current(&self) -> TaskId {
+        self.current_on(0)
     }
 
     /// The slot's state, or `None` for an unknown **or stale** id
@@ -136,8 +203,14 @@ impl<const N: usize> Tasks<N> {
     }
 
     #[inline]
+    pub fn has_ready_on(&self, cpu: u8) -> bool {
+        !self.queues[cpu as usize].is_empty()
+    }
+
+    /// Ready work on CPU 0 (historic single-core view).
+    #[inline]
     pub fn has_ready(&self) -> bool {
-        !self.queue.is_empty()
+        self.has_ready_on(0)
     }
 
     /// Exits that found a stack still parked from an earlier exit.
@@ -168,7 +241,17 @@ impl<const N: usize> Tasks<N> {
     ///
     /// `None` when every slot is taken, or when the queue refuses — in which
     /// case the slot is left `Empty` rather than half-admitted.
+    /// Admit a worker onto CPU 0's ready queue.
     pub fn admit(&mut self) -> Option<TaskId> {
+        self.admit_on(0)
+    }
+
+    /// Admit a worker onto `cpu`'s ready queue (hard affinity).
+    pub fn admit_on(&mut self, cpu: u8) -> Option<TaskId> {
+        let cpu = cpu as usize;
+        if cpu >= N_CPUS {
+            return None;
+        }
         // A slot whose stack is still parked is not free, however `Empty` it
         // looks: the exit cleared the state and the memory is still waiting to
         // be collected. Reusing it would hand a new task the old stack's slot
@@ -180,26 +263,35 @@ impl<const N: usize> Tasks<N> {
                 *s == State::Empty && self.parked.is_none_or(|p| p.slot() != i)
             })?;
         let id = TaskId::new(slot as u16, self.epochs[slot]);
-        if self.queue.enqueue(id).is_err() {
+        if self.queues[cpu].enqueue(id).is_err() {
             return None;
         }
         self.states[slot] = State::Ready;
+        self.home[slot] = cpu as u8;
         Some(id)
     }
 
-    /// Make a blocked task runnable again. `false` if it was not blocked —
-    /// including a stale id (ADR-0062), which names a task that no longer
-    /// exists.
+    /// Make a blocked task runnable again on its **home** queue. `false` if it
+    /// was not blocked — including a stale id (ADR-0062), which names a task
+    /// that no longer exists.
+    ///
+    /// Does not know about remote IPI; the kernel checks [`Self::home_of`]
+    /// after a successful wake.
     pub fn wake(&mut self, id: TaskId) -> bool {
         let idx = id.slot();
-        if idx >= N || id == Self::IDLE || self.epochs[idx] != id.epoch() {
+        if idx >= N || self.epochs[idx] != id.epoch() {
+            return false;
+        }
+        // Refuse waking either idle identity.
+        if id == self.idle[0] || id == self.idle[1] {
             return false;
         }
         if self.states[idx] != State::Blocked {
             return false;
         }
+        let cpu = self.home[idx] as usize;
         self.states[idx] = State::Ready;
-        self.queue.enqueue(id).is_ok()
+        self.queues[cpu].enqueue(id).is_ok()
     }
 
     /// Collect the parked stack, if any. Call after every switch onto another
@@ -227,12 +319,23 @@ impl<const N: usize> Tasks<N> {
     /// assert!(matches!(tasks.switch(Switch::Exit), Decision::Switch { .. }));
     /// assert_eq!(tasks.collect(), Some(worker));
     /// ```
+    /// Decide what a `switch_with(kind)` should do on **CPU 0**.
     pub fn switch(&mut self, kind: Switch) -> Decision {
-        let current = self.current;
+        self.switch_on(0, kind)
+    }
+
+    /// Decide rotation on `cpu` (ADR-0075 multi-current).
+    pub fn switch_on(&mut self, cpu: u8, kind: Switch) -> Decision {
+        let cpu = cpu as usize;
+        if cpu >= N_CPUS {
+            return Decision::Stay;
+        }
+        let idle = self.idle[cpu];
+        let current = self.current[cpu];
         let cur = current.slot();
 
         let requeue = match kind {
-            Switch::Preempt if current == Self::IDLE => {
+            Switch::Preempt if current == idle => {
                 // Never preempt idle into idle (ADR-0064): a stale flag taken
                 // with idle current is a no-op, not a rotation.
                 return Decision::Stay;
@@ -243,7 +346,7 @@ impl<const N: usize> Tasks<N> {
                 }
                 true
             }
-            Switch::Block | Switch::Exit if current == Self::IDLE => {
+            Switch::Block | Switch::Exit if current == idle => {
                 // Idle has nothing to fall back to: blocking or exiting it
                 // stops the machine.
                 return Decision::Stay;
@@ -263,9 +366,9 @@ impl<const N: usize> Tasks<N> {
             }
         };
 
-        let next = match self.queue.after_yield(requeue.then_some(current)) {
+        let next = match self.queues[cpu].after_yield(requeue.then_some(current)) {
             Ok(Some(id)) => id,
-            // Nothing ready: fall back to idle unless we are already it.
+            // Nothing ready: fall back to this CPU's idle unless we are it.
             //
             // Unreachable while the guard above holds. Idle is always exactly
             // one of *current* or *queued*: it is popped when it starts running
@@ -276,7 +379,7 @@ impl<const N: usize> Tasks<N> {
             // no test can honestly cover it — it is what keeps the scheduler
             // from running a task that is no longer ready if that invariant
             // ever changes.
-            Ok(None) if current != Self::IDLE => Self::IDLE,
+            Ok(None) if current != idle => idle,
             _ => {
                 // Either idle with an empty queue, or the queue refused the
                 // requeue. The current task keeps running, and nothing about
@@ -306,7 +409,7 @@ impl<const N: usize> Tasks<N> {
             release = Some(stale);
         }
         self.states[next.slot()] = State::Running;
-        self.current = next;
+        self.current[cpu] = next;
         Decision::Switch {
             from: current,
             to: next,
@@ -730,6 +833,43 @@ mod tests {
         t.switch(Switch::Exit);
         t.collect();
         assert_eq!(t.live_id(a.slot()), None, "exited slot has no live id");
+    }
+
+    #[test]
+    fn admit_on_cpu1_and_switch_on_run_there() {
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let idle1 = t.start_cpu1().expect("idle1 slot");
+        assert_ne!(idle1, Tasks::<4>::IDLE);
+        assert_eq!(t.current_on(1), idle1);
+        assert!(!t.has_ready_on(1));
+
+        let w = t.admit_on(1).unwrap();
+        assert_eq!(t.home_of(w), Some(1));
+        assert!(t.has_ready_on(1));
+        assert!(!t.has_ready_on(0), "cpu0 queue untouched");
+
+        assert!(matches!(
+            t.switch_on(1, Switch::Yield),
+            Decision::Switch { from, to, .. } if from == idle1 && to == w
+        ));
+        assert_eq!(t.current_on(1), w);
+        // CPU 0 still on its idle.
+        assert_eq!(t.current_on(0), Tasks::<4>::IDLE);
+    }
+
+    #[test]
+    fn wake_enqueues_on_home_cpu() {
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let idle1 = t.start_cpu1().unwrap();
+        let w = t.admit_on(1).unwrap();
+        t.switch_on(1, Switch::Yield); // → w
+        t.switch_on(1, Switch::Block); // w blocked, → idle1
+        assert_eq!(t.current_on(1), idle1);
+        assert!(t.wake(w));
+        assert!(t.has_ready_on(1));
+        assert!(!t.has_ready_on(0));
     }
 
     #[cfg_attr(

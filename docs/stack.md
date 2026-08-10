@@ -32,7 +32,7 @@ Short version in the [root README](../README.md#technology-stack).
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SoC / board       | BCM2711, Raspberry Pi 4 Model B (Rev 1.5 is the stamped unit)                                                                                                                     |
 | ISA               | AArch64 (Cortex-A72, ARMv8.0-A)                                                                                                                                                   |
-| Cores used        | **Product schedules on one core.** **K8** unpark **done (HW)** ([ADR-0070](adr/0070-k8-smp-first-slice.md)); IPI wake **done (QEMU)** ([ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)); no per-core runqueue yet |
+| Cores used        | **Product demos schedule on one core** after a dual-current proof. **K8** unpark **done (HW)**; IPI + queues first slice **done (QEMU)** ([ADR-0076](adr/0076-k8-per-core-queues-first-slice.md): pinned CPU1 marker then quiet-park) |
 | Exception levels  | Firmware enters at EL2; `boot.s` drops to EL1h. EL3 is **refused**, not handled                                                                                                   |
 | Console           | PL011 UART0 @ 115200, primary in every configuration                                                                                                                              |
 | Interrupts        | GICv2, Group 0 + `IAR`/`EOIR` ([ADR-0004](adr/0004-gic-group0-firmware-pin.md))                                                                                                   |
@@ -137,7 +137,7 @@ vocabulary: [`docs/README.md`](README.md).
 | `std`, libc, POSIX, glibc             | Different ABI and an ambient-authority world — permanently out of model                                                                                            |
 | Third-party crates                    | Zero dependencies today; adding one is a boundary decision, not a convenience                                                                                      |
 | Preemption (IRQ epilogue)             | **Present** EL0+EL1 on HW ([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md)); device handlers never switch |
-| SMP residual                          | **K8** unpark done (HW) + IPI done (QEMU); queues **in design** ([ADR-0075](adr/0075-k8-per-core-queues-design.md)); code residual — product still one schedulable core |
+| SMP residual                          | **K8** queues first **done (QEMU)** (ADR-0076); residual steal / per-core preempt / multi-core heap — product demos still one core after marker parks |
 | ASID residual                         | **K7** first slice done (HW); open = TTBR1 / switch-cost — [`roadmap.md`](roadmap.md)                                                                              |
 | A device tree parser                  | Board truth is compiled-in BSP constants; the DTB is mapped read-only for a future parser ([ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md))         |
 | A filesystem, network or window stack | They belong **above** the kernel as agents, when a composition needs them (P2–P5)                                                                                  |

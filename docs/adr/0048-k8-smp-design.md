@@ -31,7 +31,7 @@ product path still schedules on one core until queue work.
 
 1. Unpark core 1 into idle WFI loop. — **paid (HW)** via ADR-0070
 2. IPI wake (SGI 0 → core 1). — **paid (QEMU)** via ADR-0074; HW stamp residual
-3. Per-core `current` + runqueues. — **design** [ADR-0075](0075-k8-per-core-queues-design.md); code residual (follow-on)
+3. Per-core `current` + runqueues. — **design** [ADR-0075](0075-k8-per-core-queues-design.md); first **code** [ADR-0076](0076-k8-per-core-queues-first-slice.md) **done (QEMU)**
 4. Oracle: `smp: core1 alive`. — **paid (HW)** via ADR-0070
 5. Oracle: `smp: core1 ipi`. — **paid (QEMU)** via ADR-0074
 
@@ -66,3 +66,7 @@ queues / current** depth (+ HW stamp for IPI).
 > **Amendment (2026-08-10, later).** Queue / multi-current **design** accepted
 > in [ADR-0075](0075-k8-per-core-queues-design.md). Code residual + steal +
 > per-core preemption remain; IPI HW stamp still open.
+
+> **Amendment (2026-08-10, queues code).** First queues code paid on QEMU via
+> [ADR-0076](0076-k8-per-core-queues-first-slice.md) (`smp: core1 ran`). Residual:
+> steal, per-core preemption, multi-core heap, HW stamps.

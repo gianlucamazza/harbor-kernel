@@ -234,6 +234,25 @@ pub fn note_core1_ipi() {
     }
 }
 
+/// SGI handler-safe resched request for CPU 1 (ADR-0076).
+///
+/// Forwards to the sched atomics without importing `sched` from board code —
+/// `bsp` layering forbids that edge. Implemented as a function pointer the
+/// sched module installs at init, or a local atomic polled by secondary idle.
+static RESCHED1: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+#[inline]
+pub fn request_resched(cpu: u8) {
+    if cpu == 1 {
+        RESCHED1.store(true, Ordering::Release);
+    }
+}
+
+#[inline]
+pub fn take_resched1() -> bool {
+    RESCHED1.swap(false, Ordering::AcqRel)
+}
+
 /// Spin until the IPI flag is set, or the budget expires.
 pub fn wait_core1_ipi(budget: u64) -> bool {
     let mut spins = 0u64;

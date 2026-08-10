@@ -27,3 +27,9 @@ pub fn note_core1_ipi() {}
 pub fn wait_core1_ipi(_budget: u64) -> bool {
     false
 }
+
+pub fn request_resched(_cpu: u8) {}
+
+pub fn take_resched1() -> bool {
+    false
+}

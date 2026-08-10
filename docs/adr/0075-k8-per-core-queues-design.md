@@ -11,9 +11,8 @@ related: [0006, 0008, 0048, 0051, 0064, 0068, 0070, 0074]
 
 ## Acceptance status
 
-**Accepted as design** (2026-08-10). No product status flip. First **code**
-slice is a follow-on ADR (expected **0076**): dual-current + hard affinity +
-one pinned worker on core 1 — not this document.
+**Accepted as design** (2026-08-10). First **code** slice:
+[ADR-0076](0076-k8-per-core-queues-first-slice.md) (**done (QEMU)**).
 
 Parent design intent remains [ADR-0048](0048-k8-smp-design.md). Unpark and
 IPI delivery are paid by [ADR-0070](0070-k8-smp-first-slice.md) /

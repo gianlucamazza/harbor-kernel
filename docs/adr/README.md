@@ -94,7 +94,8 @@ the code that follows.
 | [0072](0072-hardware-self-discovery-design.md)               | Hardware self-discovery as boot evidence — verify, don't select (first code: 0073)           | accepted   |
 | [0073](0073-discovery-first-slice-fdt-report.md)             | Discovery first slice — FDT reader and the `discover:` report                                | accepted   |
 | [0074](0074-k8-ipi-wake-second-slice.md)                     | K8 second slice — SGI IPI wake core 1 (no runqueue yet)                                      | accepted   |
-| [0075](0075-k8-per-core-queues-design.md)                    | K8 design — per-core ready queues and current (code in follow-on)                            | accepted   |
+| [0075](0075-k8-per-core-queues-design.md)                    | K8 design — per-core ready queues and current (code: 0076)                                   | accepted   |
+| [0076](0076-k8-per-core-queues-first-slice.md)               | K8 third slice — per-core queues, dual current, pinned CPU1 worker                           | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

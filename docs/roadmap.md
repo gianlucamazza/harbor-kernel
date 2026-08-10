@@ -86,7 +86,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | K5  | Agent density (shrink/collapse driver half)               | **done (HW)** first slice ([ADR-0044](adr/0044-k5-agent-density.md); Pi stamp 2026-08-08); driver-half collapse residual                                                                                                                                                                                              | `spawn_thin` 4 KiB stacks; pure density arithmetic                         | 0023 → 0044                                         |
 | K6  | External agent load + byte manifest                       | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement)                                                                                                                                                                                      | Image store inject; product prefers store, oracle empty → builtin          | ADR-0021 → 0027 → 0029                              |
 | K7  | ASID (+ TTBR1 if required)                                | **done (HW)** first slice, stamp 2026-08-09 ([ADR-0047](adr/0047-k7-asid-isolation-design.md) + [ADR-0050](adr/0050-k7-asid-first-slice.md) amended: early-map retirement); TTBR1 / switch-cost measurement residual                                                                                                  | ASID pool + CONTEXTIDR + nG user leaves; dual-AS on silicon                | 0014 → 0047 → 0050                                  |
-| K8  | SMP                                                       | **done (HW)** unpark ([ADR-0070](adr/0070-k8-smp-first-slice.md)); **done (QEMU)** IPI wake ([ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)); per-core queues **in design** ([ADR-0075](adr/0075-k8-per-core-queues-design.md); code residual); parent [ADR-0048](adr/0048-k8-smp-design.md)                                                                                                                                 | Unpark + IPI + per-core queues (design paid; code open)                    | 0006 → 0048 → 0070 → 0074 → 0075                    |
+| K8  | SMP                                                       | **done (HW)** unpark ([ADR-0070](adr/0070-k8-smp-first-slice.md)); **done (QEMU)** IPI ([ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)); **done (QEMU)** queues first slice ([ADR-0075](adr/0075-k8-per-core-queues-design.md)/[0076](adr/0076-k8-per-core-queues-first-slice.md): `smp: core1 ran`); residual steal / per-core preempt / heap SMP; parent [ADR-0048](adr/0048-k8-smp-design.md)                                                                                                                                 | Unpark + IPI + dual-current first slice                                    | 0006 → 0048 → 0070 → 0074 → 0075 → 0076             |
 | K9  | Driver-as-agent beyond PL011 (+ IRQ caps)                 | **done (HW)** ([ADR-0034](adr/0034-k9-rng-driver-agent.md) + [ADR-0043](adr/0043-k9-irq-device-agent.md); Pi stamp 2026-08-08)                                                                                                                                                                                        | Map agent + IRQ-cap-only wait agent                                        | 0013 → 0034 → 0043                                  |
 | K10 | Supervisor lifecycle (restart, creator exit)              | **done (HW)** ([ADR-0033](adr/0033-k10-supervisor-reap.md) + [ADR-0038](adr/0038-k10-creator-exit-cascade.md); Pi stamp 2026-08-08); force-kill Running later                                                                                                                                                         | `supervisor_reap_blocked`; exit cascades cancel of blocked children        | 0018/0025 → 0033 → 0038                             |
 
@@ -115,19 +115,19 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 | Step | Track(s)                                             | Why now                                  |
 | ---- | ---------------------------------------------------- | ---------------------------------------- |
 | 1    | **K7** switch-cost measurement / TTBR1 residual      | Lab when free                            |
-| 2    | **K8** queues first **code** (ADR-0075 → follow-on) / **K5** driver-half | Design paid; code next when chosen         |
+| 2    | **K5** driver-half / K8 steal or per-core preempt      | Queues first code paid (QEMU); deepen H2   |
 | —    | **H3 L1+** or deeper L0 (timer/sched)                 | After L0 gate; separate ADRs             |
 | —    | **P3** / **P4**                                      | Only with a named composition (ADR-0049) |
 
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
 K7 ASID slice **done (HW)** (stamp 2026-08-09). Resolve-grant + peer transfer
 **done (HW)** (same stamp). K4 EL0 + EL1 preemption **done (HW)** (ADR-0064/0068).
-K8 unpark **done (HW)** (ADR-0070); K8 IPI wake **done (QEMU)** (ADR-0074:
-`smp: core1 ipi`). P3/P4 deferred. P2 power-cycle **done (HW)** (2026-08-09).
-**H3 L0** **done (QEMU-x86)** ([ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md):
-PVH ELF, COM1, CPUID; `make x86-boot-check`). **Discovery first slice**
-**done (QEMU)** + **done (HW)** ([ADR-0072](adr/0072-hardware-self-discovery-design.md)/[0073](adr/0073-discovery-first-slice-fdt-report.md)).
-**Next:** K7 residual / K8 queues or deeper lab x86 slices.
+K8 unpark **done (HW)** (ADR-0070); IPI **done (QEMU)** (ADR-0074); queues
+first slice **done (QEMU)** (ADR-0076: `smp: core1 ran`). P3/P4 deferred. P2
+power-cycle **done (HW)** (2026-08-09). **H3 L0** **done (QEMU-x86)**
+([ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)). **Discovery** **done
+(QEMU)** + **done (HW)** (ADR-0072/0073). **Next:** K7 residual / K5
+driver-half / K8 steal·preempt or deeper lab x86.
 
 ```text
 Mission: agents · grants · evidence · finish the OS

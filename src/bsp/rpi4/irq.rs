@@ -92,18 +92,27 @@ pub fn probe_core1_ipi() -> bool {
     if !smp::wait_secondary_irq_ready(SECONDARY_SPIN_BUDGET) {
         return false;
     }
-    if !GIC.send_sgi(WAKE_SGI, CORE1_TARGET_BIT) {
+    if !send_resched_sgi() {
         return false;
     }
     smp::wait_core1_ipi(SECONDARY_SPIN_BUDGET)
 }
 
-/// Shared-table handler for the wake SGI (ADR-0074).
+/// Send the wake/resched SGI to CPU 1 (ADR-0074/0076).
+#[inline]
+pub fn send_resched_sgi() -> bool {
+    GIC.send_sgi_raw(WAKE_SGI, CORE1_TARGET_BIT)
+}
+
+/// Shared-table handler for the wake SGI (ADR-0074 / resched ADR-0076).
 fn on_wake_sgi(_cookie: irq::IrqCookie) {
     // Only core 1 is expected to receive this line; still gate the flag so a
     // mis-targeted delivery on CPU0 does not forge the oracle.
     if cpu::affinity() == 1 {
         smp::note_core1_ipi();
+        // Handler-safe resched poke (no sched lock — ADR-0075). Lives in
+        // `arch::smp` so this board module never imports `sched` (layering).
+        smp::request_resched(1);
     }
 }
 
@@ -133,9 +142,12 @@ pub unsafe extern "C" fn harbor_secondary_idle() -> ! {
     cpu::irq_enable();
     cpu::sync_pipeline();
 
-    loop {
-        cpu::wait_for_interrupt();
+    // Schedule policy lives in sched (ADR-0076); board only brought up GIC.
+    unsafe extern "C" {
+        fn harbor_secondary_sched() -> !;
     }
+    // SAFETY: affinity 1, IRQs unmasked, banked GIC ready.
+    unsafe { harbor_secondary_sched() }
 }
 
 /// Raw GIC accessors for the bring-up gates.

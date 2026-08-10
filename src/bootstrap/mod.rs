@@ -476,6 +476,23 @@ pub fn run() -> ! {
         } else {
             println!(uart, "smp: core1 ipi timeout");
         }
+        // ADR-0076: multi-current — reserve CPU1 idle, pin a marker worker,
+        // wait for it to run (primary prints — no console TX from core 1).
+        match crate::sched::start_cpu1() {
+            Ok(_) => {
+                match crate::sched::spawn_core1_marker() {
+                    Ok(_) => {
+                        if crate::sched::wait_core1_ran(200_000_000) {
+                            println!(uart, "smp: core1 ran");
+                        } else {
+                            println!(uart, "smp: core1 ran timeout");
+                        }
+                    }
+                    Err(e) => println!(uart, "smp: core1 spawn FAILED {e:?}"),
+                }
+            }
+            Err(e) => println!(uart, "smp: core1 start FAILED {e:?}"),
+        }
     } else if core1 {
         println!(uart, "smp: core1 ipi skipped (irq unbound)");
     }

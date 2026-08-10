@@ -1,8 +1,9 @@
 //! Scheduler: voluntary switches (ADR-0006) + IRQ wakes (ADR-0008) +
-//! quantum preemption on the IRQ-return epilogue (ADR-0064/0068).
+//! quantum preemption on the IRQ-return epilogue (ADR-0064/0068) +
+//! per-core queues (ADR-0075/0076).
 //!
-//! Fixed FIFO runqueue from `kernel-core`, idle is the console loop on the
-//! bootstrap stack. Device IRQ *handlers* still must not call
+//! Per-CPU FIFO runqueues from `kernel-core`, dual idle (console on CPU 0).
+//! Device IRQ *handlers* still must not call
 //! [`yield_now`], [`exit`], or [`block_current`] — they call
 //! [`irq::wait::signal`]; the voluntary path drains that queue via
 //! [`poll_wakes`]. What ADR-0068 adds is not a handler switching but the
@@ -60,8 +61,10 @@ use crate::time;
 /// (ADR-0062) makes a leaked reference to the previous tenant refusable.
 /// 40 → 42 for the ADR-0064 preemption oracle pair (spinner host + peer),
 /// which are live across the window the ADR-0031 auto-reap oracle spawns in.
+/// 42 → 44 for ADR-0076: CPU1 idle identity + pinned core1 marker (never
+/// reaped in the first slice — marker stays parked on affinity 1).
 /// Raising it costs task stacks and page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 42;
+pub const MAX_TASKS: usize = 44;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -166,6 +169,75 @@ impl Sched {
 static SCHED: SyncCell<Sched> = SyncCell::new(Sched::new());
 static STARTED: AtomicUsize = AtomicUsize::new(0);
 
+/// Coarse sched lock (ADR-0075). Always taken with local IRQs already masked.
+static SCHED_LOCK: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Per-CPU resched request. SGI handler sets bit; voluntary path consumes it.
+/// Handlers never take [`SCHED_LOCK`] (ADR-0075 §4).
+static NEED_RESCHED: [core::sync::atomic::AtomicBool; 2] = [
+    core::sync::atomic::AtomicBool::new(false),
+    core::sync::atomic::AtomicBool::new(false),
+];
+
+/// Primary has reserved CPU1 idle; secondary may enter the schedule loop.
+static CPU1_ONLINE: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+/// Oracle: a pinned CPU1 worker ran (printed by primary — no TX from core1).
+static CORE1_RAN: core::sync::atomic::AtomicBool =
+    core::sync::atomic::AtomicBool::new(false);
+
+#[inline]
+fn sched_lock() {
+    while SCHED_LOCK
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        core::hint::spin_loop();
+    }
+}
+
+#[inline]
+fn sched_unlock() {
+    SCHED_LOCK.store(false, Ordering::Release);
+}
+
+/// Run `f` with IRQs masked and the sched lock held.
+fn with_sched<R>(f: impl FnOnce(&mut Sched) -> R) -> R {
+    let daif = cpu::irq_save();
+    sched_lock();
+    // SAFETY: exclusive via lock + local IRQ mask.
+    let r = f(unsafe { &mut *SCHED.get() });
+    sched_unlock();
+    // SAFETY: paired with irq_save above.
+    unsafe { cpu::irq_restore(daif) };
+    r
+}
+
+#[inline]
+fn this_cpu() -> u8 {
+    cpu::affinity()
+}
+
+/// SGI / remote kick: set resched for `cpu` (0 or 1). Handler-safe.
+#[inline]
+pub fn request_resched(cpu: u8) {
+    if (cpu as usize) < NEED_RESCHED.len() {
+        NEED_RESCHED[cpu as usize].store(true, Ordering::Release);
+    }
+    // Board SGI handler uses `arch::smp::request_resched`; keep both bits in
+    // sync when policy kicks without going through the handler.
+    if cpu == 1 {
+        crate::arch::smp::request_resched(1);
+    }
+}
+
+#[inline]
+fn take_resched(cpu: u8) -> bool {
+    NEED_RESCHED[cpu as usize].swap(false, Ordering::AcqRel)
+}
+
 /// Exits that found a stack still parked from an earlier exit. See
 /// [`pending_overwrites`].
 static PENDING_OVERWRITES: AtomicU32 = AtomicU32::new(0);
@@ -186,17 +258,183 @@ pub enum SpawnError {
 /// masked, and enabling them there would arm the CPU against a GIC nothing is
 /// bound to.
 pub fn init() {
-    cpu::without_irqs(|| {
-        // SAFETY: single core; first init; IRQs masked.
-        let sched = unsafe { &mut *SCHED.get() };
+    with_sched(|sched| {
         sched.tasks.start();
         // Idle is a task like any other here: bootstrap runs on it, and
         // bootstrap is what enters EL0 for the demo agents.
-        let idle = sched.tasks.current();
+        let idle = sched.tasks.current_on(0);
         sched.tcbs[idle.slot()].el0 = Some(El0Session::new());
         publish_el0(sched, idle);
         STARTED.store(1, Ordering::Release);
     });
+}
+
+/// Reserve CPU1 idle identity after GIC secondary bring-up (ADR-0076).
+///
+/// Does not run on core 1 — only publishes the model identity. Core 1 enters
+/// [`secondary_idle_loop`] once [`CPU1_ONLINE`] is set.
+pub fn start_cpu1() -> Result<TaskId, SpawnError> {
+    if STARTED.load(Ordering::Acquire) == 0 {
+        return Err(SpawnError::NotStarted);
+    }
+    let id = with_sched(|sched| {
+        let id = sched.tasks.start_cpu1().ok_or(SpawnError::Full)?;
+        if sched.tcbs[id.slot()].el0.is_none() {
+            sched.tcbs[id.slot()].el0 = Some(El0Session::new());
+        }
+        Ok(id)
+    })?;
+    CPU1_ONLINE.store(true, Ordering::Release);
+    // SAFETY: wake secondary parked on WFE waiting for online.
+    unsafe {
+        core::arch::asm!("dsb ish", "sev", options(nostack, preserves_flags));
+    }
+    Ok(id)
+}
+
+/// Spawn a worker with hard affinity `cpu` (0 or 1).
+pub fn spawn_on(cpu: u8, entry: fn()) -> Result<TaskId, SpawnError> {
+    spawn_on_inner(cpu, entry, &[], StackClass::Full)
+}
+
+fn spawn_on_inner(
+    cpu: u8,
+    entry: fn(),
+    slots: &[Option<CapId>],
+    class: StackClass,
+) -> Result<TaskId, SpawnError> {
+    if STARTED.load(Ordering::Acquire) == 0 {
+        return Err(SpawnError::NotStarted);
+    }
+    if cpu as usize >= kernel_core::tasks::N_CPUS {
+        return Err(SpawnError::Full);
+    }
+    if cpu == 1 && !CPU1_ONLINE.load(Ordering::Acquire) {
+        return Err(SpawnError::NotStarted);
+    }
+    if slots.len() > MAX_CAPS_PER_TASK {
+        return Err(SpawnError::TooManyCaps);
+    }
+
+    let usable = density::usable_bytes(class);
+    let stack = TaskStack::allocate(usable).map_err(SpawnError::Stack)?;
+
+    let id = with_sched(move |sched| {
+        let Some(id) = sched.tasks.admit_on(cpu) else {
+            // SAFETY: never scheduled.
+            unsafe { stack.release() };
+            return Err(SpawnError::Full);
+        };
+        let slot = id.slot();
+
+        let mut context = Context::zeroed();
+        context.x30 = task_trampoline as *const () as u64;
+        context.sp = stack.initial_sp() as u64;
+
+        let mut held = [None; MAX_CAPS_PER_TASK];
+        held[..slots.len()].copy_from_slice(slots);
+        let creator = sched.tasks.current_on(this_cpu());
+
+        sched.tcbs[slot] = Tcb {
+            context,
+            stack: Some(stack),
+            entry: Some(entry),
+            el0: Some(El0Session::new()),
+            cancel_wait: false,
+            creator,
+            may_resolve: false,
+        };
+        sched.caps.seed(slot, &held);
+        ipc::register_holds(&held);
+        Ok(id)
+    })?;
+
+    // Kick the home CPU if it is not us.
+    if cpu != this_cpu() {
+        request_resched(cpu);
+        if cpu == 1 {
+            // Best-effort SGI; primary owns the GIC send path via bsp.
+            irq::send_sgi(0, 1 << 1);
+        }
+    } else {
+        request_resched(cpu);
+    }
+    Ok(id)
+}
+
+/// Oracle helper: pin a marker task on CPU 1.
+pub fn spawn_core1_marker() -> Result<TaskId, SpawnError> {
+    spawn_on(1, core1_marker_entry)
+}
+
+fn core1_marker_entry() {
+    // Primary polls with Acquire; both cores share Normal WB identity map
+    // (hardware coherent on A72). No console TX from core 1 (ADR-0070).
+    //
+    // Stay here forever: exiting would `stack.release()` on CPU 1 while the
+    // primary may be in the global allocator (not multi-core-safe yet). Parking
+    // the marker keeps the proof without a concurrent free.
+    CORE1_RAN.store(true, Ordering::Release);
+    loop {
+        cpu::wait_for_interrupt();
+    }
+}
+
+/// Whether the CPU1 marker has run.
+#[inline]
+pub fn core1_ran() -> bool {
+    CORE1_RAN.load(Ordering::Acquire)
+}
+
+/// Spin until the marker ran or the budget expires.
+pub fn wait_core1_ran(budget: u64) -> bool {
+    let mut spins = 0u64;
+    while spins < budget {
+        if core1_ran() {
+            return true;
+        }
+        core::hint::spin_loop();
+        spins += 1;
+    }
+    core1_ran()
+}
+
+/// Secondary schedule loop (ADR-0076). Entered after banked GIC bring-up.
+///
+/// # Safety
+/// Affinity 1 only; IRQs unmasked; CPU1 idle identity already reserved (or
+/// waits until [`start_cpu1`]).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn harbor_secondary_sched() -> ! {
+    while !CPU1_ONLINE.load(Ordering::Acquire) {
+        cpu::wait_for_event();
+    }
+    secondary_idle_loop()
+}
+
+fn secondary_idle_loop() -> ! {
+    loop {
+        // After the oracle marker has run, park forever without touching
+        // SCHED. First slice (ADR-0076) only needs one dual-current proof;
+        // continuing to contend the coarse lock against primary boot demos
+        // is not product work yet.
+        if CORE1_RAN.load(Ordering::Acquire) {
+            loop {
+                cpu::wait_for_interrupt();
+            }
+        }
+        poll_wakes();
+        let cpu = this_cpu();
+        let work = take_resched(cpu)
+            || crate::arch::smp::take_resched1()
+            || with_sched(|s| s.tasks.has_ready_on(cpu));
+        if work {
+            // Voluntary rotation on this CPU (may Stay if only idle).
+            switch_with(Switch::Yield);
+        } else {
+            cpu::wait_for_interrupt();
+        }
+    }
 }
 
 /// Create a ready task that starts at `entry` with no capabilities.
@@ -263,11 +501,8 @@ fn spawn_inner(
     // Restore rather than unmask: bootstrap spawns before the IRQ path is
     // necessarily live, and a caller that arrived here with IRQs masked must
     // leave with them masked.
-    cpu::without_irqs(move || {
-        // SAFETY: IRQs masked.
-        let sched = unsafe { &mut *SCHED.get() };
-
-        let Some(id) = sched.tasks.admit() else {
+    with_sched(move |sched| {
+        let Some(id) = sched.tasks.admit_on(0) else {
             // SAFETY: never scheduled.
             unsafe { stack.release() };
             return Err(SpawnError::Full);
@@ -280,7 +515,7 @@ fn spawn_inner(
 
         let mut held = [None; MAX_CAPS_PER_TASK];
         held[..slots.len()].copy_from_slice(slots);
-        let creator = sched.tasks.current();
+        let creator = sched.tasks.current_on(this_cpu());
 
         sched.tcbs[slot] = Tcb {
             context,
@@ -304,25 +539,19 @@ fn spawn_inner(
 /// Running task id (including idle).
 #[inline]
 pub fn current_task_id() -> TaskId {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        unsafe { (*SCHED.get()).tasks.current() }
-    })
+    let cpu = this_cpu();
+    with_sched(|sched| sched.tasks.current_on(cpu))
 }
 
 /// Grant `SYS_RESOLVE` to `id` (ADR-0052). Trusted EL1 / creator path.
 ///
 /// Returns `false` if `id` is not a non-empty task slot.
 pub fn grant_resolve(id: TaskId) -> bool {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let sched = unsafe { &mut *SCHED.get() };
-        match sched.tasks.state(id) {
-            Some(kernel_core::tasks::State::Empty) | None => false,
-            Some(_) => {
-                sched.tcbs[id.slot()].may_resolve = true;
-                true
-            }
+    with_sched(|sched| match sched.tasks.state(id) {
+        Some(kernel_core::tasks::State::Empty) | None => false,
+        Some(_) => {
+            sched.tcbs[id.slot()].may_resolve = true;
+            true
         }
     })
 }
@@ -336,10 +565,8 @@ pub fn grant_resolve_current() -> bool {
 /// Whether the running task may call `SYS_RESOLVE`.
 #[inline]
 pub fn may_resolve_current() -> bool {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let sched = unsafe { &*SCHED.get() };
-        let slot = sched.tasks.current().slot();
+    with_sched(|sched| {
+        let slot = sched.tasks.current_on(this_cpu()).slot();
         sched.tcbs[slot].may_resolve
     })
 }
@@ -352,7 +579,8 @@ pub fn may_resolve_current() -> bool {
 /// must refuse rather than trust that idle never calls it.
 #[inline]
 pub fn current_is_idle() -> bool {
-    current_task_id() == Tasks::<MAX_TASKS>::IDLE
+    let cpu = this_cpu();
+    with_sched(|sched| sched.tasks.current_on(cpu) == sched.tasks.idle_of(cpu))
 }
 
 /// Cap at local slot `i` for the current task, if any.
@@ -368,12 +596,10 @@ pub fn my_cap(i: usize) -> Option<CapId> {
 /// comparison with `MAX_CAPS_PER_TASK` written here: two statements of the same
 /// length can disagree, and one of them is host-tested.
 pub fn my_cap_slot(slot: usize) -> Result<CapId, SlotError> {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let sched = unsafe { &*SCHED.get() };
+    with_sched(|sched| {
         // A corrupted row index is a refusal rather than a panic in a syscall
         // — the table answers an out-of-range row as a row with no slots.
-        sched.caps.get(sched.tasks.current().slot(), slot)
+        sched.caps.get(sched.tasks.current_on(this_cpu()).slot(), slot)
     })
 }
 
@@ -386,7 +612,7 @@ pub fn current_el0_session() -> *mut El0Session {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked, single core.
         let sched = unsafe { &mut *SCHED.get() };
-        let idx = sched.tasks.current().slot();
+        let idx = sched.tasks.current_on(this_cpu()).slot();
         match sched.tcbs[idx].el0.as_mut() {
             Some(session) => session as *mut El0Session,
             None => core::ptr::null_mut(),
@@ -396,10 +622,8 @@ pub fn current_el0_session() -> *mut El0Session {
 
 /// True if the current task holds `cap` in its local table.
 pub fn current_holds(cap: CapId) -> bool {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let sched = unsafe { &*SCHED.get() };
-        sched.caps.holds(sched.tasks.current().slot(), cap)
+    with_sched(|sched| {
+        sched.caps.holds(sched.tasks.current_on(this_cpu()).slot(), cap)
     })
 }
 
@@ -436,10 +660,8 @@ impl From<capslots::TransferError> for TransferError {
 /// [`kernel_core::capslots`] (ADR-0063); this function contributes the ABI's
 /// refusal order — bounds, then destination liveness, then the rest.
 pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(), TransferError> {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
-        let sched = unsafe { &mut *SCHED.get() };
-        let from = sched.tasks.current();
+    with_sched(|sched| {
+        let from = sched.tasks.current_on(this_cpu());
         capslots::Table::<MAX_TASKS, MAX_CAPS_PER_TASK>::transfer_bounds(from_slot, to_slot)?;
         if to != from {
             // `state` is the one validator: unknown slot, empty slot and a
@@ -460,10 +682,8 @@ pub fn transfer_held(from_slot: usize, to: TaskId, to_slot: usize) -> Result<(),
 
 /// Move current task's `from_slot` into its creator's empty `to_slot` (ADR-0041).
 pub fn transfer_held_to_creator(from_slot: usize, to_slot: usize) -> Result<(), TransferError> {
-    let creator = cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let sched = unsafe { &*SCHED.get() };
-        let idx = sched.tasks.current().slot();
+    let creator = with_sched(|sched| {
+        let idx = sched.tasks.current_on(this_cpu()).slot();
         sched.tcbs[idx].creator
     });
     if creator == current_task_id() {
@@ -508,10 +728,8 @@ pub enum InstallError {
 
 /// Install `cap` into the current task's empty `slot` and register SEND holds.
 pub fn install_cap(slot: usize, cap: CapId) -> Result<(), InstallError> {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let sched = unsafe { &mut *SCHED.get() };
-        let idx = sched.tasks.current().slot();
+    with_sched(|sched| {
+        let idx = sched.tasks.current_on(this_cpu()).slot();
         sched
             .caps
             .install(idx, slot, cap)
@@ -626,11 +844,23 @@ pub fn exit() -> ! {
 
 /// Make a blocked task Ready (voluntary path — e.g. IPC send).
 pub fn wake_task(id: TaskId) {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let sched = unsafe { &mut *SCHED.get() };
-        sched.tasks.wake(id);
+    let home = with_sched(|sched| {
+        if sched.tasks.wake(id) {
+            sched.tasks.home_of(id)
+        } else {
+            None
+        }
     });
+    if let Some(cpu) = home {
+        if cpu != this_cpu() {
+            request_resched(cpu);
+            if cpu == 1 {
+                irq::send_sgi(0, 1 << 1);
+            }
+        } else {
+            request_resched(cpu);
+        }
+    }
 }
 
 /// Drain the IRQ wake queue into Ready (voluntary path only).
@@ -719,18 +949,14 @@ pub fn pending_overwrites() -> u32 {
 /// Includes intentional waiters such as the console server. Observability only
 /// — nothing reclaims them.
 pub fn blocked_count() -> u32 {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
-        let sched = unsafe { &*SCHED.get() };
+    with_sched(|sched| {
         sched.tasks.blocked_count()
     })
 }
 
 /// Cumulative successful entries into `Blocked` since boot (ADR-0024).
 pub fn block_events() -> u32 {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
-        let sched = unsafe { &*SCHED.get() };
+    with_sched(|sched| {
         sched.tasks.block_events()
     })
 }
@@ -745,9 +971,7 @@ static CANCEL_EVENTS: AtomicU32 = AtomicU32::new(0);
 ///
 /// Returns `false` if `id` is idle, unknown, or not [`State::Blocked`].
 pub fn prepare_cancel_blocked(id: TaskId) -> bool {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
-        let sched = unsafe { &mut *SCHED.get() };
+    with_sched(|sched| {
         if !matches!(
             sched.tasks.state(id),
             Some(kernel_core::tasks::State::Blocked)
@@ -769,10 +993,8 @@ pub fn prepare_cancel_blocked(id: TaskId) -> bool {
 
 /// Take and clear the current task's cancel-wait flag (ADR-0025).
 pub fn take_cancel_wait() -> bool {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        let sched = unsafe { &mut *SCHED.get() };
-        let idx = sched.tasks.current().slot();
+    with_sched(|sched| {
+        let idx = sched.tasks.current_on(this_cpu()).slot();
         let flag = sched
             .tcbs
             .get_mut(idx)
@@ -806,9 +1028,7 @@ static REAP_EVENTS: AtomicU32 = AtomicU32::new(0);
 
 /// Observe a task's lifecycle state (creator/supervisor path, ADR-0033).
 pub fn task_state(id: TaskId) -> Option<kernel_core::tasks::State> {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
-        let sched = unsafe { &*SCHED.get() };
+    with_sched(|sched| {
         sched.tasks.state(id)
     })
 }
@@ -879,9 +1099,7 @@ impl StackReport {
 /// is that an overflow lands in its own guard *instead of* a peer's stack.
 #[cfg(feature = "bringup")]
 pub fn stack_map(out: &mut [StackReport]) -> usize {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; single core.
-        let sched = unsafe { &*SCHED.get() };
+    with_sched(|sched| {
         let mut count = 0;
         for (slot, tcb) in sched.tcbs.iter().enumerate() {
             if count == out.len() {
@@ -908,16 +1126,14 @@ pub fn stack_map(out: &mut [StackReport]) -> usize {
 pub fn current_id() -> TaskId {
     cpu::without_irqs(|| {
         // SAFETY: IRQs masked; single core.
-        unsafe { (*SCHED.get()).tasks.current() }
+        /* use with_sched */
     })
 }
 
 /// True when the ready queue holds at least one task.
 pub fn has_ready() -> bool {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked.
-        unsafe { (*SCHED.get()).tasks.has_ready() }
-    })
+    let cpu = this_cpu();
+    with_sched(|sched| sched.tasks.has_ready_on(cpu))
 }
 
 /// Release the stack of a task that has exited, if one is waiting.
@@ -928,13 +1144,17 @@ pub fn has_ready() -> bool {
 /// # Safety
 /// IRQs masked, and the caller is not the task that parked it.
 unsafe fn collect_exited() {
-    // SAFETY: IRQs masked; the borrow ends before this returns and never
-    // crosses a context switch.
+    // IRQs must already be masked by the caller. Take the sched lock.
+    sched_lock();
+    // SAFETY: lock + IRQs masked; the borrow ends before this returns.
     let sched = unsafe { &mut *SCHED.get() };
     let Some(id) = sched.tasks.collect() else {
+        sched_unlock();
         return;
     };
-    if let Some(stack) = sched.tcbs[id.slot()].stack.take() {
+    let stack = sched.tcbs[id.slot()].stack.take();
+    sched_unlock();
+    if let Some(stack) = stack {
         // SAFETY: its owner has exited and we are on another stack.
         unsafe { stack.release() };
     }
@@ -945,16 +1165,19 @@ fn switch_with(kind: Switch) {
         return;
     }
 
+    let cpu = this_cpu();
     let daif = cpu::irq_save();
+    sched_lock();
 
-    // Bookkeeping under an exclusive SCHED borrow, then drop it before ipc
-    // may re-enter via `prepare_cancel_blocked` (ADR-0031).
+    // Bookkeeping under lock + IRQ mask, then drop the lock before ipc may
+    // re-enter via `prepare_cancel_blocked` (ADR-0031). IRQs stay masked.
     let (from, to, release, exit_caps) = {
-        // SAFETY: IRQs masked for schedule + switch.
+        // SAFETY: lock + local IRQ mask.
         let sched = unsafe { &mut *SCHED.get() };
 
-        let (from, to, release) = match sched.tasks.switch(kind) {
+        let (from, to, release) = match sched.tasks.switch_on(cpu, kind) {
             Decision::Stay => {
+                sched_unlock();
                 // SAFETY: closes the section opened above, on the path that does
                 // not change stacks.
                 unsafe { cpu::irq_restore(daif) };
@@ -979,6 +1202,7 @@ fn switch_with(kind: Switch) {
         };
         (from, to, release, exit_caps)
     };
+    sched_unlock();
 
     if let Some(caps) = exit_caps {
         ipc::release_holds_and_reap(&caps);
@@ -991,7 +1215,8 @@ fn switch_with(kind: Switch) {
         let mut kids = [Tasks::<MAX_TASKS>::IDLE; MAX_TASKS];
         let mut n = 0usize;
         {
-            // SAFETY: IRQs still masked.
+            sched_lock();
+            // SAFETY: lock + IRQs masked.
             let sched = unsafe { &*SCHED.get() };
             for i in 0..MAX_TASKS {
                 // `live_id` is how a slot is named since ADR-0062; the exiting
@@ -999,7 +1224,7 @@ fn switch_with(kind: Switch) {
                 let Some(id) = sched.tasks.live_id(i) else {
                     continue;
                 };
-                if id == Tasks::<MAX_TASKS>::IDLE {
+                if id == sched.tasks.idle_of(0) || id == sched.tasks.idle_of(1) {
                     continue;
                 }
                 if sched.tcbs[i].creator != from {
@@ -1013,6 +1238,7 @@ fn switch_with(kind: Switch) {
                     n += 1;
                 }
             }
+            sched_unlock();
         }
         for k in kids.iter().take(n) {
             if ipc::cancel_blocked(*k) {
@@ -1021,7 +1247,8 @@ fn switch_with(kind: Switch) {
         }
     }
 
-    // SAFETY: IRQs still masked; exclusive again for context pointers.
+    // SAFETY: IRQs still masked; re-take lock for context pointers.
+    sched_lock();
     let sched = unsafe { &mut *SCHED.get() };
 
     if let Some(stranded) = release {
@@ -1035,17 +1262,22 @@ fn switch_with(kind: Switch) {
         }
     }
 
-    publish_el0(sched, to);
-    // ADR-0046: new slice for whoever we are about to run. The idle mirror is
-    // written beside it (ADR-0064) so the tick handler reads both without
-    // touching `SCHED`.
-    SLICE_START.store(time::ticks(), Ordering::Relaxed);
-    CURRENT_IS_IDLE.store(to == Tasks::<MAX_TASKS>::IDLE, Ordering::Relaxed);
+    // ADR-0017 EL0 session publish and K4 quantum mirrors are core-0 only
+    // until per-core EL0/preemption (ADR-0075). Secondary switches must not
+    // clobber the primary's CURRENT_EL0 or slice accounting.
+    if cpu == 0 {
+        publish_el0(sched, to);
+        SLICE_START.store(time::ticks(), Ordering::Relaxed);
+        let idle_here = sched.tasks.idle_of(0);
+        CURRENT_IS_IDLE.store(to == idle_here, Ordering::Relaxed);
+    }
 
     let prev = &raw mut sched.tcbs[from.slot()].context;
     let next_ctx = &raw const sched.tcbs[to.slot()].context;
+    sched_unlock();
 
     // SAFETY: both contexts in static TCBs; stacks valid; IRQs masked.
+    // Lock released so the other CPU can schedule while we switch.
     unsafe { context_switch(prev, next_ctx) };
 
     // Resumed as some task that was switched away from earlier, on its own
@@ -1077,10 +1309,8 @@ extern "C" fn task_trampoline() -> ! {
 
     cpu::irq_enable();
 
-    let entry = cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; we are the current task.
-        let sched = unsafe { &mut *SCHED.get() };
-        let idx = sched.tasks.current().slot();
+    let entry = with_sched(|sched| {
+        let idx = sched.tasks.current_on(this_cpu()).slot();
         sched.tcbs[idx].entry.take()
     });
 

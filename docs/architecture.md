@@ -332,8 +332,8 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
 | **H1 next**                  | P3\|P4 only with composition (deferred) · K5 driver-half residual                                                                                                 |
-| **H2 depth**                 | K4 EL0+EL1 preemption done (HW); K7 first slice done (HW); K8 unpark done (HW) + IPI done (QEMU); queues **in design** ADR-0075 (code residual); K7 TTBR1/switch-cost |
-| **open (kernel)**            | K8 queues **code**; K7 residuals (TTBR1 / switch-cost)                                                                                                            |
+| **H2 depth**                 | K4 EL0+EL1 preemption done (HW); K7 first slice done (HW); K8 unpark+IPI+queues first done (QEMU/HW mix); residual steal / per-core preempt / heap SMP; K7 TTBR1 |
+| **open (kernel)**            | K8 steal·preempt·heap-SMP; K7 residuals (TTBR1 / switch-cost)                                                                                                     |
 | **open (product)**           | P3/P4 deferred (ADR-0049); K5 driver-half residual                                                                                                                |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
@@ -419,7 +419,8 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0069](adr/0069-harbor-host-class-north-star.md)                 | Host-class north star — native primary OS intent (**accepted**)                                                                                        |
 | [ADR-0070](adr/0070-k8-smp-first-slice.md)                           | K8 first slice — unpark core 1, idle only (**accepted**); done (HW), stamp 2026-08-09                                                                  |
 | [ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)                     | K8 second slice — SGI IPI wake core 1 (**accepted**); done (QEMU); HW stamp residual                                                                   |
-| [ADR-0075](adr/0075-k8-per-core-queues-design.md)                    | K8 design — per-core queues / multi-current (**accepted** design; code residual)                                                                       |
+| [ADR-0075](adr/0075-k8-per-core-queues-design.md)                    | K8 design — per-core queues / multi-current (**accepted**; code [0076](adr/0076-k8-per-core-queues-first-slice.md))                                    |
+| [ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)               | K8 third slice — dual current + pinned CPU1 worker (**accepted**); done (QEMU)                                                                         |
 | [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)                   | H3 L0 — x86_64 QEMU first slice (**accepted**); done (QEMU-x86)                                                                                        |
 | [ADR-0072](adr/0072-hardware-self-discovery-design.md)               | Hardware self-discovery as boot evidence — verify, don't select (**accepted**); first code [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)    |
 | [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)             | Discovery first slice — FDT reader + `discover:` report (**accepted**); done (HW), stamp 2026-08-10                                                    |
