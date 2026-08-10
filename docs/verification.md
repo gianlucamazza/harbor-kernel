@@ -1470,9 +1470,13 @@ use overlapping rights, which the existing tests never did.
 
 The new `cap::from_slot` and the extended `syscall` produced **no survivors**.
 
-**`make mutants`** runs it, over `ipc`, `tasks`, `layout`, `irqtable`, `rxline`,
-`reset`, `cap`, `syscall`, `prog` and `manifest`. Not wired into `make check`:
-a full run is 316 mutants and well over twenty minutes on a loaded machine,
+**`make mutants`** runs it. The file list is the script's (`FILES` in
+`scripts/host/run-mutants.sh`) and has grown past the ten modules this
+paragraph first named: `taskcap`, `irqcap`, `reply`, `runqueue`, `irqwait` and
+`capslots` joined it, because ADR-0058 §2 makes every module that decides
+authority join the list in the commit it is born — `taskcap.rs` went unmutated
+for a day (F-7) before that rule existed. Not wired into `make check`:
+a full run is well over twenty minutes on a loaded machine,
 and the value is in reading the survivors rather than in a threshold. It belongs
 where ADR-0001 puts the multi-role review — before a milestone that moves a
 boundary.
@@ -1688,9 +1692,14 @@ long-running tests carry `#[cfg(miri)]` bounds: 512 items instead of 200 000,
 150 churn rounds instead of 2000. The shape of these tests is what finds bugs,
 not the volume.
 
-It runs on nightly, which is why it is a separate CI job and not part of
-`make check` — the toolchain pin is deliberately stable, and a nightly
-requirement must not leak into the gate everything else runs under.
+It runs on nightly, and that requirement is contained rather than avoided:
+`make miri` is a `check` prerequisite, but nightly is needed **only** for that
+target, so the kernel's own toolchain pin stays stable. A developer without it
+opts out through `ALLOW_MIRI_SKIP=1`, loudly and on purpose; CI never does.
+(This paragraph said the opposite — "a separate CI job and not part of
+`make check`" — for as long as it took someone to read the Makefile beside it.
+`doc-claims` compares the gate _list_, not prose about it, which is the blind
+spot ADR-0058 §2 names.)
 
 ## Two linker symbols can share an address; the compiler assumes they cannot
 

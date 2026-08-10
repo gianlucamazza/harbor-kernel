@@ -88,26 +88,43 @@ Scale axes (where new code lands):
                              │ SVC / IPC / EL0 IRQ (session)
 ┌────────────────────────────┴─────────────────────────────┐
 │  Kernel policy (product path)                            │
-│  bootstrap · loader · console_loop · sched · ipc · time  │
-│  console · agent · mm (frames, aspace) · taskcap · status│
-│  naming · storage · durable (P5/P2 service state)        │
+│  bootstrap (+ discover) · loader · console_loop · sched  │
+│  ipc · time · console · agent · mm (frames, aspace)      │
+│  taskcap · status · naming · storage · durable · panic   │
 │  lab/  (lab path only — thin bring-up, not Pi stubs)     │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
 │  irq                  │     │  drivers                   │
 │  dispatch · IrqChip   │     │  gicv2 · pl011 · rng200    │
-│  fn(IrqCookie)        │     │  spi · ili9486 · uart16550 │
+│  fn(IrqCookie)        │     │  sdhci · pm · uart16550    │
+│                       │     │  spi · pin · delay ·ili9486│
 └───────────▲───────────┘     └───────────▲────────────────┘
             │ claim/eoi                   │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
-│  arch/exception       │     │  arch/{timer,mmu,switch,   │
-│  VBAR · frame · el0   │     │         probe, el0}        │
+│  arch/exception       │     │  arch/{cpu,timer,mmu,cache,│
+│  VBAR · frame · el0   │     │   switch,mmio,probe,smp,   │
+│                       │     │   bootinfo}                │
 └───────────────────────┘     └────────────────────────────┘
             ▲                              ▲
             │         bsp/rpi4             │
-            └─ memmap · IRQ · gpio · display (feature) ─┘
+            └─ memmap · console · irq · gpio ─┘
+               pm · rng · sdhci · display (feature)
+
+┌──────────────────────────────────────────────────────────┐
+│  crates/kernel-core — pure, host-tested, no MMIO         │
+│  encodings · arithmetic · decode · bounded models        │
+│  called by every layer above; calls none of them         │
+└──────────────────────────────────────────────────────────┘
 ```
+
+The eleven `arch/` modules are the port surface, and the list is not
+decorative: [`arch-contract.md`](arch-contract.md) is what a port is checked
+against, and `make doc-claims` compares that table against the facade's
+re-export list so the two cannot drift apart. `kernel-core` sits outside the
+stack rather than under it — it is the only layer with no hardware at all,
+which is what makes it the place where a decision can be tested exhaustively
+on the host.
 
 ### Rules
 
@@ -160,7 +177,7 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
    carries the demo strings.
 
    That build also reports a number worth reading: how many items are
-   unreachable without the oracle (69 as of 2026-08-09; the number is
+   unreachable without the oracle (83 as of 2026-08-10; the number is
    reprinted by every `make product-builds` run, which is the source to
    trust over this sentence). `bootstrap::loader` is product code and
    calls `sched::spawn_with_slots`, `AddressSpace`, `Agent` and the EL0 session, so
@@ -183,6 +200,21 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
     structure is multi-arch _ready_, not multi-arch product. Contract:
     [`arch-contract.md`](arch-contract.md); port checklist: [`porting.md`](porting.md).
 
+11. **Read thin, decode pure.** A hardware read is one instruction and no
+    logic; the interpretation of what it read is a total function in
+    `kernel-core`, where the host can test it exhaustively. `cpu::midr_el1` →
+    `kernel_core::cpuid`, `PM_RSTS` → `kernel_core::reset`, `ESR_EL1` →
+    `kernel_core::fault`, sector 0 → `kernel_core::mbr`, the device tree →
+    `kernel_core::fdt` + `hwdesc` (ADR-0065, ADR-0072). The payoff is that the
+    part which is easy to get subtly wrong — a bit field, a fault-status
+    table, a cells-encoded `reg` — is the part that never needed hardware to
+    check, and the part that needs hardware stays too small to hide a bug.
+
+    No gate decides this: "is this logic pure?" is not derivable from an
+    import graph, so rule 11 is review's job. Naming it here rather than
+    implying it is the same choice ADR-0016 made when it wrote `Nothing.` in a
+    reversal row.
+
 Rules 1, 3, 4 and 10 are checked by `make layering` (`scripts/check/layering.sh`)
 against every `crate::` import edge (and ISA/board path leaks). Rule 2's
 substance — _what_ the BSP does, bind rather than implement — is not decidable
@@ -201,18 +233,20 @@ live in bootstrap.
 
 ## Interrupt / timer / console contract
 
-| Role        | Module                          | Responsibility                                         |
-| ----------- | ------------------------------- | ------------------------------------------------------ |
-| Clocksource | `arch/timer`                    | CNTP deadline, ISTATUS, re-arm                         |
-| Irqchip     | `drivers/gicv2`                 | enable, claim/EOI, SPI target CPU0                     |
-| Dispatch    | `irq` + `kernel_core::irqtable` | id → handler; seal freezes the table                   |
-| Tick policy | `time`                          | `on_timer_irq`, `ticks()`                              |
-| Console RX  | `console`                       | ring / `suspend_rx`·`resume_rx`; agent poll when owned |
-| Bind        | `bsp/rpi4/irq`                  | TIMER=30, UART=153, static GIC                         |
-| Layout      | `mm/layout`                     | regions and their permissions                          |
-| Allocation  | `mm`                            | free list + `GlobalAlloc`                              |
-| Scheduler   | `sched`                         | spawn / yield / exit + IRQ-epilogue quantum preemption |
-| Task stacks | `mm/task_stack`                 | heap stack + unmapped guard                            |
+| Role         | Module                                             | Responsibility                                                                     |
+| ------------ | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Clocksource  | `arch/timer`                                       | CNTP deadline, ISTATUS, re-arm                                                     |
+| Irqchip      | `drivers/gicv2`                                    | enable, claim/EOI, SPI target CPU0                                                 |
+| Dispatch     | `irq` + `kernel_core::irqtable`                    | id → handler; seal freezes the table                                               |
+| Tick policy  | `time`                                             | `on_timer_irq`, `ticks()`                                                          |
+| Console RX   | `console`                                          | ring / `suspend_rx`·`resume_rx`; agent poll when owned                             |
+| Bind         | `bsp/rpi4/irq`                                     | TIMER=30, UART=153, static GIC                                                     |
+| Layout       | `mm/layout`                                        | regions and their permissions                                                      |
+| Allocation   | `mm`                                               | free list + `GlobalAlloc`                                                          |
+| Scheduler    | `sched`                                            | spawn / yield / exit + IRQ-epilogue quantum preemption                             |
+| Task stacks  | `mm/task_stack`                                    | heap stack + unmapped guard                                                        |
+| Discovery    | `bootstrap/discover` + `kernel_core::{fdt,hwdesc}` | firmware tree → reconcile with compiled claims → `discover:` lines (ADR-0072/0073) |
+| Fault report | `arch/exception` + `kernel_core::fault` + `panic`  | syndrome decoded in words; the address named against the live map                  |
 
 ## Agent model
 
