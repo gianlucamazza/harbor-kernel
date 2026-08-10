@@ -122,8 +122,9 @@ pub fn seal() {
     // and nothing ever read it. Two sources of truth for one fact, one of them
     // dead, is how they drift; the compiler said so and the atomic is gone.
     cpu::without_irqs(|| {
-        // SAFETY: IRQs masked and one core, so this `&mut` cannot overlap the
-        // IRQ path's shared borrow.
+        // SAFETY: IRQs masked on the bring-up core; `seal` runs once before
+        // secondary unpark / dual-current product agents, so the IRQ path
+        // cannot hold a concurrent shared borrow of the table.
         unsafe { (*STATE.get()).table.seal() };
     });
 }

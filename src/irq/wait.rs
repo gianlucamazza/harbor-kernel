@@ -88,10 +88,9 @@ pub fn drain(mut f: impl FnMut(u32)) {
 }
 
 fn enqueue(token: u32) {
-    // Capacity (32) is deliberately below MAX_TASKS (42): a full queue drops
-    // the wake and counts it, and waiters re-check pending around the park,
-    // so a drop is latency, not a lost task. The old "capacity ≥ task count"
-    // claim stopped being true when the table grew for the oracle fleets.
+    // Capacity is deliberately below `sched::MAX_TASKS` (oracle census tax):
+    // a full queue drops the wake and counts it, and waiters re-check pending
+    // around the park, so a drop is latency, not a lost task.
     if !QUEUE.push(token) {
         SIGNAL_IDLE.fetch_add(1, Ordering::Relaxed);
     }

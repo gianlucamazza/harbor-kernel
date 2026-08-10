@@ -22,11 +22,10 @@ use kernel_core::paging::Perms;
 use kernel_core::prog;
 
 use crate::agent::{Agent, SessionEnd};
-use crate::arch::cpu;
 use crate::ipc;
 use crate::mm::AddressSpace;
 use crate::sched::{self, MAX_TASKS, TaskId};
-use crate::sync::SyncCell;
+use crate::sync::{IrqSpinLock, SyncCell};
 
 /// Capacity of the image-resident agent store (ADR-0029).
 ///
@@ -111,27 +110,33 @@ static STORE_ENTRIES: SyncCell<[MaybeUninit<AgentEntry>; MAX_AGENTS]> =
 
 static ENTRY_OF_TASK: SyncCell<[Option<u8>; MAX_TASKS]> = SyncCell::new([None; MAX_TASKS]);
 
+/// Serialises loader side tables under dual-current (ADR-0077).
+///
+/// `ENTRY_OF_TASK` / `ACTIVE` were left on bare `without_irqs` after F-R1-P1
+/// paid naming/storage/taskcap — debt once product agents home on CPU 1
+/// (ADR-0088) and recall runs concurrently with any late remember.
+static LOADER_LOCK: IrqSpinLock = IrqSpinLock::new();
+
 fn remember(task: TaskId, index: u8) {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked and one core.
+    LOADER_LOCK.with(|| {
+        // SAFETY: exclusivity from LOADER_LOCK (IRQ mask + spin).
         let table = unsafe { &mut *ENTRY_OF_TASK.get() };
         table[task.slot()] = Some(index);
     });
 }
 
-fn recall(task: TaskId) -> Option<u8> {
-    cpu::without_irqs(|| {
-        // SAFETY: as `remember`.
+/// Resolve the manifest entry for a task under a **single** lock hold.
+///
+/// `IrqSpinLock` is not re-entrant: separate `recall` + `active_manifest`
+/// helpers would deadlock on the agent body path.
+fn entry_for_task(task: TaskId) -> Option<&'static AgentEntry> {
+    LOADER_LOCK.with(|| {
+        // SAFETY: exclusivity from LOADER_LOCK.
         let table = unsafe { &*ENTRY_OF_TASK.get() };
-        table[task.slot()]
-    })
-}
-
-fn active_manifest() -> &'static [AgentEntry] {
-    cpu::without_irqs(|| {
-        // SAFETY: IRQs masked; ACTIVE set once before any agent runs.
+        let index = (*table)[task.slot()]?;
         let a = unsafe { &*ACTIVE.get() };
-        a.unwrap_or_else(builtin_manifest)
+        let m = a.unwrap_or_else(builtin_manifest);
+        m.get(index as usize)
     })
 }
 
@@ -201,8 +206,8 @@ pub fn load_all(held: &[CapId]) {
     let table = match try_store_manifest() {
         Some(t) => {
             crate::kprintln!("loader: store n={} image", t.len());
-            cpu::without_irqs(|| {
-                // SAFETY: boot-only.
+            LOADER_LOCK.with(|| {
+                // SAFETY: exclusivity from LOADER_LOCK.
                 unsafe {
                     *ACTIVE.get() = Some(t);
                 }
@@ -212,8 +217,8 @@ pub fn load_all(held: &[CapId]) {
         None => {
             crate::kprintln!("loader: builtin");
             let t = builtin_manifest();
-            cpu::without_irqs(|| {
-                // SAFETY: boot-only.
+            LOADER_LOCK.with(|| {
+                // SAFETY: exclusivity from LOADER_LOCK.
                 unsafe {
                     *ACTIVE.get() = Some(t);
                 }
@@ -258,12 +263,8 @@ pub fn load_all(held: &[CapId]) {
 }
 
 fn agent_body() {
-    let Some(index) = recall(sched::current_task_id()) else {
+    let Some(entry) = entry_for_task(sched::current_task_id()) else {
         crate::kprintln!("loader: a task reached the agent body with no manifest entry");
-        return;
-    };
-    let Some(entry) = active_manifest().get(index as usize) else {
-        crate::kprintln!("loader: task names manifest entry {index}, which is not there");
         return;
     };
     run(entry);

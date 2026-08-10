@@ -4,7 +4,8 @@ title: SMP shared-state discipline — IrqSpinLock, per-CPU mirrors, honest dual
 status: accepted
 date: 2026-08-10
 accepted: 2026-08-10
-related: [0008, 0048, 0074, 0075, 0076]
+amended: 2026-08-11
+related: [0008, 0048, 0074, 0075, 0076, 0081, 0088]
 ---
 
 # ADR-0077: SMP shared-state discipline
@@ -39,6 +40,10 @@ Implemented as `sync::IrqSpinLock`. **First payment:** heap, scheduler, park
 deadlines. **F-R1-P1 complete (2026-08-10):** also IPC, frames, ASID, naming,
 storage, taskcap, durable, console TX + RX line model, IRQ wait table + IRQ
 caps, kernel MMU map/unmap/arena, status grid (debug-display).
+**Amended 2026-08-11:** loader `ENTRY_OF_TASK` / `ACTIVE` also under
+`IrqSpinLock` — they were still bare `without_irqs` after product agents home
+on CPU 1 ([ADR-0088](0088-product-home-cpu.md)); dual-core `recall` would
+otherwise race the SyncCell.
 
 **IRQ handlers and locks:** voluntary paths hold locks with local IRQs masked
 (no same-core re-entry). Cross-core, a short spin in `irq::wait::signal` is
@@ -63,24 +68,27 @@ forwards; board SGI handlers call `smp` only (layering). No second flag set.
 
 ### 4. Per-CPU quantum mirrors
 
-`SLICE_START[N]` and `CURRENT_IS_IDLE[N]` are indexed by affinity. CPU 1 has
-no timer PPI yet — `el1_preempt_pending` returns 0 for `affinity != 0` because
-there is **no quantum path**, not because queues are incomplete.
+`SLICE_START[N]` and `CURRENT_IS_IDLE[N]` are indexed by affinity.
+**Amended 2026-08-11:** per-core timer + EL1 preempt on CPU 1 are **done (HW)**
+([ADR-0079](0079-k8-per-core-timer-preemption-first-slice.md)); the earlier
+“no quantum on affinity ≠ 0” sentence is historical.
 
 ### 5. Marker and secondary are ordinary
 
 - CPU1 marker sets `CORE1_RAN` and **exits**; stack is collected.  
 - Secondary idle loop is permanent (`poll_wakes` → yield / WFI), no quiet-park.  
-- EL0 publish remains CPU0-only until [ADR-0080](0080-k8-el0-on-cpu1-design.md)
-  code: no product agent home on CPU 1 in the paid queues/preempt slices.
+- **Amended 2026-08-11:** EL0 publish is per-CPU ([ADR-0081](0081-k8-el0-on-cpu1-first-slice.md));
+  product composition may pin `home_cpu` ([ADR-0088](0088-product-home-cpu.md)).
 
 ### 6. Residuals (honest only)
 
 - Work stealing / EL0-on-CPU1 / per-core timer — **done (HW)** (0079/0081/0083)
 - **F-R1-P1 global-table discipline** — **done (HW)** 2026-08-10
-  (post multi-role review; stamp transcript `20260810-160227.log`, `src=05a38149`)
+  (post multi-role review; stamp transcript `20260810-160227.log`, `src=05a38149`);
+  loader tables closed 2026-08-11 (see §1 amendment)
 - Agent+TLB steal — only if product needs auto-balance of agents
 - Lock refinement if measured contention requires it
+- Coarse single `SCHED` lock is correct for **N=2** only (cores 2–3 need design)
 - Bootstrap-only `without_irqs` / "single core" SAFETY on early init (pre-secondary) remains correct
 
 ## Related

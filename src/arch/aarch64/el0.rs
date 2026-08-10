@@ -135,11 +135,11 @@ pub unsafe fn enter(
     let Some(kernel_ttbr) = mmu::kernel_root_phys() else {
         panic!("el0::enter: kernel map not activated");
     };
-    // SAFETY: single core with IRQs masked (the caller's obligation), so no
-    // other context can be between these writes and the `el0_run` that reads
-    // them. `can_resume` is cleared *before* the entry so that a fault on the
-    // very first instruction cannot be mistaken for a resumable event left over
-    // from a previous session.
+    // SAFETY: EL1 IRQs masked (caller's obligation) and `session` is this
+    // core's published slot only (per-CPU `CURRENT_EL0`, ADR-0081) — no other
+    // context mutates *this* session between these writes and `el0_run`.
+    // `can_resume` is cleared *before* entry so a first-instruction fault
+    // cannot look like a leftover resumable event.
     unsafe {
         let live = current();
         live.user_ttbr = user_ttbr as u64;

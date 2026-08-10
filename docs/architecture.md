@@ -309,7 +309,8 @@ Code is authoritative; this table is the map.
 | Agent store entries | **8** | `kernel_core::agentstore` | Composition scale ≠ scheduler scale |
 | Manifest grant slots | **4** | `kernel_core::manifest` | Per-entry grant table |
 | Name registry | **8** | `kernel_core::naming` | P5 |
-| IRQ waiters / task-id bitmap | 8 / **64** | `kernel_core::irqwait` | Bitmap covers `MAX_TASKS` |
+| IRQ waiters / task-id bitmap | 8 / **64** | `kernel_core::irqwait` | Bitmap covers `MAX_TASKS` (≤64) |
+| IRQ wake SPSC queue | **32** | `src/irq/wait.rs` | Deliberately &lt; oracle `MAX_TASKS`; full = drop + count, not lost task |
 | Park timeouts armed | **16** | `kernel_core::parktime` | Under full task census |
 | Durable / storage blobs | **4** | storage/durable pure | P2 first depth |
 

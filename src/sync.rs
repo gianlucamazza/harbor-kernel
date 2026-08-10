@@ -68,8 +68,8 @@ impl<T> SyncCell<T> {
 /// **IPC → SCHED** is allowed only as separate critical sections (IPC dropped
 /// before `wake_task` / `block_current`). Never hold **SCHED** while taking
 /// **IPC** (spawn registers holds after `with_sched` returns). Other global
-/// tables (naming, storage, taskcap, frames, asid, durable, TX) do not nest
-/// under each other or under SCHED on current product paths.
+/// tables (naming, storage, taskcap, frames, asid, durable, TX, loader) do not
+/// nest under each other or under SCHED on current product paths.
 pub struct IrqSpinLock {
     locked: AtomicBool,
 }
