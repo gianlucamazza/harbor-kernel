@@ -88,13 +88,16 @@ If a word here does not mean what you expect — **agent** most of all — start
 Open work that realises these at scale (design ADR before code where needed):
 **K5** residual policy ([ADR-0085](adr/0085-k5-density-residual-design.md): thin
 + **K5-S** Mini **done (HW)** [ADR-0086](adr/0086-k5-mini-stack-first-slice.md);
-**K5-H/B** deferred); **K7** residual policy
+**K5-B design** paid [ADR-0089](adr/0089-k5-b-pair-collapse-design.md); **K5-H**
+and K5-B **code** deferred); **K7** residual policy
 ([ADR-0084](adr/0084-k7-residual-policy.md): option C current; optional
 switch-cost lab; TTBR1 only if a named trigger fires); optional **K8** agent
 steal + TLB IPI; product network/display only with a composition target
 (**P3**, **P4** deferred). Closed on HW for fairness and multi-core depth:
 **K4** EL0+EL1 preemption; **K7** ASID first; **K8** unpark through steal
-(ADR-0070…0083); F-R1-P1 shared-state. Status and order: [roadmap](roadmap.md).
+(ADR-0070…0083); F-R1-P1 shared-state (+ loader 2026-08-11). Product
+composition pin and force-exit: **done (QEMU)** (0088/0090). Status and order:
+[roadmap](roadmap.md).
 
 ---
 
@@ -174,13 +177,16 @@ order: [roadmap § next working order](roadmap.md#next-working-order-post-h1-hw-
 
 **Closed on HW:** **K4** preemption, **K7** ASID first, **K8** through steal,
 F-R1-P1 shared-state, **K5-S** Mini stacks
-([ADR-0086](adr/0086-k5-mini-stack-first-slice.md)). Remaining depth is
-trigger-gated or product-target: optional **K5-H/B**
-([ADR-0085](adr/0085-k5-density-residual-design.md)), **K7-T** TTBR1 only if
-[ADR-0084](adr/0084-k7-residual-policy.md) triggers, optional **K7-M** lab and
-**K8** agent+TLB steal, deferred **P3**/**P4**. Resolve-grant is done (HW)
-([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this model —
-still not Linux.
+([ADR-0086](adr/0086-k5-mini-stack-first-slice.md)). **Closed on QEMU (product
+path):** composition `home_cpu` ([ADR-0088](adr/0088-product-home-cpu.md)),
+supervisor force-exit ([ADR-0090](adr/0090-k10-force-exit-running.md)).
+**K5-B design** paid ([ADR-0089](adr/0089-k5-b-pair-collapse-design.md)).
+Remaining depth is trigger-gated or product-target: optional **K5-H** / K5-B
+**code** ([ADR-0085](adr/0085-k5-density-residual-design.md)), **K7-T** TTBR1
+only if [ADR-0084](adr/0084-k7-residual-policy.md) triggers, optional **K7-M**
+lab and **K8** agent+TLB steal, deferred **P3**/**P4**. Resolve-grant is done
+(HW) ([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this model
+— still not Linux.
 
 | Traditional OS                    | Harbor (vision)                            |
 | --------------------------------- | ------------------------------------------ |

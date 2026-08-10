@@ -78,25 +78,27 @@ Full stack, including what is deliberately **not** in it:
 
 ## Current status
 
-Snapshot, 2026-08-10. The status of record is
+Snapshot, 2026-08-11. The status of record is
 [`docs/roadmap.md`](docs/roadmap.md) — per-track state lives there and nowhere
 else; what follows is a summary, not a second ledger.
 
-H0 is complete on Pi 4B and H1 is **done (HW)** — stamp 2026-08-08, with
-residuals carrying into H2. H2 is open: P3–P4, H3 L1+ and the remaining
-platform paths.
+H0 is complete on Pi 4B and H1 is **done (HW)** — stamp 2026-08-08. H2
+**mechanism depth** is largely paid on HW (K4/K7/K8/K5-S + shared-state); open
+product services remain P3–P4 (deferred), H3 L1+, and trigger-gated residuals.
 
-Next: optional K5-H design if slot wall — [roadmap](docs/roadmap.md). Recent:
-`home_cpu` ([ADR-0088](docs/adr/0088-product-home-cpu.md)), K5-B design
-([ADR-0089](docs/adr/0089-k5-b-pair-collapse-design.md)), K10 force-exit
-([ADR-0090](docs/adr/0090-k10-force-exit-running.md)) **done (QEMU)**.
+Next: optional K5-H design if slot wall — [roadmap](docs/roadmap.md). Recent
+QEMU-paid slices: product `home_cpu` ([ADR-0088](docs/adr/0088-product-home-cpu.md)),
+K5-B design ([ADR-0089](docs/adr/0089-k5-b-pair-collapse-design.md)), K10
+force-exit ([ADR-0090](docs/adr/0090-k10-force-exit-running.md)); SMP loader
+tables closed under `IrqSpinLock` ([ADR-0077](docs/adr/0077-smp-shared-state-discipline.md)
+amended 2026-08-11).
 
 **Working today (high level).** Preemptible tasks on both cores — voluntary
 yield plus IRQ-epilogue quantum preemption, EL0+EL1 — with dual-current SMP
-through steal; message IPC and EL0 agents with private memory, slot
-capabilities, revoke and auto-reap; a least-privilege console and a PL011
-driver-agent; product composition via an injected store, with density stack
-classes Full / Thin / **Mini** stamped on hardware.
+through steal; product composition can pin agent **home_cpu**; message IPC and
+EL0 agents with private memory, slot capabilities, revoke and auto-reap;
+supervisor force-exit of Running tasks; a least-privilege console and a PL011
+driver-agent; density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |
 | ------------ | ------------------------------------------------------------ |

@@ -89,20 +89,20 @@ src/
   drivers/        protocol axis (PL011, GICv2, …; uart16550 lab)
   lab/            lab maturity path (x86 L0 entry + panic; ADR-0071)
   irq/            IRQ ownership, masking, counters, wait port, notification caps
-  bootstrap/      product boot sequence, loader, console server, demos
+  bootstrap/      product boot sequence, loader (IrqSpinLock), console server, demos
   agent/          EL0 agent shell and session lifecycle
   sched/          TCBs, stacks, context switching and wake drain
   ipc/            kernel IPC policy and capability translation
-  naming/         EL1 name registry (ADR-0035)
-  taskcap/        task capabilities for peer transfer (ADR-0054)
-  storage/        EL1 keyed blob store (ADR-0036)
-  durable/        durable section store (ADR-0045)
+  naming/         EL1 name registry (ADR-0035; IrqSpinLock)
+  taskcap/        task capabilities for peer transfer (ADR-0054; IrqSpinLock)
+  storage/        EL1 keyed blob store (ADR-0036; IrqSpinLock)
+  durable/        durable section store (ADR-0045; IrqSpinLock)
   mm/             heap, address spaces, frames, layout and task stacks
-  console.rs      kernel TX/RX policy (product)
+  console.rs      kernel TX/RX policy (product; TX under IrqSpinLock)
   panic.rs        panic path (product)
-  status.rs       optional display status slots
-  sync.rs         shared-state cell
-  time.rs         tick policy
+  status.rs       optional display status slots (debug-display; IrqSpinLock)
+  sync.rs         SyncCell + IrqSpinLock (ADR-0077)
+  time.rs         tick policy (global advance on CPU 0)
 boot/             Raspberry Pi firmware configuration
 scripts/          check/ boot/ agent/ host/ lib/ — see scripts/README.md
 docs/design/      scale topology + multi-arch contracts — see design/README.md
@@ -113,14 +113,15 @@ docs/design/      scale topology + multi-arch contracts — see design/README.md
 Do **not** treat this block as a second status table — it only steers readers.
 **Status lives in [roadmap.md](roadmap.md).**
 
-| Layer                | State (2026-08-10)                                                                                                                                                              |
+| Layer                | State (2026-08-11)                                                                                                                                                              |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **H0 foundation**    | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                                                                                  |
 | **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                                                                                      |
 | **H1 next**          | P3\|P4 only with a composition target (deferred)                                                                                                                                |
-| **H2**               | K4 + K7-ASID first + K8 through steal + F-R1-P1 + **K5-S** Mini **done (HW)** (stamps 2026-08-09…10); residual K5-H/B · K7-T if trigger · agent+TLB if product needs it         |
-| **Evidence hygiene** | Product composition-minimum `product-boot-check` + `oracle-census` (MAX_TASKS ratchet) in `make check`                                                                      |
-| **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice / ADR-0020; lab x86 L0 done (QEMU-x86) [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)              |
+| **H2 mechanism**     | K4 + K7-ASID + K8 through steal + F-R1-P1 (+ loader lock 2026-08-11) + **K5-S** Mini **done (HW)**; K5-B **design** paid (0089); residual K5-H / K5-B **code** / K7-T if trigger |
+| **Product SMP**      | Composition `home_cpu` **done (QEMU)** [ADR-0088](adr/0088-product-home-cpu.md); force-exit Running **done (QEMU)** [ADR-0090](adr/0090-k10-force-exit-running.md)           |
+| **Evidence hygiene** | Composition-minimum `product-boot-check` + `oracle-census` (`MAX_TASKS=54`) in `make check`                                                                                     |
+| **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice; [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) K7-M; x86 L0 done (QEMU-x86)         |
 
 ## Decision records and reviews
 

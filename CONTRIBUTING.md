@@ -35,6 +35,10 @@ successor ADR, not a patch.
    oracle tax. Update `scripts/check/oracle-census.sh` (and the architecture
    capacity table) in the same commit; density wins are stack classes / K5, not
    `MAX_TASKS++`.
+7. **SMP-shared mutables use `IrqSpinLock`.** New global tables that agents or
+   dual-current paths touch must not rely on bare `without_irqs` + “single core”
+   SAFETY ([ADR-0077](docs/adr/0077-smp-shared-state-discipline.md)). The lock is
+   **not re-entrant** — one critical section per path (see loader `entry_for_task`).
 
 ## Layout (scalable map)
 

@@ -43,7 +43,7 @@ where appropriate ([`docs/blobs.md`](docs/blobs.md)).
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Product** | AArch64 agent-based kernel on Raspberry Pi 4 Model B; **dual-current** schedule (CPU 0+1) with product default home on CPU 0 (foundation + H1 + H2 mechanism depth largely paid; product services still open) |
 | **Goal**    | Complete agent-based microkernel **and** product OS ([ADR-0026](docs/adr/0026-kernel-and-product-completeness.md))                                                                      |
-| **Today**   | Foundation + H1 depth + K4/K7-first/K8-through-steal + F-R1-P1 + **K5-S** Mini on Pi 4B ([ADR-0086](docs/adr/0086-k5-mini-stack-first-slice.md)); residuals (K5-H/B if trigger [ADR-0085](docs/adr/0085-k5-density-residual-design.md), optional K7-M, agent+TLB steal, P3/P4). See [roadmap](docs/roadmap.md) |
+| **Today**   | Foundation + H1 depth + K4/K7-first/K8-through-steal + F-R1-P1 (+ loader lock) + **K5-S** Mini on Pi 4B; product `home_cpu` + K10 force-exit **done (QEMU)** ([ADR-0088](docs/adr/0088-product-home-cpu.md)/[0090](docs/adr/0090-k10-force-exit-running.md)); K5-B design paid ([ADR-0089](docs/adr/0089-k5-b-pair-collapse-design.md)). Residuals: K5-H / K5-B **code** if trigger, optional K7-M, agent+TLB steal, P3/P4. See [roadmap](docs/roadmap.md) |
 
 Assets worth defending, in order of load:
 
@@ -55,9 +55,10 @@ Assets worth defending, in order of load:
 Non-assets (out of threat model until named otherwise): multi-user login, network
 stack, disk encryption, remote attestation, multi-tenant cloud isolation,
 automatic agent load-balancing across cores (agent+TLB steal residual).
-**Dual-current SMP and IRQ preemption are in the TCB today** (not non-assets);
-what remains residual is *product* agent placement (default home CPU 0) and
-agent+TLB steal if product needs auto-balance of EL0 agents.
+**Dual-current SMP and IRQ preemption are in the TCB today** (not non-assets).
+Product composition can pin sticky `home_cpu` ([ADR-0088](docs/adr/0088-product-home-cpu.md));
+default remains CPU 0 when the field is absent. Residual load-balancing is
+**agent+TLB steal** only if product needs auto-balance of EL0 agents.
 
 ---
 

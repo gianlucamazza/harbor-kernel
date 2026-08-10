@@ -71,11 +71,14 @@ of model.** SMP first depth is **done (HW)** through steal (unpark
 dual-current queues [ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md),
 per-core timer + EL1/EL0 on CPU 1 [ADR-0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)/[0081](adr/0081-k8-el0-on-cpu1-first-slice.md),
 steal [ADR-0083](adr/0083-k8-work-stealing-first-slice.md); stamps 2026-08-10).
-**Product SMP policy** (honest, not a missing mechanism): default home remains
-CPU 0; steal is opt-in for EL1 workers without a live agent AS; agents are not
-auto-balanced (agent+TLB steal residual). Fairness under a hostile busy-loop is
-enforced at both ELs by the IRQ epilogue on each scheduled core. Details and
-threat residuals: [`SECURITY.md`](../SECURITY.md). Multi-role inventory:
+**Product SMP policy** ([ADR-0088](adr/0088-product-home-cpu.md)): each store /
+manifest entry may name sticky **`home_cpu`** (default **0**); the default
+product pack pins chirp on CPU 1 for dual-current evidence. Steal remains
+opt-in for EL1 workers without a live agent AS; agents are not auto-balanced
+(agent+TLB residual). Shared kernel tables use **`IrqSpinLock`** ([ADR-0077](adr/0077-smp-shared-state-discipline.md),
+including the loader). Fairness under a hostile busy-loop is enforced at both
+ELs by the IRQ epilogue on each scheduled core. Details:
+[`SECURITY.md`](../SECURITY.md). Multi-role inventory:
 [post-K8 review](reviews/2026-08-10-post-k8-multi-role.md).
 The payoff of the shape is that each boundary is named, gated, and
 demonstrable rather than implied by a large ABI.
@@ -369,10 +372,11 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
 | **H1 next**                  | P3\|P4 only with composition (deferred)                                                                                                                            |
-| **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1+K5-S done (HW); K7 residual ADR-0084; K5-H/B later (0085)                                                                                     |
+| **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1+K5-S done (HW); K7 residual ADR-0084; K5-H / K5-B **code** if trigger (0085/0089)                                                             |
 | **open (kernel)**            | K5-H if trigger (0085); K5-B **design paid** (0089), code only if trigger; K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                         |
 | **open (product)**           | P3/P4 deferred (ADR-0049); denser composition (K5-H if slots bind)                                                                                                   |
-| **paid (hygiene)**           | Product composition-minimum boot + `oracle-census` (multi-role F-R5-2 / F-R7-1)                                                                                      |
+| **paid (QEMU)**              | Product `home_cpu` (0088); K10 force-exit (0090); composition-minimum product-boot + `oracle-census`                                                                |
+| **paid (hygiene)**           | SMP shared tables including loader (0077 amended 2026-08-11); multi-role F-R5-2 / F-R7-1                                                                           |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
 K/P tables here. Horizon mapping and working order also live in `roadmap.md`.

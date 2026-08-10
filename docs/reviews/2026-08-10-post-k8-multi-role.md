@@ -274,7 +274,10 @@ to findings, not part of the audit method. Status flips remain owned by
 
 | Finding / backlog | Response |
 | --- | --- |
-| F-R5-2 / Tier **C** stronger product-boot-check | **Paid:** composition-minimum `qemu-product-boot-check.sh` (~35 layered asserts on the shipped path) + `make oracle-census` in `make check` (MAX_TASKS source ↔ architecture table ↔ documented raise). Not a second full oracle. |
-| Tier **C** product multi-core policy enforcement | **Partial:** policy prose in architecture + SECURITY residual “product multi-core placement”; manifest `home_cpu` field still **open**. |
-| Tier **A** SECURITY re-baseline / remaining SSOT | **Paid (doc pass):** dual-current TCB, `MAX_TASKS=52`, per-CPU `CURRENT_EL0`, product-boot + census guarantees, product home-CPU residual. Capacity model already in `architecture.md`. |
-| Tracker hygiene | Closed stale issues #17/#19/#20/#22; #21 kept as K7-M/T watch; #14 SpiDevice watch remains. |
+| F-R5-2 / Tier **C** stronger product-boot-check | **Paid:** composition-minimum `qemu-product-boot-check.sh` (~35 layered asserts) + `make oracle-census` (`MAX_TASKS` now **54**). |
+| Tier **C** product multi-core policy enforcement | **Paid (QEMU):** [ADR-0088](../adr/0088-product-home-cpu.md) store/manifest `home_cpu` + loader pin; default pack chirp@1. |
+| F-R1 / loader tables | **Paid (2026-08-11):** `LOADER_LOCK` on `ENTRY_OF_TASK`/`ACTIVE` ([ADR-0077](../adr/0077-smp-shared-state-discipline.md) amended); naming/storage/taskcap already under `IrqSpinLock` from F-R1-P1 HW stamp. |
+| Tier **A** SECURITY re-baseline / remaining SSOT | **Paid (doc pass):** dual-current TCB, per-CPU `CURRENT_EL0`, census, home_cpu + force-exit residuals named; capacity table current. |
+| K10 force-kill Running | **Paid (QEMU):** [ADR-0090](../adr/0090-k10-force-exit-running.md). |
+| K5-B design | **Paid (design only):** [ADR-0089](../adr/0089-k5-b-pair-collapse-design.md); code still trigger-gated. |
+| Tracker hygiene | Closed #17/#19/#20/#22/#24/#25/#26; open watches #14 SpiDevice, #21 K7-M/T. |
