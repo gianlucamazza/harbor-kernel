@@ -31,8 +31,11 @@ allowed_for() {
 	# ADR-0028: timer/UART signal waiters via irq::wait (no sched import).
 	time*) echo "arch irq" ;;
 	console*) echo "arch bsp drivers irq" ;;
-	# Product panic: console (+ optional TFT). Lab panic lives under lab::*.
-	panic*) echo "arch console status" ;;
+	# Product panic: console + fault address naming via the live map (policy).
+	# Trap publishes syndrome (`arch::exception::last_fault`); panic asks
+	# `mm::layout` to name FAR — arch may not import layout (feat boot diagnostics).
+	# Lab panic lives under lab::*.
+	panic*) echo "arch console mm status" ;;
 	# Lab maturity path: arch + board bind only (project-topology).
 	lab*) echo "arch bsp" ;;
 	mm*) echo "arch bsp" ;;
