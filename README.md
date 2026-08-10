@@ -94,8 +94,8 @@ Snapshot, 2026-08-10 — status of record is [`docs/roadmap.md`](docs/roadmap.md
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Foundation**      | **Complete on Pi 4B**: tasks, IPC/caps, EL0, PL011 driver-agent, slot ABI, blocking recv, manifest loader, console endpoint + beacon, supervisor cancel of parked waits                                                                            |
 | **H1 slices**       | done (HW): wait-on-IRQ (**K1**), auto-reap (**K2**), RNG (**K9**), supervisor (**K10**), names ambient era (**P5**) · done (QEMU): store (**K6**), revoke + peer transfer (**K3**), multi-agent (**P1**), resolve-grant (**P5**), compose (**P6**) |
-| **Next**            | K7 residual / K5 driver-half / K8 steal·preempt (H3 L0 **done (QEMU-x86)**) — [roadmap](docs/roadmap.md)                                                                                                                                           |
-| **Not yet (later)** | K8 steal / per-core preempt / EL0-on-CPU1 · ASID residuals (TTBR1/switch-cost) · P3–P4 · full product net/display depth, …                                                                                                                        |
+| **Next**            | K8 per-core preempt **code** ([ADR-0078](docs/adr/0078-k8-per-core-timer-preemption-design.md); design paid) — [roadmap](docs/roadmap.md)                                                                                                            |
+| **Not yet (later)** | K8 steal / EL0-on-CPU1 · K7 TTBR1/switch-cost · K5 driver-half · P3–P4 · H3 L1+, …                                                                                                                                                                 |
 
 **What works today (short list):** preemptible tasks (voluntary yield +
 IRQ-epilogue quantum preemption, EL0+EL1); dual-current SMP first depth

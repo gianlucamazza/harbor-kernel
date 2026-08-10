@@ -86,7 +86,7 @@ gateways, sealed composition firmware, on-device third-party sandbox
 | K5  | Agent density (shrink/collapse driver half)               | **done (HW)** first slice ([ADR-0044](adr/0044-k5-agent-density.md); Pi stamp 2026-08-08); driver-half collapse residual                                                                                                                                                                                              | `spawn_thin` 4 KiB stacks; pure density arithmetic                         | 0023 → 0044                                         |
 | K6  | External agent load + byte manifest                       | **done (QEMU)** ([ADR-0027](adr/0027-h1-external-agent-store.md) format, [ADR-0029](adr/0029-agent-store-in-image.md) placement)                                                                                                                                                                                      | Image store inject; product prefers store, oracle empty → builtin          | ADR-0021 → 0027 → 0029                              |
 | K7  | ASID (+ TTBR1 if required)                                | **done (HW)** first slice, stamp 2026-08-09 ([ADR-0047](adr/0047-k7-asid-isolation-design.md) + [ADR-0050](adr/0050-k7-asid-first-slice.md) amended: early-map retirement); TTBR1 / switch-cost measurement residual                                                                                                  | ASID pool + CONTEXTIDR + nG user leaves; dual-AS on silicon                | 0014 → 0047 → 0050                                  |
-| K8  | SMP                                                       | **done (HW)** unpark ([ADR-0070](adr/0070-k8-smp-first-slice.md)); **done (HW)** IPI ([ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)); **done (HW)** queues + shared-state ([ADR-0075](adr/0075-k8-per-core-queues-design.md)/[0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md): `smp: core1 ran`, stamp 2026-08-10, transcript `20260810-130305.log`); residual steal / per-core preempt / EL0-on-CPU1; parent [ADR-0048](adr/0048-k8-smp-design.md)                                                                                                                                 | Unpark + IPI + dual-current without debt                                   | 0006 → 0048 → 0070 → 0074 → 0075 → 0076 → 0077      |
+| K8  | SMP                                                       | **done (HW)** unpark ([ADR-0070](adr/0070-k8-smp-first-slice.md)); **done (HW)** IPI ([ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)); **done (HW)** queues + shared-state ([ADR-0075](adr/0075-k8-per-core-queues-design.md)/[0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md): stamp 2026-08-10); per-core timer+preempt **in design** ([ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md); code residual); residual steal / EL0-on-CPU1; parent [ADR-0048](adr/0048-k8-smp-design.md)                                                                                                                                 | Unpark + IPI + queues HW; fair CPU1 next                                   | 0006 → 0048 → 0070 → 0074 → 0075 → 0076 → 0077 → 0078 |
 | K9  | Driver-as-agent beyond PL011 (+ IRQ caps)                 | **done (HW)** ([ADR-0034](adr/0034-k9-rng-driver-agent.md) + [ADR-0043](adr/0043-k9-irq-device-agent.md); Pi stamp 2026-08-08)                                                                                                                                                                                        | Map agent + IRQ-cap-only wait agent                                        | 0013 → 0034 → 0043                                  |
 | K10 | Supervisor lifecycle (restart, creator exit)              | **done (HW)** ([ADR-0033](adr/0033-k10-supervisor-reap.md) + [ADR-0038](adr/0038-k10-creator-exit-cascade.md); Pi stamp 2026-08-08); force-kill Running later                                                                                                                                                         | `supervisor_reap_blocked`; exit cascades cancel of blocked children        | 0018/0025 → 0033 → 0038                             |
 
@@ -114,8 +114,9 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 
 | Step | Track(s)                                             | Why now                                  |
 | ---- | ---------------------------------------------------- | ---------------------------------------- |
-| 1    | **K7** switch-cost measurement / TTBR1 residual      | Lab when free                            |
-| 2    | **K5** driver-half / K8 steal or per-core preempt      | Queues first **done (HW)** stamp 2026-08-10; deepen H2 |
+| 1    | **K8** per-core timer + preempt **code** ([ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md)) | Design paid; fair dual-core is H2 perfection |
+| 2    | **K7** switch-cost / TTBR1 · **K5** driver-half · EL0-on-CPU1 | After or beside K8 preempt code          |
+| —    | **K8** steal                                         | After sticky affinity + preempt-on-CPU1  |
 | —    | **H3 L1+** or deeper L0 (timer/sched)                 | After L0 gate; separate ADRs             |
 | —    | **P3** / **P4**                                      | Only with a named composition (ADR-0049) |
 
@@ -126,8 +127,9 @@ K8 unpark + IPI + queues first slice **done (HW)** (ADR-0070/0074/0076/0077;
 stamp 2026-08-10, transcript `20260810-130305.log`: `smp: core1 alive` +
 `ipi` + `ran`). P3/P4 deferred. P2 power-cycle **done (HW)** (2026-08-09).
 **H3 L0** **done (QEMU-x86)** ([ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)).
-**Discovery** **done (QEMU)** + **done (HW)** (ADR-0072/0073). **Next:** K7
-residual / K5 driver-half / K8 steal·preempt or deeper lab x86.
+**Discovery** **done (QEMU)** + **done (HW)** (ADR-0072/0073). **K8 per-core
+preempt design** paid ([ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md));
+**next code:** that slice. Then K7 measure / K5 density / EL0-on-CPU1 / steal.
 
 ```text
 Mission: agents · grants · evidence · finish the OS
@@ -136,7 +138,7 @@ Mission: agents · grants · evidence · finish the OS
                 │
     H1 composition ████████ done (HW) stamp 2026-08-08
                 │
-    H2 boundary    ████████ K4+K8 first HW; next: K7 / K5 / K8 steal·preempt
+    H2 boundary    ████████ K4+K8 first HW; next: K8 preempt-on-CPU1 code
                 │
     H3 host-class  █░░░░░░░ L0 done (QEMU-x86); L1+ open
 ```
