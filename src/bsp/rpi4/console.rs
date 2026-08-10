@@ -29,8 +29,9 @@ const CONSOLE_DIVISORS: Divisors = match CONSOLE_RATE.divisors() {
 ///
 /// # Safety
 ///
-/// Exclusive access to GPIO and UART0 MMIO is required. On M0 this holds
-/// because only core 0 runs and no other subsystem touches these devices.
+/// Exclusive access to GPIO and UART0 MMIO is required. Holds because core 0
+/// is the only core driving devices (core 1, ADR-0070, parks in WFE with IRQs
+/// masked and issues no MMIO) and no other subsystem touches these blocks.
 pub unsafe fn init() -> Pl011 {
     // SAFETY: the caller holds the exclusive console claim (`console::acquire`
     // or `steal`), so nothing else is driving these pins or this register

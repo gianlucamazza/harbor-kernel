@@ -19,8 +19,9 @@ static secondary_entry: [AtomicU64; 4] = [
     AtomicU64::new(0),
 ];
 
-/// How many times secondaries entered `.L_secondary_wait` (best-effort).
-/// Non-zero under QEMU means cores past CPU0 are executing our image.
+/// How many times secondaries entered `secondary_wait` (best-effort).
+/// Zero under QEMU `-kernel` (secondaries wait in QEMU's own spin table);
+/// non-zero on real start4.elf where every core enters our image.
 #[unsafe(no_mangle)]
 static secondary_seen: AtomicU64 = AtomicU64::new(0);
 
@@ -73,8 +74,9 @@ pub unsafe extern "C" fn secondary_main() -> ! {
     }
     exception::init();
     CORE1_ALIVE.store(true, Ordering::Release);
-    // Make the alive flag visible to the primary (Normal WB, both MMUs on —
-    // hardware coherency; still clean to PoC for belt-and-braces).
+    // SAFETY: cache maintenance + barrier on our own static — makes the alive
+    // flag visible to the primary (Normal WB, both MMUs on — hardware
+    // coherency; still clean to PoC for belt-and-braces).
     unsafe {
         cache::clean_dcache_poc(core::ptr::addr_of!(CORE1_ALIVE) as usize, 8);
         core::arch::asm!("dsb ish", options(nostack, preserves_flags));
@@ -141,7 +143,7 @@ pub fn unpark_core1() -> bool {
         if CORE1_ALIVE.load(Ordering::Acquire) {
             return true;
         }
-        if spins % 100_000 == 0 {
+        if spins.is_multiple_of(100_000) {
             // SAFETY: event signal only.
             unsafe {
                 core::arch::asm!("sev", options(nostack, preserves_flags));
@@ -153,7 +155,7 @@ pub fn unpark_core1() -> bool {
     CORE1_ALIVE.load(Ordering::Acquire)
 }
 
-/// Secondaries observed at `.L_secondary_wait` (0 under QEMU `-kernel`;
+/// Secondaries observed at `secondary_wait` (0 under QEMU `-kernel`;
 /// non-zero on real start4.elf where all cores enter the image).
 #[inline]
 pub fn secondary_seen_count() -> u64 {

@@ -7,7 +7,9 @@ use crate::drivers::gicv2::GicV2;
 use crate::irq;
 use crate::time;
 
-/// Platform GIC — single owner for M1 (core 0 only).
+/// Platform GIC — single distributor owner: core 0 programs GICD and claims
+/// via CPU interface 0. Core 1 (ADR-0070) keeps IRQs masked and never touches
+/// the GIC; per-core banked SGI/PPI bring-up is future SMP work.
 // SAFETY: `GICD_BASE` / `GICC_BASE` are this board's distributor and CPU
 // interface, compiled in rather than read from the device tree (ADR-0011), and
 // both are inside the GIC region `mm::layout` maps Device-nGnRnE. A `static`

@@ -146,6 +146,8 @@ _start:
 // --- Secondaries (outside `_start` size: may use indirect branches) ---
 
 // Wait for a non-zero entry in `secondary_entry[aff0]` (path A, real Pi).
+// Read with MMU/caches off — the primary must clean this word to PoC
+// (dc cvac + dsb) before SEV, see `arch::smp::unpark_core1`.
 .global secondary_wait
 .type secondary_wait, %function
 secondary_wait:
@@ -175,7 +177,10 @@ park_forever:
     b       park_forever
 .size park_forever, . - park_forever
 
-// Core 1 entry: path A (table) or path B (QEMU spin-table at 0xe0).
+// Core 1 entry: path A (table), path B (QEMU spin-table at 0xe0) or
+// path C (ARM-local mailbox 3 at 0xFF80_009C). Entry words and the root PA
+// are published by the primary with `dc cvac` to PoC + DSB before SEV: this
+// core runs MMU-off (Device view) and cannot snoop the primary's WB lines.
 .global secondary_el2_entry
 .type secondary_el2_entry, %function
 secondary_el2_entry:

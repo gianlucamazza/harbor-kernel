@@ -15,7 +15,9 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::cpu;
 
-/// Probe in progress on this core (single-core boot: one global is enough).
+/// Probe in progress on this core (only core 0 ever probes — core 1 is parked
+/// with IRQs masked, ADR-0070 — so one global is enough; must become per-core
+/// when a secondary takes faults).
 static ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Set by the sync handler when it consumed a probe fault.
 static FAULTED: AtomicBool = AtomicBool::new(false);

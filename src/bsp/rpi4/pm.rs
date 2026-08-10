@@ -8,7 +8,8 @@ use crate::drivers::pm::{ResetStatus, read_status};
 ///
 /// # Safety
 ///
-/// Reads one register in the PM window. Sound while only core 0 runs and no
+/// Reads one register in the PM window. Sound while core 0 is the only core
+/// driving devices (core 1 parks with IRQs masked, ADR-0070) and no
 /// other subsystem claims the block — nothing else does, because this is the
 /// only code that touches it.
 pub unsafe fn reset_status() -> ResetStatus {

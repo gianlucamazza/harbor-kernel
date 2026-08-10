@@ -11,8 +11,9 @@ use crate::drivers::rng200::{Rng200, RngError};
 ///
 /// # Safety
 ///
-/// Exclusive access to the RNG200 MMIO window. Holds while only core 0 runs
-/// and no other subsystem claims the block.
+/// Exclusive access to the RNG200 MMIO window. Holds while core 0 is the only
+/// core driving devices (core 1 parks with IRQs masked, ADR-0070) and no other
+/// subsystem claims the block.
 pub unsafe fn init() -> Result<Rng200, RngError> {
     // SAFETY: `RNG200_BASE` is the RNG200 window on BCM2711 low peripheral map.
     unsafe { Rng200::init(Mmio::new(memmap::RNG200_BASE)) }

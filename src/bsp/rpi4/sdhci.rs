@@ -19,8 +19,9 @@ use crate::drivers::sdhci::{SdError, Sdhci};
 ///
 /// # Safety
 ///
-/// Exclusive access to both SDHCI MMIO windows. Holds while only core 0
-/// runs and no other subsystem claims either block.
+/// Exclusive access to both SDHCI MMIO windows. Holds while core 0 is the
+/// only core driving devices (core 1 parks with IRQs masked, ADR-0070) and no
+/// other subsystem claims either block.
 pub unsafe fn init() -> Result<(Sdhci, &'static str), SdError> {
     // SAFETY: both bases are SDHCI windows on the BCM2711 low peripheral
     // map, covered by the kernel's Device mapping.

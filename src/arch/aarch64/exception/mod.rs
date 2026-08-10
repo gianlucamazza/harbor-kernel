@@ -33,7 +33,9 @@ core::arch::global_asm!(include_str!("vectors.s"), options(raw));
 
 /// Install the vector table into `VBAR_EL1`.
 ///
-/// Must run before unmasking IRQs. Safe to call once at boot on core 0.
+/// Must run before unmasking IRQs. Call once per core — `VBAR_EL1` is banked;
+/// core 1 calls this from `smp::secondary_main` after enabling the shared
+/// kernel map (ADR-0070).
 pub fn init() {
     let vectors = exception_vectors_addr();
     // SAFETY: `exception_vectors` is 2 KiB-aligned in the linker script.
