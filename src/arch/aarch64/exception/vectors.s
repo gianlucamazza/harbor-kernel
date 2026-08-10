@@ -178,25 +178,40 @@ el1_preempt_pivot:
     kernel_exit
 
 // ADR-0014: never call switch_ttbr0 with a null root.
-// Live el0 session → the published El0Session (ADR-0017 §1) holds the kernel
-// root to reinstall. Two ways to have none: no session published for the
-// running task, or one published with the root cleared. Both mean the same
-// thing here — nobody owns this lower-EL event — and both take the same exit.
+// Live el0 session → this core's published El0Session (ADR-0017 §1 / ADR-0081)
+// holds the kernel root to reinstall. Index CURRENT_EL0[MPIDR.Aff0].
+// Two ways to have none: no session published for the running task on this
+// core, or one published with the root cleared. Both mean the same thing
+// here — nobody owns this lower-EL event — and both take the same exit.
+// Clobbers x16, x17.
 .macro restore_kernel_ttbr0_require_session
+    mrs     x17, mpidr_el1
+    and     x17, x17, #0xff
+    cmp     x17, #2
+    b.lo    2f
+    mov     x17, xzr
+2:
     adrp    x16, CURRENT_EL0
     add     x16, x16, :lo12:CURRENT_EL0
-    ldr     x16, [x16]
+    ldr     x16, [x16, x17, lsl #3]
     cbz     x16, el0_no_live_session
     ldr     x0, [x16, #EL0S_SESSION_KERNEL_TTBR]
     cbz     x0, el0_no_live_session
     bl      switch_ttbr0
 .endm
 
-// Optional restore: only if a session published a root (never switch to 0).
+// Optional restore: only if this core's session published a root (never 0).
+// Clobbers x16, x17.
 .macro restore_kernel_ttbr0_if_session
+    mrs     x17, mpidr_el1
+    and     x17, x17, #0xff
+    cmp     x17, #2
+    b.lo    2f
+    mov     x17, xzr
+2:
     adrp    x16, CURRENT_EL0
     add     x16, x16, :lo12:CURRENT_EL0
-    ldr     x16, [x16]
+    ldr     x16, [x16, x17, lsl #3]
     cbz     x16, 1f
     ldr     x0, [x16, #EL0S_SESSION_KERNEL_TTBR]
     cbz     x0, 1f

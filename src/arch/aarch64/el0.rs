@@ -23,26 +23,28 @@
 //! the invariant "no second session while one is live" is structural rather
 //! than a rule someone has to follow.
 //!
-//! What this module owns is the [`El0Session`] layout, the single published
-//! pointer, and the refusal. What it does not own is *which* session belongs to
-//! the running task — that is `sched::current_el0_session`, and comparing the
-//! two answers is the whole point: a switch that stops publishing panics on the
-//! next EL0 entry instead of handing one agent another agent's saved registers.
+//! What this module owns is the [`El0Session`] layout, the **per-CPU** published
+//! pointer table, and the refusal. What it does not own is *which* session
+//! belongs to the running task — that is `sched::current_el0_session`, and
+//! comparing the two answers is the whole point: a switch that stops publishing
+//! panics on the next EL0 entry instead of handing one agent another agent's
+//! saved registers.
 //!
-//! ## Why this is an atomic, not a `static mut`
+//! ## Why this is an atomic array, not a `static mut`
 //!
 //! The assembly here and in `vectors.s` reaches the published session **by
-//! symbol name** (`adrp`/`add` then `ldr`). ADR-0016 (and ADR-0017 repeating
-//! it) claimed that only a `static mut` can provide that name. The claim is
-//! false: [`AtomicPtr`] is `#[repr(transparent)]` over a pointer-sized cell,
-//! and `#[unsafe(no_mangle)]` gives *any* static a linker-visible symbol at a
-//! known address. Measured, same symbol section, assembly unchanged
+//! symbol name** (`adrp`/`add`, then index by affinity, then `ldr`). ADR-0016
+//! (and ADR-0017 repeating it) claimed that only a `static mut` can provide
+//! that name. The claim is false: [`AtomicPtr`] is `#[repr(transparent)]` over
+//! a pointer-sized cell, and `#[unsafe(no_mangle)]` gives *any* static a
+//! linker-visible symbol at a known address
 //! ([ADR-0019](../../../../docs/adr/0019-no-static-mut.md)).
 //!
-//! So `CURRENT_EL0` is an `AtomicPtr`: rule 7 of `architecture.md` has no
-//! exception, publication uses `Release`/`Acquire` so the ordering between
-//! "session fields written" and "pointer visible" is stated rather than a
-//! single-core accident, and `make no-static-mut` refuses a reintroduction.
+//! So `CURRENT_EL0` is `[AtomicPtr; N_CPUS]` (ADR-0080/0081): rule 7 of
+//! `architecture.md` has no exception, publication uses `Release`/`Acquire` so
+//! the ordering between "session fields written" and "pointer visible" is
+//! stated rather than a single-core accident, and each core only reads its own
+//! slot — concurrent dual EL0 is structural.
 //!
 //! The field offsets the assembly applies to that pointer are derived from the
 //! struct rather than written out — see the `.equ` block below. Nothing still
@@ -51,8 +53,12 @@
 
 use core::sync::atomic::{AtomicPtr, Ordering};
 
+use crate::arch::cpu;
 use crate::arch::exception::{TrapFrame, read_esr_el1, read_far_el1};
 use crate::arch::mmu;
+
+/// Schedulable CPUs that publish an EL0 session (matches `kernel_core::tasks::N_CPUS`).
+const N_EL0_PUBLISH: usize = 2;
 
 /// `SPSR_EL1` for EL0t with DAIF all masked (default session contract).
 const SPSR_EL0_IRQS_MASKED: u64 = 0x3c0;
@@ -377,51 +383,65 @@ pub const KERNEL_TTBR0_OFFSET: usize = core::mem::offset_of!(El0Session, kernel_
 /// because the atomic is transparent over a pointer cell at a fixed address.
 /// The state it *names* is per-task and lives in the TCB (ADR-0017 §1).
 ///
-/// Null means no task's session is published — every path that dereferences it
-/// says so rather than reading address zero.
+/// Per-CPU published session (ADR-0080/0081). Index = affinity 0.
+///
+/// Null in a slot means no task's session is published on that core — every
+/// path that dereferences it says so rather than reading address zero.
 ///
 /// Ordering: `publish` stores with [`Ordering::Release`]; every load that may
-/// be followed by a dereference uses [`Ordering::Acquire`]. On one core both
-/// are free; what they buy is a written dependency between "session fields
-/// initialised" and "pointer visible", instead of relying on single-core
-/// execution that a second core would silently remove.
+/// be followed by a dereference uses [`Ordering::Acquire`]. What they buy is
+/// a written dependency between "session fields initialised" and "pointer
+/// visible" on **this** core. Assembly indexes the same array by MPIDR Aff0.
 #[unsafe(no_mangle)]
-static CURRENT_EL0: AtomicPtr<El0Session> = AtomicPtr::new(core::ptr::null_mut());
+static CURRENT_EL0: [AtomicPtr<El0Session>; N_EL0_PUBLISH] = [
+    AtomicPtr::new(core::ptr::null_mut()),
+    AtomicPtr::new(core::ptr::null_mut()),
+];
 
-/// Publish `session` as the one the assembly will use.
+#[inline]
+fn publish_index() -> usize {
+    let a = cpu::affinity() as usize;
+    if a < N_EL0_PUBLISH {
+        a
+    } else {
+        0
+    }
+}
+
+/// Publish `session` as the one **this** core's assembly will use.
 ///
 /// The store itself needs no `unsafe` — the atomic is ordinary shared state.
 /// This function is still `unsafe` because of *when* it may be called: see below.
 ///
 /// # Safety
 /// `session` must be null or point to an `El0Session` that outlives every EL0
-/// entry made while it is published, and the caller must be the scheduler
-/// running with IRQs masked: publishing while a session is live hands the
-/// assembly a different task's saved registers.
+/// entry made while it is published on **this** core, and the caller must be
+/// the scheduler running with local IRQs masked: publishing while a session is
+/// live on this core hands the assembly a different task's saved registers.
 #[inline]
 pub unsafe fn publish(session: *mut El0Session) {
-    CURRENT_EL0.store(session, Ordering::Release);
+    CURRENT_EL0[publish_index()].store(session, Ordering::Release);
 }
 
-/// The currently published session pointer (null if none).
+/// The currently published session pointer on **this** core (null if none).
 #[inline]
 pub fn published() -> *mut El0Session {
-    CURRENT_EL0.load(Ordering::Acquire)
+    CURRENT_EL0[publish_index()].load(Ordering::Acquire)
 }
 
-/// The published session, or panic naming the reason.
+/// The published session on this core, or panic naming the reason.
 ///
 /// The panic is the Rust-side twin of [`el0_no_live_session`]: same class of
 /// error — a lower-EL event with no session behind it — and it deserves the same
 /// message rather than a fault at address zero.
 #[inline]
 fn current() -> &'static mut El0Session {
-    let session = CURRENT_EL0.load(Ordering::Acquire);
-    // SAFETY: single core with IRQs masked on every path that reaches here (the
-    // vector handlers and the enter/resume calls, all inside `without_irqs`), so
-    // this `&mut` cannot overlap another. Null is checked rather than assumed.
-    // The pointer was published by the scheduler against a TCB slot that
-    // outlives every EL0 entry made under it.
+    let session = published();
+    // SAFETY: local IRQs are masked on every path that reaches here (vector
+    // handlers and enter/resume inside `without_irqs`), so this core cannot
+    // switch sessions under us. Another core has its own array slot. Null is
+    // checked rather than assumed. The pointer was published by the scheduler
+    // against a TCB slot that outlives every EL0 entry made under it.
     unsafe {
         if session.is_null() {
             panic!("el0: no published session (scheduler did not publish on switch)");
@@ -563,14 +583,20 @@ core::arch::global_asm!(
     .global el0_run_finish
     .text
 
-    // Load the published session into \reg, or panic. Every path here runs
-    // because a lower-EL event happened or is about to: no session published
-    // means no task owns the event, which is the same error the vector path
-    // names when the kernel root is clear.
+    // Load this core's published session into \reg, or panic (ADR-0080/0081).
+    // Index CURRENT_EL0[affinity] — Aff0 of MPIDR; out-of-range clamps to 0.
+    // Clobbers x16. Every path here runs because a lower-EL event happened or
+    // is about to: no session published means no task owns the event.
     .macro load_session reg
+        mrs     x16, mpidr_el1
+        and     x16, x16, #0xff
+        cmp     x16, #2
+        b.lo    1f
+        mov     x16, xzr
+1:
         adrp    \reg, CURRENT_EL0
         add     \reg, \reg, :lo12:CURRENT_EL0
-        ldr     \reg, [\reg]
+        ldr     \reg, [\reg, x16, lsl #3]
         cbz     \reg, el0_no_live_session
     .endm
 

@@ -1417,6 +1417,121 @@ pub(super) fn preempt_el1_cpu1_watch() {
     crate::kprintln!("preempt-el1-cpu1: spinner exit timeout");
 }
 
+// --- ADR-0081: EL0 session + preemption on CPU 1 (no console TX) ---
+
+/// Stop-word PA for the CPU1 EL0 spinner (peer writes; spinner host owns).
+static EL0_CPU1_STOP_PA: core::sync::atomic::AtomicUsize =
+    core::sync::atomic::AtomicUsize::new(0);
+static EL0_CPU1_PEER_TURNS: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+/// 0 = running, 1 = rotated, 2 = peer gave up.
+static EL0_CPU1_RESULT: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+/// Spinner host finished (session ended / destroy done).
+static EL0_CPU1_EXITED: core::sync::atomic::AtomicU32 =
+    core::sync::atomic::AtomicU32::new(0);
+
+const EL0_CPU1_STOP_OFF: usize = 0x800;
+
+/// ADR-0081: EL0 spinner host **pinned to CPU 1** — no syscalls; IRQs open;
+/// only quantum preemption lets the peer run. Atomics only (no TX).
+pub(super) fn el0_cpu1_spinner() {
+    use crate::bsp::board::memmap::USER_VA_BASE;
+    use core::sync::atomic::Ordering;
+
+    let mut agent = match Agent::create_prepared() {
+        Ok(a) => a,
+        Err(_) => {
+            EL0_CPU1_RESULT.store(2, Ordering::Release);
+            EL0_CPU1_EXITED.store(1, Ordering::Release);
+            return;
+        }
+    };
+    if agent
+        .aspace()
+        .poke_user(EL0_CPU1_STOP_OFF, &0u32.to_le_bytes())
+        .is_err()
+    {
+        agent.destroy();
+        EL0_CPU1_RESULT.store(2, Ordering::Release);
+        EL0_CPU1_EXITED.store(1, Ordering::Release);
+        return;
+    }
+    let Some(text_pa) = agent.aspace().text_page_phys(0) else {
+        agent.destroy();
+        EL0_CPU1_RESULT.store(2, Ordering::Release);
+        EL0_CPU1_EXITED.store(1, Ordering::Release);
+        return;
+    };
+
+    let prog = kernel_core::prog::encode_spin_flag_exit(
+        (USER_VA_BASE >> 16) as u16,
+        EL0_CPU1_STOP_OFF as u16,
+    );
+    el0::set_entry_irqs_unmasked(sched::current_el0_session());
+    EL0_CPU1_STOP_PA.store(text_pa + EL0_CPU1_STOP_OFF, Ordering::Release);
+    let _ = agent.run_user_prog_resuming_prep(&prog, || {
+        timer::accelerate_next_tick(1);
+    });
+    EL0_CPU1_STOP_PA.store(0, Ordering::Release);
+    el0::set_entry_irqs_masked(sched::current_el0_session());
+    agent.destroy();
+    EL0_CPU1_EXITED.store(1, Ordering::Release);
+}
+
+/// ADR-0081 peer on home=1: counts turns while the spinner window is open.
+pub(super) fn el0_cpu1_peer() {
+    use core::sync::atomic::Ordering;
+
+    for _ in 0..4096 {
+        let stop_pa = EL0_CPU1_STOP_PA.load(Ordering::Acquire);
+        if stop_pa != 0 {
+            let turns = EL0_CPU1_PEER_TURNS.fetch_add(1, Ordering::Relaxed) + 1;
+            if turns >= 2 {
+                EL0_CPU1_RESULT.store(1, Ordering::Release);
+                // SAFETY: same contract as `preempt_peer_task` stop-word write.
+                unsafe { core::ptr::write_volatile(stop_pa as *mut u32, 1) };
+                return;
+            }
+        }
+        crate::sched::yield_now();
+    }
+    EL0_CPU1_RESULT.store(2, Ordering::Release);
+}
+
+/// ADR-0081: primary watcher — prints oracle lines for the CPU1 EL0 pair.
+pub(super) fn el0_cpu1_watch() {
+    use core::sync::atomic::Ordering;
+    let mut saw = false;
+    for _ in 0..8192 {
+        match EL0_CPU1_RESULT.load(Ordering::Acquire) {
+            1 => {
+                crate::kprintln!("preempt-el0-cpu1: rotated");
+                saw = true;
+                break;
+            }
+            2 => {
+                crate::kprintln!("preempt-el0-cpu1: peer gave up");
+                saw = true;
+                break;
+            }
+            _ => crate::sched::yield_now(),
+        }
+    }
+    if !saw {
+        crate::kprintln!("preempt-el0-cpu1: watch timeout");
+        return;
+    }
+    for _ in 0..4096 {
+        if EL0_CPU1_EXITED.load(Ordering::Acquire) != 0 {
+            crate::kprintln!("preempt-el0-cpu1: spinner exited");
+            return;
+        }
+        crate::sched::yield_now();
+    }
+    crate::kprintln!("preempt-el0-cpu1: spinner exit timeout");
+}
+
 /// Stop-word physical address of the live preempt spinner (ADR-0064).
 /// Zero = no spinner window open. Written by [`preempt_agent_task`], consumed
 /// by [`preempt_peer_task`].

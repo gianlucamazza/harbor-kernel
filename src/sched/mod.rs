@@ -64,8 +64,9 @@ use crate::time;
 /// 42 → 43 for ADR-0076/0077: CPU1 idle identity (marker exits and frees).
 /// 43 → 46 for ADR-0079: CPU1 EL1 preempt oracle (watcher + peer + spinner)
 /// concurrent with the primary preempt pair and auto-reap spawns.
+/// 46 → 49 for ADR-0081: CPU1 EL0 preempt oracle (watcher + peer + spinner).
 /// Raising it costs task stacks and page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 46;
+pub const MAX_TASKS: usize = 49;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -1226,17 +1227,14 @@ fn switch_with(kind: Switch) {
         }
     }
 
-    // Per-CPU quantum mirrors (ADR-0077). EL0 publish stays CPU0-only: no
-    // agent home on CPU1 in this product path (honest non-goal, not a fence).
+    // Per-CPU quantum mirrors (ADR-0077) and per-CPU EL0 publish (ADR-0081).
     let idle_here = sched.tasks.idle_of(cpu);
     let idx = cpu as usize;
     if idx < SLICE_START.len() {
         SLICE_START[idx].store(time::ticks(), Ordering::Relaxed);
         CURRENT_IS_IDLE[idx].store(to == idle_here, Ordering::Relaxed);
     }
-    if cpu == 0 {
-        publish_el0(sched, to);
-    }
+    publish_el0(sched, to);
 
     let prev = &raw mut sched.tcbs[from.slot()].context;
     let next_ctx = &raw const sched.tcbs[to.slot()].context;
