@@ -122,7 +122,10 @@ pub const UART0_SPI: u32 = 153;
 /// How much RAM the board has is board knowledge, not architecture knowledge:
 /// `arch` describes how AArch64 translates addresses, `bsp` describes what is
 /// at those addresses. Two 1 GiB blocks are mapped, so allocation stops at
-/// 2 GiB even on 4/8 GB boards until the memory map is discovered at runtime.
+/// 2 GiB even on 4/8 GB boards. The device tree already *reports* the real
+/// size — the stamped 4 GB unit prints `memory 3956 MiB (2 ranges) beyond
+/// compiled map` (ADR-0073) — but consuming it to raise the map is a further
+/// slice with its own ADR (ADR-0072 §6), not a constant to edit here.
 pub const IDENTITY_RAM_END: usize = 0x8000_0000;
 
 /// What the device tree's `/model` must start with on this board — the

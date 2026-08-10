@@ -385,7 +385,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0070](adr/0070-k8-smp-first-slice.md)                           | K8 first slice — unpark core 1, idle only (**accepted**); done (HW), stamp 2026-08-09                                                                  |
 | [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)                   | H3 L0 — x86_64 QEMU first slice (**accepted**); done (QEMU-x86)                                                                                        |
 | [ADR-0072](adr/0072-hardware-self-discovery-design.md)               | Hardware self-discovery as boot evidence — verify, don't select (**accepted**); first code [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)    |
-| [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)             | Discovery first slice — FDT reader + `discover:` report (**accepted**)                                                                                 |
+| [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)             | Discovery first slice — FDT reader + `discover:` report (**accepted**); done (HW), stamp 2026-08-10                                                    |
 | [`docs/reviews/`](reviews/)                                          | Pass outcomes (findings), not decisions                                                                                                                |
 
 ## Non-goals

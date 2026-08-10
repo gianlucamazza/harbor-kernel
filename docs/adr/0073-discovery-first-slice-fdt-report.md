@@ -94,7 +94,9 @@ arrays in the tests: truncated header, truncated struct block, `totalsize`
 beyond the slice, depth bomb, `cells=0`.
 
 Residual: a firmware-patched dump captured from the Pi 4B (real revision +
-RAM) as a second positive fixture — next HW session.
+RAM) as a second positive fixture. The 2026-08-10 HW stamp proves the
+parser handles that shape on silicon (two memory ranges, revision
+present); the fixture would let a host test pin it.
 
 ## Evidence
 
@@ -106,8 +108,25 @@ RAM) as a second positive fixture — next HW session.
 | `discover: display …` | compiled claim reported                    |
 
 Runners: host tests (fixtures, positive and hostile); QEMU `-dtb` fixture
-run + DTB-less run; HW Pi 4B transcript (firmware-patched values) — stamp
-residual until the next SD/serial session.
+run + DTB-less run; HW Pi 4B transcript (firmware-patched values).
+
+**HW stamp (2026-08-10):** transcript
+`.serial-log/20260810-030801-boot2.log`, `hw-transcript-check` clean —
+
+```
+discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+discover: cpus 4 (fdt) smp-seen=2 matches
+discover: display compiled=on (claim, not probed)
+```
+
+The firmware-patched tree carries what the distributed blob does not: the
+board revision, and two memory ranges totalling 3956 MiB of ARM memory
+(the VideoCore share is already excluded) against a 2 GiB identity map.
+That third line is the evidence ADR-0072 §2 named — a map-raise slice now
+has a silicon observation to cite instead of an assumption. The image was
+the glass build, so `display compiled=on` is the deployed-image claim,
+not a probe.
 
 ## Non-goals (residuals)
 

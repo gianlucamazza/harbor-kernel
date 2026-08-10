@@ -113,7 +113,7 @@ cite discovery evidence observed on silicon.
 ### 6. Slices
 
 1. [ADR-0073](0073-discovery-first-slice-fdt-report.md): FDT reader +
-   `discover:` report on AArch64 (this slice).
+   `discover:` report on AArch64 — **done (HW)**, Pi stamp 2026-08-10.
 2. x86 lab parity: same grammar from CPUID/PVH in the L0 lab image.
 3. Display presence (own ADR, amends 0009).
 4. Identity-map raise (own ADR, partially supersedes 0011, cites HW
