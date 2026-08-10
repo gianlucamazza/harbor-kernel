@@ -36,8 +36,14 @@ Every SMP-shared mutable structure is entered as:
 4. release spinlock  
 5. restore IRQs  
 
-Implemented as `sync::IrqSpinLock`. **First payment:** heap, scheduler, park
-deadlines. **F-R1-P1 complete (2026-08-10):** also IPC, frames, ASID, naming,
+Implemented as `sync::Mutex<T>`. **Amended 2026-08-11 (reconciliation per
+ADR-0058, reconciled by [ADR-0091](0091-data-in-lock.md)):** the shape and the
+five steps are unchanged; what changed is that the lock **owns** the datum
+instead of sitting beside a `SyncCell`, so the `unsafe` deref lives once in
+`sync.rs` rather than at each of ~28 call sites. `IrqSpinLock` is gone.
+`SyncCell` survives for exactly three statics that a guard cannot serve
+(`irq::STATE`, and the two loader pools that mint `&'static`), enumerated in
+ADR-0091 §4. **First payment:** heap, scheduler, park deadlines. **F-R1-P1 complete (2026-08-10):** also IPC, frames, ASID, naming,
 storage, taskcap, durable, console TX + RX line model, IRQ wait table + IRQ
 caps, kernel MMU map/unmap/arena, status grid (debug-display).
 **Amended 2026-08-11:** loader `ENTRY_OF_TASK` / `ACTIVE` also under
@@ -46,14 +52,21 @@ on CPU 1 ([ADR-0088](0088-product-home-cpu.md)); dual-core `recall` would
 otherwise race the SyncCell.
 
 **IRQ handlers and locks:** voluntary paths hold locks with local IRQs masked
-(no same-core re-entry). Cross-core, a short spin in `irq::wait::signal` is
+(no same-core re-entry). **Amended 2026-08-11 (ADR-0091 §3):** one path cannot
+use the closure form — the scheduler switch must release the spin bit before
+`context_switch` while `DAIF` stays masked. That is `Mutex::lock_masked`, and
+`scripts/check/irq-scope.sh` refuses it outside `src/sched/mod.rs`. Cross-core, a short spin in `irq::wait::signal` is
 accepted so the wait table is dual-current-safe; handlers still never take
 **SCHED** or switch (ADR-0008).
 
 **Lock order:** never hold **SCHED** while taking **IPC** (spawn registers
 holds after `with_sched`; cancel clears waiter under IPC then prepares under
 SCHED). Send drops IPC before `wake_task`. Wait drain pops under WAIT then
-wakes under SCHED (no WAIT→SCHED nesting).
+wakes under SCHED (no WAIT→SCHED nesting). **Amended 2026-08-11 (ADR-0091 §5):**
+one order was missing rather than absent — **LINE → TX genuinely nests**, on the
+live RX-handover path (`console::suspend_rx` / `resume_rx` apply their steps
+inside the line lock, and each step reaches the TX handle). TX is a leaf and the
+direction is one-way. The order now lives on `sync::Mutex`'s doc.
 
 ### 2. Heap is multi-core-safe
 

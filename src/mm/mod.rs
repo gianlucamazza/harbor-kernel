@@ -29,7 +29,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use kernel_core::heap::FreeList;
 
 use crate::bsp::board::memmap::IDENTITY_RAM_END;
-use crate::sync::{IrqSpinLock, SyncCell};
+use crate::sync::Mutex;
 
 // Linker symbol (physical = virtual after identity map).
 unsafe extern "C" {
@@ -61,8 +61,8 @@ impl KernelHeap {
     ///
     /// # Safety
     /// The heap must be initialised and the region mapped writable. Only one
-    /// such slice may exist at a time — guaranteed by every caller running
-    /// inside `HEAP_LOCK.with`.
+    /// such slice may exist at a time — guaranteed by `&mut self` being
+    /// reachable only through `HEAP.with`.
     unsafe fn arena(&mut self) -> &mut [u8] {
         // SAFETY: `base` and `len` describe the mapped heap region, and taking
         // `&mut self` is what makes the "one slice at a time" half of the
@@ -78,8 +78,7 @@ impl KernelHeap {
 /// Every accessor takes IRQ mask + spinlock (ADR-0077): an allocator interrupted
 /// mid-splice or raced from a second core corrupts its free list, and the
 /// damage surfaces arbitrarily later.
-static HEAP: SyncCell<KernelHeap> = SyncCell::new(KernelHeap::uninitialised());
-static HEAP_LOCK: IrqSpinLock = IrqSpinLock::new();
+static HEAP: Mutex<KernelHeap> = Mutex::new(KernelHeap::uninitialised());
 
 /// Initialise the kernel heap from `__heap_start` up to `end` (exclusive).
 ///
@@ -95,16 +94,13 @@ pub unsafe fn init_heap(end: usize) -> bool {
         return false;
     }
 
-    HEAP_LOCK.with(|| {
-        // SAFETY: the caller established that this region is mapped writable
-        // and that no other accessor exists yet.
-        unsafe {
-            let heap = &mut *HEAP.get();
-            heap.base = start;
-            heap.len = end - start;
-            heap.list = FreeList::new(heap.arena());
-            heap.list.is_some()
-        }
+    HEAP.with(|heap| {
+        heap.base = start;
+        heap.len = end - start;
+        // SAFETY: the caller established that this region is mapped writable,
+        // and `&mut heap` is the only live borrow of the allocator.
+        heap.list = FreeList::new(unsafe { heap.arena() });
+        heap.list.is_some()
     })
 }
 
@@ -115,16 +111,14 @@ pub unsafe fn init_heap(end: usize) -> bool {
 /// a second one — two sections in a row read as a protection the code does not
 /// actually provide.
 fn with_heap<R>(f: impl FnOnce(&mut FreeList, &mut [u8], usize) -> R) -> Option<R> {
-    HEAP_LOCK.with(|| {
-        // SAFETY: exclusivity from HEAP_LOCK; only accessor path to the list.
-        unsafe {
-            let heap = &mut *HEAP.get();
-            let mut list = heap.list?;
-            let base = heap.base;
-            let result = f(&mut list, heap.arena(), base);
-            heap.list = Some(list);
-            Some(result)
-        }
+    HEAP.with(|heap| {
+        let mut list = heap.list?;
+        let base = heap.base;
+        // SAFETY: the arena is mapped (checked at `init_heap`) and `&mut heap`
+        // is the only live borrow, so this is the one slice the contract allows.
+        let result = f(&mut list, unsafe { heap.arena() }, base);
+        heap.list = Some(list);
+        Some(result)
     })
 }
 

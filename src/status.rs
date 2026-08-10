@@ -13,7 +13,7 @@ use kernel_core::textgrid::TextGrid;
 
 use crate::bsp::board::display;
 use crate::mm;
-use crate::sync::SyncCell;
+use crate::sync::Mutex;
 use crate::time;
 
 /// Status columns / rows at 8×8 (fits 480×320 with room for margins).
@@ -31,7 +31,7 @@ struct StatusState {
     last_tick_paint: u64,
 }
 
-static STATUS: SyncCell<StatusState> = SyncCell::new(StatusState {
+static STATUS: Mutex<StatusState> = Mutex::new(StatusState {
     grid: TextGrid::new(Rgb565::HARBOR),
     last_tick_paint: 0,
 });
@@ -105,12 +105,7 @@ pub fn show_panic(msg: &str) {
 }
 
 fn with_status(f: impl FnOnce(&mut StatusState)) {
-    static STATUS_LOCK: crate::sync::IrqSpinLock = crate::sync::IrqSpinLock::new();
-    STATUS_LOCK.with(|| {
-        // SAFETY: exclusivity from STATUS_LOCK (debug-display path).
-        let st = unsafe { &mut *STATUS.get() };
-        f(st);
-    });
+    STATUS.with(f);
 }
 
 fn write_line(buf: &mut [u8], args: core::fmt::Arguments<'_>) -> usize {

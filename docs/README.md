@@ -89,19 +89,19 @@ src/
   drivers/        protocol axis (PL011, GICv2, …; uart16550 lab)
   lab/            lab maturity path (x86 L0 entry + panic; ADR-0071)
   irq/            IRQ ownership, masking, counters, wait port, notification caps
-  bootstrap/      product boot sequence, loader (IrqSpinLock), console server, demos
+  bootstrap/      product boot sequence, loader (Mutex side tables), console server, demos
   agent/          EL0 agent shell and session lifecycle
   sched/          TCBs, stacks, context switching and wake drain
   ipc/            kernel IPC policy and capability translation
-  naming/         EL1 name registry (ADR-0035; IrqSpinLock)
-  taskcap/        task capabilities for peer transfer (ADR-0054; IrqSpinLock)
-  storage/        EL1 keyed blob store (ADR-0036; IrqSpinLock)
-  durable/        durable section store (ADR-0045; IrqSpinLock)
+  naming/         EL1 name registry (ADR-0035; Mutex)
+  taskcap/        task capabilities for peer transfer (ADR-0054; Mutex)
+  storage/        EL1 keyed blob store (ADR-0036; Mutex)
+  durable/        durable section store (ADR-0045; Mutex window)
   mm/             heap, address spaces, frames, layout and task stacks
-  console.rs      kernel TX/RX policy (product; TX under IrqSpinLock)
+  console.rs      kernel TX/RX policy (product; TX under Mutex)
   panic.rs        panic path (product)
-  status.rs       optional display status slots (debug-display; IrqSpinLock)
-  sync.rs         SyncCell + IrqSpinLock (ADR-0077)
+  status.rs       optional display status slots (debug-display; Mutex)
+  sync.rs         Mutex + SyncCell residual (ADR-0077, ADR-0091)
   time.rs         tick policy (global advance on CPU 0)
 boot/             Raspberry Pi firmware configuration
 scripts/          check/ boot/ agent/ host/ lib/ — see scripts/README.md

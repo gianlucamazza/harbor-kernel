@@ -6,14 +6,13 @@
 use kernel_core::display::Rgb565;
 use kernel_core::spi::{self as spi_math, ClockDivError};
 
-use crate::arch::cpu;
 use crate::arch::mmio::Mmio;
 use crate::bsp::rpi4::{gpio, memmap};
 use crate::drivers::delay::{ArchTimerDelay, DelayNs};
 use crate::drivers::ili9486::{self, INIT_PISCREEN, Ili9486, Ili9486Error};
 use crate::drivers::pin::OutputPin;
 use crate::drivers::spi::{BcmSpi, BcmSpiError, ExclusiveDevice, ExclusiveDeviceError, SpiBus};
-use crate::sync::SyncCell;
+use crate::sync::Mutex;
 
 /// Waveshare-class LCD chip-select (BCM GPIO 8, header pin 24).
 pub const LCD_CS_PIN: u8 = 8;
@@ -101,7 +100,7 @@ impl DisplaySpi {
 }
 
 /// Resident handle after a successful [`init_and_panel`].
-static DISPLAY: SyncCell<Option<DisplaySpi>> = SyncCell::new(None);
+static DISPLAY: Mutex<Option<DisplaySpi>> = Mutex::new(None);
 
 /// Pinmux SPI0, claim pins, program ILI9486, fill status background (HARBOR).
 ///
@@ -174,18 +173,10 @@ pub unsafe fn init_and_panel() -> Result<DisplaySpi, DisplaySpiError> {
 
 /// Install the exclusive display stack for later status-surface work.
 pub fn install(spi: DisplaySpi) {
-    cpu::without_irqs(|| {
-        // SAFETY: single core; IRQs masked; voluntary path only.
-        unsafe {
-            *DISPLAY.get() = Some(spi);
-        }
-    });
+    DISPLAY.with(|slot| *slot = Some(spi));
 }
 
 /// Run `f` with the installed display stack, IRQs masked for the duration.
 pub fn with_display<R>(f: impl FnOnce(&mut DisplaySpi) -> R) -> Option<R> {
-    cpu::without_irqs(|| {
-        // SAFETY: single core; IRQs masked.
-        unsafe { (*DISPLAY.get()).as_mut().map(f) }
-    })
+    DISPLAY.with(|slot| slot.as_mut().map(f))
 }

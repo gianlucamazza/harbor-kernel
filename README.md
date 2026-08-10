@@ -90,8 +90,9 @@ Next: optional K5-H design if slot wall — [roadmap](docs/roadmap.md). Recent
 QEMU-paid slices: product `home_cpu` ([ADR-0088](docs/adr/0088-product-home-cpu.md)),
 K5-B design ([ADR-0089](docs/adr/0089-k5-b-pair-collapse-design.md)), K10
 force-exit ([ADR-0090](docs/adr/0090-k10-force-exit-running.md)); SMP loader
-tables closed under `IrqSpinLock` ([ADR-0077](docs/adr/0077-smp-shared-state-discipline.md)
-amended 2026-08-11).
+tables closed, and every shared table restated as `Mutex<T>` — the lock owns
+its datum ([ADR-0077](docs/adr/0077-smp-shared-state-discipline.md) amended,
+[ADR-0091](docs/adr/0091-data-in-lock.md)).
 
 **Working today (high level).** Preemptible tasks on both cores — voluntary
 yield plus IRQ-epilogue quantum preemption, EL0+EL1 — with dual-current SMP

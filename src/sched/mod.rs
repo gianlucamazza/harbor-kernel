@@ -43,7 +43,7 @@ use crate::arch::switch::{Context, context_switch};
 use crate::ipc;
 use crate::irq;
 use crate::mm::{StackError, TaskStack};
-use crate::sync::{IrqSpinLock, SyncCell};
+use crate::sync::Mutex;
 use crate::time;
 
 /// Maximum concurrent tasks including idle.
@@ -178,11 +178,10 @@ impl Sched {
     }
 }
 
-static SCHED: SyncCell<Sched> = SyncCell::new(Sched::new());
+/// The coarse scheduler state, reachable only under IRQ mask + spin
+/// (ADR-0077, ADR-0091).
+static SCHED: Mutex<Sched> = Mutex::new(Sched::new());
 static STARTED: AtomicUsize = AtomicUsize::new(0);
-
-/// Coarse sched lock (ADR-0077). Held only with local IRQs masked.
-static SCHED_LOCK: IrqSpinLock = IrqSpinLock::new();
 
 /// Primary has reserved CPU1 idle; secondary may enter the schedule loop.
 static CPU1_ONLINE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
@@ -190,22 +189,9 @@ static CPU1_ONLINE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicB
 /// Oracle: a pinned CPU1 worker ran (printed by primary — no TX from core1).
 static CORE1_RAN: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
-#[inline]
-fn sched_lock() {
-    SCHED_LOCK.lock_already_masked();
-}
-
-#[inline]
-fn sched_unlock() {
-    SCHED_LOCK.unlock_already_masked();
-}
-
 /// Run `f` with IRQs masked and the sched lock held.
 fn with_sched<R>(f: impl FnOnce(&mut Sched) -> R) -> R {
-    SCHED_LOCK.with(|| {
-        // SAFETY: exclusive via IrqSpinLock.
-        f(unsafe { &mut *SCHED.get() })
-    })
+    SCHED.with(f)
 }
 
 #[inline]
@@ -905,35 +891,22 @@ pub fn poll_wakes() {
     poll_park_timeouts();
 }
 
-static PARK_DEADLINES: SyncCell<parktime::Table> = SyncCell::new(parktime::Table::new());
-static PARK_LOCK: IrqSpinLock = IrqSpinLock::new();
+static PARK_DEADLINES: Mutex<parktime::Table> = Mutex::new(parktime::Table::new());
 
 /// Arm an absolute tick deadline for a parked wait (ADR-0040).
 pub fn arm_park_deadline(id: TaskId, deadline: u64) -> Result<(), parktime::ArmError> {
-    PARK_LOCK.with(|| {
-        // SAFETY: exclusivity from PARK_LOCK.
-        let table = unsafe { &mut *PARK_DEADLINES.get() };
-        table.arm(id, deadline)
-    })
+    PARK_DEADLINES.with(|table| table.arm(id, deadline))
 }
 
 /// Clear a park deadline (after recv returns or cancel).
 pub fn disarm_park_deadline(id: TaskId) {
-    PARK_LOCK.with(|| {
-        // SAFETY: exclusivity from PARK_LOCK.
-        let table = unsafe { &mut *PARK_DEADLINES.get() };
-        table.disarm(id);
-    });
+    PARK_DEADLINES.with(|table| table.disarm(id));
 }
 
 fn poll_park_timeouts() {
     let now = time::ticks();
     let mut expired = [Tasks::<MAX_TASKS>::IDLE; parktime::MAX_ARMED];
-    let n = PARK_LOCK.with(|| {
-        // SAFETY: exclusivity from PARK_LOCK.
-        let table = unsafe { &mut *PARK_DEADLINES.get() };
-        table.poll(now, &mut expired)
-    });
+    let n = PARK_DEADLINES.with(|table| table.poll(now, &mut expired));
     for id in expired.iter().take(n) {
         let _ = ipc::cancel_blocked(*id);
     }
@@ -1246,16 +1219,15 @@ pub fn has_ready() -> bool {
 /// # Safety
 /// IRQs masked, and the caller is not the task that parked it.
 unsafe fn collect_exited() {
-    // IRQs must already be masked by the caller. Take the sched lock.
-    sched_lock();
-    // SAFETY: lock + IRQs masked; the borrow ends before this returns.
-    let sched = unsafe { &mut *SCHED.get() };
-    let Some(id) = sched.tasks.collect() else {
-        sched_unlock();
-        return;
+    // IRQs are already masked by the caller; take the spin bit only. The guard
+    // releases on both exits below, so there is no unlock to duplicate.
+    let stack = {
+        let mut sched = SCHED.lock_masked();
+        let Some(id) = sched.tasks.collect() else {
+            return;
+        };
+        sched.tcbs[id.slot()].stack.take()
     };
-    let stack = sched.tcbs[id.slot()].stack.take();
-    sched_unlock();
     if let Some(stack) = stack {
         // SAFETY: its owner has exited and we are on another stack.
         unsafe { stack.release() };
@@ -1269,17 +1241,15 @@ fn switch_with(kind: Switch) {
 
     let cpu = this_cpu();
     let daif = cpu::irq_save();
-    sched_lock();
 
     // Bookkeeping under lock + IRQ mask, then drop the lock before ipc may
     // re-enter via `prepare_cancel_blocked` (ADR-0031). IRQs stay masked.
     let (from, to, release, exit_caps) = {
-        // SAFETY: lock + local IRQ mask.
-        let sched = unsafe { &mut *SCHED.get() };
+        let mut sched = SCHED.lock_masked();
 
         let (from, to, release) = match sched.tasks.switch_on(cpu, kind) {
             Decision::Stay => {
-                sched_unlock();
+                drop(sched);
                 // SAFETY: closes the section opened above, on the path that does
                 // not change stacks.
                 unsafe { cpu::irq_restore(daif) };
@@ -1304,7 +1274,6 @@ fn switch_with(kind: Switch) {
         };
         (from, to, release, exit_caps)
     };
-    sched_unlock();
 
     if let Some(caps) = exit_caps {
         ipc::release_holds_and_reap(&caps);
@@ -1317,9 +1286,7 @@ fn switch_with(kind: Switch) {
         let mut kids = [Tasks::<MAX_TASKS>::IDLE; MAX_TASKS];
         let mut n = 0usize;
         {
-            sched_lock();
-            // SAFETY: lock + IRQs masked.
-            let sched = unsafe { &*SCHED.get() };
+            let sched = SCHED.lock_masked();
             for i in 0..MAX_TASKS {
                 // `live_id` is how a slot is named since ADR-0062; the exiting
                 // task's slot has no live id any more, so it skips itself.
@@ -1340,7 +1307,6 @@ fn switch_with(kind: Switch) {
                     n += 1;
                 }
             }
-            sched_unlock();
         }
         for k in kids.iter().take(n) {
             if ipc::cancel_blocked(*k) {
@@ -1350,10 +1316,7 @@ fn switch_with(kind: Switch) {
     }
 
     // IRQs still masked; re-take the lock for the context pointers.
-    sched_lock();
-    // SAFETY: IRQs are masked and the lock above is held, so this is the only
-    // reference to `SCHED` on any core for the length of this section.
-    let sched = unsafe { &mut *SCHED.get() };
+    let mut sched = SCHED.lock_masked();
 
     if let Some(stranded) = release {
         // An exit that found the parked slot already taken. The model counts
@@ -1373,14 +1336,16 @@ fn switch_with(kind: Switch) {
         SLICE_START[idx].store(time::ticks(), Ordering::Relaxed);
         CURRENT_IS_IDLE[idx].store(to == idle_here, Ordering::Relaxed);
     }
-    publish_el0(sched, to);
+    publish_el0(&mut sched, to);
 
     let prev = &raw mut sched.tcbs[from.slot()].context;
     let next_ctx = &raw const sched.tcbs[to.slot()].context;
-    sched_unlock();
+    // Released here, and not by falling out of scope, because *where* it is
+    // released is the point: the other CPU must be able to schedule while this
+    // one swaps stacks. Raw pointers, so the borrow is already over.
+    drop(sched);
 
     // SAFETY: both contexts in static TCBs; stacks valid; IRQs masked.
-    // Lock released so the other CPU can schedule while we switch.
     unsafe { context_switch(prev, next_ctx) };
 
     // Resumed as some task that was switched away from earlier, on its own

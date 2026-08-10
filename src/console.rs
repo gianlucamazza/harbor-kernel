@@ -15,7 +15,7 @@ use kernel_core::rxline::{RxLine, Step};
 
 use crate::bsp::board;
 use crate::drivers::pl011::{Pl011, Pl011Rx};
-use crate::sync::SyncCell;
+use crate::sync::Mutex;
 
 /// RX ring capacity (usable = CAP − 1). Power of two.
 const RX_CAP: usize = 256;
@@ -33,7 +33,7 @@ static RX_RING: ByteRing<RX_CAP> = ByteRing::new();
 /// decide them.
 ///
 /// Written only with IRQs masked, which is what makes the plain `&mut` sound.
-static RX_LINE: SyncCell<RxLine> = SyncCell::new(RxLine::new());
+static RX_LINE: Mutex<RxLine> = Mutex::new(RxLine::new());
 
 /// MMIO base the RX IRQ drains from; 0 until [`enable_rx_irq`] arms it.
 ///
@@ -47,13 +47,11 @@ static RX_MMIO_BASE: AtomicUsize = AtomicUsize::new(0);
 
 /// Serialise RX-line model updates (handover plan). The IRQ handler never
 /// touches `RX_LINE` — it reads the published atomic (`RX_MMIO_BASE`) only.
+/// Lock order: this nests over the TX lock — the plan steps run inside it and
+/// each one reaches the handle (`apply` → `with_tx`). TX is a leaf; the
+/// direction is one-way (ADR-0091 §5).
 fn with_line<R>(f: impl FnOnce(&mut RxLine) -> R) -> R {
-    static LINE_LOCK: crate::sync::IrqSpinLock = crate::sync::IrqSpinLock::new();
-    LINE_LOCK.with(|| {
-        // SAFETY: exclusivity from LINE_LOCK; IRQ path does not borrow RX_LINE.
-        let line = unsafe { &mut *RX_LINE.get() };
-        f(line)
-    })
+    RX_LINE.with(f)
 }
 
 /// Perform one step and record it. The hardware action and the model move
@@ -100,10 +98,9 @@ fn apply(line: &mut RxLine, step: Step) -> bool {
 static CLAIMED: AtomicBool = AtomicBool::new(false);
 
 /// Live TX handle after [`install_tx`], shared by tasks under [`with_tx`].
-/// Dual-current cores serialise with [`TX_LOCK`] (ADR-0077); no second `Pl011`
-/// in the wild.
-static TX: SyncCell<Option<Pl011>> = SyncCell::new(None);
-static TX_LOCK: crate::sync::IrqSpinLock = crate::sync::IrqSpinLock::new();
+/// Dual-current cores serialise on the mutex (ADR-0077, ADR-0091); no second
+/// `Pl011` in the wild.
+static TX: Mutex<Option<Pl011>> = Mutex::new(None);
 
 /// Bring up the board serial console and take exclusive TX ownership.
 ///
@@ -127,22 +124,14 @@ pub unsafe fn acquire() -> Option<Pl011> {
 /// Call once after bring-up printing is done, before spawning tasks. Moves the
 /// handle into kernel storage so idle and workers share one path.
 pub fn install_tx(uart: Pl011) {
-    TX_LOCK.with(|| {
-        // SAFETY: exclusivity from TX_LOCK; install is once after acquire.
-        unsafe {
-            *TX.get() = Some(uart);
-        }
-    });
+    TX.with(|tx| *tx = Some(uart));
 }
 
 /// Run `f` with the installed TX handle under the TX lock.
 ///
 /// `None` if [`install_tx`] has not run (or after a panic [`steal`]).
 pub fn with_tx<R>(f: impl FnOnce(&mut Pl011) -> R) -> Option<R> {
-    TX_LOCK.with(|| {
-        // SAFETY: exclusivity from TX_LOCK.
-        unsafe { (*TX.get()).as_mut().map(f) }
-    })
+    TX.with(|tx| tx.as_mut().map(f))
 }
 
 /// Write a line on the installed console (cooperative multi-task entry point).
@@ -159,12 +148,7 @@ pub fn kprint_fmt(args: core::fmt::Arguments<'_>) {
 pub unsafe fn steal() -> Pl011 {
     CLAIMED.store(true, Ordering::Release);
     // Drop the shared handle first so `with_tx` cannot race the panic writer.
-    TX_LOCK.with(|| {
-        // SAFETY: exclusivity from TX_LOCK; panic path takes over the UART.
-        unsafe {
-            *TX.get() = None;
-        }
-    });
+    TX.with(|tx| *tx = None);
     // SAFETY: forwarded from the caller's obligation.
     unsafe { reprogram() }
 }

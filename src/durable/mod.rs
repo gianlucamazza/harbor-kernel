@@ -1,12 +1,12 @@
 //! Durable store façade (ADR-0045 / P2 residual).
 //!
 //! Region: `.durable_store` in the image (NOLOAD, not BSS-cleared). Pure
-//! encode/decode lives in [`kernel_core::durable`]. Access is serialised with
-//! [`IrqSpinLock`] (ADR-0077).
+//! encode/decode lives in [`kernel_core::durable`]. The window is owned by a
+//! [`Mutex`] (ADR-0077, ADR-0091).
 
 use kernel_core::durable::{self, Blob, DecodeError, EncodeError, REGION_SIZE};
 
-use crate::sync::IrqSpinLock;
+use crate::sync::Mutex;
 
 // Linker window (ADR-0045). Not `static mut` (rule 7 / ADR-0019): address only.
 unsafe extern "C" {
@@ -14,19 +14,31 @@ unsafe extern "C" {
     safe static __durable_store_end: u8;
 }
 
-static DURABLE_LOCK: IrqSpinLock = IrqSpinLock::new();
+/// The `.durable_store` window, as a thing that can be owned.
+///
+/// Zero-sized: what it carries is the *right* to view the linker region. A
+/// `Mutex<()>` would have been a lock beside a datum again (ADR-0091 §2);
+/// making the view a `&mut self` method is what turns "no aliasable long-lived
+/// `&mut`" (excellence F-26) from prose into a borrow-checker fact.
+struct DurableWindow;
 
-/// Run `f` over the durable window under the durable lock; the borrow ends
-/// with the closure (no aliasable long-lived `&mut` — excellence F-26).
-fn with_region<R>(f: impl FnOnce(&mut [u8]) -> R) -> R {
-    DURABLE_LOCK.with(|| {
+impl DurableWindow {
+    /// The region as a slice, borrowed for as long as `self` is.
+    fn as_mut_slice(&mut self) -> &mut [u8] {
         let start = core::ptr::addr_of!(__durable_store_start) as *mut u8;
         let end = core::ptr::addr_of!(__durable_store_end) as usize;
         let len = end.saturating_sub(start as usize).min(REGION_SIZE);
-        // SAFETY: exclusivity from DURABLE_LOCK; region is RW-mapped data;
-        // the borrow is scoped to `f`.
-        f(unsafe { core::slice::from_raw_parts_mut(start, len) })
-    })
+        // SAFETY: RW-mapped image data (NOLOAD, ADR-0045), and `&mut self`
+        // makes this the only live slice — the mutex holds the one window.
+        unsafe { core::slice::from_raw_parts_mut(start, len) }
+    }
+}
+
+static DURABLE: Mutex<DurableWindow> = Mutex::new(DurableWindow);
+
+/// Run `f` over the durable window under the durable lock.
+fn with_region<R>(f: impl FnOnce(&mut [u8]) -> R) -> R {
+    DURABLE.with(|w| f(w.as_mut_slice()))
 }
 
 /// Put `key`/`payload` into the durable region (atomic read-modify-write).

@@ -26,7 +26,7 @@ use kernel_core::layout::Region;
 use kernel_core::paging::{self, Level, MemKind, Perms};
 
 use crate::arch::cache;
-use crate::sync::SyncCell;
+use crate::sync::Mutex;
 
 /// Blocks split into next-level tables since boot. See [`splits`].
 static SPLITS: AtomicU32 = AtomicU32::new(0);
@@ -81,16 +81,18 @@ struct Arena {
     end: usize,
 }
 
-/// Table arena state.
+/// Table arena state — and, by holding it, the right to mutate the kernel map.
 ///
 /// Mutated by `activate` while the early map is active, and by `map`/`unmap`
-/// under [`MAP_LOCK`] (ADR-0077 / F-R1-P1): dual-current cores may unmap stack
-/// guards concurrently. The walker reads published entries after
+/// (ADR-0077 / F-R1-P1): dual-current cores may unmap stack guards
+/// concurrently. The walker reads published entries after
 /// `publish_and_invalidate`.
-static ARENA: SyncCell<Arena> = SyncCell::new(Arena { next: 0, end: 0 });
-
-/// Serialises kernel map mutation and arena bump (not taken from IRQ handlers).
-static MAP_LOCK: crate::sync::IrqSpinLock = crate::sync::IrqSpinLock::new();
+///
+/// The arena travels down the table walk as `&mut Arena` rather than being
+/// fetched from a static three frames in (ADR-0091 §2): `alloc_table` needing
+/// the lock its callers already hold is exactly the re-entrancy a
+/// lock-beside-a-cell lets you write by accident.
+static MAP: Mutex<Arena> = Mutex::new(Arena { next: 0, end: 0 });
 
 /// Physical address of the root table, published for `TTBR0_EL1`.
 ///
@@ -158,20 +160,20 @@ pub unsafe fn activate(regions: &[Region]) -> Result<(), (MmuError, &'static str
     // and `ROOT` published only once every region mapped. On any error nothing is
     // switched and the early map stays live, which is what lets the failure be
     // reported over a working console.
-    unsafe {
-        arena_init();
+    MAP.with(|arena| unsafe {
+        arena_init(arena);
 
-        let root = alloc_table().map_err(|e| (e, "root table"))?;
+        let root = alloc_table(arena).map_err(|e| (e, "root table"))?;
 
         for region in regions {
-            map_region(root, region).map_err(|e| (e, region.name))?;
+            map_region(root, region, arena).map_err(|e| (e, region.name))?;
         }
 
         ROOT.store(root as usize, Ordering::Release);
         switch_ttbr0(root as u64);
         retire_early_map();
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 /// Drop every TLB entry the early map left behind. Called once, by
@@ -209,19 +211,20 @@ unsafe fn retire_early_map() {
 ///
 /// # Safety
 /// [`activate`] must have succeeded, and `region` must not conflict with an
-/// existing mapping. Serialised by [`MAP_LOCK`] (callers need not mask IRQs
+/// existing mapping. Serialised by [`MAP`] (callers need not mask IRQs
 /// themselves, though many still do).
 pub unsafe fn map(region: &Region) -> Result<(), MmuError> {
-    MAP_LOCK.with(|| {
+    MAP.with(|arena| {
         // SAFETY: root is non-zero (checked) and points at the live L1 table
-        // published by `activate`; MAP_LOCK excludes concurrent map/unmap.
+        // published by `activate`; holding the arena excludes concurrent
+        // map/unmap.
         unsafe {
             let root = ROOT.load(Ordering::Acquire);
             if root == 0 {
                 return Err(MmuError::NotActivated);
             }
 
-            map_region(root as *mut Table, region)?;
+            map_region(root as *mut Table, region, arena)?;
 
             // Publish the entries before anything can walk them, then drop stale
             // translations. Going from invalid to valid would not strictly need the
@@ -247,10 +250,11 @@ pub unsafe fn map(region: &Region) -> Result<(), MmuError> {
 /// # Safety
 /// [`activate`] must have succeeded. After this returns, software must not
 /// touch the range except through a deliberate remapping; instruction fetches
-/// or data accesses there will fault. Serialised by [`MAP_LOCK`].
+/// or data accesses there will fault. Serialised by [`MAP`].
 pub unsafe fn unmap(base: u64, len: u64) -> Result<(), MmuError> {
-    MAP_LOCK.with(|| {
-        // SAFETY: root is non-zero (checked); MAP_LOCK excludes concurrent map/unmap.
+    MAP.with(|arena| {
+        // SAFETY: root is non-zero (checked); holding the arena excludes
+        // concurrent map/unmap.
         // `ensure_mapped` runs before any page is cleared, so a range that is only
         // partly mapped is refused whole rather than half-unmapped.
         unsafe {
@@ -282,7 +286,7 @@ pub unsafe fn unmap(base: u64, len: u64) -> Result<(), MmuError> {
 
             va = base;
             while va < end {
-                unmap_page(root, va)?;
+                unmap_page(root, va, arena)?;
                 va += paging::PAGE_SIZE;
             }
 
@@ -399,27 +403,23 @@ pub fn invalidate_asid(asid: u16) {
 /// Point the arena at the linker-reserved range.
 ///
 /// # Safety
-/// Call once, before any [`alloc_table`].
-unsafe fn arena_init() {
-    // SAFETY: sole writer, before any `alloc_table` — the function's contract. The linker
-    // symbols bound a region reserved by `link.ld` and never otherwise written.
-    unsafe {
-        *ARENA.get() = Arena {
-            next: &raw const __pagetables_start as usize,
-            end: &raw const __pagetables_end as usize,
-        };
-    }
+/// Call once, before any [`alloc_table`]. The linker symbols must bound a
+/// region reserved by `link.ld` and never otherwise written.
+unsafe fn arena_init(arena: &mut Arena) {
+    *arena = Arena {
+        next: &raw const __pagetables_start as usize,
+        end: &raw const __pagetables_end as usize,
+    };
 }
 
 /// Take the next zeroed table from the arena.
 ///
 /// # Safety
-/// Caller holds [`MAP_LOCK`] (or is the single-threaded `activate` path before
-/// secondary cores run).
-unsafe fn alloc_table() -> Result<*mut Table, MmuError> {
-    // SAFETY: exclusive `&mut` via MAP_LOCK / activate-only boot.
+/// The arena must describe the linker-reserved table region (`arena_init`).
+unsafe fn alloc_table(arena: &mut Arena) -> Result<*mut Table, MmuError> {
+    // SAFETY: the arena bump stays inside the region `arena_init` named, and
+    // each table handed out is zeroed before it is linked in.
     unsafe {
-        let arena = &mut *ARENA.get();
         let size = core::mem::size_of::<Table>();
         if arena.next + size > arena.end {
             return Err(MmuError::OutOfTables);
@@ -442,7 +442,7 @@ unsafe fn alloc_table() -> Result<*mut Table, MmuError> {
 /// `root` is a live level-1 table and interrupts are masked. Translation may be
 /// on: this runs under `activate` (early map active) and under `map` (kernel
 /// map active), so it must not assume either.
-unsafe fn map_region(root: *mut Table, region: &Region) -> Result<(), MmuError> {
+unsafe fn map_region(root: *mut Table, region: &Region, arena: &mut Arena) -> Result<(), MmuError> {
     let chunks =
         paging::chunks(region.base, region.base, region.len).ok_or(MmuError::Unaligned {
             va: region.base,
@@ -454,7 +454,7 @@ unsafe fn map_region(root: *mut Table, region: &Region) -> Result<(), MmuError> 
         // SAFETY: each chunk came from the planner, which only emits addresses inside the
         // region the caller asked for — so this cannot map memory the caller did not
         // request.
-        unsafe { map_chunk(root, chunk, region.kind, region.perms)? };
+        unsafe { map_chunk(root, chunk, region.kind, region.perms, arena)? };
     }
     Ok(())
 }
@@ -470,6 +470,7 @@ unsafe fn map_chunk(
     chunk: paging::Chunk,
     kind: MemKind,
     perms: Perms,
+    arena: &mut Arena,
 ) -> Result<(), MmuError> {
     // SAFETY: writes one descriptor into a table reached from `root`. The level bound is
     // checked first, so no write lands outside the 512 GiB the L1 table covers.
@@ -488,7 +489,7 @@ unsafe fn map_chunk(
             let entry = (*table).entries[index];
 
             let next = if entry == 0 {
-                let new = alloc_table()?;
+                let new = alloc_table(arena)?;
                 (*table).entries[index] =
                     paging::table_descriptor(new as u64).ok_or(MmuError::BadDescriptor {
                         va: chunk.va,
@@ -569,7 +570,7 @@ unsafe fn ensure_mapped(root: *mut Table, va: u64) -> Result<(), MmuError> {
 /// # Safety
 /// `root` is the live level-1 table; interrupts masked; [`ensure_mapped`] has
 /// succeeded for `va`. Intermediate break-before-make flushes run inside.
-unsafe fn unmap_page(root: *mut Table, va: u64) -> Result<(), MmuError> {
+unsafe fn unmap_page(root: *mut Table, va: u64, arena: &mut Arena) -> Result<(), MmuError> {
     // SAFETY: `ensure_mapped` has already proved a leaf covers `va`, so every descriptor
     // this walk reads exists. Splits it performs are individually published, per
     // the function's contract.
@@ -592,7 +593,7 @@ unsafe fn unmap_page(root: *mut Table, va: u64) -> Result<(), MmuError> {
                 }
                 // Coarser block covers this page: replace it with a table of
                 // next-level leaves, then continue the walk into that table.
-                table = split_block(table, index, level, entry, va)?;
+                table = split_block(table, index, level, entry, va, arena)?;
                 level = level.next().ok_or(MmuError::OutOfRange(va))?;
                 continue;
             }
@@ -622,6 +623,7 @@ unsafe fn split_block(
     level: Level,
     block_entry: u64,
     va: u64,
+    arena: &mut Arena,
 ) -> Result<*mut Table, MmuError> {
     // SAFETY: break-before-make: the block is cleared and invalidated before the table
     // replacing it is installed, so no walker can observe both mappings. The
@@ -634,7 +636,7 @@ unsafe fn split_block(
                 pa: paging::descriptor_address(block_entry),
             })?;
         let next_level = level.next().ok_or(MmuError::OutOfRange(va))?;
-        let child = alloc_table()?;
+        let child = alloc_table(arena)?;
         // Counted because the arena is a bump with no free path: a split takes
         // a table for the rest of the boot, and `release` remaps the leaf
         // without giving the table back. A resource consumed by a path nobody
@@ -746,11 +748,7 @@ pub fn translates(va: u64) -> bool {
 
 /// Bytes of the table arena still unused. Zero means the next map fails.
 pub fn tables_remaining() -> usize {
-    MAP_LOCK.with(|| {
-        // SAFETY: exclusivity from MAP_LOCK vs alloc_table under map/unmap.
-        let arena = unsafe { &*ARENA.get() };
-        arena.end.saturating_sub(arena.next)
-    })
+    MAP.with(|arena| arena.end.saturating_sub(arena.next))
 }
 
 /// Tables still available, in tables rather than bytes.

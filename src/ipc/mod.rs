@@ -17,7 +17,7 @@
 //! surface, and it used to be checked by a single `grep` over a boot log.
 //!
 //! What is left here is the four things a pure table cannot do: hold the
-//! global under [`IrqSpinLock`], ask the scheduler whether the calling task
+//! global under [`Mutex`], ask the scheduler whether the calling task
 //! actually holds the capability, and wake a task the table says to wake.
 //!
 //! # Two ways in, one authority model
@@ -64,7 +64,7 @@ pub enum DrainError {
 }
 
 use crate::sched;
-use crate::sync::{IrqSpinLock, SyncCell};
+use crate::sync::Mutex;
 
 /// Mailboxes, endpoint capacity, and messages per mailbox.
 ///
@@ -78,9 +78,7 @@ pub const MAX_MAILBOXES: usize = 16;
 pub const MAX_ENDPOINTS: usize = 32;
 pub const MAILBOX_DEPTH: usize = 4;
 
-static IPC: SyncCell<Table<MAX_MAILBOXES, MAX_ENDPOINTS, MAILBOX_DEPTH>> =
-    SyncCell::new(Table::new());
-static IPC_LOCK: IrqSpinLock = IrqSpinLock::new();
+static IPC: Mutex<Table<MAX_MAILBOXES, MAX_ENDPOINTS, MAILBOX_DEPTH>> = Mutex::new(Table::new());
 
 /// Mirrors of [`Refusals`], published for callers that cannot take the mask.
 ///
@@ -101,7 +99,7 @@ fn publish(refusals: Refusals) {
     REFUSED_STATE.store(refusals.state, Ordering::Relaxed);
 }
 
-/// Run `f` against the table under [`IrqSpinLock`], then republish the counts.
+/// Run `f` against the table under [`Mutex`], then republish the counts.
 ///
 /// Dual-current cores may send/recv concurrently; IRQ mask alone is not enough
 /// (ADR-0077). No IRQ handler touches the table — wake remains voluntary
@@ -109,9 +107,7 @@ fn publish(refusals: Refusals) {
 fn with_table<R>(
     f: impl FnOnce(&mut Table<MAX_MAILBOXES, MAX_ENDPOINTS, MAILBOX_DEPTH>) -> R,
 ) -> R {
-    IPC_LOCK.with(|| {
-        // SAFETY: exclusivity from IPC_LOCK (IRQ mask + spin).
-        let table = unsafe { &mut *IPC.get() };
+    IPC.with(|table| {
         let result = f(table);
         publish(table.refusals());
         result
@@ -301,7 +297,7 @@ pub fn clear_waiter(id: kernel_core::runqueue::TaskId) {
 /// The waiter resumes from `block_current` and `recv` returns
 /// [`RecvError::Cancelled`].
 pub fn cancel_blocked(id: kernel_core::runqueue::TaskId) -> bool {
-    // Drop the waiter under IPC_LOCK before taking SCHED_LOCK.
+    // Drop the waiter under the IPC lock before taking SCHED.
     clear_waiter(id);
     sched::prepare_cancel_blocked(id)
 }

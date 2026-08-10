@@ -75,8 +75,9 @@ steal [ADR-0083](adr/0083-k8-work-stealing-first-slice.md); stamps 2026-08-10).
 manifest entry may name sticky **`home_cpu`** (default **0**); the default
 product pack pins chirp on CPU 1 for dual-current evidence. Steal remains
 opt-in for EL1 workers without a live agent AS; agents are not auto-balanced
-(agent+TLB residual). Shared kernel tables use **`IrqSpinLock`** ([ADR-0077](adr/0077-smp-shared-state-discipline.md),
-including the loader). Fairness under a hostile busy-loop is enforced at both
+(agent+TLB residual). Shared kernel tables are **`Mutex<T>`** — IRQ mask + spin,
+with the datum inside the lock ([ADR-0077](adr/0077-smp-shared-state-discipline.md),
+[ADR-0091](adr/0091-data-in-lock.md); including the loader). Fairness under a hostile busy-loop is enforced at both
 ELs by the IRQ epilogue on each scheduled core. Details:
 [`SECURITY.md`](../SECURITY.md). Multi-role inventory:
 [post-K8 review](reviews/2026-08-10-post-k8-multi-role.md).
@@ -471,7 +472,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)                     | K8 second slice — SGI IPI wake core 1 (**accepted**); done (HW), stamp 2026-08-10                                                                      |
 | [ADR-0075](adr/0075-k8-per-core-queues-design.md)                    | K8 design — per-core queues / multi-current (**accepted**); code [0076](adr/0076-k8-per-core-queues-first-slice.md)                                    |
 | [ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)               | K8 third slice — dual current + pinned CPU1 worker (**accepted**); done (HW), stamp 2026-08-10                                                         |
-| [ADR-0077](adr/0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — IrqSpinLock, per-CPU mirrors (**accepted**); HW with 0076 stamp                                                          |
+| [ADR-0077](adr/0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — mask+spin sections, per-CPU mirrors (**accepted**); HW with 0076 stamp; mechanism restated by [ADR-0091](adr/0091-data-in-lock.md)                                                          |
 | [ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md)          | K8 design — per-core timer + preemption on CPU 1 (**accepted**); code [0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)                     |
 | [ADR-0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)     | K8 fourth slice — per-core timer + EL1 preempt on CPU 1 (**accepted**); done (HW), stamp 2026-08-10                                                    |
 | [ADR-0080](adr/0080-k8-el0-on-cpu1-design.md)                        | K8 design — EL0 sessions/agents home on CPU 1 (**accepted**); code [0081](adr/0081-k8-el0-on-cpu1-first-slice.md)                                      |

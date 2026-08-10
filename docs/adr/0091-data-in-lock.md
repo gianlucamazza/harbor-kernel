@@ -72,9 +72,10 @@ impl<T> Mutex<T> {
 ```
 
 `with` is the ADR-0077 five-step section unchanged — it is still
-`cpu::without_irqs(|| { spin; f(&mut value); release })`. What changes is that
-the `unsafe` deref happens **once, in the type**, instead of 28 times at the
-call sites. Two `unsafe` constructs survive tree-wide for this pattern
+`cpu::without_irqs(|| { spin; f(&mut value); release })`, so the `irq-scope`
+walker keeps opening it on the same lexical token. What changes is that the
+`unsafe` deref happens **once, in the type**, instead of 28 times at the call
+sites. Two `unsafe` constructs survive tree-wide for this pattern
 (`unsafe impl Sync`, and the deref inside `with` / `MaskedGuard`) where there
 were ~28.
 
@@ -139,7 +140,7 @@ false statement.
   walker opens a region at each lexical `without_irqs(` token. A region opened
   by `lock()` and closed by an implicit drop has no opener to key on, so a
   switch inside a masked region would stop being visible to the gate. `with`
-  keeps the token count bit-for-bit unchanged; `lock_masked` adds no `DAIF`
+  keeps its opener where the walker already looks; `lock_masked` adds no `DAIF`
   region at all.
 - **`Mutex<()>` for the durable window.** A lock beside a datum with the datum
   spelled `()`. §2.
@@ -155,12 +156,21 @@ false statement.
 | Check                            | Evidence                                                                                                          |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | The pair cannot be written again | `IrqSpinLock` no longer exists; `SyncCell` has three named users and a doc that refuses a fourth                  |
-| The exception stays one file     | `irq-scope.sh` `allowed_masked_lock` clause, seen red                                                             |
-| The scope walker is not blinded  | `without_irqs(` token count unchanged by the migration; `make irq-scope` reports the same region count            |
-| Behaviour unmoved end to end     | boot transcript byte-identical to the pre-migration baseline (modulo `boot: … ms` and `src=`), `make check` green |
+| The exception stays one file     | `irq-scope.sh` `allowed_masked_lock` clause, **seen red**: a `lock_masked` in `loader::remember` reported at `src/bootstrap/loader.rs:127`, exit 1 |
+| The scope walker is not blinded  | `make irq-scope` counts **20 -> 18** masked regions. It falls rather than rises, and by exactly the two ad-hoc `without_irqs` regions in `bsp/rpi4/display.rs` that the mutex absorbed. No region became invisible; the walker's blind spot (indirect calls) is unchanged |
+| Behaviour unmoved end to end     | `make boot-check` green (~100 assertions), `make check` green |
 
 Evidence is **QEMU** for this slice: it is a refactor with no behavioural
 change, and no hardware claim is made. The MMU arena plumbing (§2, `mmu.rs`) is
 the one part that touches silicon-visible code; a Pi stamp is prudent
 follow-up, not a precondition, and is recorded here as optional rather than
 claimed.
+
+**On the transcript diff.** The plan for this slice called for a byte-identical
+boot transcript against a pre-migration baseline. That oracle does not exist on
+this host: two runs of the **same** binary differ in the heap `Box` address,
+the reported fragment count, the interleaving of the IRQ-wait and EL0-IRQ
+lines, and instantaneous counters (`frames_free`, `idle_signals`). The
+differences seen after this migration fall in that same class. The gate
+assertions are the oracle; a whole-log diff is not one, and recording that here
+is cheaper than the next person re-deriving it.

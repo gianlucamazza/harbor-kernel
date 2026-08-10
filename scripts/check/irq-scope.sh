@@ -85,6 +85,44 @@ if [[ "${raw_violations}" -ne 0 ]]; then
 	exit 1
 fi
 
+# The same question one level up (ADR-0091 §3): `Mutex::with` is the ordinary
+# section and the walker sees into it, but `Mutex::lock_masked` hands out a
+# guard whose release point the caller chooses. That is exactly what the
+# scheduler switch path needs — release the spin bit before `context_switch`
+# while `DAIF` stays masked — and exactly what nothing else should have: a
+# guard held across a call is a lock held across a switch, which is the
+# ADR-0022 mistake with a different spelling. `lock_masked` adds no DAIF region
+# of its own, so the walker below is unaffected either way; this clause is what
+# keeps the exception to one file.
+#
+# Seen red: a `SIDE.lock_masked()` in `src/bootstrap/loader.rs::remember`
+# reported as `src/bootstrap/loader.rs:127: lock_masked outside the scheduler
+# switch path`, exit 1.
+allowed_masked_lock='src/sched/mod.rs'
+masked_violations=0
+while IFS= read -r hit; do
+	[[ -z "${hit}" ]] && continue
+	file="${hit%%:*}"
+	rest="${hit#*:}"
+	line="${rest%%:*}"
+	content="${rest#*:}"
+	content="${content%%//*}"
+	[[ "${content}" == *"lock_masked("* ]] || continue
+	case " ${allowed_masked_lock} src/sync.rs " in
+	*" ${file} "*) ;;
+	*)
+		echo "irq-scope: ${file}:${line}: lock_masked outside the scheduler switch path" >&2
+		echo "  Use Mutex::with, whose section the walker below can see into." >&2
+		echo "  lock_masked exists for the one path that must release the lock" >&2
+		echo "  before context_switch with IRQs still masked (ADR-0091 §3)." >&2
+		masked_violations=$((masked_violations + 1))
+		;;
+	esac
+done < <(grep -rn 'lock_masked(' src crates --include='*.rs' || true)
+if [[ "${masked_violations}" -ne 0 ]]; then
+	exit 1
+fi
+
 python3 - <<'PY'
 import io, re, subprocess, sys
 

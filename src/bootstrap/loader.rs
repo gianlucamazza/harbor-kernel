@@ -25,7 +25,7 @@ use crate::agent::{Agent, SessionEnd};
 use crate::ipc;
 use crate::mm::AddressSpace;
 use crate::sched::{self, MAX_TASKS, TaskId};
-use crate::sync::{IrqSpinLock, SyncCell};
+use crate::sync::{Mutex, SyncCell};
 
 /// Capacity of the image-resident agent store (ADR-0029).
 ///
@@ -97,8 +97,15 @@ fn builtin_manifest() -> &'static [AgentEntry] {
     }
 }
 
-/// Active manifest for this boot (store or builtin).
-static ACTIVE: SyncCell<Option<&'static [AgentEntry]>> = SyncCell::new(None);
+/// Loader side tables: the manifest in force this boot, and which entry each
+/// task came from.
+///
+/// One mutex for both, because `entry_for_task` needs them together and a
+/// non-re-entrant lock cannot be taken twice on that path (ADR-0091).
+struct SideTables {
+    active: Option<&'static [AgentEntry]>,
+    entry_of_task: [Option<u8>; MAX_TASKS],
+}
 
 /// Name bytes for store-backed entries (immortal for the boot).
 static NAME_POOL: SyncCell<[[u8; agentstore::NAME_LEN]; MAX_AGENTS]> =
@@ -108,34 +115,26 @@ static NAME_POOL: SyncCell<[[u8; agentstore::NAME_LEN]; MAX_AGENTS]> =
 static STORE_ENTRIES: SyncCell<[MaybeUninit<AgentEntry>; MAX_AGENTS]> =
     SyncCell::new([const { MaybeUninit::uninit() }; MAX_AGENTS]);
 
-static ENTRY_OF_TASK: SyncCell<[Option<u8>; MAX_TASKS]> = SyncCell::new([None; MAX_TASKS]);
-
-/// Serialises loader side tables under dual-current (ADR-0077).
-///
-/// `ENTRY_OF_TASK` / `ACTIVE` were left on bare `without_irqs` after F-R1-P1
-/// paid naming/storage/taskcap — debt once product agents home on CPU 1
-/// (ADR-0088) and recall runs concurrently with any late remember.
-static LOADER_LOCK: IrqSpinLock = IrqSpinLock::new();
+/// Serialises the loader side tables under dual-current (ADR-0077): product
+/// agents home on CPU 1 (ADR-0088), so `recall` runs concurrently with any late
+/// `remember`.
+static SIDE: Mutex<SideTables> = Mutex::new(SideTables {
+    active: None,
+    entry_of_task: [None; MAX_TASKS],
+});
 
 fn remember(task: TaskId, index: u8) {
-    LOADER_LOCK.with(|| {
-        // SAFETY: exclusivity from LOADER_LOCK (IRQ mask + spin).
-        let table = unsafe { &mut *ENTRY_OF_TASK.get() };
-        table[task.slot()] = Some(index);
-    });
+    SIDE.with(|side| side.entry_of_task[task.slot()] = Some(index));
 }
 
 /// Resolve the manifest entry for a task under a **single** lock hold.
 ///
-/// `IrqSpinLock` is not re-entrant: separate `recall` + `active_manifest`
-/// helpers would deadlock on the agent body path.
+/// The mutex is not re-entrant: separate `recall` + `active_manifest` helpers
+/// would deadlock on the agent body path.
 fn entry_for_task(task: TaskId) -> Option<&'static AgentEntry> {
-    LOADER_LOCK.with(|| {
-        // SAFETY: exclusivity from LOADER_LOCK.
-        let table = unsafe { &*ENTRY_OF_TASK.get() };
-        let index = (*table)[task.slot()]?;
-        let a = unsafe { &*ACTIVE.get() };
-        let m = a.unwrap_or_else(builtin_manifest);
+    SIDE.with(|side| {
+        let index = side.entry_of_task[task.slot()]?;
+        let m = side.active.unwrap_or_else(builtin_manifest);
         m.get(index as usize)
     })
 }
@@ -206,23 +205,13 @@ pub fn load_all(held: &[CapId]) {
     let table = match try_store_manifest() {
         Some(t) => {
             crate::kprintln!("loader: store n={} image", t.len());
-            LOADER_LOCK.with(|| {
-                // SAFETY: exclusivity from LOADER_LOCK.
-                unsafe {
-                    *ACTIVE.get() = Some(t);
-                }
-            });
+            SIDE.with(|side| side.active = Some(t));
             t
         }
         None => {
             crate::kprintln!("loader: builtin");
             let t = builtin_manifest();
-            LOADER_LOCK.with(|| {
-                // SAFETY: exclusivity from LOADER_LOCK.
-                unsafe {
-                    *ACTIVE.get() = Some(t);
-                }
-            });
+            SIDE.with(|side| side.active = Some(t));
             t
         }
     };

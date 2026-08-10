@@ -4,7 +4,7 @@
 //! drains the queue into Ready. Wait table rules live in
 //! [`kernel_core::irqwait`] (host-tested): one waiter per cookie, no overwrite.
 //!
-//! Dual-current: table mutations use [`IrqSpinLock`] (ADR-0077 / F-R1-P1).
+//! Dual-current: table mutations use [`Mutex`] (ADR-0077, ADR-0091 / F-R1-P1).
 //! [`signal`] may take the lock from an IRQ on the non-holding core — sections
 //! are short; same-core IRQs are masked while the lock is held.
 
@@ -14,31 +14,23 @@ use kernel_core::irqwait::{ArmError, WaitTable};
 use kernel_core::runqueue::TaskId;
 use kernel_core::wake::WakeQueue;
 
-use crate::sync::{IrqSpinLock, SyncCell};
+use crate::sync::Mutex;
 
 /// SPSC: IRQ producer → voluntary consumer (ADR-0008). Sized for all tasks.
 const Q: usize = 32;
 
-static TABLE: SyncCell<WaitTable> = SyncCell::new(WaitTable::new());
-static TABLE_LOCK: IrqSpinLock = IrqSpinLock::new();
+static TABLE: Mutex<WaitTable> = Mutex::new(WaitTable::new());
 static QUEUE: WakeQueue<Q> = WakeQueue::new();
 static SIGNAL_IDLE: AtomicU32 = AtomicU32::new(0);
 
-fn with_table<R>(f: impl FnOnce(&mut WaitTable) -> R) -> R {
-    TABLE_LOCK.with(|| {
-        // SAFETY: exclusivity from TABLE_LOCK.
-        f(unsafe { &mut *TABLE.get() })
-    })
-}
-
 /// Arm `task` for `cookie`. Returns an error instead of overwriting another waiter.
 pub fn arm(cookie: u32, task: TaskId) -> Result<(), ArmError> {
-    with_table(|table| table.arm(cookie, task))
+    TABLE.with(|table| table.arm(cookie, task))
 }
 
 /// Drop any arm for `task`.
 pub fn disarm_task(task: TaskId) {
-    with_table(|table| table.disarm_task(task));
+    TABLE.with(|table| table.disarm_task(task));
 }
 
 /// IRQ path: match cookie, mark pending, enqueue wake token.
@@ -47,7 +39,7 @@ pub fn disarm_task(task: TaskId) {
 /// still observe delivery via [`take_pending`] after a spurious resume path;
 /// waiters always check pending before and after block.
 pub fn signal(cookie: u32) {
-    let task = with_table(|table| table.signal(cookie));
+    let task = TABLE.with(|table| table.signal(cookie));
     let Some(task) = task else {
         SIGNAL_IDLE.fetch_add(1, Ordering::Relaxed);
         return;
@@ -60,7 +52,7 @@ pub fn signal(cookie: u32) {
 
 /// Consume pending for `task`. True if an IRQ already posted.
 pub fn take_pending(task: TaskId) -> bool {
-    with_table(|table| table.take_pending(task))
+    TABLE.with(|table| table.take_pending(task))
 }
 
 /// Drain IRQ wake tokens into `f` (voluntary path only).
@@ -69,7 +61,10 @@ pub fn take_pending(task: TaskId) -> bool {
 /// lock so `wake_task` (SCHED) never nests under WAIT (lock order).
 pub fn drain(mut f: impl FnMut(u32)) {
     let mut tokens = [0u32; Q];
-    let n = TABLE_LOCK.with(|| {
+    // The table is held for *exclusion*, not for its own contents: it is what
+    // makes this the single consumer of QUEUE, which `signal` fills lock-free
+    // from the IRQ path (ADR-0008, ADR-0091 §1).
+    let n = TABLE.with(|_table| {
         let mut n = 0usize;
         while n < Q {
             match QUEUE.pop() {

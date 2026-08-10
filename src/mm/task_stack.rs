@@ -46,7 +46,7 @@ pub enum StackError {
 
 /// One task stack: usable range (+ optional guard), owned until [`TaskStack::release`].
 ///
-/// `base` is stored as `usize` so the TCB table can live in a `SyncCell`
+/// `base` is stored as `usize` so the TCB table can live in a `Mutex`
 /// (`*mut u8` is not `Send`). The pointer is only formed at alloc/release.
 pub struct TaskStack {
     /// Allocation base (guard page when present; else stack page).

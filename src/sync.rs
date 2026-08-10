@@ -14,21 +14,37 @@
 //! A spinlock alone is **not** enough: an IRQ on the holding core could re-enter
 //! the same lock. Device/SGI handlers never take these locks (ADR-0008).
 //!
-//! [`SyncCell`] remains "Sync by assertion": callers still establish exclusivity
-//! (typically via [`IrqSpinLock::with`]).
+//! [`Mutex`] is that shape with the datum **inside** it (ADR-0091): the lock
+//! names what it protects, and the `unsafe` deref lives here once instead of at
+//! every call site. [`SyncCell`] is what remains for the three statics a
+//! `Mutex` cannot hold — see its doc.
 
 use core::cell::UnsafeCell;
+use core::ops::{Deref, DerefMut};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::arch::cpu;
 
 /// A cell that is `Sync` by assertion rather than by synchronisation.
 ///
+/// # This is the exception, not the default
+///
+/// Shared kernel state is a [`Mutex`]. `SyncCell` is for the statics a `Mutex`
+/// cannot hold, and ADR-0091 §4 enumerates them — **all three**:
+///
+/// - `irq::STATE` — read from the IRQ dispatch path after `seal()`; a handler
+///   must never take a lock (ADR-0008), so the exclusion cannot be a lock.
+/// - `bootstrap::loader::NAME_POOL` and `STORE_ENTRIES` — `try_store_manifest`
+///   mints `&'static str` / `&'static [AgentEntry]` out of them, and a guard
+///   cannot lend its interior for `'static`. Boot window only.
+///
+/// A **fourth user requires an ADR**. Reaching for this type because `Mutex`
+/// was inconvenient is the thing ADR-0091 exists to refuse.
+///
 /// # Safety contract
 ///
-/// Callers must establish exclusivity — for SMP-shared data that means
-/// [`IrqSpinLock::with`] (or an equivalent mask+spin section). A bare
-/// [`SyncCell`] does not serialise two CPUs.
+/// Callers must establish exclusivity themselves. A bare `SyncCell` does not
+/// serialise two CPUs.
 pub struct SyncCell<T> {
     inner: UnsafeCell<T>,
 }
@@ -55,56 +71,93 @@ impl<T> SyncCell<T> {
     }
 }
 
-/// Test-and-set spinlock that always runs with local IRQs masked.
+/// A value that is only reachable under IRQ mask + exclusive spin (ADR-0091).
+///
+/// **Not a sleeping mutex.** There is no blocking primitive in this kernel:
+/// this spins with local IRQs masked, and holding one across a task switch is
+/// exactly what ADR-0022 forbids. Do **not** take one from an IRQ handler that
+/// could nest against a holder on the same core (ADR-0008).
 ///
 /// Use for every SMP-shared mutable structure (heap, scheduler, IPC, frame
-/// pool, name/storage/taskcap tables, console TX, durable region, …). Do
-/// **not** call from an IRQ handler that might nest against a holder on the
-/// same core.
+/// pool, name/storage/taskcap tables, console TX, durable region, …). The lock
+/// owns the datum, so "which lock guards this?" is answered by the type rather
+/// than by two statics agreeing on a name.
 ///
 /// # Lock order (deadlock avoidance)
 ///
-/// When two of these locks can nest on a path, the order is fixed:
-/// **IPC → SCHED** is allowed only as separate critical sections (IPC dropped
-/// before `wake_task` / `block_current`). Never hold **SCHED** while taking
-/// **IPC** (spawn registers holds after `with_sched` returns). Other global
-/// tables (naming, storage, taskcap, frames, asid, durable, TX, loader) do not
-/// nest under each other or under SCHED on current product paths.
-pub struct IrqSpinLock {
+/// When two of these can nest on a path, the order is fixed:
+///
+/// - **IPC → SCHED** only as *separate* critical sections (IPC dropped before
+///   `wake_task` / `block_current`). Never hold **SCHED** while taking **IPC**
+///   (spawn registers holds after `with_sched` returns).
+/// - **WAIT → SCHED** likewise separate: the drain pops under WAIT, then wakes
+///   under SCHED.
+/// - **LINE → TX** genuinely nests, on the live RX-handover path:
+///   `console::suspend_rx` / `resume_rx` apply their plan steps inside the line
+///   lock, and each step reaches the TX handle. TX is a leaf and the direction
+///   is one-way. (ADR-0077 omitted this; ADR-0091 §5 records it.)
+///
+/// Other global tables (naming, storage, taskcap, frames, asid, durable,
+/// loader) do not nest under each other or under SCHED on current paths.
+pub struct Mutex<T> {
     locked: AtomicBool,
+    value: UnsafeCell<T>,
 }
 
-impl IrqSpinLock {
-    /// Unlocked lock.
-    pub const fn new() -> Self {
+// SAFETY: `value` is reachable only through `with`/`lock_masked`, which
+// serialise two CPUs (spin) and the holding core against itself (IRQ mask).
+unsafe impl<T: Send> Sync for Mutex<T> {}
+
+impl<T> Mutex<T> {
+    /// An unlocked mutex holding `value`.
+    pub const fn new(value: T) -> Self {
         Self {
             locked: AtomicBool::new(false),
+            value: UnsafeCell::new(value),
         }
     }
 
-    /// Run `f` under IRQ mask + exclusive spin.
+    /// Run `f` on the guarded value under IRQ mask + exclusive spin.
     ///
-    /// Built on [`cpu::without_irqs`] rather than a hand-rolled
-    /// `irq_save`/`irq_restore` pair: the mask sequence keeps exactly one
-    /// definition (`arch::cpu`), and the region stays visible to the
-    /// `irq-scope` gate's scope walker, which only opens `without_irqs(`.
+    /// The ordinary entry point. Built on [`cpu::without_irqs`] rather than a
+    /// hand-rolled `irq_save`/`irq_restore` pair: the mask sequence keeps
+    /// exactly one definition (`arch::cpu`), and the region stays visible to
+    /// the `irq-scope` gate's scope walker, which only opens `without_irqs(`.
+    ///
+    /// There is deliberately **no** `lock()` that masks on acquire and restores
+    /// on `Drop`: a region with no lexical opener is a region that walker
+    /// cannot see into (ADR-0091, rejected alternatives).
     #[inline]
-    pub fn with<R>(&self, f: impl FnOnce() -> R) -> R {
+    pub fn with<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
         cpu::without_irqs(|| {
-            self.lock_already_masked();
-            let r = f();
-            self.unlock_already_masked();
+            self.raw_lock();
+            // SAFETY: IRQs are masked (no same-core re-entry) and the spin bit
+            // is ours (no other core), so this is the only live reference. It
+            // ends with `f`.
+            let r = f(unsafe { &mut *self.value.get() });
+            self.raw_unlock();
             r
         })
     }
 
-    /// Acquire without restoring IRQs — caller already masked and will restore.
+    /// Acquire without touching `DAIF` — the caller has already masked.
     ///
-    /// Used by [`Self::with`] inside its mask, and by the scheduler switch
-    /// path, which must keep IRQs masked across `context_switch` while
-    /// releasing the lock before the stack swap.
+    /// **The one exception to [`Self::with`]**, and it exists for a single
+    /// caller: the scheduler switch path must release the spin bit *before*
+    /// `context_switch` while IRQs stay masked across the stack swap, which a
+    /// closure-scoped section cannot express. `scripts/check/irq-scope.sh`
+    /// refuses this call outside `src/sched/mod.rs`.
+    ///
+    /// The returned guard releases on `Drop`; `drop(guard)` at the point the
+    /// lock must go is the explicit form.
     #[inline]
-    pub fn lock_already_masked(&self) {
+    pub fn lock_masked(&self) -> MaskedGuard<'_, T> {
+        self.raw_lock();
+        MaskedGuard { lock: self }
+    }
+
+    #[inline]
+    fn raw_lock(&self) {
         while self
             .locked
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -114,9 +167,43 @@ impl IrqSpinLock {
         }
     }
 
-    /// Release after [`Self::lock_already_masked`].
     #[inline]
-    pub fn unlock_already_masked(&self) {
+    fn raw_unlock(&self) {
         self.locked.store(false, Ordering::Release);
+    }
+}
+
+/// Exclusive access from [`Mutex::lock_masked`]; releases on `Drop`.
+///
+/// Holds the spin bit only. It does **not** own an IRQ mask, so dropping it
+/// does not unmask — the caller's `irq_save`/`irq_restore` pair still bounds
+/// the masked region.
+pub struct MaskedGuard<'a, T> {
+    lock: &'a Mutex<T>,
+}
+
+impl<T> Deref for MaskedGuard<'_, T> {
+    type Target = T;
+
+    #[inline]
+    fn deref(&self) -> &T {
+        // SAFETY: we hold the spin bit and the caller holds the IRQ mask, so no
+        // other reference to the value is live.
+        unsafe { &*self.lock.value.get() }
+    }
+}
+
+impl<T> DerefMut for MaskedGuard<'_, T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut T {
+        // SAFETY: as `deref`, and `&mut self` makes this the only borrow.
+        unsafe { &mut *self.lock.value.get() }
+    }
+}
+
+impl<T> Drop for MaskedGuard<'_, T> {
+    #[inline]
+    fn drop(&mut self) {
+        self.lock.raw_unlock();
     }
 }
