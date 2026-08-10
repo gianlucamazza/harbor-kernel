@@ -1,0 +1,10 @@
+source=https://github.com/raspberrypi/firmware/raw/1.20250430/boot/bcm2711-rpi-4-b.dtb
+firmware_tag=1.20250430 (same pin as third_party/blobs/EXPECTED.sha256)
+fetched_at=2026-08-09T16:46:00+02:00
+bcm2711-rpi-4-b.dtb=4bc9dd6182025add23a750b18ff748e46d4e939434530e8057c6bfa1ce6f1c16
+license=GPL-2.0 (device tree sources, from the Linux kernel via raspberrypi/firmware)
+note=Distributed (un-patched) blob, deliberately: mixed cells (#address-cells=2,
+  #size-cells=1), a zero-size /memory node and no /system linux,revision — the
+  firmware patches those at boot, so this fixture is the honest hard case for
+  kernel_core::fdt (ADR-0073 §6). A firmware-patched dump captured from the
+  Pi 4B is a residual second fixture (next HW session).

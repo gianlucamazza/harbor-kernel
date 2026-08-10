@@ -48,6 +48,20 @@ assert_boot_oracle() {
 	# Stepping (rNpM) stays free: it varies by silicon batch and proves nothing.
 	grep -qaE 'cpu: Cortex-A72 r[0-9]+p[0-9]+ asid16 pa44 \(MIDR=0x[0-9a-f]{8}\)' "${log}" ||
 		fail "cpu identity line missing or not the expected Cortex-A72: $(grep -a '^cpu:' "${log}" || echo '(no cpu line at all)')"
+	# The discovery report (ADR-0072/0073): one line per fact, unconditional.
+	# Shapes, not values — HW carries a firmware-patched tree (real revision,
+	# real RAM), the CI fixture is the un-patched distributed blob (zero-size
+	# memory, no revision), and a DTB-less boot prints the `unknown (...)`
+	# forms. Every row accepts its degraded shape; only *silence* fails,
+	# because silence means the report never ran (fail-open is not fail-mute).
+	grep -qaE 'discover: model ("[^"]*"( rev=0x[0-9a-f]+)? \(fdt\)|unknown \([a-z0-9 _-]+\))' "${log}" ||
+		fail "discover model line missing or malformed: $(grep -a '^discover: model' "${log}" || echo '(no line)')"
+	grep -qaE 'discover: memory ([0-9]+ MiB \([0-9]+ ranges?\) (matches|beyond compiled map|short) \(identity [0-9]+ MiB\)|unknown \([a-z0-9 _-]+\))' "${log}" ||
+		fail "discover memory line missing or malformed: $(grep -a '^discover: memory' "${log}" || echo '(no line)')"
+	grep -qaE 'discover: cpus ([0-9]+ \(fdt\) smp-seen=[0-9]+ (matches|differs)|unknown \([a-z0-9 _-]+\))' "${log}" ||
+		fail "discover cpus line missing or malformed: $(grep -a '^discover: cpus' "${log}" || echo '(no line)')"
+	grep -qaE 'discover: display compiled=(on|off) \(claim, not probed\)' "${log}" ||
+		fail "discover display line missing or malformed: $(grep -a '^discover: display' "${log}" || echo '(no line)')"
 	# RNG200 is always probed after the MMU. QEMU has no backend: expect soft
 	# NotPresent. Silicon logs `ok word=…`. Either shape is a successful probe path;
 	# silence would mean the probe panicked or never ran.

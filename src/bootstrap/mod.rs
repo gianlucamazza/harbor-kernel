@@ -10,6 +10,7 @@ mod console_loop;
 mod console_server;
 #[cfg(feature = "oracle")]
 mod demos;
+mod discover;
 mod loader;
 #[cfg(feature = "bringup")]
 mod selftest;
@@ -287,6 +288,7 @@ pub fn run() -> ! {
     // device-tree blob is now outside it. Map it back in: it is the first
     // region whose address only the firmware knows, which is exactly what
     // `mmu::map` exists for.
+    let mut dtb_mapped = false;
     if let Some((base, len)) = bootinfo::device_tree_pages() {
         let region = Region {
             base,
@@ -300,10 +302,21 @@ pub fn run() -> ! {
         // SAFETY: kernel map active, IRQs masked; the range is firmware-owned
         // RAM outside every other region.
         match unsafe { mmu::map(&region) } {
-            Ok(()) => println!(uart, "DTB mapped: {len} bytes at {base:#x}"),
+            Ok(()) => {
+                println!(uart, "DTB mapped: {len} bytes at {base:#x}");
+                dtb_mapped = true;
+            }
             Err(error) => println!(uart, "DTB map FAILED: {error:?}"),
         }
     }
+
+    // The discovery report (ADR-0072/0073): observe the tree, reconcile with
+    // the compiled claims, print one line per fact. Fail-open — a missing or
+    // unmappable blob prints its `unknown` form and the boot continues.
+    // smp-seen: primary always + core1 if unpark returned alive (not the
+    // secondary_wait counter — that stays 0 under QEMU -kernel).
+    let smp_seen = 1u64 + u64::from(core1);
+    discover::report(&mut uart, dtb_mapped, smp_seen);
 
     // Every later spawn may cost a table (guard unmap splits a 2 MiB heap
     // block; the arena never frees). Check *after* the DTB map so the reserve

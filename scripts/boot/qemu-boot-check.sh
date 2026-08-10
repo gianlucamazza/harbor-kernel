@@ -82,6 +82,14 @@ printf 'label: dos\n,2048,7f\n' | sfdisk -q "${sd_img}" >/dev/null
 # `timeout` kills a healthy run, so its exit status says nothing; the log is
 # the oracle. `|| true` keeps `set -e` from ending the script before we look.
 # Oracle path: no external store — builtin beacon+mute (ADR-0027 fallback).
+# ADR-0073: QEMU raspi4b does not synthesise an FDT for -kernel; pin the
+# same fixture the host fdt tests use so the first boot exercises parse.
+DTB_FIXTURE="${DTB_FIXTURE:-crates/kernel-core/tests/fixtures/bcm2711-rpi-4-b.dtb}"
+if [[ ! -f "${DTB_FIXTURE}" ]]; then
+	echo "error: DTB fixture not found: ${DTB_FIXTURE}" >&2
+	exit 1
+fi
+
 run_boot() {
 	local seconds="$1"
 	shift
@@ -92,7 +100,8 @@ run_boot() {
 		-serial mon:stdio -display none "$@" </dev/null >"${log}" 2>&1 || true
 }
 
-run_boot "${SECONDS_TO_RUN}" -drive "if=sd,format=raw,file=${sd_img}"
+# Boot 1: with -dtb fixture (FDT parse path).
+run_boot "${SECONDS_TO_RUN}" -dtb "${DTB_FIXTURE}" -drive "if=sd,format=raw,file=${sd_img}"
 
 # How much host CPU the emulator actually got, in hundredths of a core per
 # second of wall time. On an unloaded machine TCG saturates roughly three cores
@@ -145,9 +154,8 @@ on_timer_missed() {
 DURABLE_MEDIA_EXPECT=fresh assert_boot_oracle
 ticks_first="$(grep -ac 'ticks=' "${log}")"
 
-# Boot 2, same image, new emulator process: the emulated power cycle. DRAM
-# is gone; only the card can carry the counter across, the winner slot must
-# be the one boot 1 committed, and this flush must land in the other slot.
+# Boot 2: DTB-less power cycle (degraded discover: unknown (no dtb) + durable).
+# DRAM is gone; only the card can carry the counter across.
 run_boot "${SECONDS_TO_RUN}" -drive "if=sd,format=raw,file=${sd_img}"
 read_child_cpu_hz
 emulator_cores=$(((CHILD_CPU_HZ - cpu_before) * 100 / (clk_tck * 2 * SECONDS_TO_RUN)))

@@ -125,6 +125,14 @@ pub const UART0_SPI: u32 = 153;
 /// 2 GiB even on 4/8 GB boards until the memory map is discovered at runtime.
 pub const IDENTITY_RAM_END: usize = 0x8000_0000;
 
+/// What the device tree's `/model` must start with on this board — the
+/// discovery report's compiled claim (ADR-0072: verify, don't select).
+pub const EXPECTED_MODEL_PREFIX: &str = "Raspberry Pi 4 Model B";
+
+/// Cores the BCM2711 has. The product schedules on one (ADR-0006) with core 1
+/// unparked idle (ADR-0070); discovery cross-checks the tree against this.
+pub const EXPECTED_CPUS: u32 = 4;
+
 /// Frames in the named user/AS phys pool (512 × 4 KiB = 2 MiB).
 ///
 /// Sized for M5 v1 (one small AS + spare). Raise with layout evidence, not by

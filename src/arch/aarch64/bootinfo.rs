@@ -102,3 +102,19 @@ pub fn device_tree() -> Option<u64> {
         address => Some(address),
     }
 }
+
+/// The blob as a byte slice — the consume half of the facade contract
+/// ("early map + optional consume", ADR-0072/0073).
+///
+/// # Safety
+///
+/// The caller must have mapped the blob (the RO map `bootstrap` builds from
+/// [`device_tree_pages`]) and it must stay mapped for `'static`. Before that
+/// map exists this address is unmapped and the first read faults.
+pub unsafe fn device_tree_slice() -> Option<&'static [u8]> {
+    let address = device_tree()?;
+    let len = DEVICE_TREE_LEN.load(Ordering::Acquire);
+    // SAFETY: caller upholds the mapping; length comes from the validated
+    // header and the region is mapped RO, so no one mutates it.
+    Some(unsafe { core::slice::from_raw_parts(address as *const u8, len as usize) })
+}
