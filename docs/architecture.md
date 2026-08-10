@@ -333,8 +333,8 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
 | **H1 next**                  | P3\|P4 only with composition (deferred) · K5 driver-half residual                                                                                                 |
-| **H2 depth**                 | K4 EL0+EL1 preemption done (HW); K7 first slice done (HW); K8 through steal done (HW, stamps 2026-08-10); residual agent+TLB steal / K7 TTBR1 / K5 half |
-| **open (kernel)**            | K7 residuals (TTBR1 / switch-cost); K5 driver-half; optional K8 agent steal+TLB                                            |
+| **H2 depth**                 | K4+K7-ASID+K8 through steal done (HW); VA regime option C + ASID; residual policy ADR-0084; residual K5 half / K7-T-if-trigger / agent+TLB |
+| **open (kernel)**            | K5 driver-half; K7-M optional lab; K7-T only if trigger (0084); optional K8 agent steal+TLB                                            |
 | **open (product)**           | P3/P4 deferred (ADR-0049); K5 driver-half residual                                                                                                                |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
@@ -396,7 +396,8 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0045](adr/0045-p2-durable-store.md)                             | P2 durable region (**accepted**)                                                                                                                       |
 | [ADR-0046](adr/0046-k4-cooperative-cpu-budget.md)                    | K4 cooperative budget (**accepted**)                                                                                                                   |
 | [ADR-0047](adr/0047-k7-asid-isolation-design.md)                     | K7 ASID design (**accepted**)                                                                                                                          |
-| [ADR-0050](adr/0050-k7-asid-first-slice.md)                          | K7 first slice — ASID pool + CONTEXTIDR (**accepted**)                                                                                                 |
+| [ADR-0050](adr/0050-k7-asid-first-slice.md)                          | K7 first slice — ASID pool + CONTEXTIDR (**accepted**); done (HW)                                                                                      |
+| [ADR-0084](adr/0084-k7-residual-policy.md)                           | K7 residual policy — measure / TTBR1 triggers / rollover (**accepted**)                                                                                |
 | [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                                              |
 | [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                                               |
 | [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md) |

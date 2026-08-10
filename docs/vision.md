@@ -86,18 +86,13 @@ If a word here does not mean what you expect — **agent** most of all — start
 | Evidence ≠ compile                | Boundaries stay claims with gates                             |
 
 Open work that realises these at scale (design ADR before code where needed):
-**peer** cap transfer depth residuals, **K5** driver-half collapse residual
-(thin stacks done HW), **K7** residuals (TTBR1 / switch-cost), **K8** residual
-steal / per-core preempt / EL0-on-CPU1 (unpark+IPI+queues first **done (HW)**,
-[ADR-0070](adr/0070-k8-smp-first-slice.md)/[0074](adr/0074-k8-ipi-wake-second-slice.md)/[0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md)),
-product network/display only with a composition target (**P3**, **P4** deferred).
-Closed on HW for fairness: **K4** budget + EL0 + EL1 IRQ-epilogue preemption
-([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md)).
-First slices paid: external load (**K6**), IRQ wait EL1+EL0 (**K1**), last-SEND-hold
-auto-reap + park timeout (**K2**), channel revoke + EL1/EL0 transfer (**K3**),
-multi-agent product store (**P1**), on-target + durable blobs + SD power-cycle (**P2**),
-name registry + EL0 resolve (**P5**), compose tools (**P6**), thin stacks (**K5**),
-cooperative budget + IRQ preemption (**K4**). Status and H1 order: [roadmap](roadmap.md).
+**K5** driver-half collapse residual (thin stacks done HW); **K7** residual
+policy ([ADR-0084](adr/0084-k7-residual-policy.md): option C current; optional
+switch-cost lab; TTBR1 only if a named trigger fires); optional **K8** agent
+steal + TLB IPI; product network/display only with a composition target
+(**P3**, **P4** deferred). Closed on HW for fairness and multi-core depth:
+**K4** EL0+EL1 preemption; **K7** ASID first; **K8** unpark through steal
+(ADR-0070…0083). Status and order: [roadmap](roadmap.md).
 
 ---
 
@@ -176,16 +171,12 @@ driver-half collapse residual. Working order:
 
 ### H2 — Boundary operating system
 
-Remaining **K** and **P** for full boundary-OS depth: **K7** residuals
-(TTBR1 / switch-cost), **K5** driver-half, **K8** steal / per-core preempt /
-EL0-on-CPU1 (queues first **done (HW)** [ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)/[0077](adr/0077-smp-shared-state-discipline.md);
-design [ADR-0048](adr/0048-k8-smp-design.md)/[0075](adr/0075-k8-per-core-queues-design.md)), deferred **P3**/**P4**, peer
-transfer depth residuals ([ADR-0053](adr/0053-k3-peer-transfer-design.md)), and
-remaining product-path depth. **K4** IRQ preemption is closed on HW
-([ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md);
-design [ADR-0051](adr/0051-k4-irq-preemption-design.md)). Resolve-grant is done
-(HW) ([ADR-0052](adr/0052-p5-resolve-grant.md); Pi stamp 2026-08-09). Full OS sense under this model
-— still not Linux.
+Remaining **K** and **P** for full boundary-OS depth: **K5** driver-half;
+**K7-T** TTBR1 only if [ADR-0084](adr/0084-k7-residual-policy.md) triggers;
+optional **K7-M** lab and **K8** agent+TLB steal; deferred **P3**/**P4**.
+**K4**, **K7** ASID first, and **K8** through steal are closed on HW. Resolve-grant
+is done (HW) ([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this
+model — still not Linux.
 
 | Traditional OS                    | Harbor (vision)                            |
 | --------------------------------- | ------------------------------------------ |

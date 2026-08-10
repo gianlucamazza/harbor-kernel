@@ -13,8 +13,10 @@ related: [0014, 0026]
 ## Acceptance status
 
 **Accepted as design** (2026-08-08). First code slice landed in
-[ADR-0050](0050-k7-asid-first-slice.md). Residuals (TTBR1, HW TLB stamp, 16-bit
-ASID) remain open under K7.
+[ADR-0050](0050-k7-asid-first-slice.md). Residuals after first code are split
+and governed by [ADR-0084](0084-k7-residual-policy.md) (switch-cost evidence,
+TTBR1 triggers, ASID rollover) — not a single undifferentiated “TTBR1 /
+switch-cost” bucket.
 
 ## Context
 
@@ -28,8 +30,8 @@ on every switch, and optionally TTBR1 split for kernel.
 | --- | --- |
 | ASID allocation | Fixed pool; assign at AS create; free on destroy |
 | Switch | Write TTBR0 + CONTEXTIDR ASID; selective TLBI |
-| Residual TTBR1 | Optional later if kernel/user split pays off |
-| Evidence | Host model of ASID reuse; QEMU multi-AS smoke; HW TLB stamp |
+| Residual TTBR1 | Deferred with triggers — [ADR-0084](0084-k7-residual-policy.md) |
+| Evidence | Host model of ASID reuse; QEMU multi-AS smoke; dual-AS HW stamp; optional later switch-cost lab (0084 K7-M) |
 
 ### First implementation slice
 

@@ -62,10 +62,12 @@ the hardware transcript check.
 
 ### 5. Residuals
 
-- TTBR1 high-half split (optional later).
-- 16-bit ASIDs / rollover policy when pool exhausts under heavy churn.
-- HW TLB stamp (measure switch cost on Pi).
-- SMP shootdown remains **K8**.
+Governed by [ADR-0084](0084-k7-residual-policy.md) (split policy):
+
+- **K7-T** TTBR1 high-half — deferred until a named trigger fires.
+- **K7-R** 16-bit ASIDs / rollover under pool pressure.
+- **K7-M** Switch-cost evidence on Pi (lab; optional code).
+- SMP TLB shootdown for migrated AS remains **K8** (agent steal + TLB IPI).
 
 ## Gates
 

@@ -86,10 +86,13 @@ exactly its address; with it, the magic reads back as `0xd00dfeed`.
 `EPD1` matters: nothing is mapped in the upper half, so a stray high address
 must fault rather than start a walk through an uninitialised `TTBR1_EL1`.
 
-**M5 v1** keeps this regime ([ADR-0014](adr/0014-ttbr-split-m5.md)): user
-tasks get their own `TTBR0` root that still includes **kernel identity maps**
-(EL0 denied) plus a private user VA window. A future high-half kernel on
-`TTBR1` is a successor ADR, not required for M5 done-when.
+**Product regime (still)** is option C ([ADR-0014](adr/0014-ttbr-split-m5.md)):
+user tasks get their own `TTBR0` root that still includes **kernel identity
+maps** (EL0 denied) plus a private user VA window, with **ASID + nG** on the
+switch path ([ADR-0050](adr/0050-k7-asid-first-slice.md)). A future high-half
+kernel on `TTBR1` is **deferred with triggers**
+([ADR-0084](adr/0084-k7-residual-policy.md) K7-T), not an open “missing
+isolation” claim.
 
 ### The user window is per agent, not per board
 
@@ -284,14 +287,15 @@ caller's head.
   for the **kernel** map only. User AS tables and data pages come from the
   **separate** frame pool ([ADR-0012](adr/0012-frame-allocator-for-address-spaces.md))
   owned by `mm::frames` / `mm::aspace` — not from this arena.
-- **Product multi-AS scheduling / SMP TLB.** In tree: user `TTBR0` roots +
-  first-slice ASID (ADR-0050: pool, CONTEXTIDR, nG user leaves), dual-AS
-  teardown, scheduled multi-SVC / IRQ-resume EL0 sessions (sole
-  `switch_ttbr0`), concurrent dual agents. Still open: TTBR1 split, HW TLB
-  stamp, multi-core TLB shootdown (**K8**), two TCBs **simultaneously** live
-  at EL0.
-- **High-half kernel / `TTBR1`.** Deliberately deferred
-  ([ADR-0014](adr/0014-ttbr-split-m5.md) successor).
+- **Product multi-AS / SMP TLB.** In tree: user `TTBR0` roots + ASID
+  (ADR-0050), dual-AS HW stamp, dual concurrent EL0 on two cores
+  ([ADR-0081](adr/0081-k8-el0-on-cpu1-first-slice.md)), steal of opt-in EL1
+  workers ([ADR-0083](adr/0083-k8-work-stealing-first-slice.md)). Still open
+  under policy [ADR-0084](adr/0084-k7-residual-policy.md): **K7-M** switch-cost
+  lab, **K7-T** TTBR1 if a trigger fires, **K7-R** ASID rollover under pressure;
+  multi-core TLB shootdown for **agent** steal (**K8** residual).
+- **High-half kernel / `TTBR1`.** Deferred with triggers (0084 K7-T); option C
+  remains the named product regime.
 - **Agent Device maps** are **in tree** (M6): one PL011 page via
   `AddressSpace::map_device_page` ([ADR-0013](adr/0013-narrow-device-windows.md)),
   including RX-own poll + LBE self-test. Still out of scope: shrinking the

@@ -103,6 +103,7 @@ the code that follows.
 | [0081](0081-k8-el0-on-cpu1-first-slice.md)                   | K8 fifth slice — EL0 sessions and preemption on CPU 1                                      | accepted   |
 | [0082](0082-k8-work-stealing-design.md)                      | K8 design — work stealing between per-core ready queues (code: 0083)                       | accepted   |
 | [0083](0083-k8-work-stealing-first-slice.md)                 | K8 sixth slice — work stealing first code                                                  | accepted   |
+| [0084](0084-k7-residual-policy.md)                           | K7 residual policy — switch-cost evidence, TTBR1 triggers, ASID honesty                  | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

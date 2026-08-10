@@ -87,14 +87,17 @@ does **not** install it in any TTBR yet.
 
 ### Successor (post-M5, separate ADR)
 
-**TTBR1 kernel high half** when Harbor needs:
+**TTBR1 kernel high half** is governed by
+[ADR-0084](0084-k7-residual-policy.md) (**K7-T**): deferred until a named
+trigger fires (density, isolation depth, host-class layout, or cost evidence).
+Sketch needs (still valid as intuition):
 
 - stronger isolation (kernel tables never in user walk),
-- or denser user VA,
-- or alignment with Linux-style layout.
+- or denser user VA / fewer clone frames,
+- or alignment with Linux-style / H3 layout.
 
-Until then, option C is not a “hack”: it is the **deliberate M5 v1 regime**,
-with a named upgrade path.
+Until then, option C is not a “hack”: it is the **deliberate product regime**,
+with a named upgrade path and explicit non-goals (no half-enabled TTBR1).
 
 ## How kernel maps enter a user AS (implementation shape for S3)
 
