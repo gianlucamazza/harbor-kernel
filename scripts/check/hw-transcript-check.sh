@@ -59,7 +59,24 @@ fi
 # transcript against a newer oracle is a legitimate thing to do deliberately.
 transcript_src="$(sed -nE 's/.*[[:space:]]src=([0-9a-zA-Z._-]+).*/\1/p' "${log}" | head -1)"
 tree_src="$(git describe --always --dirty 2>/dev/null || echo unknown)"
-if [[ -n "${transcript_src}" && "${transcript_src}" != "${tree_src}" ]]; then
+# Compare on the shorter abbreviation, and on dirtiness separately. `build.rs`
+# and `git describe` do not have to agree on how many hex digits an
+# abbreviated id gets — `1ed04fbe` and `1ed04fb` are the same commit — and a
+# note that fires on every capture is a note nobody reads.
+src_same=0
+if [[ -n "${transcript_src}" ]]; then
+	t_dirty=0; r_dirty=0
+	[[ "${transcript_src}" == *-dirty ]] && t_dirty=1
+	[[ "${tree_src}" == *-dirty ]] && r_dirty=1
+	t_id="${transcript_src%-dirty}"
+	r_id="${tree_src%-dirty}"
+	n=${#t_id}
+	((${#r_id} < n)) && n=${#r_id}
+	if ((t_dirty == r_dirty)) && ((n > 0)) && [[ "${t_id:0:n}" == "${r_id:0:n}" ]]; then
+		src_same=1
+	fi
+fi
+if [[ -n "${transcript_src}" && "${src_same}" -eq 0 ]]; then
 	echo "hw-transcript-check: NOTE — capture is from src=${transcript_src}, tree is ${tree_src}" >&2
 	echo "  The assertions below are this tree's. A capture older than an oracle" >&2
 	echo "  line fails on the line, not on the board — capture again to claim HW." >&2
