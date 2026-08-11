@@ -123,7 +123,8 @@ Four levels, in increasing cost and increasing authority
 | Silicon         | Pi 4B serial transcript                                        | Anything timing-, attribute- or firmware-dependent. QEMU has booted a kernel that hung on the board                                                      |
 
 Structural gates (`fmt-check`, `layering`, `arch-board-free`, `irq-scope`,
-`no-static-mut`, `no-simd`, `no-early-exclusives`, `board-guard`) and documentation gates
+`no-static-mut`, `no-simd`, `no-early-exclusives`, `board-guard`,
+`mutation-freshness`) and documentation gates
 (`doc-claims`, `doc-symbols`, `xrefs`, `roadmap-evidence`) run in the same `make check`, which is a
 deliberate superset of CI: a local green must predict a remote one.
 

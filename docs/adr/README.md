@@ -115,6 +115,8 @@ the code that follows.
 | [0093](0093-panic-path-positive-evidence.md)        | Positive evidence for the panic path — one deliberate fault | accepted |
 | [0094](0094-retire-debug-display.md)               | Retire `debug-display` — panel returns with a composition  | accepted |
 | [0095](0095-boot-phases.md)                        | Boot phases have names; the console handover is the seam  | accepted |
+| [0096](0096-gates-that-do-not-depend-on-remembering.md) | Gates that do not depend on remembering                    | accepted |
+| [0097](0097-loader-plan.md)                        | The loader's plan is data; the loader executes it          | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

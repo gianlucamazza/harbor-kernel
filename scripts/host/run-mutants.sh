@@ -54,6 +54,11 @@ readonly BASELINE_MISSED=21
 # and cargo-mutants files it separately.
 readonly BASELINE_TIMEOUT=1
 
+# Where a clean run records what it covered (see the end of this script).
+readonly STAMP="docs/mutation-stamp.toml"
+run_date="$(date -u +%Y-%m-%d)"
+run_commit="$(git describe --always 2>/dev/null || echo unknown)"
+
 HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
 
 if ! command -v cargo-mutants >/dev/null; then
@@ -68,7 +73,7 @@ fi
 # One name per line; every module that decides authority belongs here.
 readonly FILES=(
 	ipc tasks layout irqtable rxline reset cap syscall prog manifest
-	taskcap irqcap reply runqueue irqwait capslots lifecycle
+	taskcap irqcap reply runqueue irqwait capslots lifecycle loaderplan
 )
 file_args=()
 for f in "${FILES[@]}"; do
@@ -123,4 +128,23 @@ if [[ "${missed}" -lt "${BASELINE_MISSED}" ]]; then
 	echo "  Lower the baseline in this script — a stale one hides the next regression."
 fi
 
+# Record what this run covered, so `make check` can tell when it has gone
+# stale. The stamp is tracked in git precisely because the question it answers
+# — "has the mutable surface moved since anyone last ran this?" — is about the
+# repository's history, not about this working copy (ADR-0096).
+mutant_count="$(cargo mutants --list -p kernel-core "${file_args[@]}" 2>/dev/null | wc -l)"
+cat >"${STAMP}" <<STAMP
+# Written by scripts/host/run-mutants.sh. Do not edit by hand.
+#
+# \`make mutation-freshness\` compares \`mutants\` against the surface
+# \`cargo mutants --list\` reports today. A different number means the scope
+# gained or lost something the last run never saw (ADR-0096).
+date = ${run_date}
+commit = ${run_commit}
+mutants = ${mutant_count}
+survivors = ${missed}
+baseline = ${BASELINE_MISSED}
+STAMP
+
 echo "mutants: clean (${missed} survivors, all justified in docs/verification.md)"
+echo "  stamped ${STAMP}: ${mutant_count} mutants at ${run_commit}"

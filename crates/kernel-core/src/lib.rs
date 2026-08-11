@@ -58,6 +58,7 @@ pub mod irqtable;
 pub mod irqwait;
 pub mod layout;
 pub mod lifecycle;
+pub mod loaderplan;
 pub mod manifest;
 pub mod mbr;
 pub mod naming;

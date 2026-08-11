@@ -26,7 +26,7 @@ does not invent product or ambient authority.
 | ~~**Panic-path oracle**~~ | **Delivered** by [ADR-0093](0093-panic-path-positive-evidence.md) (2026-08-11): a `panic-probe` image faults on a real stack guard page, and `make panic-check` asserts the whole chain — including that the printed `FAR` is the address the probe announced | — |
 | ~~**Task-cap spawn epoch**~~ | **Delivered** by [ADR-0062](0062-taskid-epoch.md) (2026-08-09): the epoch lives in `TaskId` itself and the task-cap entry stores it (`taskcap.rs` raw id), so the exit→revoke window is closed structurally | — |
 | **Derived mutation file list** | `run-mutants.sh` list is hand-written; scope now validated but membership is still a decision ([ADR-0058](0058-adr-amendments-and-mutation-freshness.md)) | Marker-derived list, or the next membership miss |
-| **kernel-core extractions** | **loader plan** only, as of 2026-08-11 — the remaining piece of excellence review R1 | Next slice touching the loader |
+| ~~**kernel-core extractions**~~ | **Delivered in full.** The loader plan, the last of the four, by [ADR-0097](0097-loader-plan.md) (2026-08-11); the others by ADR-0063, ADR-0060 and [ADR-0092](0092-lifecycle-verdicts.md). What is left outside the host-test and mutation nets in `src/` is mechanism — MMIO, assembly, lock discipline — not decisions | — |
 
 > **Amendment (2026-08-11, reconciliation per [ADR-0058](0058-adr-amendments-and-mutation-freshness.md) —
 > reconciled by [ADR-0092](0092-lifecycle-verdicts.md)).** The R1 row named four

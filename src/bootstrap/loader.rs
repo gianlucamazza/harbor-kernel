@@ -17,7 +17,8 @@ use core::mem::MaybeUninit;
 
 use kernel_core::agentstore::{self, MAX_AGENTS, StoreAgent};
 use kernel_core::cap::CapId;
-use kernel_core::manifest::{AgentEntry, BindError, MAX_SLOTS, bind};
+use kernel_core::loaderplan;
+use kernel_core::manifest::{AgentEntry, BindError, MAX_SLOTS};
 use kernel_core::paging::Perms;
 use kernel_core::prog;
 
@@ -201,52 +202,75 @@ fn try_store_manifest() -> Option<&'static [AgentEntry]> {
 const _: () = assert!(sched::MAX_CAPS_PER_TASK == kernel_core::manifest::MAX_SLOTS);
 
 /// Create one task per active manifest entry, binding slots against `held`.
+///
+/// The judgement — which manifest is in force, what an empty one means, and
+/// per entry the order `validate` → `bind` → act — is
+/// [`kernel_core::loaderplan`] (ADR-0097). What is left here is what a pure
+/// function cannot do: parse the store, spawn, remember, and print.
 pub fn load_all(held: &[CapId]) {
-    let table = match try_store_manifest() {
-        Some(t) => {
-            crate::kprintln!("loader: store n={} image", t.len());
-            SIDE.with(|side| side.active = Some(t));
-            t
+    let (source, table) = match try_store_manifest() {
+        Some(t) => (loaderplan::Source::Store { agents: t.len() }, t),
+        None => (loaderplan::Source::Builtin, builtin_manifest()),
+    };
+    match source {
+        loaderplan::Source::Store { agents } => crate::kprintln!("loader: store n={agents} image"),
+        loaderplan::Source::Builtin => crate::kprintln!("loader: builtin"),
+    }
+    SIDE.with(|side| side.active = Some(table));
+
+    let mut plans =
+        [loaderplan::EntryPlan::Refuse(loaderplan::Refusal::Invalid(BindError::BadGeometry {
+            text_pages: 0,
+            stack_pages: 0,
+        })); MAX_AGENTS];
+    let planned = match loaderplan::plan(
+        table,
+        held,
+        kernel_core::paging::PAGE_SIZE as usize,
+        &mut plans,
+    ) {
+        Ok(n) => n,
+        Err(loaderplan::PlanError::Empty) => {
+            crate::kprintln!("loader: manifest empty, nothing to create");
+            return;
         }
-        None => {
-            crate::kprintln!("loader: builtin");
-            let t = builtin_manifest();
-            SIDE.with(|side| side.active = Some(t));
-            t
+        Err(loaderplan::PlanError::OutTooSmall { entries, capacity }) => {
+            crate::kprintln!("loader: manifest has {entries} entries, room for {capacity}");
+            return;
         }
     };
 
-    if table.is_empty() {
-        crate::kprintln!("loader: manifest empty, nothing to create");
-        return;
-    }
-    for (index, entry) in table.iter().enumerate() {
-        if let Err(e) = entry.validate(kernel_core::paging::PAGE_SIZE as usize) {
-            crate::kprintln!("loader: {} refused — {e:?}", entry.name);
-            continue;
-        }
-        match bind(entry, held) {
-            Ok(slots) => {
-                // ADR-0088: sticky home from the entry (store or builtin).
-                match sched::spawn_with_slots_on(entry.home_cpu, agent_body, &slots) {
+    for (entry, plan) in table.iter().zip(plans.iter().take(planned)) {
+        match *plan {
+            loaderplan::EntryPlan::Spawn {
+                index,
+                home_cpu,
+                slots,
+            } => {
+                // ADR-0088: sticky home, decided by the plan from the entry.
+                match sched::spawn_with_slots_on(home_cpu, agent_body, &slots) {
                     Ok(task) => {
-                        remember(task, index as u8);
+                        remember(task, index);
                         crate::kprintln!(
                             "loader: {} loaded text={} stack={} home={}",
                             entry.name,
                             entry.text_pages,
                             entry.stack_pages,
-                            entry.home_cpu
+                            home_cpu
                         );
                     }
                     Err(e) => crate::kprintln!("loader: {} spawn FAILED {e:?}", entry.name),
                 }
             }
-            Err(BindError::NoSuchCapability { slot, index, held }) => crate::kprintln!(
+            loaderplan::EntryPlan::Refuse(loaderplan::Refusal::Unheld(
+                BindError::NoSuchCapability { slot, index, held },
+            )) => crate::kprintln!(
                 "loader: {} refused — slot {slot} names capability {index} of {held}",
                 entry.name
             ),
-            Err(e) => crate::kprintln!("loader: {} refused — {e:?}", entry.name),
+            loaderplan::EntryPlan::Refuse(
+                loaderplan::Refusal::Invalid(e) | loaderplan::Refusal::Unheld(e),
+            ) => crate::kprintln!("loader: {} refused — {e:?}", entry.name),
         }
     }
 }
