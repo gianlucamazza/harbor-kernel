@@ -38,6 +38,12 @@ if [[ ! -f "${IMG}" ]]; then
 fi
 
 if ! command -v "${QEMU}" >/dev/null; then
+	if [[ "${CI:-}" == "true" ]]; then
+		echo "product-boot-check: FAIL — ${QEMU} missing, and a skip is refused in CI" >&2
+		echo "  ALLOW_BOOT_SKIP is for a workstation without the emulator." >&2
+		echo "  In CI it would report a green gate that never ran (ADR-0096)." >&2
+		exit 1
+	fi
 	if [[ "${ALLOW_BOOT_SKIP:-}" == "1" ]]; then
 		echo "product-boot-check: SKIPPED — ${QEMU} missing, ALLOW_BOOT_SKIP set" >&2
 		exit 0

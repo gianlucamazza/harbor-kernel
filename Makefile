@@ -99,7 +99,7 @@ endif
 .PHONY: all debug img elf check test miri bringup-builds \
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
-	boot-check panic-check x86-elf x86-boot-check doc-claims layering fmt fmt-check \
+	boot-check panic-check hw-check mutation-freshness x86-elf x86-boot-check doc-claims layering fmt fmt-check \
 	qemu qemu-gdb qemu-x86 blobs deploy \
 	restore-rpios serial clean agents
 
@@ -133,7 +133,7 @@ img: elf
 # `miri`/`shellcheck` fail loudly when their tool is absent rather than letting
 # the claim quietly become false (skip only with ALLOW_MIRI_SKIP=1 /
 # ALLOW_SHELLCHECK_SKIP=1, same shape as boot-check's ALLOW_BOOT_SKIP).
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
+check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri mutation-freshness doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -148,9 +148,13 @@ check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-c
 # passes because it did not run is the failure `no-simd` was fixed for.
 shellcheck:
 	@if ! command -v shellcheck >/dev/null; then \
-	  if [ "$${ALLOW_SHELLCHECK_SKIP:-}" = "1" ]; then \
+	  if [ "$${ALLOW_SHELLCHECK_SKIP:-}" = "1" ] && [ "$${CI:-}" != "true" ]; then \
 	    echo "shellcheck: SKIPPED — not installed (ALLOW_SHELLCHECK_SKIP=1)" >&2; \
 	    exit 0; \
+	  fi; \
+	  if [ "$${CI:-}" = "true" ]; then \
+	    echo "shellcheck: FAIL — not installed, and a skip is refused in CI (ADR-0096)" >&2; \
+	    exit 1; \
 	  fi; \
 	  echo "shellcheck: FAIL — not installed; refusing to report clean" >&2; \
 	  echo "  install it (pacman -S shellcheck) or set ALLOW_SHELLCHECK_SKIP=1" >&2; \
@@ -297,10 +301,35 @@ oracle-census:
 #
 # A `make check` prerequisite (nightly is required only for this target; the
 # kernel's own toolchain pin stays stable). ALLOW_MIRI_SKIP=1 opts out loudly.
+# The mutation run's stamp against the surface `cargo mutants --list` reports
+# today (~2s). Fails when the scope gained or lost mutable surface since the
+# last run — the freshness half of ADR-0058 that had no gate until ADR-0096,
+# and that K8 landed `done (HW)` straight through.
+mutation-freshness:
+	./scripts/check/mutation-freshness.sh
+
+# Assert a Pi 4B serial transcript against the boot oracle.
+#
+# The one gate that sees what QEMU cannot: TLB fills are speculative on
+# silicon and not in TCG, so the ADR-0050 staleness class is only ever red
+# here. It had no target until 2026-08-11 and was invoked from memory — which
+# is a gate nobody runs on the day it matters.
+#
+#   make hw-check TRANSCRIPT=.serial-log/20260810-160227.log
+hw-check:
+	@if [ -z "$(strip $(TRANSCRIPT))" ]; then \
+	  echo "hw-check: TRANSCRIPT=<serial-capture log> is required" >&2; \
+	  echo "  e.g. make hw-check TRANSCRIPT=.serial-log/20260810-160227.log" >&2; \
+	  exit 1; \
+	fi
+	./scripts/check/hw-transcript-check.sh "$(TRANSCRIPT)"
+
 # Mutation testing. Not a `check` prerequisite: ~7 minutes, and the value is in
 # reading which mutants survived rather than in a threshold. Cadence and scope
 # rules are ADR-0058's: run before a boundary-moving commit, and the script
-# refuses an artifact that did not cover its own file list.
+# refuses an artifact that did not cover its own file list. `make check` runs
+# `mutation-freshness`, which fails when the mutable surface has moved since
+# the last recorded run.
 mutants:
 	./scripts/host/run-mutants.sh
 
@@ -310,6 +339,10 @@ roadmap-evidence:
 
 miri:
 	@if ! rustup toolchain list | grep -q nightly; then \
+	  if [ "$${CI:-}" = "true" ]; then \
+	    echo "miri: FAIL — nightly not installed, and a skip is refused in CI (ADR-0096)" >&2; \
+	    exit 1; \
+	  fi; \
 	  if [ "$${ALLOW_MIRI_SKIP:-}" = "1" ]; then \
 	    echo "miri: SKIPPED — nightly not installed (ALLOW_MIRI_SKIP=1)" >&2; \
 	    exit 0; \

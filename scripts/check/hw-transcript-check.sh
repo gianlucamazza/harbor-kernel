@@ -48,9 +48,26 @@ if [[ "${boots}" -gt 1 ]]; then
 	mv "${log}.last" "${log}"
 fi
 
+# Which tree the captured image was built from (`build: … src=<id>`), against
+# the tree whose oracle is about to judge it.
+#
+# The assertions come from `boot-oracle.sh` as it is *now*, and it grows: a
+# capture from before ADR-0090 has no force-kill line, so today's oracle fails
+# it — correctly, and for a reason that has nothing to do with the board. The
+# gate says so up front rather than leaving a stale capture to read as a
+# hardware regression. It is a warning, not a refusal: re-checking an archived
+# transcript against a newer oracle is a legitimate thing to do deliberately.
+transcript_src="$(sed -nE 's/.*[[:space:]]src=([0-9a-zA-Z._-]+).*/\1/p' "${log}" | head -1)"
+tree_src="$(git describe --always --dirty 2>/dev/null || echo unknown)"
+if [[ -n "${transcript_src}" && "${transcript_src}" != "${tree_src}" ]]; then
+	echo "hw-transcript-check: NOTE — capture is from src=${transcript_src}, tree is ${tree_src}" >&2
+	echo "  The assertions below are this tree's. A capture older than an oracle" >&2
+	echo "  line fails on the line, not on the board — capture again to claim HW." >&2
+fi
+
 fail() {
 	echo "hw-transcript-check: FAIL — $1" >&2
-	echo "--- transcript: ${TRANSCRIPT} ---" >&2
+	echo "--- transcript: ${TRANSCRIPT} (src=${transcript_src:-unknown}, tree ${tree_src}) ---" >&2
 	exit 1
 }
 

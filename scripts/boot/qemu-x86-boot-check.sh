@@ -16,6 +16,12 @@ if [[ ! -f "${ELF}" ]]; then
 fi
 
 if ! command -v "${QEMU}" >/dev/null; then
+	if [[ "${CI:-}" == "true" ]]; then
+		echo "x86-boot-check: FAIL — ${QEMU} missing, and a skip is refused in CI" >&2
+		echo "  ALLOW_BOOT_SKIP is for a workstation without the emulator." >&2
+		echo "  In CI it would report a green gate that never ran (ADR-0096)." >&2
+		exit 1
+	fi
 	if [[ -n "${ALLOW_BOOT_SKIP:-}" ]]; then
 		echo "x86-boot-check: SKIPPED — ${QEMU} missing, ALLOW_BOOT_SKIP set" >&2
 		exit 0
