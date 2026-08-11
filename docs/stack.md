@@ -119,11 +119,11 @@ Four levels, in increasing cost and increasing authority
 | --------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Host            | `make test` — unit, integration and doc-tests on `kernel-core` | Pure logic: encodings, allocator math, IPC/scheduler models                                                                                              |
 | Host (aliasing) | `make miri`                                                    | The one `unsafe` in `kernel-core` — provenance and aliasing running the code cannot sample                                                               |
-| Emulated        | `make boot-check`, `make product-boot-check`                   | Oracle image: full subsystem probes. Product image: composition-minimum layered asserts (identity, memory, IRQ/SMP, store, invariants). Reports **INDETERMINATE** rather than a red it cannot attribute |
+| Emulated        | `make boot-check`, `make product-boot-check`, `make panic-check` | Oracle image: full subsystem probes. Product image: composition-minimum layered asserts (identity, memory, IRQ/SMP, store, invariants). Panic image: the diagnostic path exercised on purpose, with the fault it reports compared against the address the probe announced. Reports **INDETERMINATE** rather than a red it cannot attribute |
 | Silicon         | Pi 4B serial transcript                                        | Anything timing-, attribute- or firmware-dependent. QEMU has booted a kernel that hung on the board                                                      |
 
-Structural gates (`layering`, `arch-board-free`, `irq-scope`, `no-static-mut`,
-`no-simd`, `no-early-exclusives`, `board-guard`) and documentation gates
+Structural gates (`fmt-check`, `layering`, `arch-board-free`, `irq-scope`,
+`no-static-mut`, `no-simd`, `no-early-exclusives`, `board-guard`) and documentation gates
 (`doc-claims`, `doc-symbols`, `xrefs`, `roadmap-evidence`) run in the same `make check`, which is a
 deliberate superset of CI: a local green must predict a remote one.
 

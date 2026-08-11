@@ -41,6 +41,10 @@ needing a decoder.
 | **Gate**            | A check wired into `make check` that fails the build. Documentation drift is a failed gate, not a nit                                                          | [`CONTRIBUTING.md`](../CONTRIBUTING.md)                      |
 | **Stamp**           | An observation on real Pi 4B silicon, with a dated serial transcript behind it                                                                                 | [`verification.md`](verification.md)                         |
 | **Blob**            | Closed platform firmware before our entry point. Documented, pinned by hash, minimised — never hidden                                                          | [`blobs.md`](blobs.md)                                       |
+| **`Mutex<T>`**      | An IRQ-masking **spinlock that owns its datum**. Not `std::sync::Mutex`: nothing blocks, nothing is poisoned, it is not re-entrant, and holding one across a task switch is forbidden | [ADR-0091](adr/0091-data-in-lock.md), `src/sync.rs`          |
+| **`lock_masked`**   | The scheduler's exception: takes the spin bit **without** touching `DAIF`, because the caller already masked and must stay masked across the stack swap. Returns a `MaskedGuard` — a guard over the lock, not over the mask | [ADR-0091](adr/0091-data-in-lock.md) §3                      |
+| **Verdict**         | A decision computed purely in `kernel-core` from the facts the kernel supplies, which `src/` then executes. Not a gate's verdict (`FAIL` / `INDETERMINATE`) — a different word for a different thing | [ADR-0092](adr/0092-lifecycle-verdicts.md)                   |
+| **Probe image**     | An image built to break itself on purpose so a path has positive evidence, e.g. `panic-probe` faulting on a guard page. Not a debug build: it is a gate's subject, and never reaches a product image | [ADR-0093](adr/0093-panic-path-positive-evidence.md)         |
 
 ## Status words
 

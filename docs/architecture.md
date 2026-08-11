@@ -262,6 +262,52 @@ maintain). The peer-transfer path reaches `taskcap` only through `sched`
 (ADR-0054/0055). No `drivers` / `bsp` from `agent` — board PA/VA for demos
 live in bootstrap.
 
+### Boot phases
+
+`bootstrap::run` is a list of named calls, one per phase, in the order they must
+happen ([ADR-0095](adr/0095-boot-phases.md)). The names and the order are the
+contract; the function's length is not, and is deliberately not quoted here.
+
+**The seam is `console::install_tx`.** Above it a phase takes `&mut Pl011` and
+prints with `println!(uart, …)`, because the handle is still exclusively owned;
+below it the handle has *moved* into kernel storage, so a phase takes nothing
+and prints with `kprintln!`. Both endpoints — `console::acquire` and
+`install_tx` — stay inline in `run` rather than inside a phase: they are the
+reason the signatures change halfway down, and hiding either makes the second
+half unreadable.
+
+Before the seam, each taking the console handle:
+
+| Phase | Does |
+| --- | --- |
+| `print_banner` | Says what this image is, on the wire, before anything can go wrong |
+| `survey_firmware` | Reads what firmware handed us while every physical address is still readable |
+| `establish_kernel_map` | Heap and frame bounds → region table → `mmu::activate` → read `SCTLR_EL1.M` back. One function, because `kernel_regions` borrows a buffer the caller of `activate` must own. Returns `MemPlan` |
+| `report_reset` | Why the board came up, latched by silicon, before anything obscures it |
+| `verify_cpu` | Which core this is, against the core the kernel was built for (ADR-0065) |
+| `unpark_secondary` | ADR-0070: core 1 into an idle loop |
+| `map_dtb_and_discover` | Map the blob back in — the kernel map covers less than the early one — and report what it says (ADR-0072/0073) |
+| `assert_table_reserve` | Refuse to boot if the table arena is nearly spent, counted *after* the DTB map |
+| `init_memory_pools` | Heap, frame pool, and `sched::init` — something must be the current task before anyone enters EL0 (ADR-0017 §1) |
+| `probe_rng` | RNG200: one line, never fatal |
+| `bind_interrupts` | GIC + timer PPI. A failed bind is not fatal; the console stays output-only |
+| `seal_dispatch` | Freeze the IRQ table so the dispatch path reads state nothing can mutate |
+| `bring_up_cpu1` | ADR-0074/0076: banked GICC, SGI wake, pinned marker. After the seal, because the secondary needs a handler present |
+| `enable_interrupts` | Arm PL011 RX and unmask — both halves guarded on the bind having succeeded |
+
+After the seam, printing through the shared TX:
+
+| Phase | Does |
+| --- | --- |
+| `start_console_service` | Mint the console channel, spawn the resident EL1 server (M8) |
+| `loader::load_all` | Agents that are data (ADR-0021), bound against the caps the loader holds |
+| `demos::run_all` | The oracle's spawns — behind `feature = "oracle"`, and in `demos.rs` so `product-builds` derives its forbidden symbols from one file |
+| `report_boot` | What the phases above cost, on the board's own clock |
+
+`refuse_to_boot`, `exception::init`, `console_loop::heap_check` and
+`console_loop::run` stay inline: they already delegate, and wrapping them would
+add a name while removing ordering information.
+
 ## Interrupt / timer / console contract
 
 | Role         | Module                                             | Responsibility                                                                     |

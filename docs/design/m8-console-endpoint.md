@@ -4,6 +4,15 @@
 > as it was written; PR5 later removed `console::grant_console_cap` /
 > `console::is_console_cap`, so module paths here are historical and this file
 > is deliberately outside `doc-symbols`' descriptive set.
+>
+> One more thing the body no longer describes: the creator drain barrier (K15
+> here) is not counted in yields any more. `YIELD_UNTIL_EMPTY_DEFAULT = 64` is
+> gone; since [ADR-0087](../adr/0087-oracle-waits-and-the-hosts-verdict.md)
+> (amended 2026-08-11) the deadline is ten **guest ticks**
+> (`ipc::DRAIN_WAIT_TICKS`), because a product agent may home on CPU 1 and the
+> server it waits for may be on CPU 0 — and how many of this core's yields fit
+> before the other core is scheduled is a property of the host, not of the
+> kernel.
 
 | Field   | Value |
 | ------- | ----- |
