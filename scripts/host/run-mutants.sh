@@ -47,7 +47,13 @@ cd "$(dirname "$0")/../.." || exit 1
 #       (`try_steal_into` opens with the same emptiness check; the other
 #       direction cannot happen). The other thirteen K8/steal survivors this
 #       run surfaced were killed by tests, not absorbed here.
-readonly BASELINE_MISSED=21
+# Tenth run (2026-08-11, ADR-0098 slot meter):
+#   1 × `note_occupancy`'s `live > self.peak` → `>=` — equivalent. The mutant
+#       re-assigns the watermark the value it already holds; no reachable state
+#       distinguishes them. The other three mutants of that function (the body
+#       to `()`, and `>` to `<`/`==`) all die, which is the useful half: the
+#       watermark is tested, only this one operator is unobservable.
+readonly BASELINE_MISSED=22
 
 # `partition`'s loop counter mutated to a no-op never terminates. That is a
 # detected mutant, not a surviving one — the suite would hang rather than pass —
@@ -99,10 +105,20 @@ done
 # So a parallel run raises the floor to ten minutes per mutant. A real hang
 # (`reset::partition`'s no-op loop counter) still hits it; a merely slow test
 # no longer does.
-jobs_args=()
+#
+# The floor is **not** conditional on `MUTANTS_JOBS`, and that is the 2026-08-11
+# correction: a serial run hit it too. `tasks::note_occupancy`'s `>` → `>=` was
+# filed as a timeout in a 68-minute serial run and re-ran in **6 seconds** when
+# examined alone — the laptop caps `make` at one core, so the auto-measured
+# baseline is a snapshot of one moment's scheduling and any later mutant can
+# drift past it. Conditioning the floor on parallelism assumed load only comes
+# from cargo-mutants' own jobs. It comes from the machine.
+jobs_args=(--minimum-test-timeout "${MUTANTS_MIN_TIMEOUT:-300}")
 if [[ -n "${MUTANTS_JOBS:-}" ]]; then
 	jobs_args=(--jobs "${MUTANTS_JOBS}" --minimum-test-timeout "${MUTANTS_MIN_TIMEOUT:-600}")
 	echo "mutants: ${MUTANTS_JOBS} jobs, per-mutant floor ${MUTANTS_MIN_TIMEOUT:-600}s" >&2
+else
+	echo "mutants: serial, per-mutant floor ${MUTANTS_MIN_TIMEOUT:-300}s" >&2
 fi
 
 CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core "${jobs_args[@]}" "${file_args[@]}"

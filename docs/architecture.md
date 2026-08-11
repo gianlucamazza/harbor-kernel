@@ -182,7 +182,7 @@ on the host.
    walks each region by brace depth and fails on a switching call inside it.
 
    **The scheduler switch is the one exception, and it is fenced.** It must
-   release the lock *before* `context_switch` while `DAIF` stays masked across
+   release the lock _before_ `context_switch` while `DAIF` stays masked across
    the stack swap, which a closure-scoped section cannot express. That is
    `Mutex::lock_masked`, returning a `MaskedGuard` that releases on drop and
    never touches `DAIF` — so it adds no masked region for the walker to miss.
@@ -270,7 +270,7 @@ contract; the function's length is not, and is deliberately not quoted here.
 
 **The seam is `console::install_tx`.** Above it a phase takes `&mut Pl011` and
 prints with `println!(uart, …)`, because the handle is still exclusively owned;
-below it the handle has *moved* into kernel storage, so a phase takes nothing
+below it the handle has _moved_ into kernel storage, so a phase takes nothing
 and prints with `kprintln!`. Both endpoints — `console::acquire` and
 `install_tx` — stay inline in `run` rather than inside a phase: they are the
 reason the signatures change halfway down, and hiding either makes the second
@@ -278,31 +278,31 @@ half unreadable.
 
 Before the seam, each taking the console handle:
 
-| Phase | Does |
-| --- | --- |
-| `print_banner` | Says what this image is, on the wire, before anything can go wrong |
-| `survey_firmware` | Reads what firmware handed us while every physical address is still readable |
+| Phase                  | Does                                                                                                                                                                                           |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `print_banner`         | Says what this image is, on the wire, before anything can go wrong                                                                                                                             |
+| `survey_firmware`      | Reads what firmware handed us while every physical address is still readable                                                                                                                   |
 | `establish_kernel_map` | Heap and frame bounds → region table → `mmu::activate` → read `SCTLR_EL1.M` back. One function, because `kernel_regions` borrows a buffer the caller of `activate` must own. Returns `MemPlan` |
-| `report_reset` | Why the board came up, latched by silicon, before anything obscures it |
-| `verify_cpu` | Which core this is, against the core the kernel was built for (ADR-0065) |
-| `unpark_secondary` | ADR-0070: core 1 into an idle loop |
-| `map_dtb_and_discover` | Map the blob back in — the kernel map covers less than the early one — and report what it says (ADR-0072/0073) |
-| `assert_table_reserve` | Refuse to boot if the table arena is nearly spent, counted *after* the DTB map |
-| `init_memory_pools` | Heap, frame pool, and `sched::init` — something must be the current task before anyone enters EL0 (ADR-0017 §1) |
-| `probe_rng` | RNG200: one line, never fatal |
-| `bind_interrupts` | GIC + timer PPI. A failed bind is not fatal; the console stays output-only |
-| `seal_dispatch` | Freeze the IRQ table so the dispatch path reads state nothing can mutate |
-| `bring_up_cpu1` | ADR-0074/0076: banked GICC, SGI wake, pinned marker. After the seal, because the secondary needs a handler present |
-| `enable_interrupts` | Arm PL011 RX and unmask — both halves guarded on the bind having succeeded |
+| `report_reset`         | Why the board came up, latched by silicon, before anything obscures it                                                                                                                         |
+| `verify_cpu`           | Which core this is, against the core the kernel was built for (ADR-0065)                                                                                                                       |
+| `unpark_secondary`     | ADR-0070: core 1 into an idle loop                                                                                                                                                             |
+| `map_dtb_and_discover` | Map the blob back in — the kernel map covers less than the early one — and report what it says (ADR-0072/0073)                                                                                 |
+| `assert_table_reserve` | Refuse to boot if the table arena is nearly spent, counted _after_ the DTB map                                                                                                                 |
+| `init_memory_pools`    | Heap, frame pool, and `sched::init` — something must be the current task before anyone enters EL0 (ADR-0017 §1)                                                                                |
+| `probe_rng`            | RNG200: one line, never fatal                                                                                                                                                                  |
+| `bind_interrupts`      | GIC + timer PPI. A failed bind is not fatal; the console stays output-only                                                                                                                     |
+| `seal_dispatch`        | Freeze the IRQ table so the dispatch path reads state nothing can mutate                                                                                                                       |
+| `bring_up_cpu1`        | ADR-0074/0076: banked GICC, SGI wake, pinned marker. After the seal, because the secondary needs a handler present                                                                             |
+| `enable_interrupts`    | Arm PL011 RX and unmask — both halves guarded on the bind having succeeded                                                                                                                     |
 
 After the seam, printing through the shared TX:
 
-| Phase | Does |
-| --- | --- |
-| `start_console_service` | Mint the console channel, spawn the resident EL1 server (M8) |
-| `loader::load_all` | Agents that are data (ADR-0021), bound against the caps the loader holds |
-| `demos::run_all` | The oracle's spawns — behind `feature = "oracle"`, and in `demos.rs` so `product-builds` derives its forbidden symbols from one file |
-| `report_boot` | What the phases above cost, on the board's own clock |
+| Phase                   | Does                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `start_console_service` | Mint the console channel, spawn the resident EL1 server (M8)                                                                         |
+| `loader::load_all`      | Agents that are data (ADR-0021), bound against the caps the loader holds                                                             |
+| `demos::run_all`        | The oracle's spawns — behind `feature = "oracle"`, and in `demos.rs` so `product-builds` derives its forbidden symbols from one file |
+| `report_boot`           | What the phases above cost, on the board's own clock                                                                                 |
 
 `refuse_to_boot`, `exception::init`, `console_loop::heap_check` and
 `console_loop::run` stay inline: they already delegate, and wrapping them would
@@ -371,19 +371,19 @@ program** rather than "agent".
 Bounds are intentional under-/over-caps relative to each other — not one number.
 Code is authoritative; this table is the map.
 
-| Bound                        |                              Value (today) | Owns                      | Note                                                                                                      |
-| ---------------------------- | -----------------------------------------: | ------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `sched::MAX_TASKS`           |                                     **54** | `src/sched/mod.rs`        | Includes dual idle + oracle census; product image uses far fewer; **do not raise for density** (ADR-0085) |
-| Stack classes                | Full 20 KiB · Thin 8 KiB · Mini 4 KiB heap | `kernel_core::density`    | Mini = one page, no unmapped guard (ADR-0086)                                                             |
-| Caps per task                |                                      **4** | `sched` / manifest        | Slot ABI width                                                                                            |
-| Task-caps (system)           |                                     **32** | `kernel_core::taskcap`    | Deliberately &lt; `MAX_TASKS`                                                                             |
-| Agent store entries          |                                      **8** | `kernel_core::agentstore` | Composition scale ≠ scheduler scale                                                                       |
-| Manifest grant slots         |                                      **4** | `kernel_core::manifest`   | Per-entry grant table                                                                                     |
-| Name registry                |                                      **8** | `kernel_core::naming`     | P5                                                                                                        |
-| IRQ waiters / task-id bitmap |                                 8 / **64** | `kernel_core::irqwait`    | Bitmap covers `MAX_TASKS` (≤64)                                                                           |
-| IRQ wake SPSC queue          |                                     **32** | `src/irq/wait.rs`         | Deliberately &lt; oracle `MAX_TASKS`; full = drop + count, not lost task                                  |
-| Park timeouts armed          |                                     **16** | `kernel_core::parktime`   | Under full task census                                                                                    |
-| Durable / storage blobs      |                                      **4** | storage/durable pure      | P2 first depth                                                                                            |
+| Bound                        |                              Value (today) | Owns                      | Note                                                                                                                                                                                                       |
+| ---------------------------- | -----------------------------------------: | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sched::MAX_TASKS`           |                                     **54** | `src/sched/mod.rs`        | Includes dual idle + oracle census; product peaks at **5** slots (3 + 2 idle), measured by `make oracle-census` off the shipped image's `slots=` field (ADR-0098); **do not raise for density** (ADR-0085) |
+| Stack classes                | Full 20 KiB · Thin 8 KiB · Mini 4 KiB heap | `kernel_core::density`    | Mini = one page, no unmapped guard (ADR-0086)                                                                                                                                                              |
+| Caps per task                |                                      **4** | `sched` / manifest        | Slot ABI width                                                                                                                                                                                             |
+| Task-caps (system)           |                                     **32** | `kernel_core::taskcap`    | Deliberately &lt; `MAX_TASKS`                                                                                                                                                                              |
+| Agent store entries          |                                      **8** | `kernel_core::agentstore` | Composition scale ≠ scheduler scale                                                                                                                                                                        |
+| Manifest grant slots         |                                      **4** | `kernel_core::manifest`   | Per-entry grant table                                                                                                                                                                                      |
+| Name registry                |                                      **8** | `kernel_core::naming`     | P5                                                                                                                                                                                                         |
+| IRQ waiters / task-id bitmap |                                 8 / **64** | `kernel_core::irqwait`    | Bitmap covers `MAX_TASKS` (≤64)                                                                                                                                                                            |
+| IRQ wake SPSC queue          |                                     **32** | `src/irq/wait.rs`         | Deliberately &lt; oracle `MAX_TASKS`; full = drop + count, not lost task                                                                                                                                   |
+| Park timeouts armed          |                                     **16** | `kernel_core::parktime`   | Under full task census                                                                                                                                                                                     |
+| Durable / storage blobs      |                                      **4** | storage/durable pure      | P2 first depth                                                                                                                                                                                             |
 
 **Product SMP policy ([ADR-0088](adr/0088-product-home-cpu.md)):** each manifest /
 store entry may name sticky **`home_cpu`** (`0 .. N_CPUS`). Absent / zero →
@@ -456,108 +456,109 @@ K/P tables here. Horizon mapping and working order also live in `roadmap.md`.
 The choices that constrain the code have an ADR, each naming the alternative
 that was rejected and the gate that would catch its reversal.
 
-| Artefact                                                             | Role                                                                                                                                                   |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`../SECURITY.md`](../SECURITY.md)                                   | Threat model and reporting (M7 authority surface; residuals named)                                                                                     |
-| [`docs/adr/`](adr/README.md)                                         | Architecture Decision Records (lifecycle: proposed → accepted → superseded)                                                                            |
-| [ADR-0001](adr/0001-multi-role-analysis.md)                          | Multi-role analysis as pre-milestone gate (**accepted**)                                                                                               |
-| [ADR-0002](adr/0002-softfloat-kernel.md)                             | Kernel compiled softfloat, FP left trapping (**accepted**)                                                                                             |
-| [ADR-0003](adr/0003-early-mmu.md)                                    | MMU enabled before any Rust runs (**accepted**)                                                                                                        |
-| [ADR-0004](adr/0004-gic-group0-firmware-pin.md)                      | GIC Group 0 with IAR/EOIR, and the firmware pin (**accepted**)                                                                                         |
-| [ADR-0005](adr/0005-static-page-table-arena.md)                      | Static page-table arena instead of a frame allocator (**accepted**)                                                                                    |
-| [ADR-0006](adr/0006-cooperative-execution-model.md)                  | Cooperative execution model (M3 tasks); closes F12 (**accepted**)                                                                                      |
-| [ADR-0007](adr/0007-project-identity-harbor-kernel.md)               | Project identity Harbor / `harbor-kernel` (**accepted**)                                                                                               |
-| [ADR-0008](adr/0008-irq-handler-policy.md)                           | IRQ handler shape for M4 wakes / caps; closes F13 (**accepted**)                                                                                       |
-| [ADR-0009](adr/0009-optional-spi-tft-debug-console.md)               | Optional SPI TFT status surface; lab side-track (**superseded**) — by 0094                                                                             |
-| [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md)                | SPI sessions + DBI stream; regwidth-16 SKU note (**superseded**) — by 0094                                                                             |
-| [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)       | DTB mapped; board truth compiled-in; closes F15 (**accepted**)                                                                                         |
-| [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md)           | Frame allocator for user AS; M5 needs-first (**accepted**)                                                                                             |
-| [ADR-0013](adr/0013-narrow-device-windows.md)                        | Narrow device MMIO for agents; F26/M6 v1 (**accepted**)                                                                                                |
-| [ADR-0014](adr/0014-ttbr-split-m5.md)                                | TTBR regime M5 v1 (TTBR0 + kernel maps in user AS) (**accepted**)                                                                                      |
-| [ADR-0015](adr/0015-multi-arch-scaffold.md)                          | Multi-arch scaffold: cfg facade + board features (**accepted**)                                                                                        |
-| [ADR-0016](adr/0016-el0-session-protocol.md)                         | EL0 session protocol: one slot, prose contract, named successor (**superseded**) — by 0017 and 0018                                                    |
-| [ADR-0017](adr/0017-el0-capability-abi.md)                           | EL0 capability ABI: slot-indexed authority, session state in the TCB (**accepted**)                                                                    |
-| [ADR-0018](adr/0018-agent-fault-policy.md)                           | Agent fault policy: the kernel ends the session, the creator decides the task (**accepted**)                                                           |
-| [ADR-0019](adr/0019-no-static-mut.md)                                | No `static mut`: the last one becomes an atomic, rule 7 without an exception (**accepted**)                                                            |
-| [ADR-0020](adr/0020-spidevice-contract-without-a-caller.md)          | `SpiDevice`: a contract with no caller (**superseded**) — by 0094, the trait went with the panel                                              |
-| [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)              | Agents as data described by a manifest; the grant becomes a binding, not code (**accepted**)                                                           |
-| [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)      | Blocking `SYS_RECV`: the agent parks; `without_irqs` stops spanning a switch (**accepted**)                                                            |
-| [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is a **pair**: an EL1 driver task and the EL0 program it drives; the driver is what the scheduler runs (**accepted**)                         |
-| [ADR-0024](adr/0024-parked-task-visibility.md)                       | Parked tasks are counted (`blocked_count` / `block_events`); reclaim/timeout deferred (**accepted**)                                                   |
-| [ADR-0025](adr/0025-cancel-blocked-wait.md)                          | Supervisor `cancel_blocked` aborts a parked wait (`Cancelled`); no timeout queue (**accepted**)                                                        |
-| [ADR-0026](adr/0026-kernel-and-product-completeness.md)              | Completeness of kernel (K) and product OS (P) is the project goal (**accepted**)                                                                       |
-| [ADR-0027](adr/0027-h1-external-agent-store.md)                      | H1 entry: external agent store at fixed PA (**accepted**)                                                                                              |
-| [ADR-0028](adr/0028-wait-on-irq.md)                                  | K1 entry: EL1 wait on IRQ cookie (**accepted**)                                                                                                        |
-| [ADR-0029](adr/0029-agent-store-in-image.md)                         | Agent store placement: image section inject (**accepted**)                                                                                             |
-| [ADR-0030](adr/0030-el0-irq-capability.md)                           | K1 remainder: EL0 `SYS_WAIT_IRQ` + IRQ notification caps (**accepted**)                                                                                |
-| [ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md)                  | K2 entry: last SEND-hold auto-cancel on ephemeral channels (**accepted**)                                                                              |
-| [ADR-0032](adr/0032-k3-channel-revoke.md)                            | K3 entry: channel revoke + generation recycle (**accepted**)                                                                                           |
-| [ADR-0033](adr/0033-k10-supervisor-reap.md)                          | K10 entry: supervisor reaps blocked task; restart = re-spawn (**accepted**)                                                                            |
-| [ADR-0034](adr/0034-k9-rng-driver-agent.md)                          | K9 entry: RNG200 second driver-as-agent page map (**accepted**)                                                                                        |
-| [ADR-0035](adr/0035-p5-name-registry.md)                             | P5 entry: EL1 name registry (**accepted**)                                                                                                             |
-| [ADR-0036](adr/0036-p2-keyed-blob-store.md)                          | P2 entry: EL1 keyed blob store (on-target put/get) (**accepted**)                                                                                      |
-| [ADR-0037](adr/0037-k3-cap-transfer.md)                              | K3 residual: EL1 cap transfer (**accepted**)                                                                                                           |
-| [ADR-0038](adr/0038-k10-creator-exit-cascade.md)                     | K10 residual: creator-exit cascade cancel (**accepted**)                                                                                               |
-| [ADR-0039](adr/0039-p5-el0-resolve.md)                               | P5 residual: EL0 SYS_RESOLVE (**accepted**)                                                                                                            |
-| [ADR-0040](adr/0040-k2-park-timeout.md)                              | K2 residual: park timeout on ticks (**accepted**)                                                                                                      |
-| [ADR-0041](adr/0041-el0-cap-transfer.md)                             | K3 residual: EL0 SYS_TRANSFER (**accepted**)                                                                                                           |
-| [ADR-0042](adr/0042-el0-recv-timeout.md)                             | K2 residual: EL0 SYS_RECV_TIMEOUT (**accepted**)                                                                                                       |
-| [ADR-0043](adr/0043-k9-irq-device-agent.md)                          | K9 residual: IRQ-cap device agent (**accepted**)                                                                                                       |
-| [ADR-0044](adr/0044-k5-agent-density.md)                             | K5: thin stacks (**accepted**)                                                                                                                         |
-| [ADR-0045](adr/0045-p2-durable-store.md)                             | P2 durable region (**accepted**)                                                                                                                       |
-| [ADR-0046](adr/0046-k4-cooperative-cpu-budget.md)                    | K4 cooperative budget (**accepted**)                                                                                                                   |
-| [ADR-0047](adr/0047-k7-asid-isolation-design.md)                     | K7 ASID design (**accepted**)                                                                                                                          |
-| [ADR-0050](adr/0050-k7-asid-first-slice.md)                          | K7 first slice — ASID pool + CONTEXTIDR (**accepted**); done (HW)                                                                                      |
-| [ADR-0084](adr/0084-k7-residual-policy.md)                           | K7 residual policy — measure / TTBR1 triggers / rollover (**accepted**)                                                                                |
-| [ADR-0085](adr/0085-k5-density-residual-design.md)                   | K5 density residual — K5-S/H/B split; Mini first code (**accepted**)                                                                                   |
-| [ADR-0086](adr/0086-k5-mini-stack-first-slice.md)                    | K5-S Mini stacks — one page, no unmapped guard (**accepted**)                                                                                          |
-| [ADR-0087](adr/0087-oracle-waits-and-the-hosts-verdict.md)           | Oracle cross-core waits in guest time; a starved host earns no verdict (**accepted**)                                                                  |
-| [ADR-0088](adr/0088-product-home-cpu.md)                             | Product multi-core — manifest `home_cpu` + loader pin (**accepted**); done (QEMU)                                                                      |
-| [ADR-0089](adr/0089-k5-b-pair-collapse-design.md)                    | K5-B pair collapse design — session as schedulable; **no code** until trigger (**accepted**)                                                           |
-| [ADR-0090](adr/0090-k10-force-exit-running.md)                       | K10 force-exit Running at safe point (**accepted**); done (QEMU)                                                                                       |
-| [ADR-0091](adr/0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` owns its datum; `SyncCell` a closed residual (**accepted**); done (QEMU)                                                 |
-| [ADR-0092](adr/0092-lifecycle-verdicts.md)                           | Supervisor lifecycle verdicts pure in `kernel-core` (**accepted**); done (QEMU)                                                                        |
-| [ADR-0093](adr/0093-panic-path-positive-evidence.md)                 | Panic path positive evidence — deliberate guard-page fault (**accepted**); done (QEMU)                                                                |
-| [ADR-0094](adr/0094-retire-debug-display.md)                         | Retire `debug-display`; the panel returns with a composition (**accepted**)                                                                            |
-| [ADR-0095](adr/0095-boot-phases.md)                                  | Boot phases as named functions; console handover as the seam (**accepted**); done (QEMU)                                                              |
-| [ADR-0096](adr/0096-gates-that-do-not-depend-on-remembering.md)      | Mutation freshness, `hw-check`, and no CI skip (**accepted**); gates seen red                                                                          |
-| [ADR-0097](adr/0097-loader-plan.md)                                  | Loader plan pure in `kernel-core`; last of ADR-0049's R1 extractions (**accepted**); done (QEMU)                                                       |
-| [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                                              |
-| [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                                               |
-| [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md) |
-| [ADR-0052](adr/0052-p5-resolve-grant.md)                             | P5 resolve grant (**accepted**)                                                                                                                        |
-| [ADR-0053](adr/0053-k3-peer-transfer-design.md)                      | K3 peer transfer design (**accepted**)                                                                                                                 |
-| [ADR-0054](adr/0054-k3-peer-transfer-first-slice.md)                 | K3 peer transfer first slice (**accepted**)                                                                                                            |
-| [ADR-0055](adr/0055-transferable-cap-bands.md)                       | Transferable capability bands (**accepted**)                                                                                                           |
-| [ADR-0056](adr/0056-ipc-abi-capacities.md)                           | IPC ABI capacities (**accepted**)                                                                                                                      |
-| [ADR-0057](adr/0057-taskcap-lifecycle.md)                            | Task-cap lifecycle invariants (**accepted**)                                                                                                           |
-| [ADR-0058](adr/0058-adr-amendments-and-mutation-freshness.md)        | ADR amendments + mutation freshness (**accepted**)                                                                                                     |
-| [ADR-0059](adr/0059-typed-cap-classification.md)                     | Typed cap classification (**accepted**)                                                                                                                |
-| [ADR-0060](adr/0060-syscall-reply-layer.md)                          | Syscall reply layer (**accepted**)                                                                                                                     |
-| [ADR-0061](adr/0061-refusal-detail-taxonomy.md)                      | Refusal detail in x1 (**accepted**)                                                                                                                    |
-| [ADR-0062](adr/0062-taskid-epoch.md)                                 | Epoch in the task identity (**accepted**)                                                                                                              |
-| [ADR-0063](adr/0063-capslots-extraction.md)                          | Capability slots as a pure table (**accepted**)                                                                                                        |
-| [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)                | K4 first code slice — EL0 IRQ preemption (**accepted**)                                                                                                |
-| [ADR-0065](adr/0065-platform-self-check.md)                          | Platform self-check — CPU identity decoded, printed, asserted at boot (**accepted**)                                                                   |
-| [ADR-0066](adr/0066-sd-media-durable-store.md)                       | P2 — SD media persistence for the durable store (**accepted**)                                                                                         |
-| [ADR-0067](adr/0067-host-lab-second-isa-intent.md)                   | Host/lab second ISA — QEMU x86 intent (**accepted**); code [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)                                          |
-| [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)               | K4 second code slice — same-EL (EL1) IRQ preemption (**accepted**)                                                                                     |
-| [ADR-0069](adr/0069-harbor-host-class-north-star.md)                 | Host-class north star — native primary OS intent (**accepted**)                                                                                        |
-| [ADR-0070](adr/0070-k8-smp-first-slice.md)                           | K8 first slice — unpark core 1, idle only (**accepted**); done (HW), stamp 2026-08-09                                                                  |
-| [ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)                     | K8 second slice — SGI IPI wake core 1 (**accepted**); done (HW), stamp 2026-08-10                                                                      |
-| [ADR-0075](adr/0075-k8-per-core-queues-design.md)                    | K8 design — per-core queues / multi-current (**accepted**); code [0076](adr/0076-k8-per-core-queues-first-slice.md)                                    |
-| [ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)               | K8 third slice — dual current + pinned CPU1 worker (**accepted**); done (HW), stamp 2026-08-10                                                         |
-| [ADR-0077](adr/0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — mask+spin sections, per-CPU mirrors (**accepted**); HW with 0076 stamp; mechanism restated by [ADR-0091](adr/0091-data-in-lock.md)                                                          |
-| [ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md)          | K8 design — per-core timer + preemption on CPU 1 (**accepted**); code [0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)                     |
-| [ADR-0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)     | K8 fourth slice — per-core timer + EL1 preempt on CPU 1 (**accepted**); done (HW), stamp 2026-08-10                                                    |
-| [ADR-0080](adr/0080-k8-el0-on-cpu1-design.md)                        | K8 design — EL0 sessions/agents home on CPU 1 (**accepted**); code [0081](adr/0081-k8-el0-on-cpu1-first-slice.md)                                      |
-| [ADR-0081](adr/0081-k8-el0-on-cpu1-first-slice.md)                   | K8 fifth slice — EL0 on CPU 1 (**accepted**); done (HW), stamp 2026-08-10                                                                              |
-| [ADR-0082](adr/0082-k8-work-stealing-design.md)                      | K8 design — work stealing (**accepted**); code [0083](adr/0083-k8-work-stealing-first-slice.md)                                                        |
-| [ADR-0083](adr/0083-k8-work-stealing-first-slice.md)                 | K8 sixth slice — work stealing first code (**accepted**); done (HW), stamp 2026-08-10                                                                  |
-| [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)                   | H3 L0 — x86_64 QEMU first slice (**accepted**); done (QEMU-x86)                                                                                        |
-| [ADR-0072](adr/0072-hardware-self-discovery-design.md)               | Hardware self-discovery as boot evidence — verify, don't select (**accepted**); first code [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)    |
-| [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)             | Discovery first slice — FDT reader + `discover:` report (**accepted**); done (HW), stamp 2026-08-10                                                    |
-| [`docs/reviews/`](reviews/)                                          | Pass outcomes (findings), not decisions                                                                                                                |
+| Artefact                                                             | Role                                                                                                                                                             |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`../SECURITY.md`](../SECURITY.md)                                   | Threat model and reporting (M7 authority surface; residuals named)                                                                                               |
+| [`docs/adr/`](adr/README.md)                                         | Architecture Decision Records (lifecycle: proposed → accepted → superseded)                                                                                      |
+| [ADR-0001](adr/0001-multi-role-analysis.md)                          | Multi-role analysis as pre-milestone gate (**accepted**)                                                                                                         |
+| [ADR-0002](adr/0002-softfloat-kernel.md)                             | Kernel compiled softfloat, FP left trapping (**accepted**)                                                                                                       |
+| [ADR-0003](adr/0003-early-mmu.md)                                    | MMU enabled before any Rust runs (**accepted**)                                                                                                                  |
+| [ADR-0004](adr/0004-gic-group0-firmware-pin.md)                      | GIC Group 0 with IAR/EOIR, and the firmware pin (**accepted**)                                                                                                   |
+| [ADR-0005](adr/0005-static-page-table-arena.md)                      | Static page-table arena instead of a frame allocator (**accepted**)                                                                                              |
+| [ADR-0006](adr/0006-cooperative-execution-model.md)                  | Cooperative execution model (M3 tasks); closes F12 (**accepted**)                                                                                                |
+| [ADR-0007](adr/0007-project-identity-harbor-kernel.md)               | Project identity Harbor / `harbor-kernel` (**accepted**)                                                                                                         |
+| [ADR-0008](adr/0008-irq-handler-policy.md)                           | IRQ handler shape for M4 wakes / caps; closes F13 (**accepted**)                                                                                                 |
+| [ADR-0009](adr/0009-optional-spi-tft-debug-console.md)               | Optional SPI TFT status surface; lab side-track (**superseded**) — by 0094                                                                                       |
+| [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md)                | SPI sessions + DBI stream; regwidth-16 SKU note (**superseded**) — by 0094                                                                                       |
+| [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)       | DTB mapped; board truth compiled-in; closes F15 (**accepted**)                                                                                                   |
+| [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md)           | Frame allocator for user AS; M5 needs-first (**accepted**)                                                                                                       |
+| [ADR-0013](adr/0013-narrow-device-windows.md)                        | Narrow device MMIO for agents; F26/M6 v1 (**accepted**)                                                                                                          |
+| [ADR-0014](adr/0014-ttbr-split-m5.md)                                | TTBR regime M5 v1 (TTBR0 + kernel maps in user AS) (**accepted**)                                                                                                |
+| [ADR-0015](adr/0015-multi-arch-scaffold.md)                          | Multi-arch scaffold: cfg facade + board features (**accepted**)                                                                                                  |
+| [ADR-0016](adr/0016-el0-session-protocol.md)                         | EL0 session protocol: one slot, prose contract, named successor (**superseded**) — by 0017 and 0018                                                              |
+| [ADR-0017](adr/0017-el0-capability-abi.md)                           | EL0 capability ABI: slot-indexed authority, session state in the TCB (**accepted**)                                                                              |
+| [ADR-0018](adr/0018-agent-fault-policy.md)                           | Agent fault policy: the kernel ends the session, the creator decides the task (**accepted**)                                                                     |
+| [ADR-0019](adr/0019-no-static-mut.md)                                | No `static mut`: the last one becomes an atomic, rule 7 without an exception (**accepted**)                                                                      |
+| [ADR-0020](adr/0020-spidevice-contract-without-a-caller.md)          | `SpiDevice`: a contract with no caller (**superseded**) — by 0094, the trait went with the panel                                                                 |
+| [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)              | Agents as data described by a manifest; the grant becomes a binding, not code (**accepted**)                                                                     |
+| [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)      | Blocking `SYS_RECV`: the agent parks; `without_irqs` stops spanning a switch (**accepted**)                                                                      |
+| [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is a **pair**: an EL1 driver task and the EL0 program it drives; the driver is what the scheduler runs (**accepted**)                                   |
+| [ADR-0024](adr/0024-parked-task-visibility.md)                       | Parked tasks are counted (`blocked_count` / `block_events`); reclaim/timeout deferred (**accepted**)                                                             |
+| [ADR-0025](adr/0025-cancel-blocked-wait.md)                          | Supervisor `cancel_blocked` aborts a parked wait (`Cancelled`); no timeout queue (**accepted**)                                                                  |
+| [ADR-0026](adr/0026-kernel-and-product-completeness.md)              | Completeness of kernel (K) and product OS (P) is the project goal (**accepted**)                                                                                 |
+| [ADR-0027](adr/0027-h1-external-agent-store.md)                      | H1 entry: external agent store at fixed PA (**accepted**)                                                                                                        |
+| [ADR-0028](adr/0028-wait-on-irq.md)                                  | K1 entry: EL1 wait on IRQ cookie (**accepted**)                                                                                                                  |
+| [ADR-0029](adr/0029-agent-store-in-image.md)                         | Agent store placement: image section inject (**accepted**)                                                                                                       |
+| [ADR-0030](adr/0030-el0-irq-capability.md)                           | K1 remainder: EL0 `SYS_WAIT_IRQ` + IRQ notification caps (**accepted**)                                                                                          |
+| [ADR-0031](adr/0031-k2-last-send-hold-auto-reap.md)                  | K2 entry: last SEND-hold auto-cancel on ephemeral channels (**accepted**)                                                                                        |
+| [ADR-0032](adr/0032-k3-channel-revoke.md)                            | K3 entry: channel revoke + generation recycle (**accepted**)                                                                                                     |
+| [ADR-0033](adr/0033-k10-supervisor-reap.md)                          | K10 entry: supervisor reaps blocked task; restart = re-spawn (**accepted**)                                                                                      |
+| [ADR-0034](adr/0034-k9-rng-driver-agent.md)                          | K9 entry: RNG200 second driver-as-agent page map (**accepted**)                                                                                                  |
+| [ADR-0035](adr/0035-p5-name-registry.md)                             | P5 entry: EL1 name registry (**accepted**)                                                                                                                       |
+| [ADR-0036](adr/0036-p2-keyed-blob-store.md)                          | P2 entry: EL1 keyed blob store (on-target put/get) (**accepted**)                                                                                                |
+| [ADR-0037](adr/0037-k3-cap-transfer.md)                              | K3 residual: EL1 cap transfer (**accepted**)                                                                                                                     |
+| [ADR-0038](adr/0038-k10-creator-exit-cascade.md)                     | K10 residual: creator-exit cascade cancel (**accepted**)                                                                                                         |
+| [ADR-0039](adr/0039-p5-el0-resolve.md)                               | P5 residual: EL0 SYS_RESOLVE (**accepted**)                                                                                                                      |
+| [ADR-0040](adr/0040-k2-park-timeout.md)                              | K2 residual: park timeout on ticks (**accepted**)                                                                                                                |
+| [ADR-0041](adr/0041-el0-cap-transfer.md)                             | K3 residual: EL0 SYS_TRANSFER (**accepted**)                                                                                                                     |
+| [ADR-0042](adr/0042-el0-recv-timeout.md)                             | K2 residual: EL0 SYS_RECV_TIMEOUT (**accepted**)                                                                                                                 |
+| [ADR-0043](adr/0043-k9-irq-device-agent.md)                          | K9 residual: IRQ-cap device agent (**accepted**)                                                                                                                 |
+| [ADR-0044](adr/0044-k5-agent-density.md)                             | K5: thin stacks (**accepted**)                                                                                                                                   |
+| [ADR-0045](adr/0045-p2-durable-store.md)                             | P2 durable region (**accepted**)                                                                                                                                 |
+| [ADR-0046](adr/0046-k4-cooperative-cpu-budget.md)                    | K4 cooperative budget (**accepted**)                                                                                                                             |
+| [ADR-0047](adr/0047-k7-asid-isolation-design.md)                     | K7 ASID design (**accepted**)                                                                                                                                    |
+| [ADR-0050](adr/0050-k7-asid-first-slice.md)                          | K7 first slice — ASID pool + CONTEXTIDR (**accepted**); done (HW)                                                                                                |
+| [ADR-0084](adr/0084-k7-residual-policy.md)                           | K7 residual policy — measure / TTBR1 triggers / rollover (**accepted**)                                                                                          |
+| [ADR-0085](adr/0085-k5-density-residual-design.md)                   | K5 density residual — K5-S/H/B split; Mini first code (**accepted**)                                                                                             |
+| [ADR-0086](adr/0086-k5-mini-stack-first-slice.md)                    | K5-S Mini stacks — one page, no unmapped guard (**accepted**)                                                                                                    |
+| [ADR-0087](adr/0087-oracle-waits-and-the-hosts-verdict.md)           | Oracle cross-core waits in guest time; a starved host earns no verdict (**accepted**)                                                                            |
+| [ADR-0088](adr/0088-product-home-cpu.md)                             | Product multi-core — manifest `home_cpu` + loader pin (**accepted**); done (QEMU)                                                                                |
+| [ADR-0089](adr/0089-k5-b-pair-collapse-design.md)                    | K5-B pair collapse design — session as schedulable; **no code** until trigger (**accepted**)                                                                     |
+| [ADR-0090](adr/0090-k10-force-exit-running.md)                       | K10 force-exit Running at safe point (**accepted**); done (QEMU)                                                                                                 |
+| [ADR-0091](adr/0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` owns its datum; `SyncCell` a closed residual (**accepted**); done (QEMU)                                                           |
+| [ADR-0092](adr/0092-lifecycle-verdicts.md)                           | Supervisor lifecycle verdicts pure in `kernel-core` (**accepted**); done (QEMU)                                                                                  |
+| [ADR-0093](adr/0093-panic-path-positive-evidence.md)                 | Panic path positive evidence — deliberate guard-page fault (**accepted**); done (QEMU)                                                                           |
+| [ADR-0094](adr/0094-retire-debug-display.md)                         | Retire `debug-display`; the panel returns with a composition (**accepted**)                                                                                      |
+| [ADR-0095](adr/0095-boot-phases.md)                                  | Boot phases as named functions; console handover as the seam (**accepted**); done (QEMU)                                                                         |
+| [ADR-0096](adr/0096-gates-that-do-not-depend-on-remembering.md)      | Mutation freshness, `hw-check`, and no CI skip (**accepted**); gates seen red                                                                                    |
+| [ADR-0097](adr/0097-loader-plan.md)                                  | Loader plan pure in `kernel-core`; last of ADR-0049's R1 extractions (**accepted**); done (QEMU)                                                                 |
+| [ADR-0098](adr/0098-slot-meter-measured.md)                          | Slot occupancy counted in `kernel_core::tasks`, printed by the product, read by `oracle-census` (**accepted**); done (QEMU)                                      |
+| [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                                                        |
+| [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                                                         |
+| [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md)           |
+| [ADR-0052](adr/0052-p5-resolve-grant.md)                             | P5 resolve grant (**accepted**)                                                                                                                                  |
+| [ADR-0053](adr/0053-k3-peer-transfer-design.md)                      | K3 peer transfer design (**accepted**)                                                                                                                           |
+| [ADR-0054](adr/0054-k3-peer-transfer-first-slice.md)                 | K3 peer transfer first slice (**accepted**)                                                                                                                      |
+| [ADR-0055](adr/0055-transferable-cap-bands.md)                       | Transferable capability bands (**accepted**)                                                                                                                     |
+| [ADR-0056](adr/0056-ipc-abi-capacities.md)                           | IPC ABI capacities (**accepted**)                                                                                                                                |
+| [ADR-0057](adr/0057-taskcap-lifecycle.md)                            | Task-cap lifecycle invariants (**accepted**)                                                                                                                     |
+| [ADR-0058](adr/0058-adr-amendments-and-mutation-freshness.md)        | ADR amendments + mutation freshness (**accepted**)                                                                                                               |
+| [ADR-0059](adr/0059-typed-cap-classification.md)                     | Typed cap classification (**accepted**)                                                                                                                          |
+| [ADR-0060](adr/0060-syscall-reply-layer.md)                          | Syscall reply layer (**accepted**)                                                                                                                               |
+| [ADR-0061](adr/0061-refusal-detail-taxonomy.md)                      | Refusal detail in x1 (**accepted**)                                                                                                                              |
+| [ADR-0062](adr/0062-taskid-epoch.md)                                 | Epoch in the task identity (**accepted**)                                                                                                                        |
+| [ADR-0063](adr/0063-capslots-extraction.md)                          | Capability slots as a pure table (**accepted**)                                                                                                                  |
+| [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)                | K4 first code slice — EL0 IRQ preemption (**accepted**)                                                                                                          |
+| [ADR-0065](adr/0065-platform-self-check.md)                          | Platform self-check — CPU identity decoded, printed, asserted at boot (**accepted**)                                                                             |
+| [ADR-0066](adr/0066-sd-media-durable-store.md)                       | P2 — SD media persistence for the durable store (**accepted**)                                                                                                   |
+| [ADR-0067](adr/0067-host-lab-second-isa-intent.md)                   | Host/lab second ISA — QEMU x86 intent (**accepted**); code [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)                                                    |
+| [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)               | K4 second code slice — same-EL (EL1) IRQ preemption (**accepted**)                                                                                               |
+| [ADR-0069](adr/0069-harbor-host-class-north-star.md)                 | Host-class north star — native primary OS intent (**accepted**)                                                                                                  |
+| [ADR-0070](adr/0070-k8-smp-first-slice.md)                           | K8 first slice — unpark core 1, idle only (**accepted**); done (HW), stamp 2026-08-09                                                                            |
+| [ADR-0074](adr/0074-k8-ipi-wake-second-slice.md)                     | K8 second slice — SGI IPI wake core 1 (**accepted**); done (HW), stamp 2026-08-10                                                                                |
+| [ADR-0075](adr/0075-k8-per-core-queues-design.md)                    | K8 design — per-core queues / multi-current (**accepted**); code [0076](adr/0076-k8-per-core-queues-first-slice.md)                                              |
+| [ADR-0076](adr/0076-k8-per-core-queues-first-slice.md)               | K8 third slice — dual current + pinned CPU1 worker (**accepted**); done (HW), stamp 2026-08-10                                                                   |
+| [ADR-0077](adr/0077-smp-shared-state-discipline.md)                  | SMP shared-state discipline — mask+spin sections, per-CPU mirrors (**accepted**); HW with 0076 stamp; mechanism restated by [ADR-0091](adr/0091-data-in-lock.md) |
+| [ADR-0078](adr/0078-k8-per-core-timer-preemption-design.md)          | K8 design — per-core timer + preemption on CPU 1 (**accepted**); code [0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)                               |
+| [ADR-0079](adr/0079-k8-per-core-timer-preemption-first-slice.md)     | K8 fourth slice — per-core timer + EL1 preempt on CPU 1 (**accepted**); done (HW), stamp 2026-08-10                                                              |
+| [ADR-0080](adr/0080-k8-el0-on-cpu1-design.md)                        | K8 design — EL0 sessions/agents home on CPU 1 (**accepted**); code [0081](adr/0081-k8-el0-on-cpu1-first-slice.md)                                                |
+| [ADR-0081](adr/0081-k8-el0-on-cpu1-first-slice.md)                   | K8 fifth slice — EL0 on CPU 1 (**accepted**); done (HW), stamp 2026-08-10                                                                                        |
+| [ADR-0082](adr/0082-k8-work-stealing-design.md)                      | K8 design — work stealing (**accepted**); code [0083](adr/0083-k8-work-stealing-first-slice.md)                                                                  |
+| [ADR-0083](adr/0083-k8-work-stealing-first-slice.md)                 | K8 sixth slice — work stealing first code (**accepted**); done (HW), stamp 2026-08-10                                                                            |
+| [ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)                   | H3 L0 — x86_64 QEMU first slice (**accepted**); done (QEMU-x86)                                                                                                  |
+| [ADR-0072](adr/0072-hardware-self-discovery-design.md)               | Hardware self-discovery as boot evidence — verify, don't select (**accepted**); first code [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)              |
+| [ADR-0073](adr/0073-discovery-first-slice-fdt-report.md)             | Discovery first slice — FDT reader + `discover:` report (**accepted**); done (HW), stamp 2026-08-10                                                              |
+| [`docs/reviews/`](reviews/)                                          | Pass outcomes (findings), not decisions                                                                                                                          |
 
 ## Non-goals
 

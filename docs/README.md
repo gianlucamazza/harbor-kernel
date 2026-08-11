@@ -12,7 +12,7 @@ correct picture:
 | --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | 1   | Mission, objectives, stack                   | [root README](../README.md)                                                                                                     | 2       |
 | 2   | What is an _agent_ here (it is not an LLM)   | [glossary](glossary.md), then [architecture § How Harbor differs](architecture.md#how-harbor-differs-from-a-traditional-kernel) | 2       |
-| 3   | Where it is going, and what is actually done | [roadmap § K — microkernel mechanisms](roadmap.md#k--microkernel-mechanisms)                                                   | 1       |
+| 3   | Where it is going, and what is actually done | [roadmap § K — microkernel mechanisms](roadmap.md#k--microkernel-mechanisms)                                                    | 1       |
 | 4   | Why any of it should be believed             | [verification](verification.md) — **index only**, do not read it through                                                        | —       |
 
 Depth after that: [`architecture.md`](architecture.md) (normative model),
@@ -112,15 +112,15 @@ docs/design/      scale topology + multi-arch contracts — see design/README.md
 Do **not** treat this block as a second status table — it only steers readers.
 **Status lives in [roadmap.md](roadmap.md).**
 
-| Layer                | State (2026-08-11)                                                                                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **H0 foundation**    | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                                                                                  |
-| **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                                                                                      |
-| **H1 next**          | P3\|P4 only with a composition target (deferred)                                                                                                                                |
-| **H2 mechanism**     | K4 + K7-ASID + K8 through steal + F-R1-P1 (+ loader lock 2026-08-11) + **K5-S** Mini **done (HW)**; K5-B **design** paid (0089); residual K5-H / K5-B **code** / K7-T if trigger |
-| **Product SMP**      | Composition `home_cpu` **done (QEMU)** [ADR-0088](adr/0088-product-home-cpu.md); force-exit Running **done (QEMU)** [ADR-0090](adr/0090-k10-force-exit-running.md)           |
-| **Evidence hygiene** | Composition-minimum `product-boot-check` + `oracle-census` (`MAX_TASKS=54`) in `make check`                                                                                     |
-| **Standing watch**   | [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) K7-M; x86 L0 done (QEMU-x86). #14 closed by [ADR-0094](adr/0094-retire-debug-display.md)                        |
+| Layer                | State (2026-08-11)                                                                                                                                                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **H0 foundation**    | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                                                                                                                                                    |
+| **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                                                                                                                                                        |
+| **H1 next**          | P3\|P4 only with a composition target (deferred)                                                                                                                                                                                                  |
+| **H2 mechanism**     | K4 + K7-ASID + K8 through steal + F-R1-P1 (+ loader lock 2026-08-11) + **K5-S** Mini **done (HW)**; K5-B **design** paid (0089); residual K5-H / K5-B **code** / K7-T if trigger                                                                  |
+| **Product SMP**      | Composition `home_cpu` **done (QEMU)** [ADR-0088](adr/0088-product-home-cpu.md); force-exit Running **done (QEMU)** [ADR-0090](adr/0090-k10-force-exit-running.md)                                                                                |
+| **Evidence hygiene** | Composition-minimum `product-boot-check` + `oracle-census` in `make check`; the census now **boots the product and reads** its slot peak (5 of `MAX_TASKS=54`) instead of carrying it as a constant ([ADR-0098](adr/0098-slot-meter-measured.md)) |
+| **Standing watch**   | [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) K7-M; x86 L0 done (QEMU-x86). #14 closed by [ADR-0094](adr/0094-retire-debug-display.md)                                                                                          |
 
 ## Decision records and reviews
 
