@@ -24,45 +24,18 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-readonly TARGET=aarch64-unknown-none-softfloat
-readonly OUT="target/${TARGET}/release"
-readonly IMG="${OUT}/kernel8-product.img"
-readonly QEMU="${QEMU:-qemu-system-aarch64}"
-# Ceiling, not a fixed duration: product reaches composition + first tick
-# report well under this on a quiet host (ADR-0087 shape for short boots).
-readonly SECONDS_LIMIT="${PRODUCT_BOOT_SECONDS:-8}"
-
-if [[ ! -f "${IMG}" ]]; then
-	echo "product-boot-check: building product image" >&2
-	./scripts/boot/product-image.sh
-fi
-
-if ! command -v "${QEMU}" >/dev/null; then
-	if [[ "${CI:-}" == "true" ]]; then
-		echo "product-boot-check: FAIL — ${QEMU} missing, and a skip is refused in CI" >&2
-		echo "  ALLOW_BOOT_SKIP is for a workstation without the emulator." >&2
-		echo "  In CI it would report a green gate that never ran (ADR-0096)." >&2
-		exit 1
-	fi
-	if [[ "${ALLOW_BOOT_SKIP:-}" == "1" ]]; then
-		echo "product-boot-check: SKIPPED — ${QEMU} missing, ALLOW_BOOT_SKIP set" >&2
-		exit 0
-	fi
-	echo "error: ${QEMU} not found — product boot check cannot run" >&2
-	exit 1
-fi
+# QEMU invocation, image build and the skip policy are shared with
+# `oracle-census.sh`, which needs the same boot to read ADR-0098's slot meter.
+# shellcheck source=scripts/lib/product-boot.sh
+source "$(dirname "$0")/../lib/product-boot.sh"
 
 log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 
-# Store is already in the image (ADR-0029 inject). No -device loader.
-timeout "${SECONDS_LIMIT}" "${QEMU}" \
-	-machine raspi4b \
-	-nographic \
-	-serial mon:stdio \
-	-d guest_errors \
-	-kernel "${IMG}" \
-	>"${log}" 2>&1 || true
+product_boot_capture "${log}" product-boot-check || {
+	# Skipped: no emulator on this workstation (CI already failed above).
+	exit 0
+}
 
 fail() {
 	echo "product-boot-check: FAIL — $1" >&2
@@ -76,5 +49,5 @@ source "$(dirname "$0")/../lib/product-oracle.sh"
 
 assert_product_boot
 
-n_assert=35
+n_assert=38
 echo "product-boot-check: clean (${n_assert}+ layered composition-minimum assertions)"

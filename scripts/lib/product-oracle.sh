@@ -100,6 +100,23 @@ assert_product_boot() {
 	# load-dependent and deliberately not pinned.
 	grep -qaE 'invariants: overwrites=0 abandoned=0 faults=0 ' "${log}" ||
 		fail "invariant beacon missing or non-zero (overwrites/abandoned/faults)"
+	# ADR-0098: the density meter must be on the line, in the shipped image —
+	# `oracle-census.sh` reads its peak instead of carrying a constant, and a
+	# missing field there fails the census rather than falling back to one.
+	# Shape only here (live ≤ peak, both non-zero); the ceiling is the census's
+	# question, not this smoke's.
+	# `|| true`: under `set -e` a grep with no match would end the gate with
+	# status 1 and no message, which is the failure mode this whole ADR is
+	# about — a red that says nothing.
+	slots_field="$(grep -oaE 'slots=[0-9]+/[0-9]+' "${log}" | tail -n1 || true)"
+	[[ -n "${slots_field}" ]] ||
+		fail "invariant beacon carries no slots=<live>/<peak> field (ADR-0098)"
+	slots_live="${slots_field#slots=}"
+	slots_peak="${slots_live#*/}"
+	slots_live="${slots_live%%/*}"
+	((slots_live >= 1)) || fail "slots reports ${slots_live} live with the console loop running"
+	((slots_peak >= slots_live)) ||
+		fail "slots peak ${slots_peak} is below the live count ${slots_live} — the watermark does not track"
 	if grep -qa 'sched: ABANDONED' "${log}"; then
 		fail "a task stack was abandoned (guard remap refused)"
 	fi

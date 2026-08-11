@@ -292,6 +292,11 @@ product-boot-check: product-builds
 
 # ADR-0085 / multi-role F-R7-1: MAX_TASKS is oracle tax, not density.
 # Source, architecture table, and documented last raise must agree.
+#
+# ADR-0098: the fourth number — what the product actually occupies — is booted
+# and read off the invariant beacon's `slots=` field rather than carried as a
+# constant. The target therefore boots the product image (a few seconds), and
+# refuses to fall back to a remembered peak when the field is missing.
 oracle-census:
 	./scripts/check/oracle-census.sh
 
