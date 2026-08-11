@@ -115,7 +115,7 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 | Order | Track(s)                                             | Why now                                  | Tracker |
 | ----: | ---------------------------------------------------- | ---------------------------------------- | ------- |
 | —     | ~~Product-boot-check / oracle census~~               | **Paid** — composition-minimum + `oracle-census` | — |
-| —     | ~~Product multi-core policy~~ (`home_cpu`)           | **Paid (QEMU)** — [ADR-0088](adr/0088-product-home-cpu.md) | — |
+| —     | ~~Product multi-core policy~~ (`home_cpu`)           | **Paid (HW)** — [ADR-0088](adr/0088-product-home-cpu.md), stamp 2026-08-11 | — |
 | —     | ~~**K5-B** design ADR~~                              | **Paid (design)** — [ADR-0089](adr/0089-k5-b-pair-collapse-design.md); code only if trigger | — |
 | —     | ~~**K10** force-exit Running~~                       | **Paid (HW)** — [ADR-0090](adr/0090-k10-force-exit-running.md), stamp 2026-08-11 | — |
 | next  | **K5-H** design (if slot wall)                       | Prefer before K5-B **code** under pure slot pressure (0085/0089) | — |
@@ -146,7 +146,7 @@ option C current; K7-M optional lab; K7-T trigger-gated; K7-R under pressure).
 stamp 2026-08-10). F-R1-P1 shared-state **done (HW)**; **loader tables** locked
 (0077 amended 2026-08-11), then every shared table restated as `sync::Mutex<T>`
 ([ADR-0091](adr/0091-data-in-lock.md)). Product evidence hygiene **paid**.
-**Product multi-core `home_cpu` paid (QEMU)** ([ADR-0088](adr/0088-product-home-cpu.md)).
+**Product multi-core `home_cpu` paid (HW)** ([ADR-0088](adr/0088-product-home-cpu.md), stamp 2026-08-11).
 **K5-B design paid** ([ADR-0089](adr/0089-k5-b-pair-collapse-design.md); code deferred).
 **K10 force-exit paid (HW)** ([ADR-0090](adr/0090-k10-force-exit-running.md), stamp 2026-08-11).
 **Next:** optional K5-H design if slot wall; trigger-only K5-B **code**, K7-T,

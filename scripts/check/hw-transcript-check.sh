@@ -95,11 +95,35 @@ on_timer_missed() {
 
 # shellcheck source=scripts/lib/boot-oracle.sh
 source "$(dirname "$0")/../lib/boot-oracle.sh"
+# shellcheck source=scripts/lib/product-oracle.sh
+source "$(dirname "$0")/../lib/product-oracle.sh"
 
-# ADR-0066: the canonical HW transcript is recorded on a second-or-later
-# powered boot, so one log carries cross-power-cycle evidence
-# (from=Previous, boot>=2). Override for bring-up captures only.
-DURABLE_MEDIA_EXPECT="${DURABLE_MEDIA_EXPECT:-previous}" assert_boot_oracle
+# Which image produced this capture, and therefore which assertions apply.
+#
+# Two images go on a card: the oracle one, whose demos every boot gate reads,
+# and the product one, which carries none of them (rule 9). Asserting the
+# oracle against a product capture fails on the first demo line and says
+# nothing useful — as it did on 2026-08-11 with `oracle boot did not use the
+# builtin manifest path`, which is true and unhelpful.
+#
+# `aspace: prepare ok` is the discriminator: a bring-up probe behind
+# `feature = "oracle"`, and one `product-image.sh` already refuses in a product
+# ELF. A capture with neither shape is refused rather than judged by whichever
+# set happens to be more forgiving.
+if grep -qa 'aspace: prepare ok' "${log}"; then
+	echo "hw-transcript-check: oracle image (demo probes present)" >&2
+	# ADR-0066: the canonical HW transcript is recorded on a second-or-later
+	# powered boot, so one log carries cross-power-cycle evidence
+	# (from=Previous, boot>=2). Override for bring-up captures only.
+	DURABLE_MEDIA_EXPECT="${DURABLE_MEDIA_EXPECT:-previous}" assert_boot_oracle
+	shape="oracle"
+elif grep -qa 'console-server: up' "${log}"; then
+	echo "hw-transcript-check: product image (no oracle scaffolding)" >&2
+	assert_product_boot
+	shape="product"
+else
+	fail "this capture is neither an oracle boot nor a product boot — no 'aspace: prepare ok', no 'console-server: up'"
+fi
 
-printf 'hw-transcript-check: clean (%s, boot %s of %s in the capture)\n' \
-	"${TRANSCRIPT}" "${boots}" "${boots}"
+printf 'hw-transcript-check: clean (%s image, %s, boot %s of %s in the capture)\n' \
+	"${shape}" "${TRANSCRIPT}" "${boots}" "${boots}"
