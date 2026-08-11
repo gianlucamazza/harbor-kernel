@@ -97,6 +97,8 @@ on_timer_missed() {
 source "$(dirname "$0")/../lib/boot-oracle.sh"
 # shellcheck source=scripts/lib/product-oracle.sh
 source "$(dirname "$0")/../lib/product-oracle.sh"
+# shellcheck source=scripts/lib/panic-oracle.sh
+source "$(dirname "$0")/../lib/panic-oracle.sh"
 
 # Which image produced this capture, and therefore which assertions apply.
 #
@@ -110,7 +112,14 @@ source "$(dirname "$0")/../lib/product-oracle.sh"
 # `feature = "oracle"`, and one `product-image.sh` already refuses in a product
 # ELF. A capture with neither shape is refused rather than judged by whichever
 # set happens to be more forgiving.
-if grep -qa 'aspace: prepare ok' "${log}"; then
+if grep -qa 'panic-probe:' "${log}"; then
+	# Checked first: a panic-probe image is built on top of the oracle one, so
+	# it carries the demo probes too — and it stops at the fault, so the oracle
+	# set would fail on every line the boot never reached.
+	echo "hw-transcript-check: panic-probe image (deliberate fault)" >&2
+	assert_panic_boot
+	shape="panic-probe"
+elif grep -qa 'aspace: prepare ok' "${log}"; then
 	echo "hw-transcript-check: oracle image (demo probes present)" >&2
 	# ADR-0066: the canonical HW transcript is recorded on a second-or-later
 	# powered boot, so one log carries cross-power-cycle evidence
@@ -122,7 +131,7 @@ elif grep -qa 'console-server: up' "${log}"; then
 	assert_product_boot
 	shape="product"
 else
-	fail "this capture is neither an oracle boot nor a product boot — no 'aspace: prepare ok', no 'console-server: up'"
+	fail "this capture is none of the three image shapes — no 'panic-probe:', no 'aspace: prepare ok', no 'console-server: up'"
 fi
 
 printf 'hw-transcript-check: clean (%s image, %s, boot %s of %s in the capture)\n' \
