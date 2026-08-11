@@ -1,12 +1,19 @@
 ---
 id: 0010
 title: SPI transactions and DBI panel streaming (no full-frame alloc)
-status: accepted
+status: superseded
+related: [0094]
 date: 2026-08-05
 accepted: 2026-08-05
 ---
 
 # ADR-0010: SPI transactions and DBI panel streaming
+
+> **Superseded by [ADR-0094](0094-retire-debug-display.md)** (2026-08-11):
+> `debug-display` is retired. What this ADR decided is no longer in the tree;
+> the reasoning stays as the record of what the panel work taught. The pure
+> half — `kernel_core::{display, textgrid, font8x8, spi}` — survives.
+
 
 ## Acceptance status
 

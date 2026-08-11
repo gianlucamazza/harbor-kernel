@@ -1,12 +1,19 @@
 ---
 id: 0009
 title: Optional SPI TFT status surface (ILI9486 / Waveshare-class HAT)
-status: accepted
+status: superseded
+related: [0094]
 date: 2026-08-05
 accepted: 2026-08-05
 ---
 
 # ADR-0009: Optional SPI TFT status surface
+
+> **Superseded by [ADR-0094](0094-retire-debug-display.md)** (2026-08-11):
+> `debug-display` is retired. What this ADR decided is no longer in the tree;
+> the reasoning stays as the record of what the panel work taught. The pure
+> half — `kernel_core::{display, textgrid, font8x8, spi}` — survives.
+
 
 ## Acceptance status
 

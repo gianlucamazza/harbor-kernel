@@ -28,8 +28,8 @@ the code that follows.
 | [0006](0006-cooperative-execution-model.md)                  | Cooperative execution model (M3 tasks) — IRQ-epilogue rule superseded by 0064/0068 (amended) | accepted   |
 | [0007](0007-project-identity-harbor-kernel.md)               | Project identity — Harbor and `harbor-kernel`                                                | accepted   |
 | [0008](0008-irq-handler-policy.md)                           | IRQ handler policy for cooperative wakes (F13/M4)                                            | accepted   |
-| [0009](0009-optional-spi-tft-debug-console.md)               | Optional SPI TFT status surface (ILI9486 HAT)                                                | accepted   |
-| [0010](0010-spi-transaction-and-dbi-panel.md)                | SPI transactions and DBI panel streaming                                                     | accepted   |
+| [0009](0009-optional-spi-tft-debug-console.md)               | Optional SPI TFT status surface (ILI9486 HAT)                                                | superseded |
+| [0010](0010-spi-transaction-and-dbi-panel.md)                | SPI transactions and DBI panel streaming                                                     | superseded |
 | [0011](0011-dtb-mapped-board-constants-risk-accept.md)       | DTB mapped; board truth compiled-in (F15)                                                    | accepted   |
 | [0012](0012-frame-allocator-for-address-spaces.md)           | Frame allocator for user address spaces (M5)                                                 | accepted   |
 | [0013](0013-narrow-device-windows.md)                        | Narrow device MMIO windows (F26 / M6)                                                        | accepted   |
@@ -39,7 +39,7 @@ the code that follows.
 | [0017](0017-el0-capability-abi.md)                           | EL0 capability ABI (slot-indexed authority, session in TCB)                                  | accepted   |
 | [0018](0018-agent-fault-policy.md)                           | Agent fault policy (kernel ends session, creator decides task)                               | accepted   |
 | [0019](0019-no-static-mut.md)                                | No `static mut` — the last one becomes an atomic (rule 7)                                    | accepted   |
-| [0020](0020-spidevice-contract-without-a-caller.md)          | `SpiDevice`: an adopted contract with no caller; ADR-0010's description retracted            | accepted   |
+| [0020](0020-spidevice-contract-without-a-caller.md)          | `SpiDevice`: an adopted contract with no caller; ADR-0010's description retracted            | superseded |
 | [0021](0021-agents-as-data-and-the-manifest.md)              | Agents as data + manifest: authority enumerable in one artefact                              | accepted   |
 | [0022](0022-blocking-recv-and-the-mask-that-travels.md)      | Blocking `SYS_RECV`: an agent parks, and `without_irqs` stops spanning a switch              | accepted   |
 | [0023](0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is an EL1 driver task **and** an EL0 program; the driver is what the scheduler runs | accepted   |
@@ -113,6 +113,7 @@ the code that follows.
 | [0091](0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` replaces the cell/lock pair                                    | accepted   |
 | [0092](0092-lifecycle-verdicts.md)                  | Supervisor lifecycle verdicts as a pure decision           | accepted |
 | [0093](0093-panic-path-positive-evidence.md)        | Positive evidence for the panic path — one deliberate fault | accepted |
+| [0094](0094-retire-debug-display.md)               | Retire `debug-display` — panel returns with a composition  | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

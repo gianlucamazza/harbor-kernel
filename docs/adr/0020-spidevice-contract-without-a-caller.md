@@ -1,13 +1,19 @@
 ---
 id: 0020
 title: SpiDevice — an adopted contract with no caller, and a sentence in ADR-0010 that stopped describing anything
-status: accepted
+status: superseded
 date: 2026-08-07
 accepted: 2026-08-07
-related: [0009, 0010]
+related: [0009, 0010, 0094]
 ---
 
 # ADR-0020: `SpiDevice` keeps its place, and ADR-0010's descriptive sentence is retracted
+
+> **Superseded by [ADR-0094](0094-retire-debug-display.md)** (2026-08-11):
+> `debug-display` is retired. What this ADR decided is no longer in the tree;
+> the reasoning stays as the record of what the panel work taught. The pure
+> half — `kernel_core::{display, textgrid, font8x8, spi}` — survives.
+
 
 ## Acceptance status
 
