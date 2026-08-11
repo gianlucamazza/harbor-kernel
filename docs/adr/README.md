@@ -117,6 +117,7 @@ the code that follows.
 | [0095](0095-boot-phases.md)                        | Boot phases have names; the console handover is the seam  | accepted |
 | [0096](0096-gates-that-do-not-depend-on-remembering.md) | Gates that do not depend on remembering                    | accepted |
 | [0097](0097-loader-plan.md)                        | The loader's plan is data; the loader executes it          | accepted |
+| [0098](0098-slot-meter-measured.md)                | The slot meter is measured, not remembered                 | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:
