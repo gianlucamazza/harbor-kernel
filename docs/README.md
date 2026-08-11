@@ -12,7 +12,7 @@ correct picture:
 | --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | 1   | Mission, objectives, stack                   | [root README](../README.md)                                                                                                     | 2       |
 | 2   | What is an _agent_ here (it is not an LLM)   | [glossary](glossary.md), then [architecture § How Harbor differs](architecture.md#how-harbor-differs-from-a-traditional-kernel) | 2       |
-| 3   | Where it is going, and what is actually done | [roadmap § H1 working order](roadmap.md#next-working-order-post-h1-hw-stamp)                                                    | 1       |
+| 3   | Where it is going, and what is actually done | [roadmap § K — microkernel mechanisms](roadmap.md#k--microkernel-mechanisms)                                                   | 1       |
 | 4   | Why any of it should be believed             | [verification](verification.md) — **index only**, do not read it through                                                        | —       |
 
 Depth after that: [`architecture.md`](architecture.md) (normative model),

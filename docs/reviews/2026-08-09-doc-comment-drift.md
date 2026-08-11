@@ -1,5 +1,12 @@
 # Doc/comment drift report
 
+> **Historical record (2026-08-09).** Every drift below was repaired the same
+> day, and the snapshot that follows describes the tree **as it was then** —
+> K8 had one slice, `MAX_TASKS` was smaller, and several statuses have since
+> moved. Read it for what was found and how, not for current truth, which is
+> [`../roadmap.md`](../roadmap.md). `docs/README.md` already excludes reviews
+> from current truth; this line says so where a reader lands.
+
 ## Authority snapshot
 AUTHORITATIVE STATUS (as of commits through ADR-0070, do not invent older states):
 - K4 budget + EL0 preemption + EL1 preemption: done (HW). Transcripts 20260809-122251 (EL0) and 20260809-151021 (EL1).
