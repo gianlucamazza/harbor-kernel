@@ -31,6 +31,7 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use kernel_core::cap::{CapId, SlotError};
 use kernel_core::capslots;
+use kernel_core::lifecycle;
 pub use kernel_core::runqueue::TaskId;
 use kernel_core::tasks::{Decision, Switch, Tasks};
 
@@ -975,15 +976,11 @@ static CANCEL_EVENTS: AtomicU32 = AtomicU32::new(0);
 /// Returns `false` if `id` is idle, unknown, or not [`State::Blocked`].
 pub fn prepare_cancel_blocked(id: TaskId) -> bool {
     with_sched(|sched| {
-        if !matches!(
-            sched.tasks.state(id),
-            Some(kernel_core::tasks::State::Blocked)
-        ) {
+        if lifecycle::cancel(sched.tasks.state(id)) != lifecycle::CancelVerdict::MarkAndWake {
             return false;
         }
-        // `state(id) == Blocked` already implies a live, in-range, non-idle
-        // id: idle never blocks (model invariant) and a stale epoch answers
-        // `None` (ADR-0062).
+        // The verdict already implies a live, in-range, non-idle id: idle never
+        // blocks (model invariant) and a stale epoch answers `None` (ADR-0062).
         let idx = id.slot();
         sched.tcbs[idx].cancel_wait = true;
         if !sched.tasks.wake(id) {
@@ -1017,15 +1014,10 @@ pub fn cancel_events() -> u32 {
 }
 
 /// Why [`supervisor_reap_blocked`] refused (ADR-0033 / K10).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReapError {
-    /// Target is the idle task.
-    Idle,
-    /// Unknown task id.
-    BadId,
-    /// Task is not currently [`kernel_core::tasks::State::Blocked`].
-    NotBlocked,
-}
+///
+/// The classes and the order they are decided in live in
+/// [`kernel_core::lifecycle`] (ADR-0092); this is the kernel's name for them.
+pub use kernel_core::lifecycle::ReapError;
 
 static REAP_EVENTS: AtomicU32 = AtomicU32::new(0);
 
@@ -1040,19 +1032,17 @@ pub fn task_state(id: TaskId) -> Option<kernel_core::tasks::State> {
 /// `Cancelled` as terminal for this wait and return from its entry (trampoline
 /// exits). Does **not** force-kill a Running EL0 session or destroy a remote AS.
 pub fn supervisor_reap_blocked(id: TaskId) -> Result<(), ReapError> {
-    if id == Tasks::<MAX_TASKS>::IDLE {
-        return Err(ReapError::Idle);
-    }
-    match task_state(id) {
-        None => Err(ReapError::BadId),
-        Some(kernel_core::tasks::State::Blocked) => {
+    match lifecycle::reap(id == Tasks::<MAX_TASKS>::IDLE, task_state(id)) {
+        lifecycle::ReapVerdict::Refuse(e) => Err(e),
+        lifecycle::ReapVerdict::Cancel => {
+            // The state was read before the lock `cancel_blocked` takes, so a
+            // lost race answers the same as never having been blocked.
             if !ipc::cancel_blocked(id) {
                 return Err(ReapError::NotBlocked);
             }
             REAP_EVENTS.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
-        Some(_) => Err(ReapError::NotBlocked),
     }
 }
 
@@ -1063,15 +1053,11 @@ pub fn reap_events() -> u32 {
 }
 
 /// Why [`supervisor_force_exit`] refused (ADR-0090 / K10 residual).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ForceError {
-    /// Target is the idle task.
-    Idle,
-    /// Unknown task id (or stale epoch).
-    BadId,
-    /// Slot already empty.
-    Empty,
-}
+///
+/// Decided by [`kernel_core::lifecycle::force`] (ADR-0092). Note that an empty
+/// slot answers `Empty` here and `NotBlocked` to [`supervisor_reap_blocked`] —
+/// deliberate, and asserted by a test that names it.
+pub use kernel_core::lifecycle::ForceError;
 
 static FORCE_EXIT_EVENTS: AtomicU32 = AtomicU32::new(0);
 
@@ -1081,34 +1067,26 @@ static FORCE_EXIT_EVENTS: AtomicU32 = AtomicU32::new(0);
 /// sets a flag; the victim observes it in the trampoline or the agent session
 /// loop and tears down **its own** AS — not a remote destroy.
 pub fn supervisor_force_exit(id: TaskId) -> Result<(), ForceError> {
-    if id == Tasks::<MAX_TASKS>::IDLE {
-        return Err(ForceError::Idle);
-    }
-    let (need_cancel, home) = with_sched(|sched| {
-        match sched.tasks.state(id) {
-            None => Err(ForceError::BadId),
-            Some(kernel_core::tasks::State::Empty) => Err(ForceError::Empty),
-            Some(state) => {
+    let is_idle = id == Tasks::<MAX_TASKS>::IDLE;
+    let need_cancel = with_sched(|sched| {
+        match lifecycle::force(is_idle, sched.tasks.state(id)) {
+            lifecycle::ForceVerdict::Refuse(e) => Err(e),
+            verdict => {
                 let idx = id.slot();
                 sched.tcbs[idx].force_exit = true;
-                let home = sched.tasks.home_of(id).unwrap_or(0);
-                let need_cancel = matches!(state, kernel_core::tasks::State::Blocked);
+                let need_cancel = verdict == lifecycle::ForceVerdict::FlagAndCancel;
                 if !need_cancel {
                     // Nudge the home CPU so a Running spinner reaches a safe point.
-                    if home != this_cpu() {
-                        request_resched(home);
-                        if home == 1 {
-                            irq::send_sgi(0, 1 << 1);
-                        }
-                    } else {
-                        request_resched(home);
+                    let home = sched.tasks.home_of(id).unwrap_or(0);
+                    request_resched(home);
+                    if home != this_cpu() && home == 1 {
+                        irq::send_sgi(0, 1 << 1);
                     }
                 }
-                Ok((need_cancel, home))
+                Ok(need_cancel)
             }
         }
     })?;
-    let _ = home;
     if need_cancel {
         let _ = ipc::cancel_blocked(id);
     }

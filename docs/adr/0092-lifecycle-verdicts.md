@@ -74,7 +74,7 @@ a test that names it** rather than implied by reading order.
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Every refusal class host-tested | the full `{idle} × {None, Empty, Ready, Running, Blocked}` table, per verdict, in `kernel_core::lifecycle` tests |
 | The divergence is deliberate    | a test asserting `reap(Empty) == NotBlocked` **and** `force(Empty) == Empty` together, with the reason           |
-| The decision is mutated         | `lifecycle.rs` in `run-mutants.sh` FILES in the commit it is born (ADR-0058 §2)                                  |
+| The decision is mutated | `lifecycle.rs` in `run-mutants.sh` FILES in the commit it is born (ADR-0058 §2). **Measured, and weak:** the seventh run generated only 4 mutants here — 3 unviable (the verdict enums have no `Default`, so the return-value mutation cannot build) and 1 caught. The engine has little purchase on an exhaustive `match` returning a non-`Default` enum; the coverage is the table test, and saying so is better than citing a number that sounds like more than it is |
 | Behaviour unmoved end to end    | boot oracle reap / cascade / force-exit assertions stay green unchanged                                          |
 
 ## Amends ADR-0049
@@ -84,3 +84,19 @@ reconciled — _sched cap-slot table_ by [ADR-0063](0063-capslots-extraction.md)
 and _agent reply mappers_ by ADR-0060. This ADR delivers the third
 (_park/cancel composition_). The row is amended to name what actually remains:
 **loader plan**.
+
+## Postscript — what the run found instead (2026-08-11)
+
+Adding `lifecycle` to the mutation scope meant running `make mutants`, and the
+run came back **red for reasons that predate this slice**: 34 survivors against
+a baseline of 19. None of them is in `lifecycle`, and `crates/` had no other
+change in this slice.
+
+The baseline was last set by `aca0d60` (ADR-0062). Since then `cpu1_started`
+arrived with ADR-0076 and `set_stealeable` / `can_steal_into` / `is_stealeable`
+with ADR-0083 — the whole of K8 landed without the mutation gate ever seeing
+it. That is precisely the freshness ADR-0058 institutes, missed in practice.
+
+It is recorded here rather than absorbed into a raised baseline, and is its own
+piece of work: fifteen survivors to either kill with tests or justify in
+`docs/verification.md` as a seventh run.

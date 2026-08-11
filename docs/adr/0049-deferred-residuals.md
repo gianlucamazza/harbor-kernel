@@ -4,7 +4,8 @@ title: Deferred residuals — peer EL0 transfer, resolve-grant, P3/P4 without co
 status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
-related: [0026, 0039, 0041]
+related: [0026, 0039, 0041, 0060, 0063, 0092]
+amended: 2026-08-11
 ---
 
 # ADR-0049: Explicit deferrals (policy)
@@ -25,7 +26,16 @@ does not invent product or ambient authority.
 | **Panic-path oracle** | `src/panic.rs` has negative evidence only (excellence review F-24); a deliberate-panic boot variant is a new image flavour | Next bring-up/oracle work touching the panic path |
 | ~~**Task-cap spawn epoch**~~ | **Delivered** by [ADR-0062](0062-taskid-epoch.md) (2026-08-09): the epoch lives in `TaskId` itself and the task-cap entry stores it (`taskcap.rs` raw id), so the exit→revoke window is closed structurally | — |
 | **Derived mutation file list** | `run-mutants.sh` list is hand-written; scope now validated but membership is still a decision ([ADR-0058](0058-adr-amendments-and-mutation-freshness.md)) | Marker-derived list, or the next membership miss |
-| **kernel-core extractions** | sched cap-slot table, agent reply mappers, loader plan, sched park/cancel composition (excellence review R1) — highest-value path to host-testing `src/` logic | Next slice touching each module |
+| **kernel-core extractions** | **loader plan** only, as of 2026-08-11 — the remaining piece of excellence review R1 | Next slice touching the loader |
+
+> **Amendment (2026-08-11, reconciliation per [ADR-0058](0058-adr-amendments-and-mutation-freshness.md) —
+> reconciled by [ADR-0092](0092-lifecycle-verdicts.md)).** The R1 row named four
+> extractions and was never narrowed as they landed. Three are delivered: *sched
+> cap-slot table* by [ADR-0063](0063-capslots-extraction.md), *agent reply
+> mappers* by ADR-0060, and *sched park/cancel composition* by ADR-0092
+> (`kernel_core::lifecycle`). Only the **loader plan** remains, and the row now
+> says so. A residual list that keeps naming paid work is a list nobody trusts
+> to name the unpaid.
 
 ## Not deferred (landed elsewhere)
 
