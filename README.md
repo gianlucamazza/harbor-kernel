@@ -103,7 +103,7 @@ driver-agent; density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |
 | ------------ | ------------------------------------------------------------ |
-| Verification | 491 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 492 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

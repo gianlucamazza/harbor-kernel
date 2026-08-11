@@ -68,6 +68,15 @@ gate cannot end up measuring a different surface than the run covers, and it
 refuses to proceed if it parses fewer than ten files — a truncated scope would
 otherwise pass quietly.
 
+**One criterion, everywhere.** The gate needs `cargo-mutants`, so CI installs
+it, the same way it already installs shellcheck and an Arch-packaged QEMU for
+gates that would otherwise report having checked nothing. A fallback for hosts
+without the engine was written and then deleted: it compared the scope files
+through git instead, which is a *different question* with a different answer,
+and a gate that answers differently depending on where it runs is two gates —
+with the one running in CI being the one nobody can reproduce locally. Missing
+the tool is a failure, not a second mode.
+
 ### 2. `make hw-check TRANSCRIPT=…`
 
 The hardware gate gets a target. It also gets something it was missing: the
@@ -101,7 +110,7 @@ the alternative is a pipeline that reports a gate it did not run.
 
 | Check                                 | Evidence                                                                                                                                       |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Staleness is now a failure            | `make mutation-freshness`, **seen red**: with the stamp at 607, one added `if` in a scope module reports `608 mutants, stamp says 607`, exit 1 |
+| Staleness is now a failure            | `make mutation-freshness`, **seen red**: with the stamp at 612, one added `const fn` in a scope module reports `614 mutants, stamp says 612`, exit 1. And seen *not* red for an `if false { … }` in the same file — no decision to break, no new surface, which is the gate tracking what it claims to |
 | The hardware gate is reachable        | `make hw-check` with no `TRANSCRIPT` names what it needs; with one, it runs and prints the capture's provenance                                |
 | A skip cannot be a CI pass            | **seen red**: `CI=true ALLOW_BOOT_SKIP=1` with a missing emulator reports `a skip is refused in CI`, exit 1                                    |
 | The gate measures the run's own scope | it parses `FILES` out of `run-mutants.sh` and refuses fewer than ten entries                                                                   |

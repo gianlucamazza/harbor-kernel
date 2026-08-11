@@ -159,6 +159,23 @@ mod tests {
     }
 
     #[test]
+    fn an_output_buffer_exactly_the_size_of_the_table_is_enough() {
+        // The boundary the caller actually sits on: `loader::load_all` sizes
+        // its buffer from `MAX_AGENTS` and the store cannot hold more, so
+        // equal-length is the normal case and must not be refused. `<` rather
+        // than `<=` is what says so; mutation found this untested, because
+        // every other test here passes a buffer with room to spare.
+        let table = [entry("a", [None; MAX_SLOTS]), entry("b", [None; MAX_SLOTS])];
+        let mut out = [EntryPlan::Refuse(Refusal::Invalid(BindError::BadGeometry {
+            text_pages: 0,
+            stack_pages: 0,
+        })); 2];
+        assert_eq!(plan(&table, &caps(2), PAGE, &mut out), Ok(2));
+        assert!(matches!(out[0], EntryPlan::Spawn { index: 0, .. }));
+        assert!(matches!(out[1], EntryPlan::Spawn { index: 1, .. }));
+    }
+
+    #[test]
     fn a_well_formed_entry_is_planned_with_its_slots_and_its_home() {
         let mut e = entry("beacon", [Some(1), None, None, None]);
         e.home_cpu = 1;

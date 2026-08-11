@@ -80,7 +80,32 @@ for f in "${FILES[@]}"; do
 	file_args+=(--file "**/${f}.rs")
 done
 
-CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core "${file_args[@]}"
+# `MUTANTS_JOBS` trades wall-clock for measurement noise, so it is opt-in and
+# not a default. Parallel jobs share the machine, each test run gets slower,
+# and cargo-mutants' auto-set timeout is derived from an unmutated baseline
+# measured while the machine was quiet — so a mutant the suite *does* catch can
+# be recorded as a timeout instead. `BASELINE_TIMEOUT` is 1; if a parallel run
+# reports more, re-run it serially before believing the number, because a
+# timeout that only appears under load is a fact about this laptop.
+# The timeout goes up with the job count, and that is not a fudge: it is the
+# same correction ADR-0087 made for the boot oracle. cargo-mutants derives its
+# per-mutant timeout from an unmutated baseline it measures *first*, while the
+# machine is otherwise idle; every parallel job then makes every test slower
+# than that measurement. Seen on 2026-08-11 with `--jobs 6`: five timeouts
+# against a baseline of one, four of them mutants the serial run had caught
+# — `ipc::release_holds`, `ipc::try_recv` twice, `tasks::switch_on`. Those are
+# facts about a laptop under load, not about the kernel.
+#
+# So a parallel run raises the floor to ten minutes per mutant. A real hang
+# (`reset::partition`'s no-op loop counter) still hits it; a merely slow test
+# no longer does.
+jobs_args=()
+if [[ -n "${MUTANTS_JOBS:-}" ]]; then
+	jobs_args=(--jobs "${MUTANTS_JOBS}" --minimum-test-timeout "${MUTANTS_MIN_TIMEOUT:-600}")
+	echo "mutants: ${MUTANTS_JOBS} jobs, per-mutant floor ${MUTANTS_MIN_TIMEOUT:-600}s" >&2
+fi
+
+CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core "${jobs_args[@]}" "${file_args[@]}"
 status=$?
 
 # 0 = nothing survived, 3 = something did. Anything else is the tool failing.

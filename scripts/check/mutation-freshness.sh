@@ -28,9 +28,13 @@
 # that stopped killing what was already there. A mutation run is still the only
 # thing that answers the second question, and this gate cannot replace it.
 #
-# Seen red: with `docs/mutation-stamp.toml` recording 607 mutants, adding one
-# `if` to `kernel_core::lifecycle` reported `608 mutants, stamp says 607`,
-# exit 1.
+# Seen red: with the stamp recording 612, adding one `const fn is_runnable`
+# to `kernel_core::lifecycle` reported `614 mutants, stamp says 612` and named
+# the two, exit 1.
+#
+# Also seen *not* red, which is the more useful half: an `if false { return … }`
+# in the same file moved nothing, because there is no decision in it to break.
+# That is the gate behaving — it tracks mutable surface, not edits.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."

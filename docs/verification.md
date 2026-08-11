@@ -1669,6 +1669,35 @@ Two are **equivalent**, and both for reasons already in this document:
 
 Baseline 19 → **21**, both additions named above.
 
+### Ninth run, after ADR-0096/0097: 612 mutants, 21 survivors, the baseline holds
+
+`loaderplan` joined the list the commit it was born (ADR-0058 §2), and this is
+the first run recorded by `docs/mutation-stamp.toml` — the artefact
+[ADR-0096](adr/0096-gates-that-do-not-depend-on-remembering.md)'s freshness
+gate compares against.
+
+It also found one real gap of its own: `loaderplan::plan` refused an output
+buffer **exactly** as long as the table, and equal-length is the normal case —
+`loader::load_all` sizes its buffer from `MAX_AGENTS` and a store cannot exceed
+it. Every test written for that module passed a buffer with room to spare, so
+the boundary was never touched. Killed by
+`an_output_buffer_exactly_the_size_of_the_table_is_enough`.
+
+**On running it in parallel.** The first attempt used `--jobs 6` and came back
+with five timeouts against a baseline of one. Four were mutants the serial run
+had caught — `ipc::release_holds`, `ipc::try_recv` twice, `tasks::switch_on`.
+cargo-mutants derives its per-mutant timeout from an unmutated baseline it
+measures while the machine is idle, and every parallel job then makes every
+test slower than that measurement, so the number was a fact about a laptop
+under load. `run-mutants.sh` now raises the floor to ten minutes per mutant
+whenever `MUTANTS_JOBS` is set: the real hang (`reset::partition`) still hits
+it, a merely slow test does not. Re-run at six jobs with the floor: 21
+survivors, 1 timeout, 33 minutes instead of three hours.
+
+This is the same correction [ADR-0087](adr/0087-oracle-waits-and-the-hosts-verdict.md)
+made for the boot oracle, in a different gate: a verdict must not depend on how
+busy the host was.
+
 > The first version of this section said *thirteen*, and set the baseline from a
 > count rather than from a run. The finished run returned 22, not 21: the
 > fourteenth is the `p.slot() != i` above, which I had read as the same mutant as

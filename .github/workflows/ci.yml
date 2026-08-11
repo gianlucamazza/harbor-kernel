@@ -119,6 +119,17 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get update && sudo apt-get install -y shellcheck
 
+      # `make mutation-freshness` (ADR-0096) asks cargo-mutants how much
+      # mutable surface the scope has today and compares it with the stamp the
+      # last run wrote. It is the same question here as on a workstation, so it
+      # is the same tool: a gate that answered differently depending on where
+      # it ran would be two gates, and the one that ran in CI would be the one
+      # nobody could reproduce. `--locked` so the Cargo.lock in this repo does
+      # not decide the version of a host tool; the cargo cache above keeps the
+      # build out of most runs.
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+
       # Every gate, including the boot oracle. `make check` is deliberately a
       # superset of this job's gates — the sole exception is the firmware blob
       # fetch below, a network step kept out of the offline target on purpose.
