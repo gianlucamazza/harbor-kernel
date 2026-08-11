@@ -148,8 +148,17 @@ on the host.
    ring. When an agent owns RX, PL011 RX IRQs are **masked** and the agent
    polls `DR` (no IRQ-side drain race).
 7. State shared between the IRQ path and the main loop uses `core::sync::atomic`
-   — never `static mut`. State that is _not_ producer/consumer uses `SyncCell`
-   and is mutated inside `cpu::without_irqs`.
+   — never `static mut`. State that is _not_ producer/consumer lives **inside**
+   a [`sync::Mutex<T>`](../src/sync.rs): IRQ mask, spin, mutate, release,
+   restore — with the datum owned by the lock rather than declared beside it
+   ([ADR-0091](adr/0091-data-in-lock.md)). A lock next to a cell cannot be
+   written, because there is no lock type to write it with.
+
+   `SyncCell` survives as a **closed residual of three statics**, each with the
+   reason a guard cannot serve it: `irq::STATE` (read from the dispatch path,
+   where a handler must never take a lock — ADR-0008) and the loader's
+   `NAME_POOL` / `STORE_ENTRIES` (they mint `&'static` out of their interior,
+   which no guard can lend). A fourth user needs an ADR.
 
    **Exception, and it is a hard one: no atomic read-modify-write before
    the MMU is enabled.** `swap`, `fetch_add` and `compare_exchange` compile to an
@@ -171,6 +180,15 @@ on the host.
    used to hold one mask for the whole session; it holds one per enter/resume
    step now, because `SYS_RECV` parks (ADR-0022). `scripts/check/irq-scope.sh`
    walks each region by brace depth and fails on a switching call inside it.
+
+   **The scheduler switch is the one exception, and it is fenced.** It must
+   release the lock *before* `context_switch` while `DAIF` stays masked across
+   the stack swap, which a closure-scoped section cannot express. That is
+   `Mutex::lock_masked`, returning a `MaskedGuard` that releases on drop and
+   never touches `DAIF` — so it adds no masked region for the walker to miss.
+   The same gate refuses `lock_masked` outside `src/sched/mod.rs`, which is what
+   keeps the exception one file wide rather than a capability every caller has
+   ([ADR-0091](adr/0091-data-in-lock.md) §3).
 
 8. Idle (console loop) uses `WFI` when the RX ring is empty, no tick report is
    due, and no task is ready; it **yields** when the runqueue is non-empty. The
@@ -226,7 +244,10 @@ boot-check` _is_ the oracle and a gate that needs a flag is a gate someone
     reversal row.
 
 Rules 1, 3, 4 and 10 are checked by `make layering` (`scripts/check/layering.sh`)
-against every `crate::` import edge (and ISA/board path leaks). Rule 2's
+against every `crate::` import edge (and ISA/board path leaks). Rule 7 has three
+automated clauses, two of them in `make irq-scope`: no switching call inside a
+masked region, and no `lock_masked` outside the scheduler; `make no-static-mut`
+is the third. Rule 2's
 substance — _what_ the BSP does, bind rather than implement — is not decidable
 from an import graph and stays review's; rule 5 is conformant by a single
 `irq::init` call site, enforced by nothing. Coupling that is not an import (a

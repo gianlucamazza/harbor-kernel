@@ -143,8 +143,9 @@ stamp 2026-08-10, transcript `20260810-144305.log`: `smp: steal ok`).
 option C current; K7-M optional lab; K7-T trigger-gated; K7-R under pressure).
 **K5 residual policy** paid ([ADR-0085](adr/0085-k5-density-residual-design.md)).
 **K5-S Mini** **done (HW)** ([ADR-0086](adr/0086-k5-mini-stack-first-slice.md),
-stamp 2026-08-10). F-R1-P1 shared-state **done (HW)**; **loader tables** under
-`IrqSpinLock` (0077 amended 2026-08-11). Product evidence hygiene **paid**.
+stamp 2026-08-10). F-R1-P1 shared-state **done (HW)**; **loader tables** locked
+(0077 amended 2026-08-11), then every shared table restated as `sync::Mutex<T>`
+([ADR-0091](adr/0091-data-in-lock.md)). Product evidence hygiene **paid**.
 **Product multi-core `home_cpu` paid (QEMU)** ([ADR-0088](adr/0088-product-home-cpu.md)).
 **K5-B design paid** ([ADR-0089](adr/0089-k5-b-pair-collapse-design.md); code deferred).
 **K10 force-exit paid (QEMU)** ([ADR-0090](adr/0090-k10-force-exit-running.md)).
