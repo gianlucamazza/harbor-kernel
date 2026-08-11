@@ -11,7 +11,15 @@ pub const MAGIC: u32 = u32::from_le_bytes(*b"HARB");
 /// Format version accepted by this parser.
 pub const VERSION: u32 = 1;
 
-/// Hard cap on agents in one store (matches lab `MAX_TASKS` headroom).
+/// Hard cap on agents in one store.
+///
+/// It is a **wire-format** bound, not a scheduler one: the loader materialises
+/// store entries into `[_; MAX_AGENTS]` pools that live for the boot, and this
+/// is their size. It has no relation to `MAX_TASKS` — the comment here used to
+/// claim it matched "lab `MAX_TASKS` headroom", which stopped being true the
+/// first time that number moved (it is 54 today) and was never the reason for
+/// this one. A composition that needs more agents raises this and the pools
+/// with it; a composition that needs more *tasks* does not touch it.
 pub const MAX_AGENTS: usize = 8;
 
 /// Fixed name field width (UTF-8, NUL-padded).

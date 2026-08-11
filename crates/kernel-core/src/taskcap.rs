@@ -11,6 +11,12 @@ use crate::irqcap;
 ///
 /// Deliberately below `MAX_TASKS` (ADR-0057 §2): a pressure bound, and entries
 /// are freed only by [`Table::revoke_task`] — there is no per-cap free.
+///
+/// The gap has widened as `MAX_TASKS` grew (40 → 54) and that is not drift:
+/// this bounds how many task-caps may be *live at once*, which is a property
+/// of how many supervisors hold references, not of how many tasks exist. It
+/// moves when minting starts refusing under a real composition, not when the
+/// task table does.
 pub const MAX_TASK_CAPS: usize = 32;
 
 /// Index band: `INDEX_BASE | local` (local < MAX_TASK_CAPS).
