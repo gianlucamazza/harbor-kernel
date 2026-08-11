@@ -63,7 +63,11 @@ readonly BASELINE_TIMEOUT=1
 # Where a clean run records what it covered (see the end of this script).
 readonly STAMP="docs/mutation-stamp.toml"
 run_date="$(date -u +%Y-%m-%d)"
-run_commit="$(git describe --always 2>/dev/null || echo unknown)"
+# Captured where the stamp is written, not here. A run takes over an hour, and
+# the 2026-08-11 run stamped `205f8ca` — three commits behind the code it had
+# just measured, because the value was read before the run started. The field
+# exists to say *which tree this covered*; taken at the wrong end it says the
+# opposite.
 
 HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
 
@@ -174,6 +178,7 @@ fi
 # — "has the mutable surface moved since anyone last ran this?" — is about the
 # repository's history, not about this working copy (ADR-0096).
 mutant_count="$(cargo mutants --list -p kernel-core "${file_args[@]}" 2>/dev/null | wc -l)"
+run_commit="$(git describe --always 2>/dev/null || echo unknown)"
 cat >"${STAMP}" <<STAMP
 # Written by scripts/host/run-mutants.sh. Do not edit by hand.
 #

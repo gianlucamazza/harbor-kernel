@@ -1746,6 +1746,13 @@ the machine. The floor is now unconditional (300 s serial, 600 s parallel),
 and the real hang it exists to catch — `reset::partition`'s no-op loop counter,
 which never terminates — still hits it.
 
+The re-run with the unconditional floor: **621 mutants, 22 survivors, one
+timeout** — `reset::partition`, the loop counter that genuinely never
+terminates. Its stamp reads `commit = 205f8ca`, three commits behind the code
+it measured, because `run_commit` was captured before an 82-minute run instead
+of when the stamp is written. Fixed in the same pass; the value is left as the
+run produced it rather than edited by hand into looking right.
+
 This is [ADR-0087](adr/0087-oracle-waits-and-the-hosts-verdict.md)'s rule for
 the third time, in the third gate: **a verdict must not depend on how busy the
 host was.** It was worth checking rather than believing — raising
