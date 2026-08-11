@@ -146,6 +146,38 @@ fn report_boot(mmu_at: u64, discover_at: u64) {
     );
 }
 
+/// Arm the PL011 RX IRQ and unmask, if the lines were actually bound.
+///
+/// Both halves are guarded on `interrupts_bound` for different reasons. Arming
+/// RX into a dispatch table that never bound the line leaves the FIFO to fill
+/// with nobody draining it; unmasking after a failed bind arms a timer whose
+/// handler was never registered, so the IRQ fires, the dispatcher acknowledges
+/// it with nothing to run, and the console looks alive while the tick counter
+/// never moves — a failure that reads as a subtler bug than the one it is.
+fn enable_interrupts(uart: &mut Pl011, interrupts_bound: bool) {
+    if interrupts_bound {
+        // SAFETY: `uart` is the caller's exclusively-owned console handle,
+        // borrowed uniquely for this call — `&mut` is what makes that a fact
+        // rather than a claim about where the handle came from. EL1 IRQs stay
+        // masked until the unmask below, so the handler cannot run against a
+        // base that is only half published.
+        unsafe {
+            console::enable_rx_irq(uart);
+        }
+    }
+
+    if interrupts_bound {
+        timer::on_interrupt();
+        cpu::sync_pipeline();
+        cpu::irq_enable();
+        cpu::sync_pipeline();
+        println!(uart, "IRQs enabled (timer + UART RX)");
+        println!(uart, "idle: WFI when no RX/tick work");
+    } else {
+        println!(uart, "interrupts stay masked — console is output only");
+    }
+}
+
 pub fn run() -> ! {
     // SAFETY: core 0; DAIF still masked from `boot.s`; nothing else has run.
     let Some(mut uart) = (unsafe { console::acquire() }) else {
@@ -523,34 +555,7 @@ pub fn run() -> ! {
         println!(uart, "smp: core1 ipi skipped (irq unbound)");
     }
 
-    // Arm PL011 RX IRQ into the console ring (GIC line already enabled).
-    if interrupts_bound {
-        // SAFETY: `uart` is the live console handle this function acquired and
-        // still exclusively owns, and EL1 IRQs are masked until the unmask
-        // below — so the handler cannot run against a base that is only half
-        // published. Guarded on `interrupts_bound` because arming RX into a
-        // dispatch table that never bound the line would leave the FIFO to fill
-        // with nobody draining it.
-        unsafe {
-            console::enable_rx_irq(&uart);
-        }
-    }
-
-    // Unmask only if the lines are actually bound. Enabling interrupts after a
-    // failed bind arms a timer whose handler was never registered: the IRQ
-    // fires, the dispatcher acknowledges it with nothing to run, and the
-    // console looks alive while the tick counter never moves — a failure that
-    // reads as a subtler bug than the one it is.
-    if interrupts_bound {
-        timer::on_interrupt();
-        cpu::sync_pipeline();
-        cpu::irq_enable();
-        cpu::sync_pipeline();
-        println!(uart, "IRQs enabled (timer + UART RX)");
-        println!(uart, "idle: WFI when no RX/tick work");
-    } else {
-        println!(uart, "interrupts stay masked — console is output only");
-    }
+    enable_interrupts(&mut uart, interrupts_bound);
 
     console_loop::heap_check(&mut uart);
 
