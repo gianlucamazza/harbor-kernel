@@ -104,6 +104,48 @@ const fn build_features() -> &'static str {
     }
 }
 
+/// Mint the console channel and start the resident EL1 server (M8).
+///
+/// The send end is what agents — and the loader's `held` list — receive; the
+/// recv end stays with the server. Authority is ordinary `CapRights::SEND`:
+/// there is no special console capability type since `SYS_PUTC` was removed.
+///
+/// `None` if the channel could not be created; the boot goes on without a
+/// console endpoint rather than refusing, because the UART still works.
+fn start_console_service() -> Option<kernel_core::cap::CapId> {
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            match crate::sched::spawn_with_caps(console_server::run, &[ch.recv]) {
+                Ok(_) => crate::kprintln!("console-server: up"),
+                Err(e) => crate::kprintln!("console-server: spawn FAILED {e:?}"),
+            }
+            crate::kprintln!("console: capability minted");
+            Some(ch.send)
+        }
+        Err(e) => {
+            crate::kprintln!("console: capability FAILED {e:?}");
+            None
+        }
+    }
+}
+
+/// How long the phases above took, on the board's own clock.
+///
+/// The serial transcript carries host timestamps, but only when someone
+/// captured it with `serial-capture`; a log read on its own could not answer
+/// "is this slow?" at all. `CNTPCT` runs from reset, so these are milliseconds
+/// since the counter started, not since power — which is what a comparison
+/// between two boots of the same image needs.
+fn report_boot(mmu_at: u64, discover_at: u64) {
+    let hz = timer::frequency_hz();
+    crate::kprintln!(
+        "boot: mmu={} ms discover={} ms ready={} ms",
+        kernel_core::delay::counts_to_ms(hz, mmu_at),
+        kernel_core::delay::counts_to_ms(hz, discover_at),
+        kernel_core::delay::counts_to_ms(hz, timer::physical_count())
+    );
+}
+
 pub fn run() -> ! {
     // SAFETY: core 0; DAIF still masked from `boot.s`; nothing else has run.
     let Some(mut uart) = (unsafe { console::acquire() }) else {
@@ -516,24 +558,7 @@ pub fn run() -> ! {
     // that the whole kernel is cooperative-only — see K4 preemption).
     console::install_tx(uart);
 
-    // Console channel (M8): send end is what agents (and the loader's `held`
-    // list) receive; recv end is held by the resident EL1 console server.
-    // Authority is ordinary `CapRights::SEND` — there is no special console
-    // capability type after SYS_PUTC's removal.
-    let console_cap = match crate::ipc::create_channel() {
-        Ok(ch) => {
-            match crate::sched::spawn_with_caps(console_server::run, &[ch.recv]) {
-                Ok(_) => crate::kprintln!("console-server: up"),
-                Err(e) => crate::kprintln!("console-server: spawn FAILED {e:?}"),
-            }
-            crate::kprintln!("console: capability minted");
-            Some(ch.send)
-        }
-        Err(e) => {
-            crate::kprintln!("console: capability FAILED {e:?}");
-            None
-        }
-    };
+    let console_cap = start_console_service();
 
     // Agents that are data (ADR-0021). One loop over a table, and the table is
     // the *only* place those grants are written — so `held` here is the whole
@@ -576,19 +601,7 @@ pub fn run() -> ! {
         mmu::tables_free()
     );
 
-    // How long the phases above took, on the board's own clock. The serial
-    // transcript carries host timestamps, but only when someone captured it
-    // with `serial-capture`; a log read on its own could not answer "is this
-    // slow?" at all. `CNTPCT` runs from reset, so these are milliseconds since
-    // the counter started, not since power — which is what a comparison
-    // between two boots of the same image needs.
-    let hz = timer::frequency_hz();
-    crate::kprintln!(
-        "boot: mmu={} ms discover={} ms ready={} ms",
-        kernel_core::delay::counts_to_ms(hz, mmu_at),
-        kernel_core::delay::counts_to_ms(hz, discover_at),
-        kernel_core::delay::counts_to_ms(hz, timer::physical_count())
-    );
+    report_boot(mmu_at, discover_at);
 
     // Idle body — never returns (ADR-0006).
     console_loop::run()
