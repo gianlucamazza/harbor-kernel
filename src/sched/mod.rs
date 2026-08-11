@@ -965,6 +965,16 @@ pub fn block_events() -> u32 {
     with_sched(|sched| sched.tasks.block_events())
 }
 
+/// Occupied task slots right now, and the high-water mark since boot
+/// (ADR-0098).
+///
+/// The first of ADR-0085's density meters, read from the table rather than
+/// remembered by a gate. Idle identities are included — `oracle-census.sh`
+/// nets them out where a reader can see the subtraction.
+pub fn slot_occupancy() -> (u32, u32) {
+    with_sched(|sched| (sched.tasks.live_count(), sched.tasks.peak_slots()))
+}
+
 /// Successful supervisor cancels of a blocked wait (ADR-0025).
 static CANCEL_EVENTS: AtomicU32 = AtomicU32::new(0);
 

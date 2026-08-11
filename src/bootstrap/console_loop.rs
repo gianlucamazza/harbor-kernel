@@ -273,16 +273,24 @@ pub fn run() -> ! {
                 // set in the image we actually ship, not only in the oracle
                 // one. One line, machine-readable, rate-limited by the tick
                 // report above.
+                // `slots=<live>/<peak>` is ADR-0098's density meter: the
+                // occupancy `oracle-census.sh` used to carry as a constant
+                // someone updated by hand. It rides this line because the
+                // census governs the *product*, and this line is the one the
+                // shipped image prints.
+                let (live_slots, peak_slots) = crate::sched::slot_occupancy();
                 let _ = console::with_tx(|uart| {
                     println!(
                         uart,
-                        "invariants: overwrites={} abandoned={} faults={} blocked={} frames_free={} preempts={}",
+                        "invariants: overwrites={} abandoned={} faults={} blocked={} frames_free={} preempts={} slots={}/{}",
                         crate::sched::pending_overwrites(),
                         crate::mm::task_stack::abandoned_stacks(),
                         crate::agent::fault_count(),
                         crate::sched::blocked_count(),
                         crate::mm::frames::free_count(),
                         crate::sched::preempt_switches(),
+                        live_slots,
+                        peak_slots,
                     );
                 });
                 last_printed = report;
