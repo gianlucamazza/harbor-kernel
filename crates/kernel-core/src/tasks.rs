@@ -989,6 +989,33 @@ mod tests {
     }
 
     #[test]
+    fn cpu1_idle_does_not_take_a_slot_whose_stack_is_still_parked() {
+        // A slot is `Empty` the moment its task exits, but its stack stays
+        // attached until someone collects it. Handing that slot to CPU 1's idle
+        // identity would give idle a stack another task is still holding —
+        // which is why `start_cpu1` skips the parked slot, and why every other
+        // test here missed it: they all run with `parked == None`.
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let a = t.admit().unwrap();
+        t.switch(Switch::Yield); // → a
+        t.switch(Switch::Exit); // a's slot is Empty, its stack still parked
+
+        let parked_slot = a.slot();
+        assert_eq!(t.state(a), None, "the id is stale after exit");
+
+        let idle1 = t.start_cpu1().expect("a free slot remains");
+        assert_ne!(
+            idle1.slot(),
+            parked_slot,
+            "CPU 1 idle took the slot whose stack is still parked"
+        );
+
+        // And once collected, the slot is ordinary again.
+        assert_eq!(t.collect(), Some(a));
+    }
+
+    #[test]
     fn set_stealeable_refuses_a_stale_id_an_out_of_range_one_and_idle() {
         let mut t = Tasks::<4>::new();
         t.start();

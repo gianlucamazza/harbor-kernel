@@ -1635,11 +1635,12 @@ seeing it.** ADR-0058 §2 says a module joins the list the commit it is born; it
 does not say the list must be *re-run* when existing modules grow, and for K8
 they grew a lot.
 
-Thirteen died to tests written against them:
+Fourteen died to tests written against them:
 
 | Survivor | Test that kills it |
 | --- | --- |
 | `start_cpu1`'s `idle[1] != IDLE` → `==` | `cpu1_has_no_idle_identity_until_it_is_started` — a fresh table gets a real second identity, and the call is idempotent |
+| `start_cpu1`'s **other** `!=`, the `p.slot() != i` that skips the parked slot | `cpu1_idle_does_not_take_a_slot_whose_stack_is_still_parked` — a slot is `Empty` the moment its task exits but its stack stays attached until collected, and handing that slot to CPU 1's idle would give idle a stack another task still holds. Every other test here runs with `parked == None`, which is why it survived twice: once the mutation gate never ran, and once I mistook it for the guard three lines above |
 | `cpu1_started` → `true` / `false` / `!=` → `==` (3) | same test, asserting before and after |
 | `set_stealeable` bounds and idle guards, `\|\|` → `&&` (2) | `set_stealeable_refuses_a_stale_id_an_out_of_range_one_and_idle` — each idle refused **on its own**, not only both at once |
 | `is_stealeable`'s `idx < N` → `<=` | `is_stealeable_refuses_out_of_range_stale_and_idle` — the mutant indexes past the array, so the test fails by panic |
@@ -1659,6 +1660,13 @@ Two are **equivalent**, and both for reasons already in this document:
   intent rather than a load-bearing test, and the mutant proves it.
 
 Baseline 19 → **21**, both additions named above.
+
+> The first version of this section said *thirteen*, and set the baseline from a
+> count rather than from a run. The finished run returned 22, not 21: the
+> fourteenth is the `p.slot() != i` above, which I had read as the same mutant as
+> the `idle[1] != IDLE` guard three lines earlier. Corrected here rather than by
+> raising the baseline to fit — the gate is what found it, which is the argument
+> for running it.
 
 **The lesson is the cadence, not the survivors.** Every one of these thirteen
 was reachable by a test the day the code landed; what was missing was a run.
