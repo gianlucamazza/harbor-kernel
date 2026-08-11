@@ -188,126 +188,30 @@ if=sd` card to the legacy Arasan SDHCI instead, so the board bind probes
 EMMC2 first and falls back, printing which host answered (`host=` on the
 `durable-media:` line).
 
-## Optional status display — Waveshare-class 3.5″ SPI TFT
+## Retired: the SPI TFT status surface
 
-**Status:** lab side-track **silicon-closed** for v1 status surface (not an
-M-milestone). Policy: [ADR-0009](adr/0009-optional-spi-tft-debug-console.md)
-(**accepted**), streaming CS [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md).
+A Waveshare-class 3.5″ ILI9486 HAT was brought up on this board and closed on
+silicon in August 2026 — SPI0 pinmux, polled transfers, regwidth-16 wire
+framing, panel init and a status grid, all behind a `debug-display` feature.
+[ADR-0094](adr/0094-retire-debug-display.md) **retired it** on 2026-08-11: it
+compiled in every `make check` and was executed by nothing, and no product
+composition named a panel.
 
-Behind `--features debug-display` (`make FEATURES=debug-display img` / `deploy`):
+Nothing in this tree drives a display today. The board still has the pins; the
+kernel no longer knows about them.
 
-- GPIO claim, `SpiBus` / `SpiDevice` / `with_bus`, polled SPI0
-- ILI9486 PiScreen init + **regwidth-16** wire framing
-- Boot: full-screen navy `HARBOR` + dirty-cell status text (8×8 slots, idle
-  ticks/heap, panic banner)
-- UART remains the full log (no serial mirror on glass)
+Where the detail went, if a panel ever comes back:
 
-**Trap:** `FEATURES` defaults to empty. A bare `make deploy` after a lab session
-builds a headless image into the same `kernel8.img` and flashes it — the serial
-log then has no `display:` line and the panel looks dead. Pass
-`FEATURES=debug-display` on every glass deploy; `make img` also writes
-`kernel8-debug-display.img` as a side copy when that feature is set. Oracle on
-a healthy glass boot: `display: ILI9486 up  cdiv=…  bit_clk=… Hz  status`.
-
-The image also says what it is, in the banner, before anything can go wrong:
-`build: debug-display` or `build: headless (no SPI TFT, no bring-up gates)`. A
-flashed card is otherwise indistinguishable from another one — `kernel8.img` is
-whichever the last `make` invocation produced, and nothing in the file records
-which. `make boot-check` asserts the banner against the behaviour in both
-directions, so an image cannot claim the panel without bringing it up, nor
-claim headless while touching it.
-
-Evidence: [`verification.md`](verification.md#rng200-and-spi0-hardware). Touch
-and higher SPI rates are open. Default (feature-off) images stay HAT-free.
-
-This is **not** HDMI, DSI, or a VideoCore framebuffer. It is a GPIO HAT that
-drives a TFT over **SPI0** with an **ILI9486** controller. Harbor talks to the
-panel from EL1 through a generic SPI + panel stack; the HAT is a **BSP
-profile**, not the architecture name.
-
-### Target SKU
-
-| Item                | Value                                                                                                                          |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Family              | Waveshare 3.5inch RPi LCD (**A** / **B** / **C**) and pin-compatible clones (e.g. LCD wiki MPI3501)                            |
-| Lab default profile | **Waveshare A** until a different PCB letter is confirmed in hand                                                              |
-| Resolution          | 480×320                                                                                                                        |
-| Colour              | RGB565 (65 536 colours)                                                                                                        |
-| LCD controller      | ILI9486                                                                                                                        |
-| Touch controller    | XPT2046 (phase 2 only — second `SpiDevice` on the same bus)                                                                    |
-| Bus                 | SPI0, mode 0; **8 MHz** closed on silicon (raise toward 16–32 MHz only with glass re-check)                                    |
-| SPI framing         | **regwidth=16 / buswidth=8** (fbtft `piscreen`): cmd/param as BE `u16` (`0x00,b`); pixels raw RGB565 — _not_ “16-bit SPI mode” |
-| v1 paint model      | Dirty cells / window streams — **no** mandatory full-frame 300 KiB buffer                                                      |
-| Product boot        | `HARBOR` fill + status text; colour bars are lab API only                                                                      |
-
-**A / B / C:** same pin class for documentation; **not** drop-in for init or
-MADCTL. Each letter is a named BSP profile with its own declarative init table.
-Higher SPI rates are an optimisation after status text is closed (done).
-
-### HAT pinout (physical 40-pin header numbers)
-
-Source: Waveshare wiki for 3.5inch RPi LCD (A) and LCD wiki MPI3501 (same map).
-Pins marked NC are unused by the HAT (UART on pins 8/10 remains free for the
-serial console if you can reach the header edge or a pass-through).
-
-| Phys             | BCM GPIO | Symbol           | Harbor use (v1)                                                          |
-| ---------------- | -------- | ---------------- | ------------------------------------------------------------------------ |
-| 1, 17            | 3V3      | 3.3 V            | Power                                                                    |
-| 2, 4             | 5V       | 5 V              | Power                                                                    |
-| 6, 9, 14, 20, 25 | GND      | Ground           | Common ground                                                            |
-| 11               | **17**   | TP_IRQ           | Phase 2 (touch)                                                          |
-| 18               | **24**   | LCD_RS           | DC: 0 = command, 1 = data                                                |
-| 19               | **10**   | LCD_SI / TP_SI   | SPI0 MOSI (ALT0)                                                         |
-| 21               | **9**    | TP_SO            | SPI0 MISO (touch; unused for LCD writes)                                 |
-| 22               | **25**   | RST              | LCD hardware reset                                                       |
-| 23               | **11**   | LCD_SCK / TP_SCK | SPI0 SCLK (ALT0)                                                         |
-| 24               | **8**    | LCD_CS           | LCD chip select (active low; owned by `SpiDevice`, not the panel driver) |
-| 26               | **7**    | TP_CS            | Phase 2 (touch CE1)                                                      |
-
-No dedicated backlight GPIO on this pin map: the LED backlight is powered with
-the board (≈150 mA class draw on 5 V per vendor FAQ).
-
-**Conflict check with Harbor today:** console UART uses GPIO 14/15 (phys 8/10),
-which the HAT leaves NC. GIC and PL011 bases are unchanged. SPI0 sits in the
-low peripheral window already mapped as Device-nGnRnE (`0xFE00_0000`, 16 MiB) —
-base **SPI0 = `0xFE20_4000`** (`bsp/rpi4/memmap::SPI0_BASE`). That 16 MiB
-blanket is pre-existing (finding F26); new code must not widen it and should
-use named bases rather than hard-coded offsets in panel code.
-
-### What bare metal must do (v1) — correct path only
-
-Policy detail: [ADR-0009](adr/0009-optional-spi-tft-debug-console.md).
-
-1. General GPIO ownership + SPI0 pinmux (ALT0 on 9/10/11; outputs for CS/DC/RST).
-2. Polled `SpiBus` + CS-scoped `SpiDevice` (shape aligned with embedded-hal 1.0;
-   **local traits**, no e-hal crate dependency).
-3. ILI9486: reset, **datasheet-first** declarative init — a table of
-   `InitOp::{Cmd, Data, DelayMs}` (`INIT_PISCREEN`), with MADCTL for
-   landscape + BGR as one entry in it rather than a separate config type.
-   Vendor trees (fbtft, Waveshare, TFT_eSPI) are cross-checks, not paste
-   sources.
-4. Timer-based delays (`CNTPCT`) for panel multi-ms waits — not CPU cycle spins.
-5. Structured **status surface** (dirty cells); UART remains the full log stream.
-6. Init **after** UART hello; `Result` on failure → one clear serial line, continue
-   headless (never silent, never `unwrap` on the boot path).
-
-**Rejected shortcuts:** bitbang SPI, monolithic vendor driver, full-frame blit
-for status, CS toggled inside ILI9486, automatic serial mirror, paint from IRQ.
-
-Touch (XPT2046) is phase 2 and requires the shared-bus `SpiDevice` shape above.
-
-### References (external)
-
-- ILI9486 datasheet (opcodes and timing floors — primary)
-- Waveshare: [3.5inch RPi LCD (A)](https://www.waveshare.com/wiki/3.5inch_RPi_LCD_%28A%29)
-- LCD wiki MPI3501: [3.5inch RPi Display](https://www.lcdwiki.com/3.5inch_RPi_Display)
-- Linux staging fbtft `fb_ili9486` — cross-check only
-
-### Safety
-
-- Power off before seating or removing the HAT.
-- Do not hot-plug the 40-pin stack.
-- Same 3.3 V GPIO rule as the serial adapter.
+- the decisions and what they cost — [ADR-0009](adr/0009-optional-spi-tft-debug-console.md)
+  and [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md) (both **superseded**),
+  including the regwidth-16 SKU note and the measured 8 MHz bit-clock ceiling;
+- the pinout, the bring-up sequence and the silicon transcripts —
+  [`verification.md`](verification.md), in the dated 2026-08-05 evidence
+  sections, which are records and stay as they are;
+- the reusable half — `kernel_core::{display, textgrid, font8x8, spi}` — is
+  still in the tree, pure and host-tested. What went is the binding to one HAT,
+  which would have to be rewritten against the SPI and DMA facts of the day
+  anyway.
 
 ## Safety
 

@@ -100,7 +100,7 @@ Scale axes (where new code lands):
 │  Kernel policy (product path)                            │
 │  bootstrap (+ discover) · loader · console_loop · sched  │
 │  ipc · time · console · agent · mm (frames, aspace)      │
-│  taskcap · status · naming · storage · durable · panic   │
+│  taskcap · naming · storage · durable · panic            │
 │  lab/  (lab path only — thin bring-up, not Pi stubs)     │
 └───────────▲─────────────────────────────▲────────────────┘
             │ register / handle           │
@@ -108,7 +108,7 @@ Scale axes (where new code lands):
 │  irq                  │     │  drivers                   │
 │  dispatch · IrqChip   │     │  gicv2 · pl011 · rng200    │
 │  fn(IrqCookie)        │     │  sdhci · pm · uart16550    │
-│                       │     │  spi · pin · delay ·ili9486│
+│                       │     │  delay                     │
 └───────────▲───────────┘     └───────────▲────────────────┘
             │ claim/eoi                   │
 ┌───────────┴───────────┐     ┌───────────┴────────────────┐
@@ -119,7 +119,7 @@ Scale axes (where new code lands):
             ▲                              ▲
             │         bsp/rpi4             │
             └─ memmap · console · irq · gpio ─┘
-               pm · rng · sdhci · display (feature)
+               pm · rng · sdhci
 
 ┌──────────────────────────────────────────────────────────┐
 │  crates/kernel-core — pure, host-tested, no MMIO         │

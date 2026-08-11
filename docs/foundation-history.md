@@ -218,7 +218,7 @@ by hand.
 
 ## Side-track (not an M/P milestone)
 
-Optional lab **SPI TFT status surface** (Waveshare-class 3.5″ / ILI9486) is
+Optional lab **SPI TFT status surface** (Waveshare-class 3.5″ / ILI9486) was
 specified in [ADR-0009](adr/0009-optional-spi-tft-debug-console.md),
 [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md), and
 [`hardware.md`](hardware.md). It is observability, not agent capability: UART
@@ -227,5 +227,10 @@ feature (`debug-display`). **SPI0, regwidth-16 ILI bring-up, and the status
 surface are silicon-closed**
 ([verification](verification.md#rng200-and-spi0-hardware)). Missing
 peripherals soft-fail via `arch::probe` (QEMU RNG hole) rather than a feature
-gate. It did not block or redefine M4–M6; a later driver track (**K9**) may
-_reuse_ those drivers as agents.
+gate. It did not block or redefine M4–M6.
+
+**Retired 2026-08-11** ([ADR-0094](adr/0094-retire-debug-display.md)): the
+drivers compiled in every `make check` and were executed by nothing, and no
+product composition named a panel. K9 landed its driver-as-agent track on the
+RNG200 instead. The pure half (`kernel_core::{display, textgrid, font8x8,
+spi}`) survives; the HAT binding does not.

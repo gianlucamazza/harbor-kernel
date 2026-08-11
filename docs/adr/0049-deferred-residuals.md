@@ -21,8 +21,8 @@ does not invent product or ambient authority.
 | --- | --- | --- |
 | **Peer transfer residuals** | First slice **done (QEMU)** ([ADR-0054](0054-k3-peer-transfer-first-slice.md)); auto-mint on spawn / control rights open | Product need |
 | **P3 network** | No named composition target this cycle | Edge-gateway composition + virtio/net ADR |
-| **P4 product display** | `debug-display` remains lab; no product UI composition | Product UI ADR graduating debug-display |
-| **#14 SpiDevice** | Watch only; XPT2046 not in scope | Touch driver or supersede ADR-0020 |
+| **P4 product display** | No product UI composition. The lab panel that stood in for one is **retired** ([ADR-0094](0094-retire-debug-display.md), 2026-08-11) | A product UI ADR, starting from a composition rather than from that driver |
+| ~~**#14 SpiDevice**~~ | **Closed 2026-08-11**: ADR-0020 superseded by [ADR-0094](0094-retire-debug-display.md) — the trait went with the panel. A permanent watch was a retirement nobody had scheduled | — |
 | ~~**Panic-path oracle**~~ | **Delivered** by [ADR-0093](0093-panic-path-positive-evidence.md) (2026-08-11): a `panic-probe` image faults on a real stack guard page, and `make panic-check` asserts the whole chain — including that the printed `FAR` is the address the probe announced | — |
 | ~~**Task-cap spawn epoch**~~ | **Delivered** by [ADR-0062](0062-taskid-epoch.md) (2026-08-09): the epoch lives in `TaskId` itself and the task-cap entry stores it (`taskcap.rs` raw id), so the exit→revoke window is closed structurally | — |
 | **Derived mutation file list** | `run-mutants.sh` list is hand-written; scope now validated but membership is still a decision ([ADR-0058](0058-adr-amendments-and-mutation-freshness.md)) | Marker-derived list, or the next membership miss |

@@ -61,9 +61,8 @@ Boards are **not** part of `arch`. They implement `crate::bsp::board` via a
 | `console` | Bind PL011 (or board UART) + GPIO pinmux                 |
 | `irq`     | Bind irqchip + timer/UART lines into `irq`               |
 | `rng`     | Optional SoC RNG bind                                    |
-| `gpio`    | Pinmux for console/display binds                         |
+| `gpio`    | Pinmux for the console bind                               |
 | `pm`      | Reset cause / watchdog block (`board::pm::reset_status`) |
-| `display` | Optional (`debug-display`)                               |
 
 Policy imports `crate::bsp::board`, never `crate::bsp::rpi4`.
 
