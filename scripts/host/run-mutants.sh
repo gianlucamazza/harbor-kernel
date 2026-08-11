@@ -40,7 +40,14 @@ cd "$(dirname "$0")/../.." || exit 1
 #       halves are disjoint bits; same class as the band mints above)
 #   1 × irqwait signal's `task.slot() < MAX_TASK_IDS` arm — defensive-
 #       unreachable: `arm` refuses those slots, so no armed entry carries one
-readonly BASELINE_MISSED=19
+# Eighth run (2026-08-11, ADR-0091/0092 — and the first run since ADR-0062):
+#   2 × equivalent in `tasks.rs`, both instances of the idle invariant already
+#       argued above — `wake`'s idle guard (idle is never Blocked, so the state
+#       check behind it refuses the same ids) and `switch_on`'s steal guard
+#       (`try_steal_into` opens with the same emptiness check; the other
+#       direction cannot happen). The other thirteen K8/steal survivors this
+#       run surfaced were killed by tests, not absorbed here.
+readonly BASELINE_MISSED=21
 
 # `partition`'s loop counter mutated to a no-op never terminates. That is a
 # detected mutant, not a surviving one — the suite would hang rather than pass —

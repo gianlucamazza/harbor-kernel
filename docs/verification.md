@@ -1619,6 +1619,53 @@ refusal order, the ADR-0055 band filter, drain) dies to a host test. The 19
 missed are the sixth run's justified set unchanged, and the timeout is still
 `reset::partition`'s documented hang.
 
+### Eighth run, after ADR-0091/0092: 15 survivors that were nobody's new code
+
+This one is the argument for running the gate on a cadence rather than when a
+module is born.
+
+`lifecycle.rs` joined the file list the commit it was born (ADR-0058 §2), which
+meant running `make mutants` — and it came back **34 missed against a baseline
+of 19**, with **zero** survivors in `lifecycle` and no other change in
+`crates/`. The fifteen extra were not new. The baseline was last set by
+`aca0d60` (ADR-0062); `cpu1_started` arrived with ADR-0076 and the steal
+predicates with ADR-0083, so the whole of **K8 — queues, per-core timer,
+EL0-on-CPU1, work stealing — landed `done (HW)` without the mutation gate ever
+seeing it.** ADR-0058 §2 says a module joins the list the commit it is born; it
+does not say the list must be *re-run* when existing modules grow, and for K8
+they grew a lot.
+
+Thirteen died to tests written against them:
+
+| Survivor | Test that kills it |
+| --- | --- |
+| `start_cpu1`'s `idle[1] != IDLE` → `==` | `cpu1_has_no_idle_identity_until_it_is_started` — a fresh table gets a real second identity, and the call is idempotent |
+| `cpu1_started` → `true` / `false` / `!=` → `==` (3) | same test, asserting before and after |
+| `set_stealeable` bounds and idle guards, `\|\|` → `&&` (2) | `set_stealeable_refuses_a_stale_id_an_out_of_range_one_and_idle` — each idle refused **on its own**, not only both at once |
+| `is_stealeable`'s `idx < N` → `<=` | `is_stealeable_refuses_out_of_range_stale_and_idle` — the mutant indexes past the array, so the test fails by panic |
+| `can_steal_into` → `true`, its guard `\|\|` → `&&`, its probe `&&` → `\|\|` (4) | `can_steal_into_needs_an_empty_local_queue_and_a_ready_stealeable_peer` and `can_steal_into_ignores_a_stealeable_peer_that_is_not_ready` — Ready-but-unmarked and marked-but-Blocked are each refused |
+| `for_each_ready`'s `(head + i) % CAP` → `/` and `+` → `*` (2) | `for_each_ready_walks_head_to_tail_including_across_the_wrap` — the steal probe only ever asked "is there one?", so the ring arithmetic was never observed in order |
+
+Two are **equivalent**, and both for reasons already in this document:
+
+- `Tasks::wake`, `id == idle[0] \|\| id == idle[1]` → `&&`. Idle is never
+  `Blocked`, so the state check three lines down refuses the same ids the
+  guard does. Same invariant as the three long-standing `switch` survivors.
+- `Tasks::switch_on`, `current == idle && queues[cpu].is_empty()` → `\|\|`.
+  `try_steal_into` opens with the *same* emptiness check, so the extra call
+  the mutant makes returns `false` on its own; and the other direction — a
+  busy CPU with an empty queue — cannot happen, because idle is always
+  exactly one of `current` or queued. The guard is a readable statement of
+  intent rather than a load-bearing test, and the mutant proves it.
+
+Baseline 19 → **21**, both additions named above.
+
+**The lesson is the cadence, not the survivors.** Every one of these thirteen
+was reachable by a test the day the code landed; what was missing was a run.
+ADR-0058 §2's rule ("a module joins the list the commit it is born") is
+necessary and was followed — `runqueue` and `irqwait` did join for ADR-0062 —
+but the list is not the gate. Running it is.
+
 #### What mutation testing cannot reach here
 
 `cargo-mutants` runs `-p kernel-core`. Everything in `src/` is outside it,

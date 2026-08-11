@@ -965,6 +965,142 @@ mod tests {
         assert!(!t.has_ready_on(0));
     }
 
+    // ---- Refusal predicates of the steal path (ADR-0082/0083).
+    //
+    // The seventh mutation run (2026-08-11) found these untested: K8 landed
+    // after the baseline was last set, so `set_stealeable`, `is_stealeable`,
+    // `can_steal_into` and `cpu1_started` had never been mutated. The tests
+    // below are written against the surviving mutants, one refusal each —
+    // `try_steal_into`'s happy paths were covered, its guards were not.
+
+    #[test]
+    fn cpu1_has_no_idle_identity_until_it_is_started() {
+        let mut t = Tasks::<4>::new();
+        t.start();
+        assert!(!t.cpu1_started(), "one core until start_cpu1");
+        let idle1 = t.start_cpu1().unwrap();
+        assert!(t.cpu1_started());
+        assert_ne!(idle1, Tasks::<4>::IDLE, "CPU 1 gets its own identity");
+        assert_eq!(t.state(idle1), Some(State::Running));
+        // Idempotent: a second call hands back the same identity rather than
+        // spending another slot.
+        assert_eq!(t.start_cpu1(), Some(idle1));
+        assert!(t.cpu1_started());
+    }
+
+    #[test]
+    fn set_stealeable_refuses_a_stale_id_an_out_of_range_one_and_idle() {
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let idle1 = t.start_cpu1().unwrap();
+        let w = t.admit_on(0).unwrap();
+        assert!(t.set_stealeable(w, true), "a live worker may be marked");
+
+        // Stale epoch: same slot, an epoch that has moved on.
+        let stale = TaskId::new(w.slot() as u16, w.epoch().wrapping_add(1));
+        assert!(!t.set_stealeable(stale, true));
+
+        // Past the last slot.
+        assert!(!t.set_stealeable(TaskId::new(4, 0), true));
+
+        // Neither idle may be stolen — each on its own, not only both at once.
+        assert!(!t.set_stealeable(Tasks::<4>::IDLE, true));
+        assert!(!t.set_stealeable(idle1, true));
+    }
+
+    #[test]
+    fn is_stealeable_refuses_out_of_range_stale_and_idle() {
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let idle1 = t.start_cpu1().unwrap();
+        let w = t.admit_on(0).unwrap();
+        t.set_stealeable(w, true);
+        assert!(t.is_stealeable(w));
+
+        // Out of range must answer, not index past the arrays.
+        assert!(!t.is_stealeable(TaskId::new(4, 0)));
+        assert!(!t.is_stealeable(TaskId::new(w.slot() as u16, w.epoch().wrapping_add(1))));
+        assert!(!t.is_stealeable(Tasks::<4>::IDLE));
+        assert!(!t.is_stealeable(idle1));
+
+        // And it is a mark, not a state: clearing it is observable.
+        assert!(t.set_stealeable(w, false));
+        assert!(!t.is_stealeable(w));
+    }
+
+    #[test]
+    fn can_steal_into_needs_an_empty_local_queue_and_a_ready_stealeable_peer() {
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let _idle1 = t.start_cpu1().unwrap();
+
+        // Nothing anywhere.
+        assert!(!t.can_steal_into(1));
+        assert!(!t.can_steal_into(0));
+        // No such CPU.
+        assert!(!t.can_steal_into(2));
+
+        // A peer Ready that is not marked stealeable is not a candidate.
+        let a = t.admit_on(0).unwrap();
+        assert!(!t.can_steal_into(1), "Ready but not stealeable");
+
+        // Marked: now it is.
+        assert!(t.set_stealeable(a, true));
+        assert!(t.can_steal_into(1));
+
+        // A thief with work of its own does not steal, however hungry the peer.
+        let b = t.admit_on(1).unwrap();
+        assert!(t.set_stealeable(b, true));
+        assert!(!t.can_steal_into(1), "local queue is not empty");
+    }
+
+    #[test]
+    fn can_steal_into_ignores_a_stealeable_peer_that_is_not_ready() {
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let _idle1 = t.start_cpu1().unwrap();
+        let a = t.admit_on(0).unwrap();
+        assert!(t.set_stealeable(a, true));
+
+        // Run it, then park it: still marked stealeable, no longer Ready.
+        t.switch_on(0, Switch::Yield);
+        t.switch_on(0, Switch::Block);
+        assert_eq!(t.state(a), Some(State::Blocked));
+        assert!(t.is_stealeable(a), "the mark survives blocking");
+        assert!(!t.can_steal_into(1), "Blocked is not stealable work");
+    }
+
+    #[test]
+    fn an_idle_cpu_with_work_of_its_own_does_not_steal() {
+        // ADR-0082 is pull-on-idle *with an empty queue*. The other half of
+        // that condition matters: idle running with work already queued here
+        // must take its own next task, not reach across to the peer.
+        //
+        // (The mirror case — a busy CPU with an empty queue — cannot happen:
+        // idle is always exactly one of `current` or queued, which is the same
+        // invariant that makes `Ok(None) if current != idle` unreachable.)
+        let mut t = Tasks::<4>::new();
+        t.start();
+        let idle1 = t.start_cpu1().unwrap();
+
+        // CPU 1: idle current, one worker of its own waiting.
+        let mine = t.admit_on(1).unwrap();
+        assert_eq!(t.current_on(1), idle1);
+        assert!(t.has_ready_on(1));
+
+        // CPU 0: a stealeable Ready.
+        let theirs = t.admit_on(0).unwrap();
+        assert!(t.set_stealeable(theirs, true));
+
+        t.switch_on(1, Switch::Yield);
+        assert_eq!(t.current_on(1), mine, "CPU 1 ran its own queued task");
+        assert_eq!(
+            t.home_of(theirs),
+            Some(0),
+            "the peer's task stayed where it was"
+        );
+    }
+
     #[test]
     fn try_steal_into_rehomes_ready_from_peer() {
         // ADR-0082: two Ready on CPU0, CPU1 idle empty → steal one onto CPU1.

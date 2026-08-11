@@ -198,6 +198,40 @@ mod tests {
     }
 
     #[test]
+    fn for_each_ready_walks_head_to_tail_including_across_the_wrap() {
+        // The steal probe (ADR-0082) reads the queue through this, and its
+        // caller only asks "is there one?" — so the ring arithmetic here was
+        // never observed in order until the seventh mutation run reported
+        // `(head + i) % CAP` untested.
+        let mut q = RunQueue::<4>::new();
+        for n in 1..=3 {
+            q.enqueue(id(n)).unwrap();
+        }
+        let mut seen = Vec::new();
+        q.for_each_ready(|t| seen.push(t));
+        assert_eq!(seen, vec![id(1), id(2), id(3)], "head to tail, in order");
+
+        // Push head past the end so the walk has to wrap.
+        assert_eq!(q.dequeue(), Some(id(1)));
+        assert_eq!(q.dequeue(), Some(id(2)));
+        q.enqueue(id(4)).unwrap();
+        q.enqueue(id(5)).unwrap();
+        seen.clear();
+        q.for_each_ready(|t| seen.push(t));
+        assert_eq!(
+            seen,
+            vec![id(3), id(4), id(5)],
+            "the walk follows the ring, not the slot order"
+        );
+
+        // An empty queue calls back for nothing at all.
+        let empty = RunQueue::<4>::new();
+        let mut count = 0;
+        empty.for_each_ready(|_| count += 1);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
     fn raw_transport_round_trips_slot_and_epoch() {
         // ADR-0062: the packed form is transport for wake tokens and atomics.
         // Exact layout asserted (epoch high, slot low) — a swapped or collapsed
