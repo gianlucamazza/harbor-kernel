@@ -112,6 +112,7 @@ the code that follows.
 | [0090](0090-k10-force-exit-running.md)                       | K10 force-exit Running at a safe point                                                       | accepted   |
 | [0091](0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` replaces the cell/lock pair                                    | accepted   |
 | [0092](0092-lifecycle-verdicts.md)                  | Supervisor lifecycle verdicts as a pure decision           | accepted |
+| [0093](0093-panic-path-positive-evidence.md)        | Positive evidence for the panic path — one deliberate fault | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

@@ -12,6 +12,8 @@ mod console_server;
 mod demos;
 mod discover;
 mod loader;
+#[cfg(feature = "panic-probe")]
+mod panic_probe;
 #[cfg(feature = "bringup")]
 mod selftest;
 
@@ -428,6 +430,13 @@ pub fn run() -> ! {
             Err(error) => println!(uart, "display: init FAILED: {error:?}"),
         }
     }
+
+    // Deliberate fault (ADR-0093), before IRQs are bound: the panic path is
+    // then reporting one fault on one core with nothing else in flight, which
+    // is what makes `FAR` comparable with the address the probe announced.
+    // Diverges — nothing below this runs in a panic-probe image.
+    #[cfg(feature = "panic-probe")]
+    panic_probe::fault_on_a_stack_guard(&mut uart);
 
     // SAFETY: single-core; exclusive GIC ownership.
     let interrupts_bound = match unsafe { board::irq::init(TIMER_HZ) } {

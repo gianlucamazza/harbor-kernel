@@ -23,7 +23,7 @@ does not invent product or ambient authority.
 | **P3 network** | No named composition target this cycle | Edge-gateway composition + virtio/net ADR |
 | **P4 product display** | `debug-display` remains lab; no product UI composition | Product UI ADR graduating debug-display |
 | **#14 SpiDevice** | Watch only; XPT2046 not in scope | Touch driver or supersede ADR-0020 |
-| **Panic-path oracle** | `src/panic.rs` has negative evidence only (excellence review F-24); a deliberate-panic boot variant is a new image flavour | Next bring-up/oracle work touching the panic path |
+| ~~**Panic-path oracle**~~ | **Delivered** by [ADR-0093](0093-panic-path-positive-evidence.md) (2026-08-11): a `panic-probe` image faults on a real stack guard page, and `make panic-check` asserts the whole chain — including that the printed `FAR` is the address the probe announced | — |
 | ~~**Task-cap spawn epoch**~~ | **Delivered** by [ADR-0062](0062-taskid-epoch.md) (2026-08-09): the epoch lives in `TaskId` itself and the task-cap entry stores it (`taskcap.rs` raw id), so the exit→revoke window is closed structurally | — |
 | **Derived mutation file list** | `run-mutants.sh` list is hand-written; scope now validated but membership is still a decision ([ADR-0058](0058-adr-amendments-and-mutation-freshness.md)) | Marker-derived list, or the next membership miss |
 | **kernel-core extractions** | **loader plan** only, as of 2026-08-11 — the remaining piece of excellence review R1 | Next slice touching the loader |

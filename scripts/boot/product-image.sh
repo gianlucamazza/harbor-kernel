@@ -152,11 +152,20 @@ if [[ "${leaked}" -ne 0 ]]; then
 	exit 1
 fi
 
+# The deliberate-panic probe (ADR-0093) is the same class of scaffolding as a
+# demo, with a sharper edge: it faults on purpose. It must never be reachable
+# from a shipped image, whatever the feature flags were.
+if grep -qaF -- 'panic-probe: stack guard at' "${product_elf}"; then
+	echo "product-builds: FAIL — the panic probe's announce string is in the product ELF" >&2
+	echo "  ADR-0093's image faults on purpose; it is a gate, not a product path." >&2
+	exit 1
+fi
+
 # Second net, kept because it costs nothing and catches a demo that leaks
 # without printing: a symbol path the linker did keep.
-if llvm-nm "${product_elf}" 2>/dev/null | grep -q 'bootstrap::demos'; then
-	echo "product-builds: FAIL — a demo symbol survived into the product ELF" >&2
-	llvm-nm "${product_elf}" | grep 'bootstrap::demos' | sed 's/^/    /' >&2
+if llvm-nm "${product_elf}" 2>/dev/null | grep -qE 'bootstrap::(demos|panic_probe)'; then
+	echo "product-builds: FAIL — a demo or probe symbol survived into the product ELF" >&2
+	llvm-nm "${product_elf}" | grep -E 'bootstrap::(demos|panic_probe)' | sed 's/^/    /' >&2
 	exit 1
 fi
 

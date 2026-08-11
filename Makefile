@@ -99,7 +99,7 @@ endif
 .PHONY: all debug img elf check test miri bringup-builds debug-display-builds \
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
-	boot-check x86-elf x86-boot-check doc-claims layering fmt fmt-check \
+	boot-check panic-check x86-elf x86-boot-check doc-claims layering fmt fmt-check \
 	qemu qemu-gdb qemu-x86 blobs deploy \
 	restore-rpios serial clean agents
 
@@ -143,7 +143,7 @@ img: elf
 # `miri`/`shellcheck` fail loudly when their tool is absent rather than letting
 # the claim quietly become false (skip only with ALLOW_MIRI_SKIP=1 /
 # ALLOW_SHELLCHECK_SKIP=1, same shape as boot-check's ALLOW_BOOT_SKIP).
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check oracle-census miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
+check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check oracle-census miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -206,6 +206,15 @@ agents:
 
 boot-check: img
 	./scripts/boot/qemu-boot-check.sh $(IMG) $(BOOT_CHECK_SECONDS)
+
+# The panic path is the one product path whose evidence was entirely negative
+# — every gate above asserts that no boot printed PANIC (ADR-0093). This boots
+# an image that faults on purpose, in its own runner: `boot-oracle.sh` fails on
+# the banner, and relaxing that would blunt the gate that matters every day.
+panic-check:
+	cargo build $(CARGO_FLAGS) --features panic-probe
+	$(OBJCOPY) -O binary $(CARGO_OUT)/harbor-kernel $(CARGO_OUT)/kernel8-panic.img
+	./scripts/boot/qemu-panic-boot-check.sh $(CARGO_OUT)/kernel8-panic.img
 
 # --- LAB band (project-topology; not product ARCH=) -------------------------
 # H3 L0 (ADR-0071): freestanding x86_64 ELF for QEMU -kernel (PVH note).

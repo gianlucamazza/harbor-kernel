@@ -44,6 +44,13 @@ bringup = []
 # Default images stay headless; enable explicitly for lab glass.
 debug-display = []
 
+# Deliberate-panic image (ADR-0093). One boot, one fault, on purpose: the panic
+# path is the only product path whose evidence is entirely negative — every
+# other gate asserts that no boot printed `PANIC`. Off by default and outside
+# `oracle`; `scripts/boot/product-image.sh` refuses its symbols, and the boot
+# oracle would fail on the banner, so it has its own runner.
+panic-probe = []
+
 [dependencies]
 # Pure register/allocator arithmetic, unit-tested on the host.
 kernel-core = { path = "crates/kernel-core" }

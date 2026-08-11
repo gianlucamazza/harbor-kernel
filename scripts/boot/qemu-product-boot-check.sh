@@ -161,6 +161,7 @@ fi
 # ---------------------------------------------------------------------------
 # `product-image.sh` greps the ELF; this catches a cfg leak that still boots.
 oracle_leaks=(
+	'panic-probe:'
 	'sched: spawned task-a'
 	'sched: spawned task-b'
 	'sched: spawned el0-task'
