@@ -178,6 +178,105 @@ fn enable_interrupts(uart: &mut Pl011, interrupts_bound: bool) {
     }
 }
 
+/// Bring CPU 1 into the schedule: banked GICC + SGI wake, then a pinned marker.
+///
+/// ADR-0074 / K8 second slice. Needs the shared table sealed (a handler is
+/// present) and the distributor open, so it runs after `seal_dispatch` — and
+/// before the primary unmasks, because the *target* unmasks inside secondary
+/// idle. ADR-0076 adds the multi-current half: reserve CPU 1's idle, pin a
+/// marker worker, and wait for it to run. The primary prints the result;
+/// there is no console TX from core 1.
+fn bring_up_cpu1(uart: &mut Pl011, core1: bool, interrupts_bound: bool) {
+    if core1 && interrupts_bound {
+        if board::irq::probe_core1_ipi() {
+            println!(uart, "smp: core1 ipi");
+        } else {
+            println!(uart, "smp: core1 ipi timeout");
+        }
+        // ADR-0076: multi-current — reserve CPU1 idle, pin a marker worker,
+        // wait for it to run (primary prints — no console TX from core 1).
+        match crate::sched::start_cpu1() {
+            Ok(_) => match crate::sched::spawn_core1_marker() {
+                Ok(_) => {
+                    if crate::sched::wait_core1_ran(200_000_000) {
+                        println!(uart, "smp: core1 ran");
+                    } else {
+                        println!(uart, "smp: core1 ran timeout");
+                    }
+                }
+                Err(e) => println!(uart, "smp: core1 spawn FAILED {e:?}"),
+            },
+            Err(e) => println!(uart, "smp: core1 start FAILED {e:?}"),
+        }
+    } else if core1 {
+        println!(uart, "smp: core1 ipi skipped (irq unbound)");
+    }
+}
+
+/// Freeze the IRQ dispatch table: no further handlers may be registered.
+///
+/// After this the IRQ path reads state nothing can mutate under it. The count
+/// is printed because a boot that registered nothing looks exactly like a
+/// healthy one until the first interrupt nobody answers — and by then the
+/// evidence is a counter rather than a line at the point of failure.
+fn seal_dispatch(uart: &mut Pl011) {
+    irq::seal();
+    println!(
+        uart,
+        "irq: sealed with {} handlers registered",
+        irq::registered()
+    );
+}
+
+/// Bind the GIC and the timer PPI. `true` if the lines are live.
+///
+/// A failed bind is not fatal: the boot continues with interrupts masked and
+/// a console that is output only, which `enable_interrupts` then honours.
+fn bind_interrupts(uart: &mut Pl011) -> bool {
+    // SAFETY: single-core; exclusive GIC ownership.
+    let bound = match unsafe { board::irq::init(TIMER_HZ) } {
+        Ok(()) => true,
+        Err(error) => {
+            println!(uart, "IRQ bind FAILED: {error:?}");
+            false
+        }
+    };
+    cpu::sync_pipeline();
+
+    println!(
+        uart,
+        "CNTFRQ={} Hz  timer={} Hz  PPI={}",
+        timer::frequency_hz(),
+        TIMER_HZ,
+        board::irq::TIMER_IRQ
+    );
+    bound
+}
+
+/// Probe the SoC RNG200 and report one line.
+///
+/// After the MMU (Device attributes), before IRQs. On-die block, same class as
+/// the PL011 — always brought up. Logical failure (timeout, health) is soft:
+/// one line and the boot continues. Never refuse a boot for entropy.
+fn probe_rng(uart: &mut Pl011) {
+    // SAFETY: single core; RNG200 window not otherwise claimed.
+    match unsafe { board::rng::init() } {
+        Ok(rng) => match rng.try_word() {
+            Ok(Some(word)) => println!(uart, "rng200: ok word={word:#010x}"),
+            Ok(None) => {
+                let mut words = [0u32; 1];
+                match rng.read_words(&mut words) {
+                    Ok(1) => println!(uart, "rng200: ok word={:#010x}", words[0]),
+                    Ok(_) => println!(uart, "rng200: ok (FIFO empty after warm-up)"),
+                    Err(error) => println!(uart, "rng200: warm-up ok, read FAILED: {error:?}"),
+                }
+            }
+            Err(error) => println!(uart, "rng200: read FAILED: {error:?}"),
+        },
+        Err(error) => println!(uart, "rng200: unavailable ({error:?})"),
+    }
+}
+
 pub fn run() -> ! {
     // SAFETY: core 0; DAIF still masked from `boot.s`; nothing else has run.
     let Some(mut uart) = (unsafe { console::acquire() }) else {
@@ -462,25 +561,7 @@ pub fn run() -> ! {
         println!(uart, "frames: UNAVAILABLE");
     }
 
-    // SoC RNG200: after MMU (Device attributes), before IRQs. On-die block,
-    // same class as PL011 — always brought up. Logical failure (timeout /
-    // health) is soft: one line, boot continues. Never refuse boot for RNG.
-    // SAFETY: single core; RNG200 window not otherwise claimed.
-    match unsafe { board::rng::init() } {
-        Ok(rng) => match rng.try_word() {
-            Ok(Some(word)) => println!(uart, "rng200: ok word={word:#010x}"),
-            Ok(None) => {
-                let mut words = [0u32; 1];
-                match rng.read_words(&mut words) {
-                    Ok(1) => println!(uart, "rng200: ok word={:#010x}", words[0]),
-                    Ok(_) => println!(uart, "rng200: ok (FIFO empty after warm-up)"),
-                    Err(error) => println!(uart, "rng200: warm-up ok, read FAILED: {error:?}"),
-                }
-            }
-            Err(error) => println!(uart, "rng200: read FAILED: {error:?}"),
-        },
-        Err(error) => println!(uart, "rng200: unavailable ({error:?})"),
-    }
+    probe_rng(&mut uart);
 
     // Deliberate fault (ADR-0093), before IRQs are bound: the panic path is
     // then reporting one fault on one core with nothing else in flight, which
@@ -489,23 +570,7 @@ pub fn run() -> ! {
     #[cfg(feature = "panic-probe")]
     panic_probe::fault_on_a_stack_guard(&mut uart);
 
-    // SAFETY: single-core; exclusive GIC ownership.
-    let interrupts_bound = match unsafe { board::irq::init(TIMER_HZ) } {
-        Ok(()) => true,
-        Err(error) => {
-            println!(uart, "IRQ bind FAILED: {error:?}");
-            false
-        }
-    };
-    cpu::sync_pipeline();
-
-    println!(
-        uart,
-        "CNTFRQ={} Hz  timer={} Hz  PPI={}",
-        timer::frequency_hz(),
-        TIMER_HZ,
-        board::irq::TIMER_IRQ
-    );
+    let interrupts_bound = bind_interrupts(&mut uart);
 
     // Hardware gates, only when built with `--features bringup`.
     #[cfg(feature = "bringup")]
@@ -514,46 +579,9 @@ pub fn run() -> ! {
         selftest::soft_console(&mut uart);
     }
 
-    // No further handlers are registered: freeze the dispatch table so the IRQ
-    // path reads state nothing can mutate under it.
-    //
-    // The count is printed because a boot that registered nothing looks exactly
-    // like a healthy one until the first interrupt that nobody answers — and by
-    // then the evidence is a counter rather than a line at the point of failure.
-    irq::seal();
-    println!(
-        uart,
-        "irq: sealed with {} handlers registered",
-        irq::registered()
-    );
+    seal_dispatch(&mut uart);
 
-    // ADR-0074 / K8 second slice: core 1 banked GICC + SGI 0 wake. Needs the
-    // shared table sealed (handler present) and the distributor open. Runs
-    // before primary unmask — the *target* unmasks inside secondary idle.
-    if core1 && interrupts_bound {
-        if board::irq::probe_core1_ipi() {
-            println!(uart, "smp: core1 ipi");
-        } else {
-            println!(uart, "smp: core1 ipi timeout");
-        }
-        // ADR-0076: multi-current — reserve CPU1 idle, pin a marker worker,
-        // wait for it to run (primary prints — no console TX from core 1).
-        match crate::sched::start_cpu1() {
-            Ok(_) => match crate::sched::spawn_core1_marker() {
-                Ok(_) => {
-                    if crate::sched::wait_core1_ran(200_000_000) {
-                        println!(uart, "smp: core1 ran");
-                    } else {
-                        println!(uart, "smp: core1 ran timeout");
-                    }
-                }
-                Err(e) => println!(uart, "smp: core1 spawn FAILED {e:?}"),
-            },
-            Err(e) => println!(uart, "smp: core1 start FAILED {e:?}"),
-        }
-    } else if core1 {
-        println!(uart, "smp: core1 ipi skipped (irq unbound)");
-    }
+    bring_up_cpu1(&mut uart, core1, interrupts_bound);
 
     enable_interrupts(&mut uart, interrupts_bound);
 
