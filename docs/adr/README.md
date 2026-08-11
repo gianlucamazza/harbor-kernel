@@ -114,6 +114,7 @@ the code that follows.
 | [0092](0092-lifecycle-verdicts.md)                  | Supervisor lifecycle verdicts as a pure decision           | accepted |
 | [0093](0093-panic-path-positive-evidence.md)        | Positive evidence for the panic path — one deliberate fault | accepted |
 | [0094](0094-retire-debug-display.md)               | Retire `debug-display` — panel returns with a composition  | accepted |
+| [0095](0095-boot-phases.md)                        | Boot phases have names; the console handover is the seam  | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:
