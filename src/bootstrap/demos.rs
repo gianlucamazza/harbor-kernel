@@ -1811,3 +1811,525 @@ pub(super) fn el0_resolve_task() {
     }
     agent2.destroy();
 }
+
+/// Spawn every demo the boot oracle asserts on, in the order it asserts them.
+///
+/// Everything the boot oracle needs, and nothing the product does. Rule 9
+/// of `architecture.md` keeps diagnostic scaffolding out of the production
+/// surface; `make product-builds` compiles the image without it and refuses
+/// an ELF that still carries a demo symbol.
+///
+/// Order is load-bearing and preserved from `bootstrap::run`: the oracle reads
+/// these lines in sequence, and the ADR-0090 force-kill supervisor stays
+/// **last** for the reason its own comment gives.
+pub(super) fn run_all(console_cap: Option<kernel_core::cap::CapId>) {
+    match crate::sched::spawn(demo_task_a) {
+        Ok(_) => crate::kprintln!("sched: spawned task-a"),
+        Err(e) => crate::kprintln!("sched: spawn task-a FAILED {e:?}"),
+    }
+    match crate::sched::spawn(demo_task_b) {
+        Ok(_) => crate::kprintln!("sched: spawned task-b"),
+        Err(e) => crate::kprintln!("sched: spawn task-b FAILED {e:?}"),
+    }
+
+    // Slot 0 is left empty for these two on purpose: their programs name
+    // `CONSOLE_SLOT` (1), so the table has a hole under it, and an agent that
+    // miscounts its own slots is refused rather than served something adjacent.
+    let console_caps: [Option<kernel_core::cap::CapId>; 2] = [None, console_cap];
+    // M5-P1/P2: EL0 from a scheduled task + SVC decode.
+    match crate::sched::spawn_with_slots(el0_scheduled_task, &console_caps) {
+        Ok(_) => crate::kprintln!("sched: spawned el0-task"),
+        Err(e) => crate::kprintln!("sched: spawn el0-task FAILED {e:?}"),
+    }
+
+    // M6 v1: PL011 page-only agent (ADR-0013); destroy = kill.
+    match crate::sched::spawn_with_slots(pl011_agent_task, &console_caps) {
+        Ok(_) => crate::kprintln!("sched: spawned pl011-agent"),
+        Err(e) => crate::kprintln!("sched: spawn pl011-agent FAILED {e:?}"),
+    }
+
+    // K9 / ADR-0034: second peripheral agent (RNG200 page map + kill).
+    match crate::sched::spawn(rng_agent_task) {
+        Ok(_) => crate::kprintln!("sched: spawned rng-agent"),
+        Err(e) => crate::kprintln!("sched: spawn rng-agent FAILED {e:?}"),
+    }
+
+    // Multi-agent shell: two TCBs, two AS live together, each EL0 once.
+    match crate::sched::spawn(agent::concurrent_agent_alpha) {
+        Ok(_) => crate::kprintln!("sched: spawned agent-a"),
+        Err(e) => crate::kprintln!("sched: spawn agent-a FAILED {e:?}"),
+    }
+    match crate::sched::spawn(agent::concurrent_agent_beta) {
+        Ok(_) => crate::kprintln!("sched: spawned agent-b"),
+        Err(e) => crate::kprintln!("sched: spawn agent-b FAILED {e:?}"),
+    }
+
+    // M4: mailbox + caps. Message path only — no shared payload static.
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            // Forger learns the bit pattern but does not hold the cap in its table.
+            IPC_FORGE_RAW.store(ch.send.raw(), core::sync::atomic::Ordering::Relaxed);
+            match crate::sched::spawn_with_caps(ipc_receiver, &[ch.recv]) {
+                Ok(_) => crate::kprintln!("ipc: spawned receiver"),
+                Err(e) => crate::kprintln!("ipc: spawn receiver FAILED {e:?}"),
+            }
+            match crate::sched::spawn_with_caps(ipc_sender, &[ch.send]) {
+                Ok(_) => crate::kprintln!("ipc: spawned sender"),
+                Err(e) => crate::kprintln!("ipc: spawn sender FAILED {e:?}"),
+            }
+            match crate::sched::spawn(ipc_forger) {
+                Ok(_) => crate::kprintln!("ipc: spawned forger"),
+                Err(e) => crate::kprintln!("ipc: spawn forger FAILED {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
+    }
+
+    // M7 slice 2: the same exchange, but between two *EL0 agents*, each holding
+    // one capability at slot 0 of its own table. A second channel rather than a
+    // shared one: two tasks holding two ends of the same mailbox is M4's demo,
+    // and reusing it would have the EL1 receiver race the EL0 one for the
+    // message.
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            // Receiver **first** (ADR-0022 §"gates that catch reversal"). It
+            // reaches `SYS_RECV` on an empty mailbox and parks; the sender
+            // that follows is what wakes it. Spawned the other way round —
+            // as it was until the park existed — the exchange would work
+            // whether or not a blocking recv did.
+            match crate::sched::spawn_with_slots(el0_ipc_receiver, &[Some(ch.recv), console_cap]) {
+                Ok(_) => crate::kprintln!("el0-ipc: spawned receiver"),
+                Err(e) => crate::kprintln!("el0-ipc: spawn receiver FAILED {e:?}"),
+            }
+            match crate::sched::spawn_with_caps(el0_ipc_sender, &[ch.send]) {
+                Ok(_) => crate::kprintln!("el0-ipc: spawned sender"),
+                Err(e) => crate::kprintln!("el0-ipc: spawn sender FAILED {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("ipc: create_channel FAILED {e:?}"),
+    }
+
+    // K1 / ADR-0028 + ADR-0030: mint timer IRQ notification; EL1 wait then
+    // EL0 SYS_WAIT_IRQ on the same task (sequential; one waiter per cookie).
+    let irq_timer_cap = match crate::irq::cap::mint(1) {
+        Ok(c) => {
+            crate::kprintln!("irq-cap: minted timer cookie=1");
+            Some(c)
+        }
+        Err(e) => {
+            crate::kprintln!("irq-cap: mint FAILED {e:?}");
+            None
+        }
+    };
+    match crate::sched::spawn_with_slots(irq_wait_task, &[irq_timer_cap]) {
+        Ok(_) => crate::kprintln!("sched: spawned irq-wait"),
+        Err(e) => crate::kprintln!("sched: spawn irq-wait FAILED {e:?}"),
+    }
+    // Empty-slot SYS_WAIT_IRQ must refuse on the good path.
+    match crate::sched::spawn(el0_irq_refuse_task) {
+        Ok(_) => crate::kprintln!("sched: spawned el0-irq-refuse"),
+        Err(e) => crate::kprintln!("sched: spawn el0-irq-refuse FAILED {e:?}"),
+    }
+
+    // ADR-0035 / P5: bind a service name to a CapId; resolve and missing.
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            match crate::naming::bind(b"svc", ch.send) {
+                Ok(()) => match crate::naming::resolve(b"svc") {
+                    Ok(c) if c == ch.send => crate::kprintln!("name: resolved"),
+                    Ok(_) => crate::kprintln!("name: resolved WRONG cap"),
+                    Err(e) => crate::kprintln!("name: resolve FAILED {e:?}"),
+                },
+                Err(e) => crate::kprintln!("name: bind FAILED {e:?}"),
+            }
+            match crate::naming::resolve(b"nope") {
+                Err(crate::naming::ResolveError::Missing) => {
+                    crate::kprintln!("name: missing")
+                }
+                other => crate::kprintln!("name: missing unexpected {other:?}"),
+            }
+            let _ = crate::naming::unbind(b"svc");
+            // Channel only for the name demo; drop ends.
+            let _ = crate::ipc::creator_revoke(ch.send);
+        }
+        Err(e) => crate::kprintln!("name: channel FAILED {e:?}"),
+    }
+
+    // ADR-0036 / P2: on-target put/get of a keyed blob (not host inject).
+    match crate::storage::put(b"cfg", b"harbor-p2") {
+        Ok(()) => {
+            let mut out = [0u8; 16];
+            match crate::storage::get(b"cfg", &mut out) {
+                Ok(n) if &out[..n] == b"harbor-p2" => crate::kprintln!("store: got"),
+                Ok(_) => crate::kprintln!("store: got WRONG payload"),
+                Err(e) => crate::kprintln!("store: get FAILED {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("store: put FAILED {e:?}"),
+    }
+    match crate::storage::get(b"nope", &mut [0u8; 8]) {
+        Err(crate::storage::GetError::Missing) => crate::kprintln!("store: missing"),
+        other => crate::kprintln!("store: missing unexpected {other:?}"),
+    }
+    let _ = crate::storage::delete(b"cfg");
+
+    // ADR-0037 / K3 residual: transfer SEND from donor to recipient.
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            match crate::sched::spawn(transfer_recipient_task) {
+                Ok(to) => {
+                    TRANSFER_TO.store(to.to_raw(), core::sync::atomic::Ordering::Relaxed);
+                    match crate::sched::spawn_with_caps(transfer_donor_task, &[ch.send]) {
+                        Ok(_) => crate::kprintln!("ipc: transfer spawned"),
+                        Err(e) => crate::kprintln!("ipc: transfer donor FAILED {e:?}"),
+                    }
+                }
+                Err(e) => crate::kprintln!("ipc: transfer recipient FAILED {e:?}"),
+            }
+            let _ = ch.recv;
+        }
+        Err(e) => crate::kprintln!("ipc: transfer channel FAILED {e:?}"),
+    }
+
+    // ADR-0038 / K10 residual: parent exits → blocked child cancelled.
+    match crate::sched::spawn(cascade_parent_task) {
+        Ok(_) => crate::kprintln!("cascade: parent spawned"),
+        Err(e) => crate::kprintln!("cascade: parent spawn FAILED {e:?}"),
+    }
+
+    // ADR-0039 / P5 residual: bind short name, EL0 resolves into empty slot.
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            let _ = crate::naming::bind(b"ab", ch.send);
+            match crate::sched::spawn(el0_resolve_task) {
+                Ok(_) => crate::kprintln!("el0-resolve: spawned"),
+                Err(e) => crate::kprintln!("el0-resolve: spawn FAILED {e:?}"),
+            }
+            let _ = ch.recv;
+        }
+        Err(e) => crate::kprintln!("el0-resolve: channel FAILED {e:?}"),
+    }
+
+    // ADR-0040 / K2 residual: recv timeout without a sender.
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            match crate::sched::spawn_with_caps(timeout_recv_task, &[ch.recv]) {
+                Ok(_) => crate::kprintln!("ipc: timeout-recv spawned"),
+                Err(e) => crate::kprintln!("ipc: timeout-recv spawn FAILED {e:?}"),
+            }
+            // Keep send off-task so the waiter is not auto-reaped by K2 hold drop.
+            let _ = ch.send;
+        }
+        Err(e) => crate::kprintln!("ipc: timeout channel FAILED {e:?}"),
+    }
+
+    // ADR-0041 / K3 residual: EL0 transfer return-to-creator.
+    match crate::sched::spawn(el0_transfer_parent_task) {
+        Ok(_) => crate::kprintln!("el0-xfer: parent spawned"),
+        Err(e) => crate::kprintln!("el0-xfer: parent spawn FAILED {e:?}"),
+    }
+    match crate::sched::spawn(el0_transfer_refuse_task) {
+        Ok(_) => crate::kprintln!("el0-xfer: refuse spawned"),
+        Err(e) => crate::kprintln!("el0-xfer: refuse spawn FAILED {e:?}"),
+    }
+
+    // ADR-0054 / K3 residual: EL0 peer transfer via task-cap.
+    match crate::sched::spawn(el0_peer_xfer_parent_task) {
+        Ok(_) => crate::kprintln!("el0-xfer-peer: parent spawned"),
+        Err(e) => crate::kprintln!("el0-xfer-peer: parent spawn FAILED {e:?}"),
+    }
+    match crate::sched::spawn(el0_peer_xfer_refuse_task) {
+        Ok(_) => crate::kprintln!("el0-xfer-peer: refuse spawned"),
+        Err(e) => crate::kprintln!("el0-xfer-peer: refuse spawn FAILED {e:?}"),
+    }
+
+    // ADR-0055 / ADR-0057: band filter + stale task-cap refusal.
+    match crate::sched::spawn(xfer_peer_stale_task) {
+        Ok(_) => crate::kprintln!("xfer-peer: stale spawned"),
+        Err(e) => crate::kprintln!("xfer-peer: stale spawn FAILED {e:?}"),
+    }
+
+    // ADR-0042 / K2 residual: EL0 SYS_RECV_TIMEOUT.
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            match crate::sched::spawn_with_caps(el0_timeout_task, &[ch.recv]) {
+                Ok(_) => crate::kprintln!("el0-timeout: spawned"),
+                Err(e) => crate::kprintln!("el0-timeout: spawn FAILED {e:?}"),
+            }
+            let _ = ch.send;
+        }
+        Err(e) => crate::kprintln!("el0-timeout: channel FAILED {e:?}"),
+    }
+
+    // ADR-0043 / K9 residual: IRQ-cap device wait is proven sequentially
+    // inside irq_wait_task (one waiter per cookie — no concurrent race).
+
+    // ADR-0044 / K5 + ADR-0086 / K5-S: thin + mini density workers.
+    // Census is fixed-size: do **not** raise MAX_TASKS for denser demos
+    // (ADR-0085). Two of each class keeps the same slot budget as the
+    // former three thin workers plus one spare for later oracles.
+    {
+        let mut n = 0u32;
+        for _ in 0..2 {
+            match crate::sched::spawn_thin(density_thin_task) {
+                Ok(_) => n += 1,
+                Err(_) => break,
+            }
+        }
+        let each = kernel_core::density::bytes_per_task(kernel_core::density::StackClass::Thin);
+        crate::kprintln!("density: thin n={n} bytes_each={each}");
+    }
+    {
+        let mut n = 0u32;
+        for _ in 0..2 {
+            match crate::sched::spawn_mini(density_mini_task) {
+                Ok(_) => n += 1,
+                Err(_) => break,
+            }
+        }
+        let each = kernel_core::density::bytes_per_task(kernel_core::density::StackClass::Mini);
+        crate::kprintln!("density: mini n={n} bytes_each={each}");
+    }
+
+    // ADR-0066 / P2: durable store on true media. The card's partition
+    // table names the store window (type 0x7f); load runs BEFORE any
+    // put, so the `boot` counter read below is evidence of the previous
+    // boot, not of this one. Every degraded path is one honest line and
+    // the boot proceeds with the DRAM-only store (ADR-0045 behavior).
+    let durable_media = {
+        use kernel_core::mbr;
+        // SAFETY: exclusive SDHCI windows; core 0 only.
+        match unsafe { crate::bsp::board::sdhci::init() } {
+            Ok((sd, host)) => {
+                let mut sector0 = [0u8; 512];
+                match sd.read_block(0, &mut sector0) {
+                    Ok(()) => match mbr::parse(&sector0) {
+                        Ok(entries) => match mbr::find_store_partition(&entries) {
+                            Some((lba, _sectors)) => Some((sd, lba, host)),
+                            None => {
+                                crate::kprintln!("durable-media: no-partition (no 0x7f entry)");
+                                None
+                            }
+                        },
+                        Err(e) => {
+                            crate::kprintln!("durable-media: no-partition ({e:?})");
+                            None
+                        }
+                    },
+                    Err(e) => {
+                        crate::kprintln!("durable-media: error (mbr read {e:?})");
+                        None
+                    }
+                }
+            }
+            Err(crate::drivers::sdhci::SdError::NotPresent) => {
+                crate::kprintln!("durable-media: absent (NotPresent)");
+                None
+            }
+            Err(crate::drivers::sdhci::SdError::NoCard) => {
+                crate::kprintln!("durable-media: no-card (no SDHC/SDXC answered)");
+                None
+            }
+            Err(crate::drivers::sdhci::SdError::Unsupported) => {
+                crate::kprintln!("durable-media: unsupported (not SDHC/SDXC)");
+                None
+            }
+            Err(e) => {
+                crate::kprintln!("durable-media: error (init {e:?})");
+                None
+            }
+        }
+    };
+
+    // Load the winning slot, seed the region, read the counter, print
+    // the cross-boot evidence line, then advance the counter.
+    let durable_flush = durable_media.and_then(|(sd, lba, host)| {
+        let mut loaded = [0u8; kernel_core::durable::REGION_SIZE];
+        let winner = match sd.media_load(lba, &mut loaded) {
+            Ok(w) => w,
+            Err(e) => {
+                crate::kprintln!("durable-media: error (load {e:?})");
+                return None;
+            }
+        };
+        if winner.is_some() {
+            crate::durable::restore(&loaded);
+        }
+        let mut out = [0u8; 4];
+        let prev = match crate::durable::get(b"boot", &mut out) {
+            Ok(4) => u32::from_le_bytes(out),
+            _ => 0,
+        };
+        let boot = prev + 1;
+        match winner {
+            Some((slot, seq)) => crate::kprintln!(
+                "durable-media: boot={boot} from=Previous part=0x7f slot={slot:?} seq={seq} host={host}"
+            ),
+            None => crate::kprintln!(
+                "durable-media: boot={boot} from=Fresh part=0x7f slot=- seq=0 host={host}"
+            ),
+        }
+        if let Err(e) = crate::durable::put(b"boot", &boot.to_le_bytes()) {
+            crate::kprintln!("durable-media: error (counter put {e:?})");
+            return None;
+        }
+        Some((sd, lba, winner))
+    });
+
+    // ADR-0045 / P2 durable: put → get from durable region (no host inject).
+    match crate::durable::put(b"cfg", b"persist") {
+        Ok(()) => {
+            let mut out = [0u8; 16];
+            match crate::durable::get(b"cfg", &mut out) {
+                Ok(len) if &out[..len] == b"persist" => {
+                    crate::kprintln!("durable: reloaded");
+                }
+                Ok(_) => crate::kprintln!("durable: bad payload"),
+                Err(e) => crate::kprintln!("durable: get FAILED {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("durable: put FAILED {e:?}"),
+    }
+
+    // ADR-0066: one explicit flush point — snapshot the region, write
+    // the opposite slot (header last = commit), then read back.
+    if let Some((sd, lba, winner)) = durable_flush {
+        let seq = winner.map(|(_, s)| s).unwrap_or(0);
+        let snap = crate::durable::snapshot();
+        match sd.media_flush(lba, winner.map(|(s, _)| s), seq, &snap) {
+            Ok((slot, new_seq)) => {
+                crate::kprintln!("durable-media: flushed slot={slot:?} seq={new_seq}");
+                match sd.media_verify(lba, slot, new_seq, &snap) {
+                    Ok(true) => crate::kprintln!("durable-media: verified"),
+                    Ok(false) => crate::kprintln!("durable-media: error (verify mismatch)"),
+                    Err(e) => crate::kprintln!("durable-media: error (verify {e:?})"),
+                }
+            }
+            Err(e) => crate::kprintln!("durable-media: error (flush {e:?})"),
+        }
+    }
+
+    // ADR-0068 / K4: same-EL preemption — an EL1 spinner that never
+    // yields loses the CPU on the IRQ epilogue. Replaces the ADR-0046
+    // cooperative pair (whose voluntary check the epilogue now wins by
+    // construction). Peer first, same discipline as the EL0 demo.
+    match crate::sched::spawn_thin(preempt_el1_peer) {
+        Ok(_) => match crate::sched::spawn_thin(preempt_el1_spinner) {
+            Ok(_) => crate::kprintln!("preempt-el1: workers spawned"),
+            Err(e) => crate::kprintln!("preempt-el1: spinner spawn FAILED {e:?}"),
+        },
+        Err(e) => crate::kprintln!("preempt-el1: peer spawn FAILED {e:?}"),
+    }
+
+    // ADR-0079 / K8: same claim on home=1 — local CNTP + EL1 epilogue.
+    // Watcher on CPU0 prints (no TX from core 1); peer then spinner on 1.
+    match crate::sched::spawn_thin(preempt_el1_cpu1_watch) {
+        Ok(_) => match crate::sched::spawn_on(1, preempt_el1_cpu1_peer) {
+            Ok(_) => match crate::sched::spawn_on(1, preempt_el1_cpu1_spinner) {
+                Ok(_) => crate::kprintln!("preempt-el1-cpu1: workers spawned"),
+                Err(e) => crate::kprintln!("preempt-el1-cpu1: spinner spawn FAILED {e:?}"),
+            },
+            Err(e) => crate::kprintln!("preempt-el1-cpu1: peer spawn FAILED {e:?}"),
+        },
+        Err(e) => crate::kprintln!("preempt-el1-cpu1: watch spawn FAILED {e:?}"),
+    }
+
+    // ADR-0081 / K8: EL0 session + quantum preemption on home=1.
+    // Publish is per-CPU; peer then spinner on 1; watcher prints on 0.
+    match crate::sched::spawn_thin(el0_cpu1_watch) {
+        Ok(_) => match crate::sched::spawn_on(1, el0_cpu1_peer) {
+            Ok(_) => match crate::sched::spawn_on(1, el0_cpu1_spinner) {
+                Ok(_) => crate::kprintln!("preempt-el0-cpu1: workers spawned"),
+                Err(e) => crate::kprintln!("preempt-el0-cpu1: spinner spawn FAILED {e:?}"),
+            },
+            Err(e) => crate::kprintln!("preempt-el0-cpu1: peer spawn FAILED {e:?}"),
+        },
+        Err(e) => crate::kprintln!("preempt-el0-cpu1: watch spawn FAILED {e:?}"),
+    }
+
+    // ADR-0083 / K8: work steal — all admitted on CPU0; no spawn_on(1).
+    // Two cooperative victims so one is Ready while the other runs; CPU1 pulls.
+    match crate::sched::spawn_thin(steal_watch) {
+        Ok(_) => match crate::sched::spawn_thin(steal_victim) {
+            Ok(_) => match crate::sched::spawn_thin(steal_victim) {
+                Ok(_) => crate::kprintln!("smp: steal workers spawned"),
+                Err(e) => crate::kprintln!("smp: steal victim2 spawn FAILED {e:?}"),
+            },
+            Err(e) => crate::kprintln!("smp: steal victim spawn FAILED {e:?}"),
+        },
+        Err(e) => crate::kprintln!("smp: steal watch spawn FAILED {e:?}"),
+    }
+
+    // ADR-0064 / K4: IRQ-side preemption of a non-syscalling EL0 spinner.
+    // Peer first, so it is already in the rotation when the window opens.
+    match crate::sched::spawn_thin(preempt_peer_task) {
+        Ok(_) => match crate::sched::spawn(preempt_agent_task) {
+            Ok(_) => crate::kprintln!("preempt: tasks spawned"),
+            Err(e) => crate::kprintln!("preempt: agent spawn FAILED {e:?}"),
+        },
+        Err(e) => crate::kprintln!("preempt: peer spawn FAILED {e:?}"),
+    }
+
+    // ADR-0032 / K3: a task that holds SEND revokes the channel; bootstrap
+    // then proves the stale CapId refuses send (product path, not forged).
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            REVOKE_STALE.store(ch.send.raw(), core::sync::atomic::Ordering::Relaxed);
+            match crate::sched::spawn_with_caps(revoke_held_task, &[ch.send]) {
+                Ok(_) => crate::kprintln!("ipc: revoke-held spawned"),
+                Err(e) => crate::kprintln!("ipc: revoke-held spawn FAILED {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("ipc: revoke channel FAILED {e:?}"),
+    }
+
+    // ADR-0025: park with no sender, then cancel from a supervisor task.
+    // The send capability is dropped — the orphan cannot be woken by IPC.
+    match crate::ipc::create_channel() {
+        Ok(ch) => {
+            match crate::sched::spawn_with_caps(orphan_receiver, &[ch.recv]) {
+                Ok(id) => {
+                    ORPHAN_TASK.store(id.to_raw(), core::sync::atomic::Ordering::Relaxed);
+                    crate::kprintln!("ipc: orphan spawned id={}", id.slot());
+                }
+                Err(e) => crate::kprintln!("ipc: orphan spawn FAILED {e:?}"),
+            }
+            // `ch.send` dropped here: nobody holds send.
+            match crate::sched::spawn(orphan_reaper) {
+                Ok(_) => crate::kprintln!("ipc: reaper spawned"),
+                Err(e) => crate::kprintln!("ipc: reaper spawn FAILED {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("ipc: orphan channel FAILED {e:?}"),
+    }
+
+    // ADR-0033 / K10: product supervisor reaps a blocked child and restarts.
+    match crate::sched::spawn(supervisor_task) {
+        Ok(_) => crate::kprintln!("sched: spawned supervisor"),
+        Err(e) => crate::kprintln!("sched: spawn supervisor FAILED {e:?}"),
+    }
+
+    // ADR-0031 / K2: ephemeral channel — sole SEND holder exits, waiter
+    // is auto-cancelled without a supervisor reaper.
+    match crate::ipc::create_channel_ephemeral() {
+        Ok(ch) => {
+            match crate::sched::spawn_with_caps(auto_reap_receiver, &[ch.recv]) {
+                Ok(_) => crate::kprintln!("ipc: auto-reap receiver spawned"),
+                Err(e) => crate::kprintln!("ipc: auto-reap receiver FAILED {e:?}"),
+            }
+            match crate::sched::spawn_with_caps(auto_reap_sender, &[ch.send]) {
+                Ok(_) => crate::kprintln!("ipc: auto-reap sender spawned"),
+                Err(e) => crate::kprintln!("ipc: auto-reap sender FAILED {e:?}"),
+            }
+        }
+        Err(e) => crate::kprintln!("ipc: auto-reap channel FAILED {e:?}"),
+    }
+
+    // ADR-0090 / K10 residual: force-exit Running EL0 — **last** among
+    // oracle demos so a long EL0 spin cannot interleave frame-pool free
+    // counts with `agents: concurrent` (false LEAK).
+    match crate::sched::spawn(force_kill_supervisor) {
+        Ok(_) => crate::kprintln!("sched: spawned force-kill supervisor"),
+        Err(e) => crate::kprintln!("sched: spawn force-kill FAILED {e:?}"),
+    }
+}
