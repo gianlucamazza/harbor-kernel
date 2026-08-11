@@ -257,8 +257,6 @@ pub fn run() -> ! {
         }
 
         // TFT status surface: rate-limited ticks/heap (never from IRQ).
-        #[cfg(feature = "debug-display")]
-        crate::status::on_idle();
 
         // 2. Periodic tick report, plus dispatch anomalies.
         let ticks = time::ticks();

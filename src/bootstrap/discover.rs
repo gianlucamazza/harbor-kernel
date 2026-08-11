@@ -59,15 +59,14 @@ pub fn report(uart: &mut Pl011, dtb_mapped: bool, smp_seen: u64) {
         }
     }
 
-    let display = if cfg!(feature = "debug-display") {
-        "on"
-    } else {
-        "off"
-    };
-    let _ = writeln!(
-        uart,
-        "discover: display compiled={display} (claim, not probed)"
-    );
+    // `off` for every image since ADR-0094 retired the panel, and written as a
+    // constant rather than as a `cfg!` on a feature that no longer exists.
+    //
+    // The line stays: discovery reports what the image *claims* to carry, and
+    // "no display compiled in" is a true claim about every image this tree
+    // builds. It is also where a future panel announces itself — deleting it
+    // would delete the slot along with the driver.
+    let _ = writeln!(uart, "discover: display compiled=off (claim, not probed)");
 }
 
 fn fdt_err(e: fdt::FdtError) -> &'static str {

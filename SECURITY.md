@@ -28,7 +28,7 @@ authority:
 
 1. Prefer a **private** report to the repository owner if disclosure would help
    an attacker on a deployed board; otherwise open a GitHub issue.
-2. Include: tree revision, image features (`debug-display` / default), serial
+2. Include: tree revision, image features (`bringup` / `panic-probe` / default), serial
    transcript, and the shortest program or mutation that crosses a boundary
    this document says should hold.
 
@@ -86,7 +86,6 @@ default remains CPU 0 when the field is absent. Residual load-balancing is
 | **Creator (bootstrap + loader)** | Fully trusted. Chooses AS geometry, caps and entry — now by reading a manifest compiled into the image, which is exactly as trusted as the code it replaced ([ADR-0021](docs/adr/0021-agents-as-data-and-the-manifest.md) §6). Not itself isolated.                                                                                                                                                                                                                   |
 | **EL0 agent**                    | **Untrusted.** May be wrong, malicious, or hostile. Must not gain authority it was not granted, nor corrupt kernel or peer memory.                                                                                                                                                                                                                                                                                                                                    |
 | **Serial adversary**             | Can type bytes on PL011. While the **kernel** owns RX the bytes land in a bounded ring the idle loop drains, and an overflow is counted (`RX_DROPPED`), not a memory path. While an **agent** owns RX (M6/M7 handover) the bytes are delivered to untrusted EL0 code by design — that is the feature — so the adversary's reach is exactly the agent's, and the agent is already untrusted. What neither case gives is a way to reach kernel memory or another agent. |
-| **SPI TFT path**                 | Lab-only (`debug-display`). Not a security boundary; GPIO/SPI mistakes can hang the boot, not elevate EL0.                                                                                                                                                                                                                                                                                                                                                            |
 | **QEMU**                         | Not evidence for memory-attribute or firmware-state claims ([`docs/verification.md`](docs/verification.md)).                                                                                                                                                                                                                                                                                                                                                          |
 
 ---
@@ -225,7 +224,6 @@ check is an assumption — see [`docs/verification.md`](docs/verification.md).
 | **Firmware / GIC Group 0**                 | Inherited from pinned `start4.elf` (ADR-0004).                                                                                                                                                                                                                                                                                                                        |
 | **SMP / ASID / TTBR1**                     | **K7** ASID first **done (HW)** (ADR-0050); VA regime remains option C; residual policy [ADR-0084](docs/adr/0084-k7-residual-policy.md) (K7-M lab optional, K7-T TTBR1 trigger-gated, K7-R rollover). **K8** through steal **done (HW)** (0070/74/76/77/79/81/83, stamps 2026-08-09…10); residual agent+TLB steal only if product needs it. |
 | **Product multi-core placement**           | **Composition-visible home:** store/manifest `home_cpu` ([ADR-0088](docs/adr/0088-product-home-cpu.md), **done (QEMU)** — default pack pins chirp@1, beacon@0). Steal remains opt-in EL1-only; agents with a live AS mark non-stealeable. Not ambient auto-balance. See product SMP policy in [`docs/architecture.md`](docs/architecture.md).                                                                      |
-| **Threat coverage of `debug-display`**     | Lab path; not part of the agent TCB story.                                                                                                                                                                                                                                                                                                                            |
 
 ---
 

@@ -27,7 +27,7 @@ board-qemu-q35 = []
 # the rule-7 exception ADR-0019 closed, unnoticed because no gate looked at what
 # lands in the image.
 #
-# **On by default**, unlike `bringup` and `debug-display`. `make boot-check` *is*
+# **On by default**, unlike `bringup` and `panic-probe`. `make boot-check` *is*
 # the oracle: a default that turns it off makes the project's central gate need a
 # flag, and a gate that needs a flag is a gate someone forgets. What changes is
 # not the default — it is that an image without it exists, is compiled, and is
@@ -39,10 +39,6 @@ oracle = []
 # none of it is compiled into a production image — and so the diagnostic
 # accessors cannot leak into the stable driver API by accident.
 bringup = []
-# Optional SPI TFT status surface (ADR-0009). Pulls in SpiBus/SpiDevice, the
-# BCM2711 SPI0 controller, and the BSP pinmux/bind for a Waveshare-class HAT.
-# Default images stay headless; enable explicitly for lab glass.
-debug-display = []
 
 # Deliberate-panic image (ADR-0093). One boot, one fault, on purpose: the panic
 # path is the only product path whose evidence is entirely negative — every

@@ -7,6 +7,3 @@ pub mod memmap;
 pub mod pm;
 pub mod rng;
 pub mod sdhci;
-
-#[cfg(feature = "debug-display")]
-pub mod display;

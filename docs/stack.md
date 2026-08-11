@@ -88,7 +88,7 @@ its own `#[panic_handler]`, which collides with the test harness, so
 | `board-qemu-q35`| **off** | H3 L0 lab board ([ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)); build with `--no-default-features --features board-qemu-q35 --target x86_64-unknown-none` / `make x86-elf`                   |
 | `oracle`        | **on**  | The demo tasks and agents every boot assertion reads. On by default because `make boot-check` _is_ the oracle; `make product-builds` proves an image without it exists and carries no demo strings |
 | `bringup`       | off     | Masked CNTP/HPPIR/IAR gates and raw GIC accessors used when the board will not talk                                                                                                                |
-| `debug-display` | off     | Optional SPI TFT status panel (ILI9486 class) — observability, not agent capability ([ADR-0009](adr/0009-optional-spi-tft-debug-console.md))                                                       |
+| `panic-probe`   | off     | Deliberate-fault image for `make panic-check`: writes to a stack guard page so the panic path has positive evidence ([ADR-0093](adr/0093-panic-path-positive-evidence.md)). Never in a product image                |
 
 Rule 9 of [`architecture.md`](architecture.md#rules): diagnostic scaffolding
 lives behind a feature, never in the production surface.

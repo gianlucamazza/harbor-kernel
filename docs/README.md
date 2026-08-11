@@ -100,7 +100,6 @@ src/
   mm/             heap, address spaces, frames, layout and task stacks
   console.rs      kernel TX/RX policy (product; TX under Mutex)
   panic.rs        panic path (product)
-  status.rs       optional display status slots (debug-display; Mutex)
   sync.rs         Mutex + SyncCell residual (ADR-0077, ADR-0091)
   time.rs         tick policy (global advance on CPU 0)
 boot/             Raspberry Pi firmware configuration
@@ -121,7 +120,7 @@ Do **not** treat this block as a second status table — it only steers readers.
 | **H2 mechanism**     | K4 + K7-ASID + K8 through steal + F-R1-P1 (+ loader lock 2026-08-11) + **K5-S** Mini **done (HW)**; K5-B **design** paid (0089); residual K5-H / K5-B **code** / K7-T if trigger |
 | **Product SMP**      | Composition `home_cpu` **done (QEMU)** [ADR-0088](adr/0088-product-home-cpu.md); force-exit Running **done (QEMU)** [ADR-0090](adr/0090-k10-force-exit-running.md)           |
 | **Evidence hygiene** | Composition-minimum `product-boot-check` + `oracle-census` (`MAX_TASKS=54`) in `make check`                                                                                     |
-| **Standing watch**   | [#14](https://github.com/gianlucamazza/harbor-kernel/issues/14) SpiDevice; [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) K7-M; x86 L0 done (QEMU-x86)         |
+| **Standing watch**   | [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) K7-M; x86 L0 done (QEMU-x86). #14 closed by [ADR-0094](adr/0094-retire-debug-display.md)                        |
 
 ## Decision records and reviews
 

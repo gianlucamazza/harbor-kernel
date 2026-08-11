@@ -473,16 +473,10 @@ assert_boot_oracle() {
 	# as a protection unverified rather than a protection unneeded.
 	grep -qaE 'el0-ipc: refused slot=1 authority=[1-9]' "${log}" ||
 		fail "EL0 agent was not refused a slot it does not hold"
-	# The image declares its feature set, and the declaration has to match what the
-	# image actually does. A banner nobody checks is a comment that survived into
-	# the log: it drifts the first time a feature is renamed, and it drifts in the
-	# direction of claiming more than is there.
-	#
-	# Both directions, because either alone is satisfiable by a lie: an image that
-	# says `debug-display` must bring the panel up, and one that says `headless`
-	# must not touch it. The trap this closes is a plain `make deploy` replacing a
-	# glass build with a headless one, where the only symptom was a dark panel that
-	# looks exactly like broken hardware.
+	# The image declares its feature set, and the declaration has to match what
+	# the image actually does. A banner nobody checks is a comment that survived
+	# into the log: it drifts the first time a feature is renamed, and it drifts
+	# in the direction of claiming more than is there.
 	build_line="$(grep -a '^build: ' "${log}" || true)"
 	[[ -n "${build_line}" ]] ||
 		fail "the image did not declare its feature set (no 'build:' line)"
@@ -491,13 +485,13 @@ assert_boot_oracle() {
 	# then a transcript cited by an ADR cannot be tied to a commit at all.
 	[[ "${build_line}" == *" src="* ]] ||
 		fail "the image did not declare its source id: ${build_line}"
-	if [[ "${build_line}" == *"debug-display"* ]]; then
-		grep -qa '^display: ' "${log}" ||
-			fail "image says debug-display, but the panel never came up: ${build_line}"
-	elif [[ "${build_line}" == *"headless"* ]]; then
-		if grep -qa '^display: ' "${log}"; then
-			fail "image says headless, but a panel came up: ${build_line}"
-		fi
+	# The panel is gone (ADR-0094), so the pair of claims this used to check
+	# against each other is down to one half: no image may bring a panel up.
+	# Kept rather than deleted, because the failure it guards against is a
+	# driver coming back without a composition, which is exactly what ADR-0094
+	# says must not happen quietly.
+	if grep -qa '^display: ' "${log}"; then
+		fail "a panel came up, and no image should have one since ADR-0094: ${build_line}"
 	fi
 
 	# ADR-0017 §3: the console is a capability, and one agent is deliberately

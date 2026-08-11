@@ -15,12 +15,3 @@ pub mod sdhci;
 
 #[cfg(target_arch = "x86_64")]
 pub mod uart16550;
-
-#[cfg(all(target_arch = "aarch64", feature = "debug-display"))]
-pub mod delay;
-#[cfg(all(target_arch = "aarch64", feature = "debug-display"))]
-pub mod ili9486;
-#[cfg(all(target_arch = "aarch64", feature = "debug-display"))]
-pub mod pin;
-#[cfg(all(target_arch = "aarch64", feature = "debug-display"))]
-pub mod spi;

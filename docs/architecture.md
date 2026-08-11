@@ -357,10 +357,12 @@ findings — lives in [`foundation-history.md`](foundation-history.md).
 It is a **record**, not planning: the foundation is closed on Pi 4B (M0–M8 plus
 the parked-wait policy of [ADR-0024](adr/0024-parked-task-visibility.md) /
 [ADR-0025](adr/0025-cancel-blocked-wait.md)), and live work is numbered K/P in
-[`roadmap.md`](roadmap.md). The optional SPI TFT status surface
+[`roadmap.md`](roadmap.md). The SPI TFT status surface
 ([ADR-0009](adr/0009-optional-spi-tft-debug-console.md),
 [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md)) is recorded there too, as
-the side-track it was.
+the side-track it was — and it is now **retired**
+([ADR-0094](adr/0094-retire-debug-display.md)): it compiled without ever being
+executed, and the pure half survives in `kernel_core`.
 
 <a id="completeness-roadmap"></a>
 
@@ -399,8 +401,8 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0006](adr/0006-cooperative-execution-model.md)                  | Cooperative execution model (M3 tasks); closes F12 (**accepted**)                                                                                      |
 | [ADR-0007](adr/0007-project-identity-harbor-kernel.md)               | Project identity Harbor / `harbor-kernel` (**accepted**)                                                                                               |
 | [ADR-0008](adr/0008-irq-handler-policy.md)                           | IRQ handler shape for M4 wakes / caps; closes F13 (**accepted**)                                                                                       |
-| [ADR-0009](adr/0009-optional-spi-tft-debug-console.md)               | Optional SPI TFT status surface; lab side-track (**accepted**)                                                                                         |
-| [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md)                | SPI sessions + DBI stream; regwidth-16 SKU note (**accepted**)                                                                                         |
+| [ADR-0009](adr/0009-optional-spi-tft-debug-console.md)               | Optional SPI TFT status surface; lab side-track (**superseded**) — by 0094                                                                             |
+| [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md)                | SPI sessions + DBI stream; regwidth-16 SKU note (**superseded**) — by 0094                                                                             |
 | [ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md)       | DTB mapped; board truth compiled-in; closes F15 (**accepted**)                                                                                         |
 | [ADR-0012](adr/0012-frame-allocator-for-address-spaces.md)           | Frame allocator for user AS; M5 needs-first (**accepted**)                                                                                             |
 | [ADR-0013](adr/0013-narrow-device-windows.md)                        | Narrow device MMIO for agents; F26/M6 v1 (**accepted**)                                                                                                |
@@ -410,7 +412,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0017](adr/0017-el0-capability-abi.md)                           | EL0 capability ABI: slot-indexed authority, session state in the TCB (**accepted**)                                                                    |
 | [ADR-0018](adr/0018-agent-fault-policy.md)                           | Agent fault policy: the kernel ends the session, the creator decides the task (**accepted**)                                                           |
 | [ADR-0019](adr/0019-no-static-mut.md)                                | No `static mut`: the last one becomes an atomic, rule 7 without an exception (**accepted**)                                                            |
-| [ADR-0020](adr/0020-spidevice-contract-without-a-caller.md)          | `SpiDevice`: contract kept, ADR-0010's descriptive sentence retracted (**accepted**)                                                                   |
+| [ADR-0020](adr/0020-spidevice-contract-without-a-caller.md)          | `SpiDevice`: a contract with no caller (**superseded**) — by 0094, the trait went with the panel                                              |
 | [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)              | Agents as data described by a manifest; the grant becomes a binding, not code (**accepted**)                                                           |
 | [ADR-0022](adr/0022-blocking-recv-and-the-mask-that-travels.md)      | Blocking `SYS_RECV`: the agent parks; `without_irqs` stops spanning a switch (**accepted**)                                                            |
 | [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) | An agent is a **pair**: an EL1 driver task and the EL0 program it drives; the driver is what the scheduler runs (**accepted**)                         |
@@ -449,6 +451,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0091](adr/0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` owns its datum; `SyncCell` a closed residual (**accepted**); done (QEMU)                                                 |
 | [ADR-0092](adr/0092-lifecycle-verdicts.md)                           | Supervisor lifecycle verdicts pure in `kernel-core` (**accepted**); done (QEMU)                                                                        |
 | [ADR-0093](adr/0093-panic-path-positive-evidence.md)                 | Panic path positive evidence — deliberate guard-page fault (**accepted**); done (QEMU)                                                                |
+| [ADR-0094](adr/0094-retire-debug-display.md)                         | Retire `debug-display`; the panel returns with a composition (**accepted**)                                                                            |
 | [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                                              |
 | [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                                               |
 | [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md) |

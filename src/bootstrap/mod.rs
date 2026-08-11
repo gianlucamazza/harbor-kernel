@@ -98,11 +98,11 @@ fn refuse_to_boot(uart: &mut Pl011, reason: core::fmt::Arguments<'_>) -> ! {
 /// feature renamed in `Cargo.toml` fails here instead of silently dropping out
 /// of the banner, which is the failure mode a `#[cfg]` chain has.
 const fn build_features() -> &'static str {
-    match (cfg!(feature = "debug-display"), cfg!(feature = "bringup")) {
-        (true, true) => "debug-display bringup",
-        (true, false) => "debug-display",
+    match (cfg!(feature = "panic-probe"), cfg!(feature = "bringup")) {
+        (true, true) => "panic-probe bringup",
+        (true, false) => "panic-probe",
         (false, true) => "bringup",
-        (false, false) => "headless (no SPI TFT, no bring-up gates)",
+        (false, false) => "headless (no bring-up gates)",
     }
 }
 
@@ -408,27 +408,6 @@ pub fn run() -> ! {
             Err(error) => println!(uart, "rng200: read FAILED: {error:?}"),
         },
         Err(error) => println!(uart, "rng200: unavailable ({error:?})"),
-    }
-
-    // Optional SPI TFT (ADR-0009): SPI0 + ILI9486 init + solid fill so the
-    // glass is not left white. After MMU; before IRQs. Handle stays installed.
-    #[cfg(feature = "debug-display")]
-    {
-        // SAFETY: single core; GPIO/SPI0 not otherwise claimed.
-        match unsafe { board::display::init_and_panel() } {
-            Ok(spi) => {
-                let cdiv = spi.cdiv();
-                let bit_hz = spi.bit_hz();
-                board::display::install(spi);
-                println!(
-                    uart,
-                    "display: ILI9486 up  cdiv={cdiv}  bit_clk={bit_hz} Hz  status"
-                );
-                // Status surface: structured slots (not a serial mirror).
-                crate::status::show_boot_after_display(cdiv, bit_hz, timer::frequency_hz());
-            }
-            Err(error) => println!(uart, "display: init FAILED: {error:?}"),
-        }
     }
 
     // Deliberate fault (ADR-0093), before IRQs are bound: the panic path is

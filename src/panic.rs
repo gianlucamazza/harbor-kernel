@@ -93,17 +93,5 @@ fn panic(info: &PanicInfo) -> ! {
     report_faulting_address(&mut uart);
     let _ = writeln!(uart, "*** halt ***");
 
-    #[cfg(feature = "debug-display")]
-    {
-        // Best-effort glass banner; UART already has the full diagnostic.
-        let mut buf = [0u8; 60];
-        let msg = info.message();
-        let s = msg.as_str().unwrap_or("panic");
-        let n = s.len().min(buf.len());
-        buf[..n].copy_from_slice(s.as_bytes());
-        let text = core::str::from_utf8(&buf[..n]).unwrap_or("panic");
-        crate::status::show_panic(text);
-    }
-
     cpu::halt()
 }

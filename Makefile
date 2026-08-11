@@ -84,7 +84,7 @@ ifeq ($(strip $(HOST_TARGET)),)
 $(error could not determine the host triple from 'rustc -vV' — is rustc on PATH?)
 endif
 
-# Optional cargo features for img/deploy (e.g. FEATURES=debug-display).
+# Optional cargo features for img/deploy (e.g. FEATURES=bringup).
 # Default images stay featureless so QEMU boot-check and production match.
 FEATURES    ?=
 
@@ -96,7 +96,7 @@ ifneq ($(strip $(FEATURES)),)
   CARGO_FLAGS += --features $(FEATURES)
 endif
 
-.PHONY: all debug img elf check test miri bringup-builds debug-display-builds \
+.PHONY: all debug img elf check test miri bringup-builds \
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
 	boot-check panic-check x86-elf x86-boot-check doc-claims layering fmt fmt-check \
@@ -112,29 +112,19 @@ debug:
 elf:
 	cargo build $(CARGO_FLAGS)
 
-# FEATURES stamp: empty is headless. The SPI TFT status surface is opt-in
-# (ADR-0009); a plain `make deploy` after a lab session silently replaces a
-# glass-enabled image with one that never touches the panel — the serial log
-# then has no `display:` line and the HAT looks "broken". Always re-pass
-# FEATURES=debug-display for TFT work. When that feature is set we also keep a
-# side copy so the default `kernel8.img` path cannot erase the last glass build
-# without someone noticing the second file is stale.
+# FEATURES stamp: empty is the product image. Every image is headless since
+# ADR-0094 retired the panel; the stamp stays because `bringup` and
+# `panic-probe` are still opt-in, and a deploy that silently shipped one of
+# those would be the same surprise the glass build used to be.
 img: elf
 	$(OBJCOPY) -O binary $(ELF) $(IMG)
-	@if echo " $(FEATURES) " | grep -q ' debug-display '; then \
-	  cp -f $(IMG) $(CARGO_OUT)/kernel8-debug-display.img; \
-	fi
 	@echo "built $(IMG)"
 	@if [ -z "$(strip $(FEATURES))" ]; then \
-	  echo "  FEATURES=(none)  — headless; TFT needs FEATURES=debug-display"; \
+	  echo "  FEATURES=(none)  — product image"; \
 	else \
 	  echo "  FEATURES=$(FEATURES)"; \
 	fi
 	@ls -la $(IMG)
-	@if [ -f $(CARGO_OUT)/kernel8-debug-display.img ]; then \
-	  echo "  last glass build (not what deploy writes unless FEATURES is set):"; \
-	  ls -la $(CARGO_OUT)/kernel8-debug-display.img; \
-	fi
 
 # A superset of CI's *gates*: a green here has to predict a green there, or it
 # is not worth running locally. The one CI step with no prerequisite here is
@@ -143,7 +133,7 @@ img: elf
 # `miri`/`shellcheck` fail loudly when their tool is absent rather than letting
 # the claim quietly become false (skip only with ALLOW_MIRI_SKIP=1 /
 # ALLOW_SHELLCHECK_SKIP=1, same shape as boot-check's ALLOW_BOOT_SKIP).
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check oracle-census miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
+check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -340,10 +330,6 @@ bringup-builds:
 
 # ADR-0009 SPI/status path must keep compiling even when the default image is
 # headless — same rationale as bringup-builds.
-debug-display-builds:
-	cargo build $(CARGO_FLAGS) --features debug-display
-	cargo clippy --target $(TARGET) --features debug-display -- -D warnings
-	@echo "debug-display-builds: clean"
 
 # `make debug` is what someone reaches for with gdb, and the dev profile has a
 # different opt-level and different codegen from the one every other gate
@@ -396,8 +382,7 @@ blobs:
 
 deploy: img
 	@if [ -z "$(strip $(FEATURES))" ]; then \
-	  echo "deploy: FEATURES=(none) — image is headless (no SPI TFT)."; \
-	  echo "  For the status panel: make FEATURES=debug-display deploy SD_MOUNT=…"; \
+	  echo "deploy: FEATURES=(none) — product image."; \
 	else \
 	  echo "deploy: FEATURES=$(FEATURES)"; \
 	fi

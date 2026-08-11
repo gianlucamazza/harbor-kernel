@@ -74,26 +74,6 @@ pub const EMMC2_BASE: usize = PERIPHERAL_BASE + 0x0034_0000;
 /// `-drive if=sd` card into. The bind probes [`EMMC2_BASE`] first.
 pub const SDHCI_LEGACY_BASE: usize = PERIPHERAL_BASE + 0x0030_0000;
 
-/// SPI0 (SPI master 0) register block.
-///
-/// BCM2711 low peripheral window; same layout as the BCM2835 SPI0 block.
-#[cfg(feature = "debug-display")]
-pub const SPI0_BASE: usize = PERIPHERAL_BASE + 0x0020_4000;
-
-/// Core clock used as the SPI0 source when `core_freq_min=500` in `config.txt`.
-///
-/// The SPI bit rate is `SPI0_CORE_CLOCK_HZ / CDIV`. If the firmware core clock
-/// changes, re-measure before claiming a panel Fmax margin.
-#[cfg(feature = "debug-display")]
-pub const SPI0_CORE_CLOCK_HZ: u32 = 500_000_000;
-
-/// SPI bit-clock ceiling for Waveshare-class ILI9486 (Hz).
-///
-/// Closed on silicon at 8 MHz with regwidth-16 framing (2026-08-05). Raise
-/// toward 16 MHz only after re-checking colour bars / status on glass.
-#[cfg(feature = "debug-display")]
-pub const SPI0_TARGET_HZ: u32 = 8_000_000;
-
 /// UART reference clock after platform firmware enables the PL011 (Hz).
 ///
 /// Requires `enable_uart=1` in the boot partition `config.txt`.

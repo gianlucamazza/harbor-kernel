@@ -135,7 +135,7 @@ Toolchain: [`rust-toolchain.toml`](rust-toolchain.toml) · target
 make              # release kernel8.img
 make test         # host tests
 make qemu         # boot in QEMU
-make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-display-builds debug-builds board-guard product-builds product-boot-check oracle-census miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence, then clippy
+make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence, then clippy
 ```
 
 On a Pi 4B (FAT boot partition + 3.3 V USB-serial):
@@ -146,7 +146,6 @@ make deploy SD_MOUNT=/run/media/$USER/boot
 make serial SERIAL_DEV=/dev/ttyUSB0
 ```
 
-Optional SPI TFT status panel: `FEATURES=debug-display` — see
 [`docs/hardware.md`](docs/hardware.md). UART remains the primary console.
 
 ## Documentation
