@@ -4,7 +4,8 @@ title: Oracle waits are guest time, and a host that cannot host the question get
 status: accepted
 date: 2026-08-10
 accepted: 2026-08-10
-related: [0008, 0022, 0064, 0066, 0068, 0070, 0074, 0076, 0079, 0081, 0083]
+related: [0008, 0022, 0064, 0066, 0068, 0070, 0074, 0076, 0079, 0081, 0083, 0088]
+amended: 2026-08-11
 ---
 
 # ADR-0087: oracle waits are guest time, and a starved host gets no verdict
@@ -67,6 +68,27 @@ Same-core waits stay counted in yields, and that is not an inconsistency: there
 the budget measures the very core whose progress is in question. Bring-up waits
 before the timer is live (`core1 alive`, `core1 ipi`, `core1 ran`) stay spin-
 bounded for the same reason — there is no guest clock yet.
+
+> **Amendment (2026-08-11, reconciliation per [ADR-0058](0058-adr-amendments-and-mutation-freshness.md)).**
+> This decision was implemented in `demos.rs` — the oracle — because in
+> 2026-08-10 the oracle was where cross-core waits lived. [ADR-0088](0088-product-home-cpu.md)
+> then pinned a **product** agent on CPU 1, which made the loader's drain
+> barrier (`ipc::yield_until_empty`, a wait on the console server) cross-core
+> too, still counted in 64 yields. Measured at 3 failures in 6 runs of
+> `product-boot-check` on a host capped near one core, always as
+> `loader: chirp drain wait FAILED Timeout` — chirp is the CPU 1 agent, and
+> beacon on CPU 0 never failed. The barrier is now bounded by
+> `ipc::DRAIN_WAIT_TICKS` (ten ticks, the same guest-time bound `demos` uses)
+> with a yield ceiling under it. §1 is unchanged; a product site it did not
+> reach has been brought under it.
+>
+> Same series, same cause: `qemu-product-boot-check.sh` asserted beacon's two
+> console bytes as the contiguous string `H!`, one line under a comment saying
+> the bytes may interleave. With chirp on CPU 1 they do — `H?!` is a correct
+> boot — so the assertion was a claim about the host's vCPU scheduling. It now
+> asserts the two bytes **in order**, tolerating other agents' bytes between
+> them. §2's rule is that no assertion may be attributable to the host; this
+> extends it from *when a verdict is given* to *what a verdict asserts*.
 
 What this buys, on the quota ladder that measured it: the oracle set used to
 break below 0.37 of a core and now holds at 0.22. Half of what looked like the

@@ -122,8 +122,20 @@ grep -qaE 'loader: chirp loaded text=[0-9]+ stack=[0-9]+ home=1' "${log}" ||
 	fail "chirp was not loaded on home=1 (product multi-core pin)"
 grep -qa 'loader: beacon ran sends=2 refusals=0' "${log}" || fail "beacon did not run successfully"
 grep -qa 'loader: chirp ran sends=1 refusals=0' "${log}" || fail "chirp did not run successfully"
-# Concurrent product agents share the console endpoint: bytes may interleave.
-grep -qa 'H!' "${log}" || fail "beacon bytes did not reach the wire"
+# Concurrent product agents share the console endpoint: bytes may interleave —
+# and since ADR-0088 pins chirp on CPU 1, they *do*. `H!` was written when the
+# composition was single-core and asserts the opposite of the line above it:
+# it passes only when beacon's two sends land adjacently, which is a claim
+# about the host's vCPU scheduling, not about the kernel. On a host that gives
+# QEMU less than a core it fails about half the time, with `H?!` on the wire —
+# chirp's byte between beacon's two. That is a correct product boot.
+#
+# What the kernel actually promises is that beacon's bytes arrive, in order,
+# through the console server. So: `H`, then `!`, with only other agents'
+# non-alphanumeric bytes allowed in between (ADR-0087's rule that no assertion
+# may depend on the host, applied to an assertion rather than to a wait).
+grep -qaE 'H[^[:alnum:][:space:]]*!' "${log}" ||
+	fail "beacon bytes did not reach the wire, or arrived out of order"
 grep -qaF '?' "${log}" || fail "chirp byte did not reach the wire"
 
 # ---------------------------------------------------------------------------

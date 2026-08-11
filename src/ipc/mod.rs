@@ -50,11 +50,25 @@ pub use kernel_core::ipc::{
     Channel, CreateError, Message, QueuedError, RecvError, RevokeError, SendError,
 };
 
-/// Default yield budget for [`yield_until_empty`] (M8 creator drain barrier).
+/// Guest-time budget for [`yield_until_empty`] (M8 creator drain barrier).
 ///
-/// Mailbox depth is 4; empty should appear in a few yields if the console
-/// server is live. Bound avoids spinning forever if the server never runs.
-pub const YIELD_UNTIL_EMPTY_DEFAULT: u32 = 64;
+/// **Ticks, not yields** (ADR-0087 §1, amended 2026-08-11). The drain waits on
+/// the *console server*, and since product agents may home on CPU 1
+/// (ADR-0088) that server can be on the other core — so the wait is
+/// cross-core, and how many of this core's yields fit before the other core is
+/// scheduled is a property of the host, not of the kernel. The original budget
+/// of 64 yields was written when the loader was single-core; on a host that
+/// multiplexes vCPU threads it expires while the server's thread has not been
+/// picked once. Measured here at 3 runs in 6 of `product-boot-check`, with
+/// `loader: chirp drain wait FAILED Timeout` — chirp is the agent that homes
+/// on CPU 1, and beacon, on CPU 0, never failed.
+///
+/// Ten ticks ≈ 1 s of guest time, the same bound `demos::wait_ticks_for` uses.
+pub const DRAIN_WAIT_TICKS: u64 = 10;
+
+/// Yield ceiling under the tick bound, so a stopped tick counter is a failure
+/// rather than a hang. Reaching it is a different bug from timing out.
+const DRAIN_WAIT_CEILING: u32 = 2_000_000;
 
 /// Why a cooperative drain wait failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,21 +219,29 @@ pub fn queued(cap: CapId) -> Result<usize, QueuedError> {
 /// before [`sched::yield_now`]. Must **not** be called from inside
 /// `without_irqs` or any DAIF save/restore that would span the yield
 /// (architecture rule 7 / ADR-0022 / `make irq-scope`).
-pub fn yield_until_empty(cap: CapId, max_yields: u32) -> Result<(), DrainError> {
-    for _ in 0..=max_yields {
+pub fn yield_until_empty(cap: CapId, deadline_ticks: u64) -> Result<(), DrainError> {
+    let deadline = crate::time::ticks().saturating_add(deadline_ticks.max(1));
+    for _ in 0..DRAIN_WAIT_CEILING {
         match queued(cap) {
             Ok(0) => return Ok(()),
-            Ok(_) => sched::yield_now(),
+            Ok(_) => {}
             Err(QueuedError::BadCap) => return Err(DrainError::BadCap),
         }
+        if crate::time::ticks() >= deadline {
+            return Err(DrainError::Timeout);
+        }
+        sched::yield_now();
     }
+    // The clock stopped. Reported as a timeout because the caller has the same
+    // choice either way, but it is a different failure and the ceiling is what
+    // keeps it from being a hang.
     Err(DrainError::Timeout)
 }
 
-/// Same as `yield_until_empty(cap, YIELD_UNTIL_EMPTY_DEFAULT)`.
+/// Same as `yield_until_empty(cap, DRAIN_WAIT_TICKS)`.
 #[inline]
 pub fn yield_until_empty_default(cap: CapId) -> Result<(), DrainError> {
-    yield_until_empty(cap, YIELD_UNTIL_EMPTY_DEFAULT)
+    yield_until_empty(cap, DRAIN_WAIT_TICKS)
 }
 
 /// Send through the capability in `slot` of the calling task's own table.
