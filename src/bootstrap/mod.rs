@@ -277,6 +277,106 @@ fn probe_rng(uart: &mut Pl011) {
     }
 }
 
+/// Refuse to boot if the table arena is nearly spent.
+///
+/// Every later spawn may cost a table — a guard unmap splits a 2 MiB heap block
+/// and the arena never frees. Checked *after* the DTB map so the reserve is
+/// what spawn actually sees; counting before that under-states the cost.
+fn assert_table_reserve(uart: &mut Pl011) {
+    if mmu::tables_free() < MIN_SPARE_TABLES {
+        refuse_to_boot(
+            uart,
+            format_args!(
+                "table arena nearly exhausted: {} tables left, need {MIN_SPARE_TABLES} \
+                 (raise PAGE_TABLE_ARENA_SIZE in link.ld)",
+                mmu::tables_free()
+            ),
+        )
+    }
+}
+
+/// Bring up the heap and the frame pool, then claim idle for the scheduler.
+///
+/// `sched::init` belongs here rather than later: since ADR-0017 §1 the EL0
+/// session lives in the TCB, so *something* has to be the current task before
+/// anyone can enter EL0. It claims idle — the task this bootstrap is already
+/// running on — and publishes its session. It used to run after the demos,
+/// which was only tenable while the session was a machine-wide global that
+/// existed from link time.
+fn init_memory_pools(uart: &mut Pl011, heap_end: usize, frame_base: usize, frame_end: usize) {
+    // SAFETY: the heap region was just mapped as Normal memory.
+    let heap_ok = unsafe { mm::init_heap(heap_end) };
+    if heap_ok {
+        println!(uart, "heap remaining = {} bytes", mm::heap_remaining());
+    } else {
+        println!(uart, "heap UNAVAILABLE (empty region)");
+    }
+
+    // ADR-0012 S1: named phys frame pool (identity-mapped with the kernel map).
+    // SAFETY: `frame pool` region was mapped RW Normal; exclusive of the heap.
+    let frames_ok = unsafe { mm::frames::init(frame_base, frame_end) };
+    if frames_ok {
+        println!(
+            uart,
+            "frames: {} free / {}  base={frame_base:#x}  ({} KiB pool)",
+            mm::frames::free_count(),
+            mm::frames::capacity(),
+            board::memmap::FRAME_POOL_BYTES / 1024
+        );
+        crate::sched::init();
+
+        // M5 S2/S3: AS create → prepare (kernel clone + user stack) → EL0 probes.
+        #[cfg(feature = "oracle")]
+        demos::m5_aspace_and_el0_smoke(uart);
+    } else {
+        println!(uart, "frames: UNAVAILABLE");
+    }
+}
+
+/// Map the device tree back in, report what it says, and mark the phase.
+///
+/// The kernel map deliberately covers far less than the early one, so the blob
+/// is now outside it. Mapping it back is the first region whose address only
+/// the firmware knows, which is exactly what `mmu::map` exists for.
+///
+/// The report itself (ADR-0072/0073) observes the tree, reconciles it with the
+/// compiled claims and prints one line per fact. **Fail-open:** a missing or
+/// unmappable blob prints its `unknown` form and the boot continues.
+///
+/// Returns the phase mark for the `boot:` timing line.
+fn map_dtb_and_discover(uart: &mut Pl011, core1: bool) -> u64 {
+    let mut dtb_mapped = false;
+    if let Some((base, len)) = bootinfo::device_tree_pages() {
+        let region = Region {
+            base,
+            len,
+            kind: MemKind::NormalWb,
+            // Read-only: nothing in this kernel writes the blob, and a device
+            // tree that the kernel can modify is a device tree nobody can trust.
+            perms: Perms::RO,
+            name: "device tree",
+        };
+        // SAFETY: kernel map active, IRQs masked; the range is firmware-owned
+        // RAM outside every other region.
+        match unsafe { mmu::map(&region) } {
+            Ok(()) => {
+                println!(uart, "DTB mapped: {len} bytes at {base:#x}");
+                dtb_mapped = true;
+            }
+            Err(error) => println!(uart, "DTB map FAILED: {error:?}"),
+        }
+    }
+
+    // The discovery report (ADR-0072/0073): observe the tree, reconcile with
+    // the compiled claims, print one line per fact. Fail-open — a missing or
+    // unmappable blob prints its `unknown` form and the boot continues.
+    // smp-seen: primary always + core1 if unpark returned alive (not the
+    // secondary_wait counter — that stays 0 under QEMU -kernel).
+    let smp_seen = 1u64 + u64::from(core1);
+    discover::report(uart, dtb_mapped, smp_seen);
+    timer::physical_count()
+}
+
 pub fn run() -> ! {
     // SAFETY: core 0; DAIF still masked from `boot.s`; nothing else has run.
     let Some(mut uart) = (unsafe { console::acquire() }) else {
@@ -478,88 +578,11 @@ pub fn run() -> ! {
         println!(uart, "smp: core1 timeout seen={seen}");
     }
 
-    // The kernel map deliberately covers far less than the early one, so the
-    // device-tree blob is now outside it. Map it back in: it is the first
-    // region whose address only the firmware knows, which is exactly what
-    // `mmu::map` exists for.
-    let mut dtb_mapped = false;
-    if let Some((base, len)) = bootinfo::device_tree_pages() {
-        let region = Region {
-            base,
-            len,
-            kind: MemKind::NormalWb,
-            // Read-only: nothing in this kernel writes the blob, and a device
-            // tree that the kernel can modify is a device tree nobody can trust.
-            perms: Perms::RO,
-            name: "device tree",
-        };
-        // SAFETY: kernel map active, IRQs masked; the range is firmware-owned
-        // RAM outside every other region.
-        match unsafe { mmu::map(&region) } {
-            Ok(()) => {
-                println!(uart, "DTB mapped: {len} bytes at {base:#x}");
-                dtb_mapped = true;
-            }
-            Err(error) => println!(uart, "DTB map FAILED: {error:?}"),
-        }
-    }
+    let discover_at = map_dtb_and_discover(&mut uart, core1);
 
-    // The discovery report (ADR-0072/0073): observe the tree, reconcile with
-    // the compiled claims, print one line per fact. Fail-open — a missing or
-    // unmappable blob prints its `unknown` form and the boot continues.
-    // smp-seen: primary always + core1 if unpark returned alive (not the
-    // secondary_wait counter — that stays 0 under QEMU -kernel).
-    let smp_seen = 1u64 + u64::from(core1);
-    discover::report(&mut uart, dtb_mapped, smp_seen);
-    let discover_at = timer::physical_count();
+    assert_table_reserve(&mut uart);
 
-    // Every later spawn may cost a table (guard unmap splits a 2 MiB heap
-    // block; the arena never frees). Check *after* the DTB map so the reserve
-    // is what spawn actually sees — counting before that under-states the cost.
-    if mmu::tables_free() < MIN_SPARE_TABLES {
-        refuse_to_boot(
-            &mut uart,
-            format_args!(
-                "table arena nearly exhausted: {} tables left, need {MIN_SPARE_TABLES} \
-                 (raise PAGE_TABLE_ARENA_SIZE in link.ld)",
-                mmu::tables_free()
-            ),
-        )
-    }
-
-    // SAFETY: the heap region was just mapped as Normal memory.
-    let heap_ok = unsafe { mm::init_heap(heap_end) };
-    if heap_ok {
-        println!(uart, "heap remaining = {} bytes", mm::heap_remaining());
-    } else {
-        println!(uart, "heap UNAVAILABLE (empty region)");
-    }
-
-    // ADR-0012 S1: named phys frame pool (identity-mapped with the kernel map).
-    // SAFETY: `frame pool` region was mapped RW Normal; exclusive of the heap.
-    let frames_ok = unsafe { mm::frames::init(frame_base, frame_end) };
-    if frames_ok {
-        println!(
-            uart,
-            "frames: {} free / {}  base={frame_base:#x}  ({} KiB pool)",
-            mm::frames::free_count(),
-            mm::frames::capacity(),
-            board::memmap::FRAME_POOL_BYTES / 1024
-        );
-        // The scheduler before the first EL0 entry: since ADR-0017 §1 the EL0
-        // session lives in the TCB, so *something* has to be the current task
-        // before anyone can enter EL0. `init` claims idle — which is the task
-        // this bootstrap is already running on — and publishes its session.
-        // It used to run after the demos, which was only tenable while the
-        // session was a machine-wide global that existed from link time.
-        crate::sched::init();
-
-        // M5 S2/S3: AS create → prepare (kernel clone + user stack) → EL0 probes.
-        #[cfg(feature = "oracle")]
-        demos::m5_aspace_and_el0_smoke(&mut uart);
-    } else {
-        println!(uart, "frames: UNAVAILABLE");
-    }
+    init_memory_pools(&mut uart, heap_end, frame_base, frame_end);
 
     probe_rng(&mut uart);
 
