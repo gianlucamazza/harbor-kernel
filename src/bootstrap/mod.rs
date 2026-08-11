@@ -377,14 +377,98 @@ fn map_dtb_and_discover(uart: &mut Pl011, core1: bool) -> u64 {
     timer::physical_count()
 }
 
-pub fn run() -> ! {
-    // SAFETY: core 0; DAIF still masked from `boot.s`; nothing else has run.
-    let Some(mut uart) = (unsafe { console::acquire() }) else {
-        // Unreachable in practice — this is the first claim — but there is no
-        // console to report it on, so park rather than pretend.
-        cpu::halt()
-    };
+/// What the kernel map was built from, and when it went live.
+///
+/// Set once, whole, by [`establish_kernel_map`]. Deliberately **not** a mutable
+/// boot context (ADR-0095 §2): the phases below read fields a single earlier
+/// phase produced, and a struct that could be half-written would turn a compile
+/// error into a zero at boot time.
+struct MemPlan {
+    heap_end: usize,
+    frame_base: usize,
+    frame_end: usize,
+    /// Phase mark for the `boot:` timing line.
+    mmu_at: u64,
+}
 
+/// Decide the kernel's memory bounds, build the map, and switch to it.
+///
+/// One function and not three, because `kernel_regions` borrows a local buffer
+/// that whoever calls `mmu::activate` has to own (ADR-0095 §3).
+///
+/// Heap and frame-pool bounds come first: both are mapped regions (ADR-0012 —
+/// a named pool, not "the rest of RAM"). On any failure the early map stays
+/// active, so the refusal still reaches a working console, and then the boot
+/// stops, because that map protects nothing.
+///
+/// `activate` returning `Ok` is not the same as the MMU being on, so the claim
+/// printed at the end is read back from `SCTLR_EL1` rather than inferred from
+/// the path that just ran.
+fn establish_kernel_map(uart: &mut Pl011) -> MemPlan {
+    let heap_end = (mm::heap_start() + HEAP_SIZE).min(board::memmap::IDENTITY_RAM_END);
+    let (frame_base, frame_end) = match mm::frames::range_after_heap(heap_end) {
+        Some(range) => range,
+        None => refuse_to_boot(
+            uart,
+            format_args!(
+                "frame pool does not fit after heap at {heap_end:#x} \
+                 (need {} B under IDENTITY_RAM_END)",
+                board::memmap::FRAME_POOL_BYTES
+            ),
+        ),
+    };
+    let mut region_buffer = [mm::layout::empty_region(); mm::layout::MAX_REGIONS];
+    let regions =
+        match mm::layout::kernel_regions(heap_end as u64, frame_end as u64, &mut region_buffer) {
+            Ok(regions) => regions,
+            Err(error) => {
+                // The layout itself is inconsistent — overlapping regions, a
+                // mapped guard page, a W+X region. Mapping it would produce
+                // something that boots and protects nothing.
+                refuse_to_boot(uart, format_args!("layout invalid: {error:?}"))
+            }
+        };
+
+    // Swap the coarse early map for the real one. On failure the early map
+    // stays active, so the report still reaches the console — and then the boot
+    // stops, because that map protects nothing.
+    // SAFETY: single core, IRQs masked, early map active.
+    if let Err((error, region)) = unsafe { mmu::activate(regions) } {
+        refuse_to_boot(uart, format_args!("could not map {region}: {error:?}"))
+    }
+    // The map is live: remember the two bounds it was built from, so a later
+    // fault can be told which region its address belongs to.
+    mm::layout::record_bounds(heap_end as u64, frame_end as u64);
+
+    // `activate` returning `Ok` is not the same as the MMU being on. The claim
+    // printed below is about the hardware, so it is read back from `SCTLR_EL1`
+    // rather than inferred from the path that just ran.
+    if !mmu::is_enabled() {
+        refuse_to_boot(
+            uart,
+            format_args!("activate reported success but SCTLR_EL1.M is clear"),
+        )
+    }
+
+    println!(
+        uart,
+        "MMU on  (W^X, guard page at {:#x}, {} B of table arena left)",
+        mm::layout::guard_page(),
+        mmu::tables_remaining()
+    );
+    // Phase marks for the `boot:` timing line at the end of bring-up. Sampled
+    // here rather than derived from the console timestamps, which belong to
+    // the host and only exist when someone was capturing.
+    MemPlan {
+        heap_end,
+        frame_base,
+        frame_end,
+        mmu_at: timer::physical_count(),
+    }
+}
+
+/// Say what this image is, on the wire, before anything else can go wrong.
+fn print_banner(uart: &mut Pl011) {
     println!(uart, "Harbor: hello");
     println!(
         uart,
@@ -392,9 +476,9 @@ pub fn run() -> ! {
     );
     // The image says what it was built as, on the wire, before anything else
     // can go wrong. A flashed card is otherwise indistinguishable from another
-    // one: `kernel8.img` is headless or glass-enabled depending on a `make`
-    // invocation nobody can read afterwards, and the symptom of the wrong image
-    // is a panel that stays dark — which looks exactly like broken hardware.
+    // one: which features a `kernel8.img` carries depends on a `make`
+    // invocation nobody can read afterwards, and a `bringup` or `panic-probe`
+    // image that reached a card by accident behaves nothing like the product.
     // Cost: one line. What it replaces: guessing.
     // `src=` is `git describe --always --dirty` at compile time (build.rs).
     // The feature word says what the image *does*; the source id says what it
@@ -411,15 +495,15 @@ pub fn run() -> ! {
             "release"
         }
     );
+}
 
-    exception::init();
-
-    // Inspect what the firmware handed us while every physical address is
-    // still readable, and cache the answer. Everything the BSP hard-codes —
-    // RAM size, UART clock, peripheral base — is in that blob; parsing it is
-    // future work, but the pointer is unrecoverable once lost.
-    //
-    // SAFETY: the coarse early map is active and this runs once.
+/// Inspect what the firmware handed us while every physical address is
+/// still readable, and cache the answer. Everything the BSP hard-codes —
+/// RAM size, UART clock, peripheral base — is in that blob; parsing it is
+/// future work, but the pointer is unrecoverable once lost.
+fn survey_firmware(uart: &mut Pl011) {
+    // SAFETY: the coarse early map is active and this runs once — the call
+    // site in `run` is the only one, before any phase that could survey again.
     unsafe {
         bootinfo::survey();
     }
@@ -431,80 +515,17 @@ pub fn run() -> ! {
             bootinfo::dtb_address()
         ),
     }
+}
 
-    // No `CPACR_EL1.FPEN` here on purpose: the kernel is built for
-    // `aarch64-unknown-none-softfloat`, so it contains no FP/SIMD at all
-    // (enforced by `make no-simd`). Leaving FPEN clear means any future stray
-    // FP instruction traps loudly instead of silently corrupting the IRQ path,
-    // whose trap frame saves no q registers.
-
-    // Heap and frame-pool bounds are decided before the map is built: both are
-    // mapped regions (ADR-0012: named pool, not “rest of RAM”).
-    let heap_end = (mm::heap_start() + HEAP_SIZE).min(board::memmap::IDENTITY_RAM_END);
-    let (frame_base, frame_end) = match mm::frames::range_after_heap(heap_end) {
-        Some(range) => range,
-        None => refuse_to_boot(
-            &mut uart,
-            format_args!(
-                "frame pool does not fit after heap at {heap_end:#x} \
-                 (need {} B under IDENTITY_RAM_END)",
-                board::memmap::FRAME_POOL_BYTES
-            ),
-        ),
-    };
-    let mut region_buffer = [mm::layout::empty_region(); mm::layout::MAX_REGIONS];
-    let regions =
-        match mm::layout::kernel_regions(heap_end as u64, frame_end as u64, &mut region_buffer) {
-            Ok(regions) => regions,
-            Err(error) => {
-                // The layout itself is inconsistent — overlapping regions, a
-                // mapped guard page, a W+X region. Mapping it would produce
-                // something that boots and protects nothing.
-                refuse_to_boot(&mut uart, format_args!("layout invalid: {error:?}"))
-            }
-        };
-
-    // Swap the coarse early map for the real one. On failure the early map
-    // stays active, so the report still reaches the console — and then the boot
-    // stops, because that map protects nothing.
-    // SAFETY: single core, IRQs masked, early map active.
-    if let Err((error, region)) = unsafe { mmu::activate(regions) } {
-        refuse_to_boot(&mut uart, format_args!("could not map {region}: {error:?}"))
-    }
-    // The map is live: remember the two bounds it was built from, so a later
-    // fault can be told which region its address belongs to.
-    mm::layout::record_bounds(heap_end as u64, frame_end as u64);
-
-    // `activate` returning `Ok` is not the same as the MMU being on. The claim
-    // printed below is about the hardware, so it is read back from `SCTLR_EL1`
-    // rather than inferred from the path that just ran.
-    if !mmu::is_enabled() {
-        refuse_to_boot(
-            &mut uart,
-            format_args!("activate reported success but SCTLR_EL1.M is clear"),
-        )
-    }
-
-    println!(
-        uart,
-        "MMU on  (W^X, guard page at {:#x}, {} B of table arena left)",
-        mm::layout::guard_page(),
-        mmu::tables_remaining()
-    );
-    // Phase marks for the `boot:` timing line at the end of bring-up. Sampled
-    // here rather than derived from the console timestamps, which belong to
-    // the host and only exist when someone was capturing.
-    let mmu_at = timer::physical_count();
-
-    // Why the board came up, read before anything else can obscure it.
-    //
-    // `halt()` is `loop { wfe }` with IRQs masked and cannot exit, so a board
-    // that boots again after `*** halt ***` was reset from outside this kernel.
-    // That was observed twice in one hardware session with no way to tell a
-    // firmware watchdog from a brownout. The silicon latches the answer; this
-    // line puts it in every transcript, so the question is a lookup rather
-    // than an investigation the next time it happens.
-    //
+/// Why the board came up, read before anything else can obscure it.
+///
+/// `halt()` is `loop { wfe }` with IRQs masked and cannot exit, so a board
+/// that boots again after `*** halt ***` was reset from outside this kernel.
+/// That was observed twice in one hardware session with no way to tell a
+/// firmware watchdog from a brownout. The silicon latches the answer; this
+/// line puts it in every transcript, so the question is a lookup rather
+/// than an investigation the next time it happens.
+fn report_reset(uart: &mut Pl011) {
     // SAFETY: single core, PM window inside the mapped peripheral region, and
     // this is the only code in the tree that touches the block.
     let reset = unsafe { board::pm::reset_status() };
@@ -512,15 +533,17 @@ pub fn run() -> ! {
         uart,
         "reset: {:?} partition={} (PM_RSTS={:#010x})", reset.cause, reset.partition, reset.raw
     );
+}
 
-    // Which core this is, checked against the core the kernel was built for
-    // (ADR-0065). The A72 knowledge in this tree — pre-MMU exclusives
-    // confinement, explicit I/D-cache maintenance, ADR-0050's ASID arithmetic
-    // — was comment-only until this line put the observed identity in every
-    // transcript. Load-bearing mismatches refuse the boot; an unknown part is
-    // a distinct printed outcome and the boot continues, because the
-    // A72-specific handling is conservative on other cores and what the check
-    // owes there is visibility, not a verdict.
+/// Which core this is, checked against the core the kernel was built for
+/// (ADR-0065). The A72 knowledge in this tree — pre-MMU exclusives
+/// confinement, explicit I/D-cache maintenance, ADR-0050's ASID arithmetic
+/// — was comment-only until this line put the observed identity in every
+/// transcript. Load-bearing mismatches refuse the boot; an unknown part is
+/// a distinct printed outcome and the boot continues, because the
+/// A72-specific handling is conservative on other cores and what the check
+/// owes there is visibility, not a verdict.
+fn verify_cpu(uart: &mut Pl011) {
     let midr = cpu::midr_el1();
     let mmfr0 = cpu::id_aa64mmfr0_el1();
     let pfr0 = cpu::id_aa64pfr0_el1();
@@ -528,7 +551,7 @@ pub fn run() -> ! {
         // The whole paging model is written against the 4 KiB granule, and the
         // session model against AArch64 EL0/EL1. There is nothing to degrade to.
         refuse_to_boot(
-            &mut uart,
+            uart,
             format_args!(
                 "core lacks the 4 KiB granule or AArch64 EL0/EL1 \
                  (ID_AA64MMFR0={mmfr0:#x}, ID_AA64PFR0={pfr0:#x})"
@@ -541,7 +564,7 @@ pub fn run() -> ! {
         // spaces in the TLB — ADR-0050's isolation, gone silently. A reserved
         // encoding refuses too: a width nobody can name cannot back the pool.
         answer => refuse_to_boot(
-            &mut uart,
+            uart,
             format_args!(
                 "hardware ASID width {answer:?} cannot back the {ASID_BITS}-bit \
                  pool of ADR-0050 (ID_AA64MMFR0={mmfr0:#x})"
@@ -566,10 +589,14 @@ pub fn run() -> ! {
             midr & 0xFFFF_FFFF
         ),
     }
+}
 
-    // ADR-0070 / K8 first slice: unpark core 1 into an idle loop. Kernel map
-    // and VBAR are live; IRQs still masked. Timeout prints an honest line the
-    // boot oracle fails on — silence would look like a single-core boot.
+/// ADR-0070 / K8 first slice: unpark core 1 into an idle loop. Kernel map
+/// and VBAR are live; IRQs still masked. Timeout prints an honest line the
+/// boot oracle fails on — silence would look like a single-core boot.
+///
+/// Returns whether core 1 answered.
+fn unpark_secondary(uart: &mut Pl011) -> bool {
     let seen = smp::secondary_seen_count();
     let core1 = smp::unpark_core1();
     if core1 {
@@ -577,12 +604,42 @@ pub fn run() -> ! {
     } else {
         println!(uart, "smp: core1 timeout seen={seen}");
     }
+    core1
+}
+
+pub fn run() -> ! {
+    // SAFETY: core 0; DAIF still masked from `boot.s`; nothing else has run.
+    let Some(mut uart) = (unsafe { console::acquire() }) else {
+        // Unreachable in practice — this is the first claim — but there is no
+        // console to report it on, so park rather than pretend.
+        cpu::halt()
+    };
+
+    print_banner(&mut uart);
+
+    exception::init();
+
+    survey_firmware(&mut uart);
+
+    // No `CPACR_EL1.FPEN` here on purpose: the kernel is built for
+    // `aarch64-unknown-none-softfloat`, so it contains no FP/SIMD at all
+    // (enforced by `make no-simd`). Leaving FPEN clear means any future stray
+    // FP instruction traps loudly instead of silently corrupting the IRQ path,
+    // whose trap frame saves no q registers.
+
+    let plan = establish_kernel_map(&mut uart);
+
+    report_reset(&mut uart);
+
+    verify_cpu(&mut uart);
+
+    let core1 = unpark_secondary(&mut uart);
 
     let discover_at = map_dtb_and_discover(&mut uart, core1);
 
     assert_table_reserve(&mut uart);
 
-    init_memory_pools(&mut uart, heap_end, frame_base, frame_end);
+    init_memory_pools(&mut uart, plan.heap_end, plan.frame_base, plan.frame_end);
 
     probe_rng(&mut uart);
 
@@ -657,7 +714,7 @@ pub fn run() -> ! {
         mmu::tables_free()
     );
 
-    report_boot(mmu_at, discover_at);
+    report_boot(plan.mmu_at, discover_at);
 
     // Idle body — never returns (ADR-0006).
     console_loop::run()
