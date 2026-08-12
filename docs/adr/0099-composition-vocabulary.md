@@ -122,13 +122,21 @@ is written:
 ```rust
 pub const HELD_CONSOLE: u8 = 0;
 // order is an ABI shared with scripts/agent/pack-store.py
-pub fn assemble() -> held::Set
+pub fn assemble() -> held::Held
 ```
 
 `assemble` declares every position, mints into the ones it can, and prints one
 line per position — `authority: 0 console ok`, or `authority: 1 blob VACANT
-{e:?}`. `bootstrap::run` becomes `loader::load_all(authority.as_slice())`, and
-adding a service is an edit to `authority.rs` rather than to the boot sequence.
+{e:?}`. `bootstrap::run` becomes `loader::load_all(&authority)`, and adding a
+service is an edit to `authority.rs` rather than to the boot sequence.
+
+**Amended 2026-08-12 ([ADR-0100](0100-device-windows.md)):** `assemble` now
+returns an `Authority` holding *two* vocabularies — this one and the device
+windows — and the type above is the alias `held::Held` rather than a bare
+`Set`, because `Set` became generic over what a position holds. The decision is
+unchanged; the shapes moved under it, and a reader arriving here from the code
+should not have to work out why. `Set::cap_of` is `Set::get` for the same
+reason: a position no longer always holds a capability.
 
 "Only place" is meant literally, and the built-in manifest is the test of it:
 `loader.rs` grants the beacon its console by index exactly as a store entry

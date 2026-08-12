@@ -1,10 +1,17 @@
-//! The vocabulary a composition may name (ADR-0099) — pure, host-tested.
+//! The vocabularies a composition may name (ADR-0099, ADR-0100) — pure,
+//! host-tested.
 //!
-//! A manifest entry names authority by **index** into the loader's `held` list
-//! ([`crate::manifest`]), so the list is the whole of what any composed agent
-//! can be given. This module is that list, and it exists for one property the
-//! obvious version does not have: **an index means the same thing whether or
-//! not the capability behind it was minted**.
+//! A manifest entry names authority by **index** into a list the loader already
+//! holds ([`crate::manifest`]), so the list is the whole of what any composed
+//! agent can be given. This module is that list, and it exists for one property
+//! the obvious version does not have: **an index means the same thing whether
+//! or not the thing behind it was provided**.
+//!
+//! There are two lists, and one [`Set`]. [`Held`] holds capabilities, [`Windows`]
+//! holds pages of device memory (ADR-0100), and they share this code because
+//! they share the property above — a device that is absent from a board must no
+//! more shift the windows after it than a service that failed to start may
+//! shift the capabilities after it.
 //!
 //! # Why declaring and providing are two calls
 //!
@@ -81,7 +88,9 @@ pub type Windows = Set<Window, MAX_WINDOWS>;
 /// Why a position could not be declared.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeclareError {
-    /// The vocabulary already holds [`MAX_HELD`] positions.
+    /// The vocabulary already holds every position it has — [`MAX_HELD`] for
+    /// [`Held`], [`MAX_WINDOWS`] for [`Windows`]. `max` carries which, so the
+    /// console line names the ceiling that was actually hit.
     Full { max: usize },
     /// A position with this name was already declared, at `index`.
     ///

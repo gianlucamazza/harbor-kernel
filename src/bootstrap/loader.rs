@@ -6,7 +6,9 @@
 //! Everything in this file is compiled into every image. The **beacon** entry
 //! is product (M8): always-on, grants the console send end, prints `H!` via
 //! `SYS_SEND`. Oracle-only **mute** runs the same image without the grant so
-//! the denial path is seen on the good path.
+//! the denial path is seen on the good path, and oracle-only **nowindow** does
+//! the same for the device vocabulary (ADR-0100): the same bytes again, asking
+//! for a window this product does not declare, refused on every boot.
 //!
 //! When a valid store is present in the image `.agent_store` section
 //! ([ADR-0029](../../docs/adr/0029-agent-store-in-image.md)), that table
@@ -116,10 +118,10 @@ fn builtin_manifest() -> &'static [AgentEntry] {
     }
 }
 
-/// Loader side tables: the manifest in force this boot, and which entry each
-/// task came from.
+/// Loader side tables: the manifest in force this boot, which entry each task
+/// came from, and the device page each was planned to get.
 ///
-/// One mutex for both, because `entry_for_task` needs them together and a
+/// One mutex for all three, because `entry_for_task` needs them together and a
 /// non-re-entrant lock cannot be taken twice on that path (ADR-0091).
 struct SideTables {
     active: Option<&'static [AgentEntry]>,
@@ -151,10 +153,13 @@ static SIDE: Mutex<SideTables> = Mutex::new(SideTables {
     window_of_task: [None; MAX_TASKS],
 });
 
-/// Resolve the manifest entry for a task under a **single** lock hold.
+/// Resolve a task's manifest entry, and the device page its plan resolved, under
+/// a **single** lock hold.
 ///
 /// The mutex is not re-entrant: separate `recall` + `active_manifest` helpers
-/// would deadlock on the agent body path.
+/// would deadlock on the agent body path. The window rides along for the same
+/// reason — a second hold to fetch it would be the same deadlock, one field
+/// later.
 fn entry_for_task(task: TaskId) -> Option<(&'static AgentEntry, Option<ResolvedWindow>)> {
     SIDE.with(|side| {
         let index = side.entry_of_task[task.slot()]?;
