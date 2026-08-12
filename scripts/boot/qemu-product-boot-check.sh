@@ -49,5 +49,5 @@ source "$(dirname "$0")/../lib/product-oracle.sh"
 
 assert_product_boot
 
-n_assert=38
+n_assert=39
 echo "product-boot-check: clean (${n_assert}+ layered composition-minimum assertions)"

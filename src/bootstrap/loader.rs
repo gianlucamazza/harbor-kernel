@@ -124,10 +124,6 @@ static SIDE: Mutex<SideTables> = Mutex::new(SideTables {
     entry_of_task: [None; MAX_TASKS],
 });
 
-fn remember(task: TaskId, index: u8) {
-    SIDE.with(|side| side.entry_of_task[task.slot()] = Some(index));
-}
-
 /// Resolve the manifest entry for a task under a **single** lock hold.
 ///
 /// The mutex is not re-entrant: separate `recall` + `active_manifest` helpers
@@ -248,17 +244,34 @@ pub fn load_all(held: &[CapId]) {
                 slots,
             } => {
                 // ADR-0088: sticky home, decided by the plan from the entry.
-                match sched::spawn_with_slots_on(home_cpu, agent_body, &slots) {
-                    Ok(task) => {
-                        remember(task, index);
-                        crate::kprintln!(
-                            "loader: {} loaded text={} stack={} home={}",
-                            entry.name,
-                            entry.text_pages,
-                            entry.stack_pages,
-                            home_cpu
-                        );
-                    }
+                //
+                // Spawn and remember under **one** hold of the side tables. The
+                // spawn admits the task to `home_cpu`'s ready queue, and for
+                // `home_cpu = 1` that queue belongs to a CPU that is already
+                // running: it can dispatch the task before this core reaches
+                // the record, and `agent_body` then finds no entry for itself
+                // and returns without ever entering EL0. Seen on 2026-08-11 in
+                // a `make check` whose host was busy — `loader: a task reached
+                // the agent body with no manifest entry`, between beacon's line
+                // and chirp's.
+                //
+                // Holding across the spawn closes it rather than narrowing it:
+                // `entry_for_task` takes the same lock, so a task that beats us
+                // to a CPU waits for the mapping instead of missing it. Lock
+                // order SIDE → SCHED, documented in `crate::sync`.
+                let spawned: Result<TaskId, sched::SpawnError> = SIDE.with(|side| {
+                    let task = sched::spawn_with_slots_on(home_cpu, agent_body, &slots)?;
+                    side.entry_of_task[task.slot()] = Some(index);
+                    Ok(task)
+                });
+                match spawned {
+                    Ok(_) => crate::kprintln!(
+                        "loader: {} loaded text={} stack={} home={}",
+                        entry.name,
+                        entry.text_pages,
+                        entry.stack_pages,
+                        home_cpu
+                    ),
                     Err(e) => crate::kprintln!("loader: {} spawn FAILED {e:?}", entry.name),
                 }
             }

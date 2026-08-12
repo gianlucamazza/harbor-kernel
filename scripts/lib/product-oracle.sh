@@ -117,6 +117,13 @@ assert_product_boot() {
 	((slots_live >= 1)) || fail "slots reports ${slots_live} live with the console loop running"
 	((slots_peak >= slots_live)) ||
 		fail "slots peak ${slots_peak} is below the live count ${slots_live} — the watermark does not track"
+	# The loader spawns and records the manifest entry under one lock hold; a
+	# task that reached its body without one means the record lost a race with
+	# the CPU it was admitted to. Seen 3 boots in 8 on a loaded host before the
+	# hold was extended (2026-08-11), and the agent silently never ran.
+	if grep -qa 'no manifest entry' "${log}"; then
+		fail "a task reached the agent body before its manifest entry was recorded"
+	fi
 	if grep -qa 'sched: ABANDONED' "${log}"; then
 		fail "a task stack was abandoned (guard remap refused)"
 	fi

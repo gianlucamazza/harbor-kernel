@@ -97,8 +97,15 @@ impl<T> SyncCell<T> {
 ///   lock, and each step reaches the TX handle. TX is a leaf and the direction
 ///   is one-way. (ADR-0077 omitted this; ADR-0091 §5 records it.)
 ///
-/// Other global tables (naming, storage, taskcap, frames, asid, durable,
-/// loader) do not nest under each other or under SCHED on current paths.
+/// - **SIDE → SCHED** on the loader's spawn path: `loader::load_all` holds its
+///   side tables across `sched::spawn_with_slots_on` so a task admitted to the
+///   *other* CPU's queue cannot reach `agent_body` before its manifest entry is
+///   recorded. Without the nesting the window is real and was seen (2026-08-11,
+///   `loader: a task reached the agent body with no manifest entry`). One way:
+///   nothing holding SCHED ever takes SIDE.
+///
+/// Other global tables (naming, storage, taskcap, frames, asid, durable) do not
+/// nest under each other or under SCHED on current paths.
 pub struct Mutex<T> {
     locked: AtomicBool,
     value: UnsafeCell<T>,
