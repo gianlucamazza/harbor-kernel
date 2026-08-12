@@ -80,6 +80,16 @@ pub enum BindError {
     /// — rather than a policy decision, which is the point: an entry that could
     /// name authority outside the loader's list would be a mint.
     NoSuchCapability { slot: usize, index: u8, held: usize },
+    /// The entry named a position that exists in the vocabulary and holds
+    /// nothing (ADR-0099).
+    ///
+    /// Not the same refusal as [`Self::NoSuchCapability`], and deliberately so:
+    /// this one says a service the composition was entitled to expect did not
+    /// come up this boot. The position's *name* is not here because this module
+    /// binds against a slice of capabilities and has no names to give — the
+    /// vocabulary ([`crate::held::Set::name_of`]) supplies it where the refusal
+    /// is printed.
+    HeldVacant { slot: usize, index: u8 },
     /// The image does not fit in the text pages the entry declared.
     ImageTooLarge { bytes: usize, capacity: usize },
     /// Zero text pages, or a window with no stack.
@@ -132,10 +142,18 @@ impl AgentEntry {
 
 /// Turn an entry's slot indices into the capability table a task is spawned with.
 ///
-/// `held` is what the loader itself holds. Every slot is an index into it, so
-/// the result can only contain capabilities the loader already had — which is
-/// the whole security argument of the manifest, and it is arithmetic rather than
-/// a check that could be forgotten.
+/// `held` is the loader's **vocabulary** ([`crate::held`]): one position per
+/// declared authority, `None` where nothing was minted this boot. Every slot is
+/// an index into it, so the result can only contain capabilities the loader
+/// already had — which is the whole security argument of the manifest, and it is
+/// arithmetic rather than a check that could be forgotten.
+///
+/// The two refusals are different facts (ADR-0099).
+/// [`BindError::NoSuchCapability`] means the entry named a position that does
+/// not exist; [`BindError::HeldVacant`] means it named one that does and that
+/// nobody filled — a boot-time failure of the kernel rather than a
+/// mis-composition. Collapsing them would make a service that failed to start
+/// read like a manifest that asked for too much.
 ///
 /// ```
 /// use kernel_core::cap::CapId;
@@ -151,16 +169,26 @@ impl AgentEntry {
 ///     device: None,
 ///     home_cpu: 0,
 /// };
-/// let held = [CapId::new(7, 1), CapId::new(8, 1)];
+/// let held = [Some(CapId::new(7, 1)), Some(CapId::new(8, 1))];
 /// assert_eq!(bind(&entry, &held).unwrap()[0], Some(CapId::new(8, 1)));
 ///
-/// let short = [CapId::new(7, 1)];
+/// let short = [Some(CapId::new(7, 1))];
 /// assert_eq!(
 ///     bind(&entry, &short),
 ///     Err(BindError::NoSuchCapability { slot: 0, index: 1, held: 1 })
 /// );
+///
+/// // Declared, never minted: the position is there and empty.
+/// let vacant = [Some(CapId::new(7, 1)), None];
+/// assert_eq!(
+///     bind(&entry, &vacant),
+///     Err(BindError::HeldVacant { slot: 0, index: 1 })
+/// );
 /// ```
-pub fn bind(entry: &AgentEntry, held: &[CapId]) -> Result<[Option<CapId>; MAX_SLOTS], BindError> {
+pub fn bind(
+    entry: &AgentEntry,
+    held: &[Option<CapId>],
+) -> Result<[Option<CapId>; MAX_SLOTS], BindError> {
     let mut out = [None; MAX_SLOTS];
     // `enumerate` rather than a hand-rolled counter, and that is a mutation
     // result rather than a style preference: the `slot += 1` this replaced
@@ -178,7 +206,10 @@ pub fn bind(entry: &AgentEntry, held: &[CapId]) -> Result<[Option<CapId>; MAX_SL
                 held: held.len(),
             });
         }
-        out[slot] = Some(held[i]);
+        let Some(cap) = held[i] else {
+            return Err(BindError::HeldVacant { slot, index });
+        };
+        out[slot] = Some(cap);
     }
     Ok(out)
 }
@@ -220,7 +251,7 @@ mod tests {
         // capabilities is not a panic, not a silent `None`, and above all not a
         // read past the end of the loader's list — it is a refusal that names
         // the slot, the index, and how many the loader actually had.
-        let held = [CapId::new(1, 1), CapId::new(2, 1)];
+        let held = [Some(CapId::new(1, 1)), Some(CapId::new(2, 1))];
         assert_eq!(
             bind(&entry([Some(9), None, None, None]), &held),
             Err(BindError::NoSuchCapability {
@@ -235,7 +266,7 @@ mod tests {
     fn the_last_held_index_binds_and_the_next_one_does_not() {
         // The off-by-one, on the other side of the same boundary `from_slot`
         // guards: `index >= len` and `index > len` differ only here.
-        let held = [CapId::new(1, 1), CapId::new(2, 1)];
+        let held = [Some(CapId::new(1, 1)), Some(CapId::new(2, 1))];
         assert_eq!(
             bind(&entry([Some(1), None, None, None]), &held).unwrap()[0],
             Some(CapId::new(2, 1))
@@ -247,7 +278,7 @@ mod tests {
     fn an_entry_that_names_nothing_gets_nothing() {
         // Denied by default (ADR-0017 §3): an agent with no slots is not an
         // agent with the loader's own authority.
-        let held = [CapId::new(1, 1)];
+        let held = [Some(CapId::new(1, 1))];
         assert_eq!(
             bind(&entry([None; MAX_SLOTS]), &held),
             Ok([None; MAX_SLOTS])
@@ -260,7 +291,7 @@ mod tests {
         // so that a program which miscounts finds nothing rather than something
         // adjacent. A bind that compacted the array would silently repair the
         // miscount and destroy the property.
-        let held = [CapId::new(5, 2), CapId::new(6, 2)];
+        let held = [Some(CapId::new(5, 2)), Some(CapId::new(6, 2))];
         let bound = bind(&entry([None, Some(0), None, Some(1)]), &held).unwrap();
         assert_eq!(
             bound,
@@ -277,6 +308,45 @@ mod tests {
                 index: 0,
                 held: 0
             })
+        );
+    }
+
+    #[test]
+    fn a_declared_position_that_holds_nothing_is_a_different_refusal() {
+        // ADR-0099. Index 1 exists in the vocabulary and is empty, because the
+        // service behind it failed to start. Reporting NoSuchCapability here
+        // would tell whoever reads the console that the composition asked for
+        // too much, when what happened is that the kernel came up short.
+        let held = [Some(CapId::new(1, 1)), None];
+        assert_eq!(
+            bind(&entry([Some(1), None, None, None]), &held),
+            Err(BindError::HeldVacant { slot: 0, index: 1 })
+        );
+        assert_ne!(
+            bind(&entry([Some(1), None, None, None]), &held),
+            Err(BindError::NoSuchCapability {
+                slot: 0,
+                index: 1,
+                held: 2
+            }),
+            "the two refusals must not collapse into one"
+        );
+    }
+
+    #[test]
+    fn a_vacancy_does_not_shift_the_positions_after_it() {
+        // The whole point of a vocabulary with holes: index 1 still reaches the
+        // capability declared at 1, with 0 empty. A list built from what was
+        // minted would have handed slot 0's grant to whoever asked for 1.
+        let held = [None, Some(CapId::new(6, 2))];
+        assert_eq!(
+            bind(&entry([None, Some(1), None, None]), &held).unwrap(),
+            [None, Some(CapId::new(6, 2)), None, None]
+        );
+        assert_eq!(
+            bind(&entry([Some(0), None, None, None]), &held),
+            Err(BindError::HeldVacant { slot: 0, index: 0 }),
+            "and the hole itself is still refused"
         );
     }
 

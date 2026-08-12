@@ -118,6 +118,7 @@ the code that follows.
 | [0096](0096-gates-that-do-not-depend-on-remembering.md) | Gates that do not depend on remembering                    | accepted |
 | [0097](0097-loader-plan.md)                        | The loader's plan is data; the loader executes it          | accepted |
 | [0098](0098-slot-meter-measured.md)                | The slot meter is measured, not remembered                 | accepted |
+| [0099](0099-composition-vocabulary.md)             | The composition's vocabulary — a declared held list        | accepted |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

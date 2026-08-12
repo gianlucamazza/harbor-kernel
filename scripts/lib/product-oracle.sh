@@ -68,6 +68,11 @@ assert_product_boot() {
 	# 4. Composition minimum (M8 + P1 store)
 	# ---------------------------------------------------------------------------
 	grep -qa 'console-server: up' "${log}" || fail "console server did not spawn"
+	# ADR-0099: the vocabulary a composition may name, printed before the loader
+	# runs. `ok` means the position was declared *and* minted into; the negative
+	# for `VACANT` is in §5, because a hole is not a boot the product should pass.
+	grep -qaE 'authority: 0 console ok' "${log}" ||
+		fail "the console position was not declared and provided (ADR-0099)"
 	grep -qa 'console: capability minted' "${log}" || fail "console send capability was not minted"
 	grep -qa 'loader: store n=2 image' "${log}" || fail "product did not load the injected multi-agent store"
 	# ADR-0088: product composition pins chirp on CPU 1; beacon stays home 0.
@@ -117,6 +122,12 @@ assert_product_boot() {
 	((slots_live >= 1)) || fail "slots reports ${slots_live} live with the console loop running"
 	((slots_peak >= slots_live)) ||
 		fail "slots peak ${slots_peak} is below the live count ${slots_live} — the watermark does not track"
+	# A declared position nobody minted into (ADR-0099). The agents that named it
+	# are refused, which is correct — and a product boot that reaches it is a
+	# service that did not start, not a composition to ship.
+	if grep -qa 'VACANT' "${log}"; then
+		fail "a declared authority position came up empty (ADR-0099)"
+	fi
 	# The loader spawns and records the manifest entry under one lock hold; a
 	# task that reached its body without one means the record lost a race with
 	# the CPU it was admitted to. Seen 3 boots in 8 on a loaded host before the

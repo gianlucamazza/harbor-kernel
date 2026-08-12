@@ -16,12 +16,18 @@
 use core::mem::MaybeUninit;
 
 use kernel_core::agentstore::{self, MAX_AGENTS, StoreAgent};
-use kernel_core::cap::CapId;
+use kernel_core::held;
 use kernel_core::loaderplan;
 use kernel_core::manifest::{AgentEntry, BindError, MAX_SLOTS};
 use kernel_core::paging::Perms;
 use kernel_core::prog;
 
+// The console's position in the vocabulary, taken from where the vocabulary is
+// declared (ADR-0099). The built-in manifest below grants by index exactly as a
+// store entry does, so restating the integer here would be a third copy — one
+// `make vocabulary-sync` does not compare, on the path the boot falls back to
+// when no store is present.
+use super::authority::HELD_CONSOLE;
 use crate::agent::{Agent, SessionEnd};
 use crate::ipc;
 use crate::mm::AddressSpace;
@@ -44,9 +50,6 @@ unsafe extern "C" {
 
 /// Slot the loader puts the console capability in, when it grants one.
 const CONSOLE_SLOT: usize = 1;
-
-/// Index of the console capability in the **loader's** list, not the agent's.
-const HELD_CONSOLE: u8 = 0;
 
 /// `H!` via two `SYS_SEND`s, then exit — shared product/oracle image bytes.
 const CONSOLE_HI: [u8; 40] = prog::encode_console_hi_exit(CONSOLE_SLOT as u16);
@@ -197,13 +200,18 @@ fn try_store_manifest() -> Option<&'static [AgentEntry]> {
 
 const _: () = assert!(sched::MAX_CAPS_PER_TASK == kernel_core::manifest::MAX_SLOTS);
 
-/// Create one task per active manifest entry, binding slots against `held`.
+/// Create one task per active manifest entry, binding slots against the
+/// composition's vocabulary (ADR-0099).
 ///
 /// The judgement — which manifest is in force, what an empty one means, and
 /// per entry the order `validate` → `bind` → act — is
 /// [`kernel_core::loaderplan`] (ADR-0097). What is left here is what a pure
 /// function cannot do: parse the store, spawn, remember, and print.
-pub fn load_all(held: &[CapId]) {
+///
+/// Takes the whole [`held::Set`] rather than its slice because a vacancy is
+/// worth naming: `bind` can only say *position 1 is empty*, and the reader of a
+/// boot log wants to know that the position was `blob`.
+pub fn load_all(held: &held::Set) {
     let (source, table) = match try_store_manifest() {
         Some(t) => (loaderplan::Source::Store { agents: t.len() }, t),
         None => (loaderplan::Source::Builtin, builtin_manifest()),
@@ -221,7 +229,7 @@ pub fn load_all(held: &[CapId]) {
         })); MAX_AGENTS];
     let planned = match loaderplan::plan(
         table,
-        held,
+        held.as_slice(),
         kernel_core::paging::PAGE_SIZE as usize,
         &mut plans,
     ) {
@@ -249,7 +257,7 @@ pub fn load_all(held: &[CapId]) {
                 // spawn admits the task to `home_cpu`'s ready queue, and for
                 // `home_cpu = 1` that queue belongs to a CPU that is already
                 // running: it can dispatch the task before this core reaches
-                // the record, and `agent_body` then finds no entry for itself
+                // `remember`, and `agent_body` then finds no entry for itself
                 // and returns without ever entering EL0. Seen on 2026-08-11 in
                 // a `make check` whose host was busy — `loader: a task reached
                 // the agent body with no manifest entry`, between beacon's line
@@ -276,10 +284,26 @@ pub fn load_all(held: &[CapId]) {
                 }
             }
             loaderplan::EntryPlan::Refuse(loaderplan::Refusal::Unheld(
-                BindError::NoSuchCapability { slot, index, held },
+                BindError::NoSuchCapability {
+                    slot,
+                    index,
+                    held: declared,
+                },
             )) => crate::kprintln!(
-                "loader: {} refused — slot {slot} names capability {index} of {held}",
+                "loader: {} refused — slot {slot} names capability {index} of {declared}",
                 entry.name
+            ),
+            // ADR-0099: the position exists and nothing was minted into it. A
+            // different sentence from the one above on purpose — this is the
+            // kernel having come up short, not the composition over-reaching —
+            // and the name is what a reader needs to know which service it was.
+            loaderplan::EntryPlan::Refuse(loaderplan::Refusal::Unheld(BindError::HeldVacant {
+                slot,
+                index,
+            })) => crate::kprintln!(
+                "loader: {} refused — slot {slot} names {} which is VACANT",
+                entry.name,
+                held.name_of(index).unwrap_or("?")
             ),
             loaderplan::EntryPlan::Refuse(
                 loaderplan::Refusal::Invalid(e) | loaderplan::Refusal::Unheld(e),

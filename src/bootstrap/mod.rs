@@ -6,6 +6,7 @@
 //! `bringup` feature. Keeping the three apart matters because only this file
 //! has to be read in order: every line here depends on the ones above it.
 
+mod authority;
 mod console_loop;
 mod console_server;
 #[cfg(feature = "oracle")]
@@ -101,31 +102,6 @@ const fn build_features() -> &'static str {
         (true, false) => "panic-probe",
         (false, true) => "bringup",
         (false, false) => "headless (no bring-up gates)",
-    }
-}
-
-/// Mint the console channel and start the resident EL1 server (M8).
-///
-/// The send end is what agents — and the loader's `held` list — receive; the
-/// recv end stays with the server. Authority is ordinary `CapRights::SEND`:
-/// there is no special console capability type since `SYS_PUTC` was removed.
-///
-/// `None` if the channel could not be created; the boot goes on without a
-/// console endpoint rather than refusing, because the UART still works.
-fn start_console_service() -> Option<kernel_core::cap::CapId> {
-    match crate::ipc::create_channel() {
-        Ok(ch) => {
-            match crate::sched::spawn_with_caps(console_server::run, &[ch.recv]) {
-                Ok(_) => crate::kprintln!("console-server: up"),
-                Err(e) => crate::kprintln!("console-server: spawn FAILED {e:?}"),
-            }
-            crate::kprintln!("console: capability minted");
-            Some(ch.send)
-        }
-        Err(e) => {
-            crate::kprintln!("console: capability FAILED {e:?}");
-            None
-        }
     }
 }
 
@@ -671,29 +647,23 @@ pub fn run() -> ! {
     // that the whole kernel is cooperative-only — see K4 preemption).
     console::install_tx(uart);
 
-    let console_cap = start_console_service();
-
-    // Agents that are data (ADR-0021). One loop over a table, and the table is
-    // the *only* place those grants are written — so `held` here is the whole
-    // of what any manifest agent can be given, and an entry naming anything
-    // else is refused by arithmetic rather than by a check.
+    // The vocabulary a composition may name (ADR-0099). Declared positions,
+    // then whatever could be minted into them — so a service that fails to
+    // start leaves a hole at its own index instead of shifting every later one
+    // down. What each integer means lives in `authority.rs` and nowhere else.
+    //
+    // Agents that are data (ADR-0021): an entry naming anything outside this
+    // vocabulary is refused by arithmetic rather than by a check.
     //
     // Product path carries the beacon agent; oracle adds mute. See loader.
-    let one;
-    let held: &[kernel_core::cap::CapId] = match console_cap {
-        Some(cap) => {
-            one = [cap];
-            &one
-        }
-        None => &[],
-    };
-    loader::load_all(held);
+    let authority = authority::assemble();
+    loader::load_all(&authority);
 
     // Everything the boot oracle needs, and nothing the product does — and
     // it lives in `demos`, which is the file `product-builds` derives its
     // forbidden-symbol list from (rule 9 of `architecture.md`).
     #[cfg(feature = "oracle")]
-    demos::run_all(console_cap);
+    demos::run_all(authority.cap_of(authority::HELD_CONSOLE));
 
     // Deliberate fault, last so the demo tasks are alive when it runs: the
     // probe must overflow its own guard while a peer stack exists, or it cannot

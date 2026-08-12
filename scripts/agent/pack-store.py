@@ -15,6 +15,15 @@ from pathlib import Path
 MAGIC = b"HARB"
 VERSION = 1
 SLOT_NONE = 0xFF
+
+# The composition's vocabulary (ADR-0099). These integers are an ABI with
+# `src/bootstrap/authority.rs`, which is where they are declared and minted:
+# a store entry's slot holds one of them, and the kernel binds it by indexing.
+# `make vocabulary-sync` compares this table against that file — a fact in two
+# places is how the oracle-marker list and the MAX_TASKS census both went wrong.
+HELD = {
+    "console": 0,
+}
 NAME_LEN = 16
 
 # encode_console_hi_exit(1) — keep in sync with kernel_core::prog.
@@ -131,8 +140,11 @@ def main() -> int:
         print(f"pack-agent-store: FAIL — need llvm-mc and llvm-objcopy: {e}", file=sys.stderr)
         return 1
 
-    # slot 1 → held index 0 (console send); others empty
-    slots = [SLOT_NONE, 0, SLOT_NONE, SLOT_NONE]
+    # Slot 1 names the console position of the kernel's vocabulary; the other
+    # three stay empty. The convention that slot 0 is deliberately unused is
+    # `manifest.rs`'s: a program that miscounts finds nothing rather than
+    # something adjacent.
+    slots = [SLOT_NONE, HELD["console"], SLOT_NONE, SLOT_NONE]
     if args.single_beacon:
         # (name, text, stack, slots, image, home_cpu)
         agents = [("beacon", 1, 3, slots, beacon, 0)]

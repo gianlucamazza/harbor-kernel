@@ -72,12 +72,15 @@ pub enum PlanError {
 
 /// Plan every entry of `table`, writing one [`EntryPlan`] per entry into `out`.
 ///
-/// Returns how many were written. `held` is the whole of what the loader may
-/// grant — an entry naming anything outside it is refused by arithmetic rather
-/// than by a check (ADR-0021).
+/// Returns how many were written. `held` is the loader's vocabulary
+/// ([`crate::held`], ADR-0099): the whole of what it may grant, one position per
+/// declared authority. An entry naming anything outside it is refused by
+/// arithmetic rather than by a check (ADR-0021), and one naming a position that
+/// exists and is empty is refused as `HeldVacant` — same `Refusal::Unheld`,
+/// different fact inside it.
 pub fn plan(
     table: &[AgentEntry],
-    held: &[CapId],
+    held: &[Option<CapId>],
     frame_size: usize,
     out: &mut [EntryPlan],
 ) -> Result<usize, PlanError> {
@@ -126,9 +129,10 @@ mod tests {
         }
     }
 
-    fn caps(n: usize) -> [CapId; 2] {
+    /// A vocabulary of two provided positions (ADR-0099 shape).
+    fn caps(n: usize) -> [Option<CapId>; 2] {
         let _ = n;
-        [CapId::new(1, 1), CapId::new(2, 1)]
+        [Some(CapId::new(1, 1)), Some(CapId::new(2, 1))]
     }
 
     #[test]
@@ -194,7 +198,7 @@ mod tests {
             } => {
                 assert_eq!(index, 0);
                 assert_eq!(home_cpu, 1, "ADR-0088: the entry's home is carried");
-                assert_eq!(slots[0], Some(held[1]), "slot 0 names held[1]");
+                assert_eq!(slots[0], held[1], "slot 0 names held[1]");
                 assert_eq!(slots[1], None);
             }
             other => panic!("expected a spawn plan, got {other:?}"),
@@ -300,7 +304,7 @@ mod tests {
         match out[1] {
             EntryPlan::Spawn { index, slots, .. } => {
                 assert_eq!(index, 1, "the index is the entry's, not the plan's");
-                assert_eq!(slots[0], Some(caps(2)[0]));
+                assert_eq!(slots[0], caps(2)[0]);
             }
             other => panic!("expected the second entry to be planned, got {other:?}"),
         }

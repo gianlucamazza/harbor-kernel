@@ -101,7 +101,7 @@ endif
 	no-early-exclusives no-static-mut irq-scope \
 	boot-check panic-check hw-check mutation-freshness x86-elf x86-boot-check doc-claims layering fmt fmt-check \
 	qemu qemu-gdb qemu-x86 blobs deploy \
-	restore-rpios serial clean agents
+	restore-rpios serial clean agents vocabulary-sync
 
 all: img
 
@@ -133,7 +133,7 @@ img: elf
 # `miri`/`shellcheck` fail loudly when their tool is absent rather than letting
 # the claim quietly become false (skip only with ALLOW_MIRI_SKIP=1 /
 # ALLOW_SHELLCHECK_SKIP=1, same shape as boot-check's ALLOW_BOOT_SKIP).
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri mutation-freshness doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
+check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri mutation-freshness doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence vocabulary-sync
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -175,6 +175,13 @@ xrefs:
 # Path-aware on purpose: the symbol still exists, in another module.
 doc-symbols:
 	./scripts/check/doc-symbols.sh
+
+# ADR-0099: the composition's vocabulary is stated in two files — the kernel
+# declares the indices, the packer writes them into store slots. A disagreement
+# grants an agent authority the composition did not choose, silently, so the two
+# copies are compared rather than trusted.
+vocabulary-sync:
+	./scripts/check/vocabulary-sync.sh
 
 # The layering rules in docs/architecture.md, checked against real imports.
 # They are the architecture, and were enforced by review alone until now.
