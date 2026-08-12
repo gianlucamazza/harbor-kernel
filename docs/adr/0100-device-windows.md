@@ -219,14 +219,26 @@ because the first version of the comparison could not fail: it anchored the
 table name with a trailing space, found nothing in `WINDOWS: dict[str, int] =
 {}`, and reported clean by comparing empty against empty.
 
-The reversal that matters — putting a `pa` back on the wire — is caught by a
-host test asserting that `agentstore::parse` has no path from store bytes to a
-physical address: the parsed record's device field is an index, and the only
-`u64` beside it is bounded by the agent's window. A `pa` field reintroduced to
-the format makes that test fail to compile, which is the loudest red available.
+`product-boot-check` asserts `authority: windows 0 declared`, so the day this
+product starts granting a device the assertion is what makes someone look at
+why. `boot-check` asserts `nowindow`'s refusal and, as negatives, that a refused
+entry was neither loaded nor ran.
 
-`product-boot-check` asserts `window:` lines the same way it now asserts
-`authority:` ones, and refuses `VACANT` among the negatives.
+**What no gate here catches** is worth stating plainly, because the alternative
+is a document that sounds safer than the tree is. The reversal that matters is
+somebody adding a `pa` back to the wire format, and nothing mechanical stops
+that: the format tests pin the *current* record — the device word's high bits,
+`WINDOW_NONE` with a non-zero address, an unaligned one, v1 refused — and a new
+field beside them would break none of them. It would compile, and the tests
+would pass.
+
+What stands against it is structural rather than automated: `Window` (the type
+that holds a `pa`) lives in `held` and is populated only by
+`bootstrap::authority` from the BSP, and `DeviceGrant` has no field to put one
+in, so reintroducing it means editing the manifest type, the parser, the packer
+and this ADR in one change — visible in review, and this section is what a
+reviewer should be pointed at. A test that could enforce it would have to assert
+the absence of a field, which Rust gives no way to write.
 
 ## Evidence
 
