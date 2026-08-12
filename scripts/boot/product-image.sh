@@ -56,6 +56,18 @@ llvm-objcopy -O binary "${product_elf}" "${OUT}/kernel8-product.img"
 # ADR-0029: inject the multi-agent composition into `.agent_store` so product
 # boots the store on QEMU and Pi without a fixed-PA loader device.
 python3 scripts/agent/pack-store.py -o target/agents.bin
+# Round-trip the blob through the audit reader before it goes into an image.
+# The packer and `inspect-store.py` are two implementations of one wire format,
+# and nothing was comparing them: when ADR-0100 added the device fields, the
+# reader kept the v1 layout and printed an image length taken from the device
+# word — a P6 audit aid reporting numbers that look like data and are not.
+# The reader refuses an unknown version, so this also catches a bumped VERSION
+# that nobody taught it about.
+if ! python3 scripts/agent/inspect-store.py target/agents.bin >/dev/null; then
+	echo "product-builds: FAIL — the audit reader cannot read the store the packer just wrote" >&2
+	echo "  Two implementations of one wire format, disagreeing (ADR-0100)." >&2
+	exit 1
+fi
 python3 scripts/agent/inject-store.py \
 	--elf "${product_elf}" \
 	--image "${OUT}/kernel8-product.img" \
