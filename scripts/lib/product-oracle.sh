@@ -73,6 +73,12 @@ assert_product_boot() {
 	# for `VACANT` is in §5, because a hole is not a boot the product should pass.
 	grep -qaE 'authority: 0 console ok' "${log}" ||
 		fail "the console position was not declared and provided (ADR-0099)"
+	# ADR-0100: the device vocabulary, said out loud even when it is empty.
+	# "This product grants no device" is a property worth reading off a boot log
+	# rather than inferring from the absence of a line, and the day a window is
+	# declared this assertion is what makes someone look at why.
+	grep -qa 'authority: windows 0 declared' "${log}" ||
+		fail "the product declared device windows, or did not say (ADR-0100)"
 	grep -qa 'console: capability minted' "${log}" || fail "console send capability was not minted"
 	grep -qa 'loader: store n=2 image' "${log}" || fail "product did not load the injected multi-agent store"
 	# ADR-0088: product composition pins chirp on CPU 1; beacon stays home 0.

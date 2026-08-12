@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 MAGIC = b"HARB"
-VERSION = 1
+VERSION = 2
 SLOT_NONE = 0xFF
 
 # The composition's vocabulary (ADR-0099). These integers are an ABI with
@@ -24,6 +24,19 @@ SLOT_NONE = 0xFF
 HELD = {
     "console": 0,
 }
+
+# The device-window vocabulary (ADR-0100). Same ABI relationship as HELD above,
+# against the WINDOW_* constants of `src/bootstrap/authority.rs`, and compared
+# by `make vocabulary-sync`. A store entry carries one of these **indices** and
+# never a physical address: the board decides what the page is, the composition
+# only decides where in its own window it lands.
+#
+# Empty because this product declares no window yet — the mechanism ships first,
+# the first grant arrives with the first composed driver-agent.
+WINDOWS = {}
+
+# "No device window" — the value every agent in this product carries today.
+WINDOW_NONE = 0xFF
 NAME_LEN = 16
 
 # encode_console_hi_exit(1) — keep in sync with kernel_core::prog.
@@ -94,14 +107,24 @@ def append_agent(
     slots: list[int],
     image: bytes,
     home_cpu: int = 0,
+    window: int = WINDOW_NONE,
+    device_va: int = 0,
 ) -> None:
     assert len(slots) == 4
     assert 0 <= home_cpu < 256
+    assert 0 <= window < 256
+    # ADR-0100: an entry with no window has no use for an address, and the
+    # parser refuses one — so the format cannot carry an address nothing reads.
+    assert window != WINDOW_NONE or device_va == 0
+    assert window == WINDOW_NONE or device_va % 4096 == 0
     buf += pad_name(name)
     buf += struct.pack("<II", text_pages, stack_pages)
     buf += bytes(slots)
     # ADR-0088: reserved u32 low byte = home_cpu
     buf += struct.pack("<I", home_cpu & 0xFF)
+    # ADR-0100: device u32 low byte = window index, then the VA it lands at.
+    buf += struct.pack("<I", window & 0xFF)
+    buf += struct.pack("<Q", device_va)
     buf += struct.pack("<I", len(image))
     buf += image
     while len(buf) % 4:

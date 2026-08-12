@@ -31,18 +31,52 @@
 //! printable: `authority: 1 blob VACANT` names the service that did not come
 //! up, where an index alone would make a reader go and count.
 
-use crate::agentstore::SLOT_NONE;
+use crate::agentstore::{SLOT_NONE, WINDOW_NONE};
 use crate::cap::CapId;
+use crate::paging::Perms;
 
-/// Positions a composition's vocabulary may hold.
+/// Positions a composition's capability vocabulary may hold.
 ///
 /// Longer than [`MAX_SLOTS`](crate::manifest::MAX_SLOTS) on purpose: the
 /// vocabulary is what the *composition* may choose from, and the four slots are
 /// the ceiling on what one agent may hold at once (ADR-0017).
 pub const MAX_HELD: usize = 8;
 
-/// A declared index must never collide with the store's "no slot" sentinel.
+/// Positions the device-window vocabulary may hold (ADR-0100).
+///
+/// Smaller than [`MAX_HELD`] only because a board has fewer pages worth giving
+/// away than a product has services. Neither number is a security bound — the
+/// bound is that an index outside the vocabulary is refused by arithmetic.
+pub const MAX_WINDOWS: usize = 4;
+
+/// A declared index must never collide with the store's sentinels.
 const _: () = assert!(MAX_HELD < SLOT_NONE as usize);
+const _: () = assert!(MAX_WINDOWS < WINDOW_NONE as usize);
+
+/// A page of device memory the board is willing to hand to an agent (ADR-0100).
+///
+/// The physical address is here and **never on the wire**: a composition names
+/// the position, not the page. That is the whole security argument — a store
+/// that could carry a `pa` could name the kernel's own text and have it mapped
+/// `USER_RW`, which is a mint, and this project removed that shape for
+/// capabilities in ADR-0021 rather than guarding it with a range check.
+///
+/// `perms` travels with the page because a device is not always writable, and
+/// the mapping site had `Perms::USER_RW` welded into it before this ADR.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Window {
+    /// Physical address of the device page. Comes from the BSP, via
+    /// `bootstrap::authority` — rule 1 of `architecture.md` keeps it there.
+    pub pa: u64,
+    /// Rights the page is mapped with in the agent's window.
+    pub perms: Perms,
+}
+
+/// The product's capability vocabulary (ADR-0099).
+pub type Held = Set<CapId, MAX_HELD>;
+
+/// The product's device-window vocabulary (ADR-0100).
+pub type Windows = Set<Window, MAX_WINDOWS>;
 
 /// Why a position could not be declared.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,12 +90,12 @@ pub enum DeclareError {
     Duplicate { name: &'static str, index: u8 },
 }
 
-/// Why a capability could not be provided.
+/// Why a position could not be provided.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProvideError {
     /// No position with that index has been declared.
     OutOfRange { index: u8, declared: usize },
-    /// That position already holds a capability.
+    /// That position already holds something.
     ///
     /// Refused rather than overwritten: a second `provide` means two owners
     /// believe they mint the same authority, and whichever ran last would win
@@ -69,25 +103,33 @@ pub enum ProvideError {
     AlreadyProvided { index: u8, name: &'static str },
 }
 
-/// The declared vocabulary, and whatever has been minted into it.
+/// The declared vocabulary, and whatever has been provided into it.
+///
+/// Generic over what a position holds because ADR-0100 needed a second
+/// vocabulary — device windows — with the *same* discipline, and the property
+/// that earns the reuse is the one about holes: a position that fails to come
+/// up must not move the ones after it, whether it holds a capability or a page
+/// of MMIO. One mechanism, two alphabets ([`Held`] and [`Windows`]).
 #[derive(Clone, Copy, Debug)]
-pub struct Set {
-    caps: [Option<CapId>; MAX_HELD],
-    names: [&'static str; MAX_HELD],
+pub struct Set<T, const N: usize = MAX_HELD> {
+    items: [Option<T>; N],
+    names: [&'static str; N],
     len: usize,
 }
 
-impl Default for Set {
+impl<T: Copy, const N: usize> Default for Set<T, N> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Set {
+impl<T: Copy, const N: usize> Set<T, N> {
     pub const fn new() -> Self {
         Self {
-            caps: [None; MAX_HELD],
-            names: [""; MAX_HELD],
+            // Inline const rather than `[None; N]`: the latter needs `T: Copy`
+            // provable in a const context, which a generic parameter is not.
+            items: [const { None }; N],
+            names: [""; N],
             len: 0,
         }
     }
@@ -100,8 +142,8 @@ impl Set {
         if let Some(index) = self.index_of(name) {
             return Err(DeclareError::Duplicate { name, index });
         }
-        if self.len == MAX_HELD {
-            return Err(DeclareError::Full { max: MAX_HELD });
+        if self.len == N {
+            return Err(DeclareError::Full { max: N });
         }
         let index = self.len as u8;
         self.names[self.len] = name;
@@ -109,8 +151,8 @@ impl Set {
         Ok(index)
     }
 
-    /// Fill a declared position with the capability that was minted for it.
-    pub fn provide(&mut self, index: u8, cap: CapId) -> Result<(), ProvideError> {
+    /// Fill a declared position with what was minted or found for it.
+    pub fn provide(&mut self, index: u8, item: T) -> Result<(), ProvideError> {
         let i = index as usize;
         if i >= self.len {
             return Err(ProvideError::OutOfRange {
@@ -118,21 +160,21 @@ impl Set {
                 declared: self.len,
             });
         }
-        if self.caps[i].is_some() {
+        if self.items[i].is_some() {
             return Err(ProvideError::AlreadyProvided {
                 index,
                 name: self.names[i],
             });
         }
-        self.caps[i] = Some(cap);
+        self.items[i] = Some(item);
         Ok(())
     }
 
     /// What [`crate::manifest::bind`] indexes: one entry per declared position,
-    /// `None` where nothing was minted.
+    /// `None` where nothing was provided.
     #[inline]
-    pub fn as_slice(&self) -> &[Option<CapId>] {
-        &self.caps[..self.len]
+    pub fn as_slice(&self) -> &[Option<T>] {
+        &self.items[..self.len]
     }
 
     /// How many positions have been declared.
@@ -167,21 +209,21 @@ impl Set {
     /// Whether a declared position was ever provided.
     #[inline]
     pub fn is_provided(&self, index: u8) -> bool {
-        self.cap_of(index).is_some()
+        self.get(index).is_some()
     }
 
-    /// The capability at a declared position, if one was provided.
+    /// What sits at a declared position, if anything was provided.
     ///
-    /// For the kernel side, which sometimes needs a capability it declared for
-    /// its own use rather than for a composition — the oracle's demos hold the
+    /// For the kernel side, which sometimes needs something it declared for its
+    /// own use rather than for a composition — the oracle's demos hold the
     /// console end that way. An undeclared index and a declared-but-empty one
     /// both answer `None`: the caller here is asking *can I use it*, and the
     /// distinction between the two belongs to [`crate::manifest::bind`], where
     /// it changes which refusal a composition is told.
     #[inline]
-    pub fn cap_of(&self, index: u8) -> Option<CapId> {
+    pub fn get(&self, index: u8) -> Option<T> {
         let i = index as usize;
-        if i < self.len { self.caps[i] } else { None }
+        if i < self.len { self.items[i] } else { None }
     }
 }
 
@@ -198,7 +240,7 @@ mod tests {
         // The bug this module exists for. Console fails to mint, blob succeeds,
         // and an entry naming index 1 must still reach blob — not console's
         // former place, and not blob shifted down into index 0.
-        let mut set = Set::new();
+        let mut set = Held::new();
         let console = set.declare("console").unwrap();
         let blob = set.declare("blob").unwrap();
         assert_eq!((console, blob), (0, 1));
@@ -214,7 +256,7 @@ mod tests {
 
     #[test]
     fn declaring_returns_positions_in_order_and_names_them() {
-        let mut set = Set::new();
+        let mut set = Held::new();
         assert_eq!(set.declare("console").unwrap(), 0);
         assert_eq!(set.declare("blob").unwrap(), 1);
         assert_eq!(set.name_of(0), Some("console"));
@@ -228,7 +270,7 @@ mod tests {
     fn a_duplicate_name_is_refused_and_names_the_position_that_holds_it() {
         // The packer resolves a name to an index; two positions under one name
         // would make that lookup ambiguous in exactly the direction used.
-        let mut set = Set::new();
+        let mut set = Held::new();
         set.declare("console").unwrap();
         set.declare("blob").unwrap();
         assert_eq!(
@@ -243,7 +285,7 @@ mod tests {
 
     #[test]
     fn the_last_position_declares_and_the_next_one_does_not() {
-        let mut set = Set::new();
+        let mut set = Held::new();
         // Distinct names, since Duplicate is checked first.
         const NAMES: [&str; MAX_HELD] = ["a", "b", "c", "d", "e", "f", "g", "h"];
         for (i, name) in NAMES.iter().enumerate() {
@@ -258,7 +300,7 @@ mod tests {
 
     #[test]
     fn providing_an_undeclared_position_is_refused() {
-        let mut set = Set::new();
+        let mut set = Held::new();
         let console = set.declare("console").unwrap();
         assert_eq!(
             set.provide(1, cap(3)),
@@ -276,7 +318,7 @@ mod tests {
     fn providing_twice_is_refused_rather_than_overwritten() {
         // Two owners minting one authority: the last writer would win in
         // silence, and which one ran last is not a thing anyone reasons about.
-        let mut set = Set::new();
+        let mut set = Held::new();
         let console = set.declare("console").unwrap();
         set.provide(console, cap(1)).unwrap();
         assert_eq!(
@@ -294,25 +336,112 @@ mod tests {
     }
 
     #[test]
-    fn cap_of_answers_none_for_a_hole_and_for_a_position_that_was_never_declared() {
+    fn get_answers_none_for_a_hole_and_for_a_position_that_was_never_declared() {
         // Both are "you cannot use this", and the caller that asks is the kernel
         // using its own service. Which of the two it is only matters to `bind`,
         // where it decides what a composition is told.
-        let mut set = Set::new();
+        let mut set = Held::new();
         let console = set.declare("console").unwrap();
         let blob = set.declare("blob").unwrap();
         set.provide(blob, cap(4)).unwrap();
 
-        assert_eq!(set.cap_of(console), None, "declared, never minted");
-        assert_eq!(set.cap_of(blob), Some(cap(4)));
-        assert_eq!(set.cap_of(2), None, "never declared");
+        assert_eq!(set.get(console), None, "declared, never minted");
+        assert_eq!(set.get(blob), Some(cap(4)));
+        assert_eq!(set.get(2), None, "never declared");
     }
 
     #[test]
     fn an_empty_vocabulary_binds_nothing() {
-        let set = Set::new();
+        let set = Held::new();
         assert!(set.is_empty());
         assert_eq!(set.as_slice(), &[]);
         assert!(!set.is_provided(0));
+    }
+
+    // ---------------------------------------------------------------------
+    // ADR-0100: the same mechanism, holding pages instead of capabilities.
+    // ---------------------------------------------------------------------
+
+    fn window(pa: u64) -> Window {
+        Window {
+            pa,
+            perms: Perms::USER_RW,
+        }
+    }
+
+    #[test]
+    fn a_window_vacancy_at_zero_does_not_move_one_either() {
+        // The property the reuse is for. A device that is not on this board
+        // leaves its position empty; the window declared after it keeps its
+        // index, so a composition naming 1 gets 1 — and never index 0's page,
+        // which is a page of MMIO it was not composed to touch.
+        let mut set = Windows::new();
+        let rng = set.declare("rng").unwrap();
+        let uart = set.declare("uart0").unwrap();
+        assert_eq!((rng, uart), (0, 1));
+
+        set.provide(uart, window(0xfe20_1000)).unwrap();
+
+        assert_eq!(set.as_slice(), &[None, Some(window(0xfe20_1000))]);
+        assert!(!set.is_provided(rng), "absent on this board");
+        assert_eq!(set.get(uart).map(|w| w.pa), Some(0xfe20_1000));
+    }
+
+    #[test]
+    fn the_window_vocabulary_has_its_own_ceiling() {
+        // Same refusal, different bound: MAX_WINDOWS, not MAX_HELD. A shared
+        // ceiling would let a board with many devices eat the product's
+        // capability positions, which are a different resource entirely.
+        let mut set = Windows::new();
+        const NAMES: [&str; MAX_WINDOWS] = ["a", "b", "c", "d"];
+        for (i, name) in NAMES.iter().enumerate() {
+            assert_eq!(set.declare(name).unwrap(), i as u8);
+        }
+        // `max: MAX_WINDOWS` rather than `MAX_HELD` is the whole assertion: the
+        // refusal reports the window vocabulary's own ceiling, so a board with
+        // many devices cannot eat the product's capability positions.
+        assert_eq!(
+            set.declare("over"),
+            Err(DeclareError::Full { max: MAX_WINDOWS })
+        );
+    }
+
+    #[test]
+    fn a_window_carries_its_own_rights() {
+        // `Perms::USER_RW` was welded into the mapping site before ADR-0100.
+        // A read-only device page is now expressible, and the vocabulary is
+        // what expresses it.
+        let mut set = Windows::new();
+        let counter = set.declare("counter").unwrap();
+        set.provide(
+            counter,
+            Window {
+                pa: 0xfe00_3000,
+                perms: Perms::USER_RO,
+            },
+        )
+        .unwrap();
+        assert_eq!(set.get(counter).map(|w| w.perms), Some(Perms::USER_RO));
+    }
+
+    #[test]
+    fn providing_a_window_twice_is_refused_like_a_capability() {
+        // The discipline is the mechanism's, not the capability's: two owners
+        // claiming one position is the same mistake whatever the position holds.
+        let mut set = Windows::new();
+        let rng = set.declare("rng").unwrap();
+        set.provide(rng, window(0xfe10_4000)).unwrap();
+        assert_eq!(
+            set.provide(rng, window(0xdead_0000)),
+            Err(ProvideError::AlreadyProvided {
+                index: 0,
+                name: "rng"
+            })
+        );
+        assert_eq!(
+            set.get(rng).map(|w| w.pa),
+            Some(0xfe10_4000),
+            "the first window stands"
+        );
     }
 }

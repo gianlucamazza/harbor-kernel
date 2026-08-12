@@ -24,6 +24,8 @@
 //! from outside the image, and not before (ADR-0021 §4).
 
 use crate::cap::CapId;
+use crate::held::Window;
+use crate::paging::Perms;
 
 /// Capability slots an agent may be given.
 ///
@@ -35,16 +37,22 @@ pub const MAX_SLOTS: usize = 4;
 
 /// One page of MMIO an agent is allowed to reach.
 ///
-/// A page, singular, and named by both addresses: the manifest lives in
-/// `bootstrap`, which is the only layer permitted to know a board's physical
-/// map (ADR-0013's narrow windows, `architecture.md` rule 3). The kernel maps
-/// what the entry says and nothing adjacent to it.
+/// A page, singular, named by **where** it lands and **which** declared window
+/// it is (ADR-0100).
+///
+/// The split is the security argument. The virtual address is the composition's
+/// to choose because it is the composition's own window; the physical address
+/// is not here at all, because an entry that could name one could name the
+/// kernel's text and have it mapped `USER_RW`. The index is resolved against
+/// [`crate::held::Windows`], which `bootstrap::authority` fills from the BSP —
+/// keeping the board's map in the one layer allowed to know it (ADR-0013's
+/// narrow windows, `architecture.md` rule 1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DeviceGrant {
     /// Virtual address inside the agent's own window.
     pub va: u64,
-    /// Physical address of the device page.
-    pub pa: u64,
+    /// Index into the loader's window vocabulary.
+    pub window: u8,
 }
 
 /// One agent, as data.
@@ -90,6 +98,17 @@ pub enum BindError {
     /// vocabulary ([`crate::held::Set::name_of`]) supplies it where the refusal
     /// is printed.
     HeldVacant { slot: usize, index: u8 },
+    /// The entry named a device window past the end of the vocabulary
+    /// (ADR-0100).
+    ///
+    /// The device half of [`Self::NoSuchCapability`], and arithmetic for the
+    /// same reason: `index >= windows.len()`. A composition cannot reach a page
+    /// the board did not declare, and cannot be given one by a check that was
+    /// forgotten, because there is no check.
+    NoSuchWindow { index: u8, windows: usize },
+    /// The entry named a declared window that holds nothing this boot
+    /// (ADR-0100) — the device is absent on this board.
+    WindowVacant { index: u8 },
     /// The image does not fit in the text pages the entry declared.
     ImageTooLarge { bytes: usize, capacity: usize },
     /// Zero text pages, or a window with no stack.
@@ -212,6 +231,83 @@ pub fn bind(
         out[slot] = Some(cap);
     }
     Ok(out)
+}
+
+/// A device page the loader may now map: where the composition asked for it,
+/// and what the board says it is (ADR-0100).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResolvedWindow {
+    /// From the entry — inside the agent's own window.
+    pub va: u64,
+    /// From the vocabulary — never from the entry.
+    pub pa: u64,
+    /// From the vocabulary, so a read-only device stays read-only.
+    pub perms: Perms,
+}
+
+/// Resolve an entry's device grant against the loader's window vocabulary.
+///
+/// The companion to [`bind`], and the same argument one layer over: an entry
+/// carries an **index**, so the physical address it ends up with can only be
+/// one the board declared. `Ok(None)` means the entry asked for no device,
+/// which is what every entry in the tree does today.
+///
+/// ```
+/// use kernel_core::held::Window;
+/// use kernel_core::manifest::{bind_window, AgentEntry, BindError, DeviceGrant};
+/// use kernel_core::paging::Perms;
+///
+/// const IMAGE: [u8; 4] = [0; 4];
+/// let mut entry = AgentEntry {
+///     name: "rng-agent",
+///     image: &IMAGE,
+///     text_pages: 1,
+///     stack_pages: 3,
+///     slots: [None; 4],
+///     device: Some(DeviceGrant { va: 0x2000, window: 0 }),
+///     home_cpu: 0,
+/// };
+/// let windows = [Some(Window { pa: 0xfe10_4000, perms: Perms::USER_RW })];
+/// let got = bind_window(&entry, &windows).unwrap().unwrap();
+/// assert_eq!((got.va, got.pa), (0x2000, 0xfe10_4000));
+///
+/// // Past the end of the vocabulary: arithmetic, not a range check.
+/// entry.device = Some(DeviceGrant { va: 0x2000, window: 1 });
+/// assert_eq!(
+///     bind_window(&entry, &windows),
+///     Err(BindError::NoSuchWindow { index: 1, windows: 1 })
+/// );
+///
+/// // Declared, absent on this board.
+/// assert_eq!(
+///     bind_window(&entry, &[Some(Window { pa: 0, perms: Perms::USER_RW }), None]),
+///     Err(BindError::WindowVacant { index: 1 })
+/// );
+/// ```
+pub fn bind_window(
+    entry: &AgentEntry,
+    windows: &[Option<Window>],
+) -> Result<Option<ResolvedWindow>, BindError> {
+    let Some(grant) = entry.device else {
+        return Ok(None);
+    };
+    let i = grant.window as usize;
+    if i >= windows.len() {
+        return Err(BindError::NoSuchWindow {
+            index: grant.window,
+            windows: windows.len(),
+        });
+    }
+    let Some(window) = windows[i] else {
+        return Err(BindError::WindowVacant {
+            index: grant.window,
+        });
+    };
+    Ok(Some(ResolvedWindow {
+        va: grant.va,
+        pa: window.pa,
+        perms: window.perms,
+    }))
 }
 
 #[cfg(test)]
@@ -347,6 +443,111 @@ mod tests {
             bind(&entry([Some(0), None, None, None]), &held),
             Err(BindError::HeldVacant { slot: 0, index: 0 }),
             "and the hole itself is still refused"
+        );
+    }
+
+    #[test]
+    fn a_window_past_the_vocabulary_is_refused_by_arithmetic() {
+        // ADR-0100's security property, stated as a test: the entry names an
+        // index, so the only physical addresses reachable are the ones the
+        // board declared. There is no check to forget, and no range to widen.
+        let mut e = entry([None; MAX_SLOTS]);
+        e.device = Some(DeviceGrant {
+            va: 0x2000,
+            window: 1,
+        });
+        let windows = [Some(Window {
+            pa: 0xfe10_4000,
+            perms: Perms::USER_RW,
+        })];
+        assert_eq!(
+            bind_window(&e, &windows),
+            Err(BindError::NoSuchWindow {
+                index: 1,
+                windows: 1
+            })
+        );
+        // And an empty vocabulary refuses everything, which is what a product
+        // that declares no window is entitled to.
+        assert_eq!(
+            bind_window(&e, &[]),
+            Err(BindError::NoSuchWindow {
+                index: 1,
+                windows: 0
+            })
+        );
+    }
+
+    #[test]
+    fn an_absent_device_is_a_different_refusal_from_an_undeclared_one() {
+        // Same distinction ADR-0099 drew for capabilities, for the same reason:
+        // "this board does not have that device" and "your composition asked
+        // for a device nobody declared" are different problems with different
+        // owners, and one console line each.
+        let mut e = entry([None; MAX_SLOTS]);
+        e.device = Some(DeviceGrant {
+            va: 0x2000,
+            window: 0,
+        });
+        assert_eq!(
+            bind_window(&e, &[None]),
+            Err(BindError::WindowVacant { index: 0 })
+        );
+        assert_ne!(
+            bind_window(&e, &[None]),
+            Err(BindError::NoSuchWindow {
+                index: 0,
+                windows: 1
+            }),
+            "the two refusals must not collapse into one"
+        );
+    }
+
+    #[test]
+    fn the_physical_address_comes_from_the_board_and_the_va_from_the_entry() {
+        // Each half from the party entitled to decide it. A composition that
+        // could choose the pa would be minting memory; one that could not
+        // choose the va could not lay out its own window.
+        let mut e = entry([None; MAX_SLOTS]);
+        e.device = Some(DeviceGrant {
+            va: 0x9000,
+            window: 1,
+        });
+        let windows = [
+            Some(Window {
+                pa: 0xfe20_1000,
+                perms: Perms::USER_RW,
+            }),
+            Some(Window {
+                pa: 0xfe10_4000,
+                perms: Perms::USER_RO,
+            }),
+        ];
+        assert_eq!(
+            bind_window(&e, &windows).unwrap(),
+            Some(ResolvedWindow {
+                va: 0x9000,
+                pa: 0xfe10_4000,
+                perms: Perms::USER_RO,
+            }),
+            "index 1's page and index 1's rights, not index 0's"
+        );
+    }
+
+    #[test]
+    fn an_entry_that_names_no_device_resolves_to_nothing() {
+        // Denied by default, the device half: an agent with no grant is not an
+        // agent with the first window.
+        let e = entry([None; MAX_SLOTS]);
+        assert_eq!(
+            bind_window(
+                &e,
+                &[Some(Window {
+                    pa: 0xfe10_4000,
+                    perms: Perms::USER_RW
+                })]
+            ),
+            Ok(None)
         );
     }
 

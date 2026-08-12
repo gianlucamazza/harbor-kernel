@@ -663,7 +663,7 @@ pub fn run() -> ! {
     // it lives in `demos`, which is the file `product-builds` derives its
     // forbidden-symbol list from (rule 9 of `architecture.md`).
     #[cfg(feature = "oracle")]
-    demos::run_all(authority.cap_of(authority::HELD_CONSOLE));
+    demos::run_all(authority.held.get(authority::HELD_CONSOLE));
 
     // Deliberate fault, last so the demo tasks are alive when it runs: the
     // probe must overflow its own guard while a peer stack exists, or it cannot

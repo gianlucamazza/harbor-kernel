@@ -368,6 +368,18 @@ impl Perms {
         execute: true,
         user: true,
     };
+    /// EL0+EL1 read only — a device page an agent may read and not drive
+    /// ([ADR-0100](../../../docs/adr/0100-device-windows.md)).
+    ///
+    /// The set above had no user-readable-only member because every EL0 mapping
+    /// so far was a stack, an image, or a device the agent drives. A declared
+    /// window carries its own rights, so "read this counter, do not write it"
+    /// became expressible and wanted a name.
+    pub const USER_RO: Self = Self {
+        write: false,
+        execute: false,
+        user: true,
+    };
 }
 
 /// Encode a level-1 block descriptor mapping `pa`.

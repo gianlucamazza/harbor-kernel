@@ -18,7 +18,7 @@
 //! The console line proves it either way: one `authority:` line per position,
 //! `ok` or `VACANT`, before the loader runs.
 
-use kernel_core::held::{DeclareError, Set};
+use kernel_core::held::{DeclareError, Held, Windows};
 
 use super::console_server;
 
@@ -32,6 +32,24 @@ use super::console_server;
 pub const HELD_CONSOLE: u8 = 0;
 pub const NAME_CONSOLE: &str = "console";
 
+/// Both vocabularies a composition may name, assembled for this boot.
+///
+/// Two alphabets, one mechanism ([`kernel_core::held::Set`]): capabilities are
+/// handed to an agent's slot table, windows are mapped into its address space,
+/// and both are named by an index the composition chooses at compose time.
+pub struct Authority {
+    /// What a store entry's `slots` index (ADR-0099).
+    pub held: Held,
+    /// What a store entry's device grant indexes (ADR-0100).
+    ///
+    /// **Empty in this product.** ADR-0100 built the mechanism and deliberately
+    /// declared no window with it: granting a device is a composition decision,
+    /// and the first one arrives with the first composed driver-agent. Until
+    /// then every entry naming a window is refused by arithmetic — `index >= 0`
+    /// — which is the property being shipped.
+    pub windows: Windows,
+}
+
 /// Assemble the product's vocabulary: declare every position, mint what can be
 /// minted, and say on the wire which positions are filled.
 ///
@@ -39,8 +57,8 @@ pub const NAME_CONSOLE: &str = "console";
 /// empty and the agents that named it are refused by the loader — the kernel
 /// coming up short is a different fact from a composition asking for too much,
 /// and both are printed.
-pub fn assemble() -> Set {
-    let mut set = Set::new();
+pub fn assemble() -> Authority {
+    let mut set = Held::new();
 
     let console = declare_or_report(&mut set, NAME_CONSOLE, HELD_CONSOLE);
 
@@ -54,7 +72,14 @@ pub fn assemble() -> Set {
         }
     }
 
-    set
+    // ADR-0100: the device-window vocabulary. Declared empty on purpose, and
+    // said out loud rather than left silent — "this product grants no device"
+    // is a fact worth reading off a boot log, and it is what `product-boot-check`
+    // asserts. A window appears here when a composition needs one.
+    let windows = Windows::new();
+    crate::kprintln!("authority: windows {} declared", windows.len());
+
+    Authority { held: set, windows }
 }
 
 /// Declare a position, or say why the vocabulary refused it.
@@ -63,7 +88,7 @@ pub fn assemble() -> Set {
 /// than [`kernel_core::held::MAX_HELD`] — so it prints and continues rather than
 /// halting: the boot is still worth having with one service missing, and the
 /// line names which.
-fn declare_or_report(set: &mut Set, name: &'static str, expected: u8) -> Option<u8> {
+fn declare_or_report(set: &mut Held, name: &'static str, expected: u8) -> Option<u8> {
     match set.declare(name) {
         Ok(index) if index == expected => Some(index),
         Ok(index) => {
@@ -86,7 +111,7 @@ fn declare_or_report(set: &mut Set, name: &'static str, expected: u8) -> Option<
     }
 }
 
-fn provide_or_report(set: &mut Set, index: u8, cap: kernel_core::cap::CapId, name: &str) {
+fn provide_or_report(set: &mut Held, index: u8, cap: kernel_core::cap::CapId, name: &str) {
     match set.provide(index, cap) {
         Ok(()) => crate::kprintln!("authority: {index} {name} ok"),
         Err(e) => crate::kprintln!("authority: {index} {name} VACANT {e:?}"),

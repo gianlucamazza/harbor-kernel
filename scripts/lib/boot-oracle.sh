@@ -455,6 +455,25 @@ assert_boot_oracle() {
 	grep -qa 'H!loader: beacon ran' "${log}" ||
 		fail "the manifest agent's bytes did not reach the console before its report"
 
+	# ADR-0100: the same claim for the *device* vocabulary. `nowindow` is
+	# `beacon`'s bytes with a device grant naming window 0, and this product
+	# declares no window — so the refusal is `index >= 0`, arithmetic, and it is
+	# seen on every good boot rather than argued for in a document.
+	#
+	# The negative that matters is below it: a refused entry must not have been
+	# spawned, because an agent composed to drive a page it cannot have is not an
+	# agent anyone asked to run without one.
+	grep -qa 'authority: windows 0 declared' "${log}" ||
+		fail "the window vocabulary was not declared (ADR-0100)"
+	grep -qa 'loader: nowindow refused — names window 0 of 0' "${log}" ||
+		fail "an entry naming an undeclared device window was not refused"
+	if grep -qa 'loader: nowindow loaded' "${log}"; then
+		fail "an entry refused a device window was spawned anyway"
+	fi
+	if grep -qa 'loader: nowindow ran' "${log}"; then
+		fail "an entry refused a device window reached EL0"
+	fi
+
 	# Neither of the other two should move in a healthy boot: nothing here fills a
 	# mailbox, and a refusal for `state` means an endpoint resolved and then named a
 	# dead mailbox, which is kernel bookkeeping being wrong rather than a caller's
