@@ -89,9 +89,14 @@ assert_product_boot() {
 			fail "the composed driver-agent was not loaded"
 		grep -qa 'loader: entropy ran sends=1 refusals=0' "${log}" ||
 			fail "the composed driver-agent did not send its reading"
-		# Anchored to the agent's own report, the way beacon's `H!` is: a bare
-		# 'R' would be matched by `IRQs`, `RX`, or any other line on the wire.
-		grep -qa 'Rloader: entropy ran' "${log}" ||
+		# Anchored to *a* loader report, the way beacon's `H!` is: a bare 'R'
+		# would be matched by `IRQs`, `RX`, or any other line on the wire. Which
+		# report it collides with is scheduling, not invariant — the first
+		# version of this line required `Rloader: entropy ran` and failed on the
+		# Pi 4B stamp of 2026-08-13, where the byte landed on beacon's report
+		# instead. Only `entropy` sends an 'R'; when it arrives is the board's
+		# business.
+		grep -qaE 'Rloader: [a-z]+ ran' "${log}" ||
 			fail "the driver-agent's reading did not reach the wire before its report"
 	elif grep -qa 'rng200: unavailable' "${log}"; then
 		grep -qa 'authority: 0 rng absent' "${log}" ||
