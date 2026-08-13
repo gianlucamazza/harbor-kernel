@@ -50,6 +50,7 @@ pub mod fault;
 pub mod fdt;
 pub mod font8x8;
 pub mod frame;
+pub mod genet;
 pub mod gic;
 pub mod heap;
 pub mod held;
