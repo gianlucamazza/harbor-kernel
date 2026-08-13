@@ -9,6 +9,175 @@
 /// `VIRTIO_F_VERSION_1`: the modern virtio transport contract.
 pub const FEATURE_VERSION_1: u64 = 1 << 32;
 
+/// Virtio-mmio register offsets used by the P3 driver.
+pub mod mmio {
+    pub const MAGIC_VALUE: usize = 0x000;
+    pub const VERSION: usize = 0x004;
+    pub const DEVICE_ID: usize = 0x008;
+    pub const VENDOR_ID: usize = 0x00c;
+    pub const DEVICE_FEATURES: usize = 0x010;
+    pub const DEVICE_FEATURES_SEL: usize = 0x014;
+    pub const DRIVER_FEATURES: usize = 0x020;
+    pub const DRIVER_FEATURES_SEL: usize = 0x024;
+    pub const QUEUE_SEL: usize = 0x030;
+    pub const QUEUE_NUM_MAX: usize = 0x034;
+    pub const QUEUE_NUM: usize = 0x038;
+    pub const QUEUE_READY: usize = 0x044;
+    pub const QUEUE_NOTIFY: usize = 0x050;
+    pub const INTERRUPT_STATUS: usize = 0x060;
+    pub const INTERRUPT_ACK: usize = 0x064;
+    pub const STATUS: usize = 0x070;
+    pub const QUEUE_DESC_LOW: usize = 0x080;
+    pub const QUEUE_DESC_HIGH: usize = 0x084;
+    pub const QUEUE_AVAIL_LOW: usize = 0x090;
+    pub const QUEUE_AVAIL_HIGH: usize = 0x094;
+    pub const QUEUE_USED_LOW: usize = 0x0a0;
+    pub const QUEUE_USED_HIGH: usize = 0x0a4;
+    pub const CONFIG: usize = 0x100;
+}
+
+/// Virtio-mmio identity values required by a modern network device.
+pub const MAGIC: u32 = 0x7472_6976;
+pub const MODERN_VERSION: u32 = 2;
+pub const NETWORK_DEVICE_ID: u32 = 1;
+
+/// Virtio device status bits.
+pub mod status {
+    pub const ACKNOWLEDGE: u8 = 1;
+    pub const DRIVER: u8 = 2;
+    pub const DRIVER_OK: u8 = 4;
+    pub const FEATURES_OK: u8 = 8;
+    pub const NEEDS_RESET: u8 = 64;
+    pub const FAILED: u8 = 128;
+}
+
+/// Device information after the transport identity probe.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeviceInfo {
+    pub vendor: u32,
+    pub features: u64,
+}
+
+/// Why the virtio-mmio identity probe was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProbeError {
+    BadMagic(u32),
+    LegacyVersion(u32),
+    NotNetworkDevice(u32),
+}
+
+/// Validate the identity registers before any feature or queue write.
+pub const fn probe_device(
+    magic: u32,
+    version: u32,
+    device_id: u32,
+    vendor: u32,
+    features: u64,
+) -> Result<DeviceInfo, ProbeError> {
+    if magic != MAGIC {
+        return Err(ProbeError::BadMagic(magic));
+    }
+    if version != MODERN_VERSION {
+        return Err(ProbeError::LegacyVersion(version));
+    }
+    if device_id != NETWORK_DEVICE_ID {
+        return Err(ProbeError::NotNetworkDevice(device_id));
+    }
+    Ok(DeviceInfo { vendor, features })
+}
+
+/// Why the virtio status handshake was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StatusError {
+    Unexpected { current: u8, required: u8 },
+    FeaturesNotNegotiated,
+    DeviceFailed,
+}
+
+/// Host-testable mirror of the modern virtio driver status handshake.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DriverStatus {
+    bits: u8,
+    negotiated: bool,
+}
+
+impl DriverStatus {
+    pub const fn new() -> Self {
+        Self {
+            bits: 0,
+            negotiated: false,
+        }
+    }
+
+    pub const fn bits(self) -> u8 {
+        self.bits
+    }
+
+    pub const fn is_ready(self) -> bool {
+        self.bits & status::DRIVER_OK != 0
+    }
+
+    /// Return the mirror to the transport's reset state.
+    pub const fn reset(&mut self) {
+        self.bits = 0;
+        self.negotiated = false;
+    }
+
+    pub fn acknowledge(&mut self) -> Result<(), StatusError> {
+        self.require(0)?;
+        self.bits |= status::ACKNOWLEDGE;
+        Ok(())
+    }
+
+    pub fn driver(&mut self) -> Result<(), StatusError> {
+        self.require(status::ACKNOWLEDGE)?;
+        self.bits |= status::DRIVER;
+        Ok(())
+    }
+
+    pub fn features_ok(&mut self, negotiated: u64) -> Result<(), StatusError> {
+        self.require(status::ACKNOWLEDGE | status::DRIVER)?;
+        if negotiated & FEATURE_VERSION_1 == 0 {
+            return Err(StatusError::FeaturesNotNegotiated);
+        }
+        self.negotiated = true;
+        self.bits |= status::FEATURES_OK;
+        Ok(())
+    }
+
+    pub fn driver_ok(&mut self) -> Result<(), StatusError> {
+        self.require(status::ACKNOWLEDGE | status::DRIVER | status::FEATURES_OK)?;
+        if !self.negotiated {
+            return Err(StatusError::FeaturesNotNegotiated);
+        }
+        self.bits |= status::DRIVER_OK;
+        Ok(())
+    }
+
+    pub fn fail(&mut self) {
+        self.bits |= status::FAILED;
+    }
+
+    fn require(&self, required: u8) -> Result<(), StatusError> {
+        if self.bits & status::FAILED != 0 {
+            return Err(StatusError::DeviceFailed);
+        }
+        if self.bits != required {
+            return Err(StatusError::Unexpected {
+                current: self.bits,
+                required,
+            });
+        }
+        Ok(())
+    }
+}
+
+impl Default for DriverStatus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// The feature set the first P3 driver is prepared to negotiate.
 pub const SUPPORTED_FEATURES: u64 = FEATURE_VERSION_1;
 
@@ -287,6 +456,71 @@ impl Default for PacketPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mmio_probe_refuses_wrong_identity_before_negotiation() {
+        assert_eq!(
+            probe_device(0, MODERN_VERSION, NETWORK_DEVICE_ID, 1, FEATURE_VERSION_1),
+            Err(ProbeError::BadMagic(0))
+        );
+        assert_eq!(
+            probe_device(MAGIC, 1, NETWORK_DEVICE_ID, 1, FEATURE_VERSION_1),
+            Err(ProbeError::LegacyVersion(1))
+        );
+        assert_eq!(
+            probe_device(MAGIC, MODERN_VERSION, 2, 1, FEATURE_VERSION_1),
+            Err(ProbeError::NotNetworkDevice(2))
+        );
+        assert_eq!(
+            probe_device(
+                MAGIC,
+                MODERN_VERSION,
+                NETWORK_DEVICE_ID,
+                0x1234,
+                FEATURE_VERSION_1
+            ),
+            Ok(DeviceInfo {
+                vendor: 0x1234,
+                features: FEATURE_VERSION_1
+            })
+        );
+    }
+
+    #[test]
+    fn modern_status_handshake_is_ordered_and_reaches_ready() {
+        let mut driver = DriverStatus::new();
+        assert!(!driver.is_ready());
+        assert_eq!(
+            driver.driver(),
+            Err(StatusError::Unexpected {
+                current: 0,
+                required: 1
+            })
+        );
+        driver.acknowledge().unwrap();
+        driver.driver().unwrap();
+        assert_eq!(
+            driver.features_ok(0),
+            Err(StatusError::FeaturesNotNegotiated)
+        );
+        driver.features_ok(FEATURE_VERSION_1).unwrap();
+        driver.driver_ok().unwrap();
+        assert!(driver.is_ready());
+        assert_eq!(
+            driver.bits(),
+            status::ACKNOWLEDGE | status::DRIVER | status::FEATURES_OK | status::DRIVER_OK
+        );
+    }
+
+    #[test]
+    fn failed_status_is_terminal_until_reset() {
+        let mut driver = DriverStatus::new();
+        driver.fail();
+        assert_eq!(driver.acknowledge(), Err(StatusError::DeviceFailed));
+        assert_eq!(driver.driver_ok(), Err(StatusError::DeviceFailed));
+        driver.reset();
+        driver.acknowledge().unwrap();
+    }
 
     #[test]
     fn modern_negotiation_refuses_legacy_and_unknown_required_features() {
