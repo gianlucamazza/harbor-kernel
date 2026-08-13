@@ -57,8 +57,10 @@ proposed status.
 The companion `kernel_core::genet` model now also encodes and decodes the
 v4+-style status word, keeps ownership and SOP/EOP/WRAP explicit, bounds ring
 addresses against all discovered DMA apertures, and classifies both direct
-and per-queue DMA interrupt bits. This remains a host contract, not a claim
-that the Pi4 BSP touches GENET MMIO.
+and per-queue DMA interrupt bits. `RingState` exercises the ordered
+driver/device/driver lifecycle and refuses full rings, missing completions,
+bad status ownership, and malformed descriptors. This remains a host
+contract, not a claim that the Pi4 BSP touches GENET MMIO.
 
 ## Decision
 

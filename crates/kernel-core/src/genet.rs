@@ -129,6 +129,9 @@ impl DescriptorStatus {
         if length == 0 {
             return Err(DescriptorError::Empty);
         }
+        if length as u32 > MAX_FRAME_BYTES {
+            return Err(DescriptorError::TooLarge);
+        }
         Ok(Self {
             length,
             ownership: if word & DMA_OWN != 0 {
@@ -198,6 +201,7 @@ pub enum DescriptorError {
     AddressOverflow,
     Empty,
     TooLarge,
+    WrongOwnership,
 }
 
 impl Descriptor {
@@ -234,6 +238,93 @@ impl Descriptor {
 pub enum Ownership {
     Driver,
     Device,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RingError {
+    Full,
+    NoCompletion,
+    InvalidStatus(DescriptorError),
+    InvalidDescriptor(DescriptorError),
+}
+
+/// Bounded producer/consumer ownership for one GENET ring.
+///
+/// The hardware exposes producer and consumer indices, but it does not make
+/// an out-of-order completion safe. This model keeps that ordering explicit:
+/// the driver posts only at the producer cursor and reclaims only at the
+/// consumer cursor. The fixed backing arrays are the model's bound, not a
+/// request to allocate an unbounded queue.
+pub struct RingState {
+    layout: RingLayout,
+    dma: DmaWindows,
+    producer: u16,
+    consumer: u16,
+    ownership: [Ownership; TOTAL_DESCRIPTORS as usize],
+    descriptors: [Option<Descriptor>; TOTAL_DESCRIPTORS as usize],
+}
+
+impl RingState {
+    pub fn new(layout: RingLayout, dma: DmaWindows) -> Self {
+        Self {
+            layout,
+            dma,
+            producer: 0,
+            consumer: 0,
+            ownership: [Ownership::Driver; TOTAL_DESCRIPTORS as usize],
+            descriptors: [None; TOTAL_DESCRIPTORS as usize],
+        }
+    }
+
+    pub const fn producer(&self) -> u16 {
+        self.producer
+    }
+
+    pub const fn consumer(&self) -> u16 {
+        self.consumer
+    }
+
+    pub fn post(&mut self, descriptor: Descriptor) -> Result<u16, RingError> {
+        descriptor
+            .validate_windows(self.dma)
+            .map_err(RingError::InvalidDescriptor)?;
+        let index = self.producer;
+        if self.ownership[index as usize] != Ownership::Driver {
+            return Err(RingError::Full);
+        }
+        self.descriptors[index as usize] = Some(descriptor);
+        self.ownership[index as usize] = Ownership::Device;
+        self.producer = self.next(index);
+        Ok(index)
+    }
+
+    pub fn complete(&mut self, status: u32) -> Result<(u16, Descriptor), RingError> {
+        let status = DescriptorStatus::decode(status).map_err(RingError::InvalidStatus)?;
+        if status.ownership != Ownership::Driver {
+            return Err(RingError::InvalidStatus(DescriptorError::WrongOwnership));
+        }
+        let index = self.consumer;
+        if self.ownership[index as usize] != Ownership::Device {
+            return Err(RingError::NoCompletion);
+        }
+        let mut descriptor = self.descriptors[index as usize].ok_or(RingError::NoCompletion)?;
+        descriptor.length = u32::from(status.length);
+        descriptor.status = status.encode().map_err(RingError::InvalidStatus)?;
+        descriptor
+            .validate_windows(self.dma)
+            .map_err(RingError::InvalidDescriptor)?;
+        self.ownership[index as usize] = Ownership::Driver;
+        self.consumer = self.next(index);
+        Ok((index, descriptor))
+    }
+
+    const fn next(&self, index: u16) -> u16 {
+        if index + 1 == self.layout.count {
+            0
+        } else {
+            index + 1
+        }
+    }
 }
 
 /// A bounded ring cursor. The ring is fixed-size and never grows from device
@@ -344,6 +435,10 @@ mod tests {
         base: 0x1000,
         len: 0x4000,
     };
+    const DMA_WINDOWS: DmaWindows = DmaWindows {
+        windows: [DMA, DMA, DMA, DMA],
+        count: 1,
+    };
 
     #[test]
     fn dma_window_rejects_zero_and_wrapping_ranges() {
@@ -445,6 +540,72 @@ mod tests {
         assert_eq!(ring.descriptor_address(4), None);
         assert_eq!(RingLayout::new(0x5000, 1, DMA), None);
         assert_eq!(RingLayout::new(0x1001, 1, DMA), None);
+    }
+
+    #[test]
+    fn ring_state_requires_ordered_post_and_completion() {
+        let layout = RingLayout::new(0x1000, 2, DMA).unwrap();
+        let mut ring = RingState::new(layout, DMA_WINDOWS);
+        let descriptor = Descriptor {
+            address: 0x1800,
+            length: 1500,
+            status: 0,
+        };
+        assert_eq!(
+            ring.complete(0),
+            Err(RingError::InvalidStatus(DescriptorError::Empty))
+        );
+        assert_eq!(ring.post(descriptor), Ok(0));
+        assert_eq!(ring.consumer(), 0);
+        let status = DescriptorStatus {
+            length: 1500,
+            ownership: Ownership::Driver,
+            start: true,
+            end: true,
+            wrap: false,
+        }
+        .encode()
+        .unwrap();
+        let device_owned_status = DescriptorStatus {
+            ownership: Ownership::Device,
+            ..DescriptorStatus::decode(status).unwrap()
+        }
+        .encode()
+        .unwrap();
+        assert_eq!(
+            ring.complete(device_owned_status),
+            Err(RingError::InvalidStatus(DescriptorError::WrongOwnership))
+        );
+        let (index, completed) = ring.complete(status).unwrap();
+        assert_eq!(index, 0);
+        assert_eq!(completed.length, 1500);
+        assert_eq!(ring.consumer(), 1);
+        assert_eq!(ring.complete(status), Err(RingError::NoCompletion));
+    }
+
+    #[test]
+    fn ring_state_refuses_full_ring_and_wraps_after_reclaim() {
+        let layout = RingLayout::new(0x1000, 2, DMA).unwrap();
+        let mut ring = RingState::new(layout, DMA_WINDOWS);
+        let descriptor = Descriptor {
+            address: 0x1800,
+            length: 64,
+            status: 0,
+        };
+        assert_eq!(ring.post(descriptor), Ok(0));
+        assert_eq!(ring.post(descriptor), Ok(1));
+        assert_eq!(ring.post(descriptor), Err(RingError::Full));
+        let status = DescriptorStatus {
+            length: 64,
+            ownership: Ownership::Driver,
+            start: true,
+            end: true,
+            wrap: false,
+        }
+        .encode()
+        .unwrap();
+        assert_eq!(ring.complete(status).unwrap().0, 0);
+        assert_eq!(ring.post(descriptor), Ok(0));
     }
 
     #[test]
