@@ -378,6 +378,28 @@ mod tests {
     }
 
     #[test]
+    fn a_packet_capability_binds_only_when_the_packet_pool_is_granted() {
+        let held = [
+            Some(CapId::new(1, 1)),
+            Some(CapId::new(2, 1)),
+            Some(CapId::new(3, 1)),
+            Some(CapId::new(4, 1)),
+        ];
+        let mut e = entry([Some(PACKET_CAPABILITY_START), None, None, None]);
+
+        assert_eq!(
+            bind(&e, &held),
+            Err(BindError::PacketPoolRequired {
+                slot: 0,
+                index: PACKET_CAPABILITY_START,
+            })
+        );
+
+        e.packet_pool = true;
+        assert_eq!(bind(&e, &held).unwrap()[0], Some(CapId::new(4, 1)));
+    }
+
+    #[test]
     fn the_last_held_index_binds_and_the_next_one_does_not() {
         // The off-by-one, on the other side of the same boundary `from_slot`
         // guards: `index >= len` and `index > len` differ only here.

@@ -197,17 +197,7 @@ pub fn kernel_regions<'a>(
     // list so the validator proves one invariant for both layouts instead of
     // making each BSP arrange its constants to suit an implementation detail.
     let count = ram_count + devices.len();
-    let mut i = 1;
-    while i < count {
-        let value = out[i];
-        let mut j = i;
-        while j > 0 && out[j - 1].base > value.base {
-            out[j] = out[j - 1];
-            j -= 1;
-        }
-        out[j] = value;
-        i += 1;
-    }
+    out[..count].sort_unstable_by_key(|entry| entry.base);
 
     let filled = &mut out[..count];
     validate(filled, bounds)?;

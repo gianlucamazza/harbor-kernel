@@ -847,6 +847,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn network_and_blob_program_encoders_preserve_their_parameters() {
+        let network = encode_net_tx_exit(0x5300_0000, 4, 5);
+        assert_eq!(
+            network[..4],
+            a64::movz_x(0, 0).to_le_bytes(),
+            "the network encoder must start by loading the pool address"
+        );
+        assert!(network.iter().any(|&byte| byte > 1));
+
+        let blob = encode_blob_round_trip_exit(6, 7, 8);
+        assert_eq!(
+            blob[..4],
+            a64::movz_x(0, 6).to_le_bytes(),
+            "the blob encoder must load the request capability slot"
+        );
+        assert!(blob.iter().any(|&byte| byte > 1));
+    }
+
     /// The one that earns the suite.
     ///
     /// `tbnz` skips the load, slot, tag and `SYS_SEND` when the RX FIFO is
