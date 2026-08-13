@@ -35,7 +35,7 @@ env:
   # Updating is a deliberate commit, exactly like the toolchain bump: change the
   # digest, watch the run, and the boot oracle validates the new emulator before
   # it reaches anyone else.
-  ARCH_IMAGE: archlinux@sha256:345a872f6c95e082d4b8c050af637eebb57402c6e2177b411c3acf7df84eb33b
+  QEMU_IMAGE: debian@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
   # `raspi4b` first appears in QEMU 9. Asserting the floor means a container
   # that somehow resolves to an older build fails loudly here rather than in the
   # middle of a boot check.
@@ -75,16 +75,19 @@ jobs:
       - name: Install llvm
         run: sudo apt-get update && sudo apt-get install -y llvm
 
-      # Ubuntu's qemu-system-arm (even 8.2 on 24.04) does **not** ship the
-      # `raspi4b` machine Harbor boots under. CI therefore wraps an
-      # Arch-packaged qemu-system-aarch64 so `make boot-check` / `make check`
-      # keep a single path — the assertions live in the script, never here.
-      - name: QEMU with raspi4b (pinned Arch container)
+      # Ubuntu's qemu-system-arm does not provide the required `raspi4b`
+      # machine at the runner image's package version. CI therefore wraps the
+      # pinned Debian Trixie QEMU package; the assertions remain in
+      # `make boot-check` / `make check`, never in this setup step.
+      - name: QEMU with raspi4b (pinned Debian container)
         run: |
           set -euo pipefail
           docker build -t harbor-qemu-raspi4b - <<Dockerfile
-          FROM ${ARCH_IMAGE}
-          RUN pacman -Sy --noconfirm qemu-system-aarch64
+          FROM ${QEMU_IMAGE}
+          RUN apt-get update \
+            && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              qemu-system-arm=1:10.0.11+ds-0+deb13u1 \
+            && rm -rf /var/lib/apt/lists/*
           ENTRYPOINT ["qemu-system-aarch64"]
           Dockerfile
           sudo tee /usr/local/bin/qemu-system-aarch64 >/dev/null <<'WRAP'
