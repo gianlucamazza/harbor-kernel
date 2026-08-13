@@ -62,6 +62,12 @@ driver/device/driver lifecycle and refuses full rings, missing completions,
 bad status ownership, and malformed descriptors. This remains a host
 contract, not a claim that the Pi4 BSP touches GENET MMIO.
 
+The model keeps two address domains distinct: GENET v5 descriptor slots live
+in the controller's internal RDMA/TDMA descriptor RAM, while the descriptor
+address fields point at packet buffers constrained by the discovered DMA
+apertures. A packet-buffer DMA window is therefore never reused as a ring
+base.
+
 ## Decision
 
 ### 1. Discovery is device-tree-first

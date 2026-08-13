@@ -177,12 +177,17 @@ pub struct RingLayout {
 }
 
 impl RingLayout {
-    pub const fn new(base: u64, count: u16, dma: DmaWindow) -> Option<Self> {
-        if count == 0 || count > TOTAL_DESCRIPTORS || !base.is_multiple_of(4) {
+    /// `base` is an offset in GENET's internal descriptor RAM, not a DMA PA.
+    pub const fn new(base: u64, count: u16) -> Option<Self> {
+        if (base != registers::RDMA as u64 && base != registers::TDMA as u64)
+            || count == 0
+            || count > TOTAL_DESCRIPTORS
+            || !base.is_multiple_of(4)
+        {
             return None;
         }
         let bytes = count as u64 * DESCRIPTOR_BYTES;
-        if !dma.contains(base, bytes) {
+        if base.checked_add(bytes).is_none() || base + bytes > REGISTER_BYTES {
             return None;
         }
         Some(Self { base, count })
@@ -545,17 +550,17 @@ mod tests {
 
     #[test]
     fn ring_layout_checks_dma_span_and_index() {
-        let ring = RingLayout::new(0x1000, 4, DMA).unwrap();
-        assert_eq!(ring.descriptor_address(0), Some(0x1000));
-        assert_eq!(ring.descriptor_address(3), Some(0x1024));
+        let ring = RingLayout::new(registers::RDMA as u64, 4).unwrap();
+        assert_eq!(ring.descriptor_address(0), Some(0x2000));
+        assert_eq!(ring.descriptor_address(3), Some(0x2024));
         assert_eq!(ring.descriptor_address(4), None);
-        assert_eq!(RingLayout::new(0x5000, 1, DMA), None);
-        assert_eq!(RingLayout::new(0x1001, 1, DMA), None);
+        assert_eq!(RingLayout::new(REGISTER_BYTES, 1), None);
+        assert_eq!(RingLayout::new(registers::RDMA as u64 + 1, 1), None);
     }
 
     #[test]
     fn ring_state_requires_ordered_post_and_completion() {
-        let layout = RingLayout::new(0x1000, 2, DMA).unwrap();
+        let layout = RingLayout::new(registers::RDMA as u64, 2).unwrap();
         let mut ring = RingState::new(layout, DMA_WINDOWS);
         let descriptor = Descriptor {
             address: 0x1800,
@@ -596,7 +601,7 @@ mod tests {
 
     #[test]
     fn ring_state_refuses_full_ring_and_wraps_after_reclaim() {
-        let layout = RingLayout::new(0x1000, 2, DMA).unwrap();
+        let layout = RingLayout::new(registers::TDMA as u64, 2).unwrap();
         let mut ring = RingState::new(layout, DMA_WINDOWS);
         let descriptor = Descriptor {
             address: 0x1800,

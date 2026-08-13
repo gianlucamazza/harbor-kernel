@@ -5,7 +5,9 @@
 //! device, so the host gate exercises the same TX/RX completion direction the
 //! future MMIO backend must preserve.
 
-use kernel_core::genet::{Descriptor, DescriptorStatus, Ownership, RingLayout, RingState};
+use kernel_core::genet::{
+    Descriptor, DescriptorStatus, Ownership, RingLayout, RingState, registers,
+};
 use kernel_core::genet_fdt;
 
 const PI4: &[u8] = include_bytes!("../tests/fixtures/bcm2711-rpi-4-b.dtb");
@@ -14,7 +16,7 @@ const PI4: &[u8] = include_bytes!("../tests/fixtures/bcm2711-rpi-4-b.dtb");
 fn deterministic_genet_device_model_runs_bounded_tx_rx() {
     let binding = genet_fdt::extract(PI4).expect("Pi 4 DTB binding must be valid");
     let ring_dma = binding.dma.windows[0];
-    let layout = RingLayout::new(ring_dma.base + 0x1000, 2, ring_dma).unwrap();
+    let layout = RingLayout::new(registers::RDMA as u64, 2).unwrap();
     let packet = ring_dma.base + 0x2000;
     let descriptor = Descriptor {
         address: packet,
