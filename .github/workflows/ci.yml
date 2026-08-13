@@ -113,19 +113,25 @@ jobs:
             harbor-qemu-raspi4b \
             "$@" &
           container_pid=$!
-          for _ in {1..20}; do
-            if docker inspect "${container_name}" \
-              --format 'qemu-container host_config cpus={{.HostConfig.NanoCpus}} quota={{.HostConfig.CpuQuota}} period={{.HostConfig.CpuPeriod}} cpuset={{.HostConfig.CpusetCpus}} shares={{.HostConfig.CpuShares}}' \
-              2>/dev/null; then
-              docker stats --no-stream --format 'qemu-container stats name={{.Name}} cpus={{.CPUPerc}} mem={{.MemUsage}}' \
+          (
+            while :; do
+              if ! docker inspect "${container_name}" \
+                --format 'qemu-container host_config cpus={{.HostConfig.NanoCpus}} quota={{.HostConfig.CpuQuota}} period={{.HostConfig.CpuPeriod}} cpuset={{.HostConfig.CpusetCpus}} shares={{.HostConfig.CpuShares}}' \
+                2>/dev/null; then
+                break
+              fi
+              docker stats --no-stream \
+                --format 'qemu-container stats name={{.Name}} cpus={{.CPUPerc}} mem={{.MemUsage}}' \
                 "${container_name}" 2>&1 || true
-              break
-            fi
-            sleep 0.1
-          done
+              sleep 1
+            done
+          ) >&2 &
+          stats_pid=$!
           set +e
           wait "${container_pid}"
           rc=$?
+          kill "${stats_pid}" 2>/dev/null || true
+          wait "${stats_pid}" 2>/dev/null || true
           set -e
           exit "${rc}"
           WRAP
