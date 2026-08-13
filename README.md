@@ -98,7 +98,8 @@ Next: **Pi4 backend evidence for the completed P3 edge-gateway target** — the
 transport and split-queue lifecycle, packet service, directional EL0 ownership,
 deterministic peer RX, and service reset/recovery are integrated and gated by
 `make qemu-virtio-check`; the board-specific evidence remains open under
-[ADR-0105](docs/adr/0105-pi4-nic-backend-boundary.md).
+[ADR-0105](docs/adr/0105-pi4-nic-backend-boundary.md) and the proposed
+[GENET design ADR-0106](docs/adr/0106-pi4-genet-v5-backend-design.md).
 K5-H stays held: measured
 peak is 5 of 54 slots on QEMU (6 on a board with RNG200).
 

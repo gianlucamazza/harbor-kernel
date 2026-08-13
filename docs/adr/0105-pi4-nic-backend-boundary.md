@@ -3,7 +3,7 @@ id: 0105
 title: Pi 4 NIC backend boundary and evidence gate
 status: proposed
 date: 2026-08-13
-related: [0104, 0100, 0101, 0102]
+related: [0104, 0100, 0101, 0102, 0106]
 ---
 
 # ADR-0105: Pi 4 NIC backend boundary and evidence gate
@@ -23,6 +23,8 @@ wrong hardware claim and would bypass the board's actual reset, interrupt,
 cache, DMA, and ownership contracts.
 
 ## Required boundary
+
+The board-specific design is recorded in [ADR-0106](0106-pi4-genet-v5-backend-design.md).
 
 Any Pi 4 backend must remain below the existing EL1 network service:
 
