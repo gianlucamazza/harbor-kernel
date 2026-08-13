@@ -16,6 +16,8 @@ mod discover;
 mod loader;
 #[cfg(feature = "board-qemu-virt")]
 mod network_runtime;
+#[cfg(feature = "board-qemu-virt")]
+mod network_server;
 #[cfg(feature = "panic-probe")]
 mod panic_probe;
 #[cfg(feature = "bringup")]

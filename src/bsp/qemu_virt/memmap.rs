@@ -42,6 +42,7 @@ pub const USER_PL011_VA: u64 = 0x0000_0000_5100_0000;
 pub const RNG200_BASE: usize = 0;
 pub const RNG200_REG_BYTES: usize = FRAME_SIZE;
 pub const USER_RNG_VA: u64 = 0x0000_0000_5200_0000;
+pub const USER_PACKET_POOL_VA: u64 = 0x0000_0000_5300_0000;
 
 pub const DEVICE_REGIONS: [(usize, usize, &str); 3] = [
     (GICD_BASE, 0x0002_0000, "GICv2"),

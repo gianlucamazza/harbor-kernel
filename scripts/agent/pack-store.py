@@ -24,6 +24,10 @@ HELD = {
     "console": 0,
     "blob": 1,
     "blob-reply": 2,
+    "net-tx": 3,
+    "net-tx-complete": 4,
+    "net-rx": 5,
+    "net-rx-return": 6,
 }
 
 # The device-window vocabulary (ADR-0100). Same ABI relationship as HELD above,
@@ -181,6 +185,7 @@ def append_agent(
     image: bytes,
     home_cpu: int = 0,
     may_resolve: bool = False,
+    packet_pool: bool = False,
     window: int = WINDOW_NONE,
     device_va: int = 0,
 ) -> None:
@@ -194,8 +199,11 @@ def append_agent(
     buf += pad_name(name)
     buf += struct.pack("<II", text_pages, stack_pages)
     buf += bytes(slots)
-    # ADR-0088/0102: reserved u32 low byte = home_cpu, bit 8 = resolve grant
-    buf += struct.pack("<I", (home_cpu & 0xFF) | (int(may_resolve) << 8))
+    # ADR-0088/0102/0104: low byte = home_cpu, bit 8 = resolve, bit 9 = packet pool
+    buf += struct.pack(
+        "<I",
+        (home_cpu & 0xFF) | (int(may_resolve) << 8) | (int(packet_pool) << 9),
+    )
     # ADR-0100: device u32 low byte = window index, then the VA it lands at.
     buf += struct.pack("<I", window & 0xFF)
     buf += struct.pack("<Q", device_va)

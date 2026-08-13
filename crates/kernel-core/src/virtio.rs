@@ -406,6 +406,20 @@ impl PacketPool {
         })
     }
 
+    /// Accept a token received over the service endpoint after validating its
+    /// slot, generation, length, direction, and current owner.
+    pub fn accept_tx(&mut self, token: PacketToken) -> Result<(), PacketError> {
+        let slot = self.checked_token(token)?;
+        if usize::from(token.slot) >= PACKET_SLOTS / 2 {
+            return Err(PacketError::WrongDirection);
+        }
+        if slot.state != SlotState::TxAgent {
+            return Err(PacketError::WrongOwner);
+        }
+        self.slots[usize::from(token.slot)].state = SlotState::TxService;
+        Ok(())
+    }
+
     /// Return a completed TX slot to the agent.
     pub fn complete_tx(&mut self, token: PacketToken) -> Result<(), PacketError> {
         let slot = self.checked_token(token)?;

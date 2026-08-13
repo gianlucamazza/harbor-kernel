@@ -10,6 +10,8 @@ use kernel_core::paging::{
 };
 
 use crate::arch::{cache, mmu};
+#[cfg(feature = "board-qemu-virt")]
+use crate::bsp::board::memmap::USER_PACKET_POOL_VA;
 use crate::bsp::board::memmap::{FRAME_SIZE, USER_STACK_PAGES, USER_VA_BASE};
 use crate::mm::frames;
 use kernel_core::layout::UserWindow;
@@ -35,6 +37,8 @@ const DEFAULT_WINDOW: UserWindow = UserWindow {
 /// frame pool, an agent at this ceiling costs an eighth of it — refused as an
 /// error, never a panic.
 pub const MAX_TEXT_PAGES: usize = 16;
+#[cfg(feature = "board-qemu-virt")]
+pub const PACKET_POOL_PAGES: usize = 8;
 
 // ## Three things that are correct today for reasons written somewhere else
 //
@@ -91,6 +95,12 @@ pub enum AsError {
     BadTable,
     /// Already prepared for EL0.
     AlreadyPrepared,
+    /// The caller attempted to map a packet pool without an explicit grant.
+    #[cfg(feature = "board-qemu-virt")]
+    PacketPoolNotGranted,
+    /// The packet pool was mapped twice.
+    #[cfg(feature = "board-qemu-virt")]
+    PacketPoolAlreadyMapped,
     /// VA/PA/len not page-aligned or zero.
     Unaligned,
     /// Write would leave the frame it was validated against.
@@ -115,6 +125,10 @@ pub struct AddressSpace {
     text_phys: [usize; MAX_TEXT_PAGES],
     /// This AS's own geometry, from the manifest entry that asked for it.
     window: UserWindow,
+    #[cfg(feature = "board-qemu-virt")]
+    packet_pool_requested: bool,
+    #[cfg(feature = "board-qemu-virt")]
+    packet_pool_mapped: bool,
     prepared: bool,
 }
 
@@ -134,6 +148,18 @@ impl AddressSpace {
     /// for more than the pool can spare is an error the loader reports, not a
     /// panic — ADR-0021's frame budget is a consequence, not an assumption.
     pub fn create_with(text_pages: usize, stack_pages: usize) -> Result<Self, AsError> {
+        Self::create_with_packet_pool(text_pages, stack_pages, false)
+    }
+
+    /// Create an address space and reserve the packet-pool mapping contract.
+    /// The pages themselves are supplied by the resident EL1 network service.
+    pub fn create_with_packet_pool(
+        text_pages: usize,
+        stack_pages: usize,
+        packet_pool: bool,
+    ) -> Result<Self, AsError> {
+        #[cfg(not(feature = "board-qemu-virt"))]
+        let _ = packet_pool;
         let window = UserWindow {
             base: USER_VA_BASE,
             pages: text_pages + stack_pages,
@@ -174,6 +200,10 @@ impl AddressSpace {
             user_sp: 0,
             text_phys: [0; MAX_TEXT_PAGES],
             window,
+            #[cfg(feature = "board-qemu-virt")]
+            packet_pool_requested: packet_pool,
+            #[cfg(feature = "board-qemu-virt")]
+            packet_pool_mapped: false,
             prepared: false,
         })
     }
@@ -256,6 +286,39 @@ impl AddressSpace {
         // is *not* checked: nothing says this agent was granted this device.
         // That is ADR-0016's missing capability ABI, not a gap in this call.
         unsafe { self.map_l3_page(va, pa, MemKind::Device, perms) }
+    }
+
+    /// Map the EL1-owned packet pool into the explicitly granted agent.
+    /// The pages remain owned by the resident service and are not added to the
+    /// address space ledger. The mapping is Normal WB, not a device window.
+    #[cfg(feature = "board-qemu-virt")]
+    pub fn map_packet_pool(&mut self, pages: &[usize; PACKET_POOL_PAGES]) -> Result<(), AsError> {
+        if !self.packet_pool_requested {
+            return Err(AsError::PacketPoolNotGranted);
+        }
+        if !self.prepared {
+            return Err(AsError::BadTable);
+        }
+        if self.packet_pool_mapped {
+            return Err(AsError::PacketPoolAlreadyMapped);
+        }
+        for (i, &pa) in pages.iter().enumerate() {
+            if pa == 0 || !pa.is_multiple_of(FRAME_SIZE) {
+                return Err(AsError::Unaligned);
+            }
+            // SAFETY: the AS is prepared but not installed; the service owns
+            // the Normal-WB page and keeps it alive for this agent lifetime.
+            unsafe {
+                self.map_l3_page(
+                    USER_PACKET_POOL_VA + i as u64 * PAGE_SIZE,
+                    pa as u64,
+                    MemKind::NormalWb,
+                    Perms::USER_RW,
+                )?;
+            }
+        }
+        self.packet_pool_mapped = true;
+        Ok(())
     }
 
     /// Write raw bytes into the user **text**, page by page (kernel identity

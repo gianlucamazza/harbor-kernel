@@ -27,8 +27,8 @@ current evidence proves DTB reservation/mapping, modern `VERSION_1` transport
 negotiation, two size-8 split queues backed by six EL1 ring pages, private EL1
 RX/TX buffers, `DRIVER_OK`, split-ring TX descriptor submission/completion,
 retained EL1 ownership, 32 slot IRQ bindings, and absent-device refusal. It
-does not yet prove packet payload delivery, packet-service/reset exercise, or
-EL0 capability delivery.
+does not yet prove deterministic payload RX or service reset/recovery; the
+QEMU-only built-in edge-gateway capability path is not a Pi4 hardware claim.
 
 ## Serial console
 

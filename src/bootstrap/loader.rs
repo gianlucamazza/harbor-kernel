@@ -28,6 +28,8 @@ use kernel_core::prog;
 // `make vocabulary-sync` does not compare, on the path the boot falls back to
 // when no store is present.
 use super::authority::HELD_CONSOLE;
+#[cfg(feature = "board-qemu-virt")]
+use super::network_runtime;
 use crate::agent::{Agent, SessionEnd};
 use crate::ipc;
 use crate::mm::AddressSpace;
@@ -54,6 +56,9 @@ const CONSOLE_SLOT: usize = 1;
 /// `H!` via two `SYS_SEND`s, then exit — shared product/oracle image bytes.
 const CONSOLE_HI: [u8; 40] = prog::encode_console_hi_exit(CONSOLE_SLOT as u16);
 const LOOKUP_CONSOLE: [u8; 52] = prog::encode_resolve_send_exit(0, b'N');
+#[cfg(feature = "board-qemu-virt")]
+const NET_IMAGE: [u8; 100] =
+    prog::encode_net_tx_exit(crate::bsp::board::memmap::USER_PACKET_POOL_VA, 0, 1);
 
 const fn slots_with(console: Option<u8>) -> [Option<u8>; MAX_SLOTS] {
     let mut slots = [None; MAX_SLOTS];
@@ -65,7 +70,7 @@ const fn slots_with(console: Option<u8>) -> [Option<u8>; MAX_SLOTS] {
 fn builtin_manifest() -> &'static [AgentEntry] {
     #[cfg(feature = "oracle")]
     {
-        static M: [AgentEntry; 5] = [
+        static M: &[AgentEntry] = &[
             AgentEntry {
                 name: "beacon",
                 image: &CONSOLE_HI,
@@ -74,6 +79,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                 slots: slots_with(Some(HELD_CONSOLE)),
                 may_resolve: false,
                 device: None,
+                packet_pool: false,
                 home_cpu: 0,
             },
             AgentEntry {
@@ -84,6 +90,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                 slots: slots_with(None),
                 may_resolve: false,
                 device: None,
+                packet_pool: false,
                 home_cpu: 0,
             },
             // ADR-0100: the device half of what `mute` is for. It names a
@@ -103,6 +110,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                 slots: slots_with(None),
                 may_resolve: true,
                 device: None,
+                packet_pool: false,
                 home_cpu: 0,
             },
             AgentEntry {
@@ -113,6 +121,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                 slots: slots_with(None),
                 may_resolve: false,
                 device: None,
+                packet_pool: false,
                 home_cpu: 0,
             },
             // ADR-0100: the device half of what `mute` is for. It names a
@@ -129,14 +138,32 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                     va: 0x9000,
                     window: 3,
                 }),
+                packet_pool: false,
+                home_cpu: 0,
+            },
+            #[cfg(feature = "board-qemu-virt")]
+            AgentEntry {
+                name: "edge-gateway",
+                image: &NET_IMAGE,
+                text_pages: 1,
+                stack_pages: 3,
+                slots: [
+                    Some(super::authority::HELD_NET_TX),
+                    Some(super::authority::HELD_NET_TX_COMPLETE),
+                    Some(super::authority::HELD_NET_RX),
+                    Some(super::authority::HELD_NET_RX_RETURN),
+                ],
+                may_resolve: false,
+                device: None,
+                packet_pool: true,
                 home_cpu: 0,
             },
         ];
-        &M
+        M
     }
     #[cfg(not(feature = "oracle"))]
     {
-        static M: [AgentEntry; 1] = [AgentEntry {
+        static M: &[AgentEntry] = &[AgentEntry {
             name: "beacon",
             image: &CONSOLE_HI,
             text_pages: 1,
@@ -144,9 +171,10 @@ fn builtin_manifest() -> &'static [AgentEntry] {
             slots: slots_with(Some(HELD_CONSOLE)),
             may_resolve: false,
             device: None,
+            packet_pool: false,
             home_cpu: 0,
         }];
-        &M
+        M
     }
 }
 
@@ -227,6 +255,7 @@ fn try_store_manifest() -> Option<&'static [AgentEntry]> {
         slots: [agentstore::SLOT_NONE; MAX_SLOTS],
         home_cpu: 0,
         may_resolve: false,
+        packet_pool: false,
         window: agentstore::WINDOW_NONE,
         device_va: 0,
         image: b"",
@@ -365,6 +394,12 @@ pub fn load_all(auth: &super::authority::Authority) {
                 "loader: {} refused — slot {slot} names capability {index} of {declared}",
                 entry.name
             ),
+            loaderplan::EntryPlan::Refuse(loaderplan::Refusal::Unheld(
+                BindError::PacketPoolRequired { slot, index },
+            )) => crate::kprintln!(
+                "loader: {} refused — slot {slot} capability {index} requires packet pool",
+                entry.name
+            ),
             // ADR-0099: the position exists and nothing was minted into it. A
             // different sentence from the one above on purpose — this is the
             // kernel having come up short, not the composition over-reaching —
@@ -417,7 +452,11 @@ fn run(entry: &AgentEntry, window: Option<ResolvedWindow>) {
         return;
     }
 
-    let mut aspace = match AddressSpace::create_with(entry.text_pages, entry.stack_pages) {
+    let mut aspace = match AddressSpace::create_with_packet_pool(
+        entry.text_pages,
+        entry.stack_pages,
+        entry.packet_pool,
+    ) {
         Ok(a) => a,
         Err(e) => {
             crate::kprintln!("loader: {name} address space FAILED {e:?}");
@@ -438,6 +477,26 @@ fn run(entry: &AgentEntry, window: Option<ResolvedWindow>) {
         crate::kprintln!("loader: {name} device grant FAILED {e:?}");
         aspace.destroy();
         return;
+    }
+    if entry.packet_pool {
+        #[cfg(feature = "board-qemu-virt")]
+        let mapped =
+            network_runtime::packet_pool_pages().map(|pages| aspace.map_packet_pool(&pages));
+        #[cfg(not(feature = "board-qemu-virt"))]
+        let mapped: Option<Result<(), crate::mm::AsError>> = None;
+        match mapped {
+            Some(Ok(())) => {}
+            Some(Err(error)) => {
+                crate::kprintln!("loader: {name} packet pool FAILED {error:?}");
+                aspace.destroy();
+                return;
+            }
+            None => {
+                crate::kprintln!("loader: {name} packet pool unavailable");
+                aspace.destroy();
+                return;
+            }
+        }
     }
 
     let mut agent = Agent::from_aspace(aspace);

@@ -139,6 +139,40 @@ pub const fn encode_send_bare_exit(slot: u16) -> [u8; 16] {
     out
 }
 
+/// Write one packet-pool slot, submit it through `net-tx`, await completion,
+/// then exit. The pool VA is board-owned; the descriptor never crosses EL0.
+pub const fn encode_net_tx_exit(pool_va: u64, tx_slot: u16, complete_slot: u16) -> [u8; 100] {
+    let mut out = [0u8; 100];
+    let mut i = 0;
+    push_u64(&mut out, &mut i, 0, pool_va);
+    push_u64(&mut out, &mut i, 1, 0x1122_3344_5566_7788);
+    push_word(&mut out, &mut i, a64::str_x_imm(1, 0, 0));
+    push_u64(&mut out, &mut i, 1, 0x99AA_BBCC_DDEE_FF00);
+    push_word(&mut out, &mut i, a64::str_x_imm(1, 0, 8));
+    push_word(&mut out, &mut i, a64::movz_x(0, tx_slot));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movz_x(1, crate::net::TAG_TX_SUBMIT as u16),
+    );
+    push_u64(
+        &mut out,
+        &mut i,
+        2,
+        crate::net::packed_token(crate::virtio::PacketToken {
+            slot: 1,
+            generation: 0,
+            len: 16,
+        }),
+    );
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::movz_x(0, complete_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// A64: `movz x0,#slot; svc #5; svc #1; b .` — try to receive, then exit.
 ///
 /// The non-blocking half of the recv pair (ADR-0022 §4). Pointed at an empty

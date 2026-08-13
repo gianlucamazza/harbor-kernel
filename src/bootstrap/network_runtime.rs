@@ -4,7 +4,7 @@
 //! the allocator. This module retains both the configured transport and the
 //! frame ids until a later service lifecycle explicitly resets them.
 
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use kernel_core::frame::FrameId;
 use kernel_core::virtio::{self, PacketPool};
@@ -37,6 +37,14 @@ pub enum StartError {
     Device(QueueSetupFailure),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceError {
+    Unavailable,
+    Busy,
+    Packet(kernel_core::virtio::PacketError),
+    Transport(QueueSetupFailure),
+}
+
 #[derive(Clone, Copy)]
 struct PacketPage {
     id: FrameId,
@@ -64,6 +72,9 @@ struct Lease {
     pool: PacketPool,
     rx_slots: [u8; 8],
     tx_token: Option<kernel_core::virtio::PacketToken>,
+    service_tx: Option<kernel_core::virtio::PacketToken>,
+    tx_event: Option<kernel_core::virtio::PacketToken>,
+    rx_event: Option<kernel_core::virtio::PacketToken>,
 }
 
 impl Drop for Lease {
@@ -85,6 +96,17 @@ static LEASE: Mutex<Option<Lease>> = Mutex::new(None);
 static RX_PACKETS: AtomicU32 = AtomicU32::new(0);
 static TX_PACKETS: AtomicU32 = AtomicU32::new(0);
 static REFUSED_PACKETS: AtomicU32 = AtomicU32::new(0);
+static SERVICE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Physical pages backing the EL1-owned packet pool. The loader may map these
+/// only for an entry with the explicit packet-pool grant; the addresses never
+/// enter an IPC message or manifest.
+pub fn packet_pool_pages() -> Option<[usize; crate::mm::aspace::PACKET_POOL_PAGES]> {
+    LEASE.with(|lease| {
+        let lease = lease.as_ref()?;
+        Some(core::array::from_fn(|i| lease.packets[i].pa))
+    })
+}
 
 /// Allocate rings and retain the configured EL1 transport for the resident
 /// service. No agent capability is minted here.
@@ -144,6 +166,9 @@ pub fn start() -> Result<Report, StartError> {
         pool: PacketPool::new(),
         rx_slots: core::array::from_fn(|i| (virtio::PACKET_SLOTS / 2 + i) as u8),
         tx_token: None,
+        service_tx: None,
+        tx_event: None,
+        rx_event: None,
     };
     for slot in 0..8 {
         if let Err(error) = lease.configured.post_rx(
@@ -180,6 +205,77 @@ pub fn start() -> Result<Report, StartError> {
     })
 }
 
+pub fn enable_service() {
+    SERVICE_ACTIVE.store(true, Ordering::Release);
+}
+
+pub fn submit_service_tx(token: kernel_core::virtio::PacketToken) -> Result<(), ServiceError> {
+    LEASE.with(|lease| {
+        let lease = lease.as_mut().ok_or(ServiceError::Unavailable)?;
+        if lease.service_tx.is_some() {
+            return Err(ServiceError::Busy);
+        }
+        lease.pool.accept_tx(token).map_err(ServiceError::Packet)?;
+        let source = pool_address(&lease.packets, token.slot);
+        // The agent owns the shared Normal-WB slot until this operation; make
+        // its bytes visible before EL1 copies them for DMA.
+        // SAFETY: source is one of the service-owned, Normal-WB packet pages;
+        // the pool token bounds the range to one 2 KiB slot.
+        unsafe { cache::clean_dcache_poc(source as usize, usize::from(token.len)) };
+        let dma = lease.dma_packets[1].pa;
+        // SAFETY: the private DMA page is retained by the lease and the token
+        // length is bounded by PacketPool::accept_tx.
+        unsafe {
+            core::ptr::write_bytes(dma as *mut u8, 0, PACKET_HEADER_BYTES);
+            core::ptr::copy_nonoverlapping(
+                source as *const u8,
+                (dma + PACKET_HEADER_BYTES) as *mut u8,
+                usize::from(token.len),
+            );
+            cache::clean_dcache_poc(dma, PACKET_HEADER_BYTES + usize::from(token.len));
+        }
+        lease
+            .configured
+            .submit_tx(dma as u64, PACKET_HEADER_BYTES + usize::from(token.len))
+            .map_err(ServiceError::Transport)?;
+        publish_ring(&lease.rings[0], &lease.rings[1]);
+        lease.service_tx = Some(token);
+        Ok(())
+    })
+}
+
+pub fn return_service_rx(token: kernel_core::virtio::PacketToken) -> Result<(), ServiceError> {
+    LEASE.with(|lease| {
+        let lease = lease.as_mut().ok_or(ServiceError::Unavailable)?;
+        lease.pool.return_rx(token).map_err(ServiceError::Packet)?;
+        lease
+            .configured
+            .post_rx(
+                dma_address(
+                    &lease.dma_packets,
+                    1 + usize::from(token.slot) - virtio::PACKET_SLOTS / 2,
+                ),
+                PACKET_HEADER_BYTES + virtio::PACKET_BYTES,
+            )
+            .map_err(ServiceError::Transport)?;
+        publish_ring(&lease.rings[0], &lease.rings[1]);
+        Ok(())
+    })
+}
+
+pub fn take_tx_complete() -> Option<kernel_core::virtio::PacketToken> {
+    LEASE.with(|lease| {
+        let lease = lease.as_mut()?;
+        let token = lease.tx_event.take()?;
+        let _ = lease.pool.complete_tx(token);
+        Some(token)
+    })
+}
+
+pub fn take_rx_available() -> Option<kernel_core::virtio::PacketToken> {
+    LEASE.with(|lease| lease.as_mut()?.rx_event.take())
+}
+
 /// Poll completed device work from the voluntary EL1 path.
 ///
 /// The IRQ handler only acknowledges the line. This function is called from
@@ -202,19 +298,25 @@ pub fn poll() {
                     if RX_PACKETS.fetch_add(1, Ordering::Relaxed) == 0 {
                         crate::kprintln!("virtio-net: rx available len={}", len);
                     }
-                    // The first slice has no EL0 consumer yet. Return the slot
-                    // immediately only for the internal transport exercise;
-                    // capability delivery is added with the real service.
-                    let _ = lease.pool.return_rx(kernel_core::virtio::PacketToken {
+                    let token = kernel_core::virtio::PacketToken {
                         slot: slot as u8,
                         generation: 0,
                         len: len as u16,
-                    });
-                    let _ = lease.configured.post_rx(
-                        dma_address(&lease.dma_packets, 1 + descriptor),
-                        PACKET_HEADER_BYTES + virtio::PACKET_BYTES,
-                    );
-                    publish_ring(&lease.rings[0], &lease.rings[1]);
+                    };
+                    if SERVICE_ACTIVE.load(Ordering::Acquire) {
+                        if lease.rx_event.is_none() {
+                            lease.rx_event = Some(token);
+                        } else {
+                            REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
+                        }
+                    } else {
+                        let _ = lease.pool.return_rx(token);
+                        let _ = lease.configured.post_rx(
+                            dma_address(&lease.dma_packets, 1 + descriptor),
+                            PACKET_HEADER_BYTES + virtio::PACKET_BYTES,
+                        );
+                        publish_ring(&lease.rings[0], &lease.rings[1]);
+                    }
                 }
                 Err(_) => {
                     REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
@@ -223,11 +325,18 @@ pub fn poll() {
         }
         while let Ok(Some(used)) = lease.configured.poll_used(Configured::tx_queue()) {
             if used.len <= (PACKET_HEADER_BYTES + virtio::PACKET_BYTES) as u32 {
-                if let Some(token) = lease.tx_token.take() {
-                    let _ = lease.pool.complete_tx(token);
-                }
-                if TX_PACKETS.fetch_add(1, Ordering::Relaxed) == 0 {
-                    crate::kprintln!("virtio-net: tx descriptor complete used_len={}", used.len);
+                if let Some(token) = lease.service_tx.take() {
+                    lease.tx_event = Some(token);
+                } else {
+                    if let Some(token) = lease.tx_token.take() {
+                        let _ = lease.pool.complete_tx(token);
+                    }
+                    if TX_PACKETS.fetch_add(1, Ordering::Relaxed) == 0 {
+                        crate::kprintln!(
+                            "virtio-net: tx descriptor complete used_len={}",
+                            used.len
+                        );
+                    }
                 }
             } else {
                 REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
@@ -308,6 +417,11 @@ fn allocate_ring() -> Option<RingFrames> {
             used_pa: used_pa as u64,
         },
     })
+}
+
+fn pool_address(pages: &[PacketPage; PACKET_PAGE_COUNT], slot: u8) -> u64 {
+    let slot = usize::from(slot);
+    (pages[slot / 2].pa + (slot % 2) * virtio::PACKET_BYTES) as u64
 }
 
 fn allocate_packets() -> Option<[PacketPage; PACKET_PAGE_COUNT]> {

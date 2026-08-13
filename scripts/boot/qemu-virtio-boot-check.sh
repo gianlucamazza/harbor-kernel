@@ -62,6 +62,21 @@ grep -aqE 'virtio-net: tx descriptor complete used_len=[0-9]+' "${modern_log}" |
     grep -aE 'virtio-net:|discover:|boot:' "${modern_log}" >&2 || true
     exit 1
 }
+grep -aqE 'net: tx accepted slot=1 len=16' "${modern_log}" || {
+    echo "qemu-virtio-check: EL1 network service did not accept the agent TX token" >&2
+    grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
+    exit 1
+}
+grep -aqE 'net: tx complete slot=1 len=16' "${modern_log}" || {
+    echo "qemu-virtio-check: EL1 network service did not return TX completion" >&2
+    grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
+    exit 1
+}
+grep -aq 'loader: edge-gateway ran sends=1 refusals=0' "${modern_log}" || {
+    echo "qemu-virtio-check: edge-gateway did not complete through directional caps" >&2
+    grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
+    exit 1
+}
 grep -aqE 'boot: mmu=[0-9]+ ms discover=[0-9]+ ms ready=[0-9]+ ms' "${modern_log}" || {
     echo "qemu-virtio-check: kernel did not reach steady state" >&2
     exit 1

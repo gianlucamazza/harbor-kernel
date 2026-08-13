@@ -21,6 +21,8 @@
 use kernel_core::held::{DeclareError, Held, Window, Windows};
 use kernel_core::paging::Perms;
 
+#[cfg(feature = "board-qemu-virt")]
+use super::network_server;
 use super::{blob_server, console_server};
 
 /// The console send end (M8).
@@ -36,6 +38,14 @@ pub const HELD_BLOB: u8 = 1;
 pub const NAME_BLOB: &str = "blob";
 pub const HELD_BLOB_REPLY: u8 = 2;
 pub const NAME_BLOB_REPLY: &str = "blob-reply";
+pub const HELD_NET_TX: u8 = 3;
+pub const NAME_NET_TX: &str = "net-tx";
+pub const HELD_NET_TX_COMPLETE: u8 = 4;
+pub const NAME_NET_TX_COMPLETE: &str = "net-tx-complete";
+pub const HELD_NET_RX: u8 = 5;
+pub const NAME_NET_RX: &str = "net-rx";
+pub const HELD_NET_RX_RETURN: u8 = 6;
+pub const NAME_NET_RX_RETURN: &str = "net-rx-return";
 
 /// The SoC RNG200 page (ADR-0101).
 ///
@@ -103,6 +113,26 @@ pub fn assemble(rng_present: bool) -> Authority {
             None => {
                 crate::kprintln!("authority: {blob} {NAME_BLOB} VACANT");
                 crate::kprintln!("authority: {blob_reply} {NAME_BLOB_REPLY} VACANT");
+            }
+        }
+    }
+
+    let net_tx = declare_or_report(&mut set, NAME_NET_TX, HELD_NET_TX);
+    let net_tx_complete = declare_or_report(&mut set, NAME_NET_TX_COMPLETE, HELD_NET_TX_COMPLETE);
+    let net_rx = declare_or_report(&mut set, NAME_NET_RX, HELD_NET_RX);
+    let net_rx_return = declare_or_report(&mut set, NAME_NET_RX_RETURN, HELD_NET_RX_RETURN);
+    if let (Some(net_tx), Some(net_tx_complete), Some(net_rx), Some(net_rx_return)) =
+        (net_tx, net_tx_complete, net_rx, net_rx_return)
+    {
+        match start_network_service() {
+            Some((tx, tx_complete, rx, rx_return)) => {
+                provide_or_report(&mut set, net_tx, tx, NAME_NET_TX);
+                provide_or_report(&mut set, net_tx_complete, tx_complete, NAME_NET_TX_COMPLETE);
+                provide_or_report(&mut set, net_rx, rx, NAME_NET_RX);
+                provide_or_report(&mut set, net_rx_return, rx_return, NAME_NET_RX_RETURN);
+            }
+            None => {
+                crate::kprintln!("authority: network vocabulary VACANT");
             }
         }
     }
@@ -203,6 +233,36 @@ fn start_blob_service() -> Option<(kernel_core::cap::CapId, kernel_core::cap::Ca
     }
     crate::kprintln!("blob: service up");
     Some((requests.send, replies.recv))
+}
+
+#[cfg(feature = "board-qemu-virt")]
+fn start_network_service() -> Option<(
+    kernel_core::cap::CapId,
+    kernel_core::cap::CapId,
+    kernel_core::cap::CapId,
+    kernel_core::cap::CapId,
+)> {
+    let tx = crate::ipc::create_channel().ok()?;
+    let tx_complete = crate::ipc::create_channel().ok()?;
+    let rx = crate::ipc::create_channel().ok()?;
+    let rx_return = crate::ipc::create_channel().ok()?;
+    crate::sched::spawn_with_caps(
+        network_server::run,
+        &[tx.recv, tx_complete.send, rx_return.recv, rx.send],
+    )
+    .ok()?;
+    crate::kprintln!("net: endpoints up");
+    Some((tx.send, tx_complete.recv, rx.recv, rx_return.send))
+}
+
+#[cfg(not(feature = "board-qemu-virt"))]
+fn start_network_service() -> Option<(
+    kernel_core::cap::CapId,
+    kernel_core::cap::CapId,
+    kernel_core::cap::CapId,
+    kernel_core::cap::CapId,
+)> {
+    None
 }
 
 /// Declare a window position, or say why the vocabulary refused it.

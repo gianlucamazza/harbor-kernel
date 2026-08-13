@@ -34,6 +34,9 @@ use crate::paging::Perms;
 /// the array, but it has no business naming a manifest to state its own bound
 /// (ADR-0023).
 pub const MAX_SLOTS: usize = 4;
+/// Capability indices at and above this boundary belong to the network
+/// packet-pool vocabulary and require an explicit packet-pool grant.
+pub const PACKET_CAPABILITY_START: u8 = 3;
 
 /// One page of MMIO an agent is allowed to reach.
 ///
@@ -74,6 +77,9 @@ pub struct AgentEntry {
     pub may_resolve: bool,
     /// One optional device page.
     pub device: Option<DeviceGrant>,
+    /// Grant the fixed packet-pool mapping owned by the EL1 network service.
+    /// The physical pages are never present in the manifest or on the wire.
+    pub packet_pool: bool,
     /// Sticky home CPU for the EL1 driver task ([ADR-0088](../../../docs/adr/0088-product-home-cpu.md)).
     ///
     /// Domain is `0 .. crate::tasks::N_CPUS`. Default product home is **0**;
@@ -100,6 +106,8 @@ pub enum BindError {
     /// vocabulary ([`crate::held::Set::name_of`]) supplies it where the refusal
     /// is printed.
     HeldVacant { slot: usize, index: u8 },
+    /// A network capability was named without the corresponding pool mapping.
+    PacketPoolRequired { slot: usize, index: u8 },
     /// The entry named a device window past the end of the vocabulary
     /// (ADR-0100).
     ///
@@ -189,6 +197,7 @@ impl AgentEntry {
 ///     slots: [Some(1), None, None, None],
 ///     may_resolve: false,
 ///     device: None,
+///     packet_pool: false,
 ///     home_cpu: 0,
 /// };
 /// let held = [Some(CapId::new(7, 1)), Some(CapId::new(8, 1))];
@@ -227,6 +236,9 @@ pub fn bind(
                 index,
                 held: held.len(),
             });
+        }
+        if index >= PACKET_CAPABILITY_START && !entry.packet_pool {
+            return Err(BindError::PacketPoolRequired { slot, index });
         }
         let Some(cap) = held[i] else {
             return Err(BindError::HeldVacant { slot, index });
@@ -269,6 +281,7 @@ pub struct ResolvedWindow {
 ///     slots: [None; 4],
 ///     may_resolve: false,
 ///     device: Some(DeviceGrant { va: 0x2000, window: 0 }),
+///     packet_pool: false,
 ///     home_cpu: 0,
 /// };
 /// let windows = [Some(Window { pa: 0xfe10_4000, perms: Perms::USER_RW })];
@@ -329,6 +342,7 @@ mod tests {
             slots,
             may_resolve: false,
             device: None,
+            packet_pool: false,
             home_cpu: 0,
         }
     }

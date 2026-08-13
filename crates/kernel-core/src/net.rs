@@ -47,6 +47,11 @@ pub const fn rx_return(token: PacketToken) -> Message {
     }
 }
 
+/// Packed token representation used in the IPC message ABI.
+pub const fn packed_token(token: PacketToken) -> u64 {
+    pack(token)
+}
+
 pub fn decode(message: Message) -> Result<Request, DecodeError> {
     let token = unpack(message.a)?;
     match message.tag {
