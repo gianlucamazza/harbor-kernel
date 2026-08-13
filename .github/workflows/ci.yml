@@ -2,25 +2,19 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+  workflow_dispatch:
 
-# `on: push` and `on: pull_request` both fire for a branch in this repo, so
-# every same-repo PR runs the whole pipeline twice. Superseded runs are
-# cancelled instead of racing each other for a runner.
-#
-# The key must name the *branch*, not the ref: a push carries
-# `refs/heads/<branch>` and a pull_request carries `refs/pull/N/merge`, so
-# grouping on `github.ref` puts the two runs in different groups and cancels
-# neither. That is what happened on the first run of this workflow — two jobs
-# for one branch, which is the thing the block exists to prevent.
-#
-# A cancelled run is reported by `gh run list` with `conclusion: failure`, not
-# `cancelled`, when the cancellation lands mid-step — the *job* says `cancelled`
-# and no step failed. That looks exactly like a real red on a PR, and cost a
-# diagnostic detour once. Check the job before believing the run:
-#   gh run view <id> --json jobs --jq '.jobs[] | "\(.name): \(.conclusion)"'
+# Pull requests are the validation path for feature branches. Pushes run on
+# the protected integration branch, and workflow_dispatch keeps an explicit
+# operator path for reproducing the same gates on another ref. This avoids a
+# second, cancellable push run for every same-repository pull request; a
+# cancelled duplicate can otherwise surface as a red PR check even though no
+# step failed.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 # The workflow reads the repository and uploads an artifact. It has no reason to
