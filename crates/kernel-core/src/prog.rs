@@ -170,6 +170,50 @@ pub const fn encode_wait_irq_exit(slot: u16) -> [u8; 16] {
     out
 }
 
+/// Little-endian `u64` of the product name `console` (ADR-0102).
+pub const CONSOLE_NAME_LE: u64 = u64::from_le_bytes(*b"console\0");
+
+/// Length of [`CONSOLE_NAME_LE`] without the padding NUL.
+pub const CONSOLE_NAME_LEN: u16 = 7;
+
+/// A64: resolve `console` into `slot`, send one byte through it, then exit
+/// (ADR-0102).
+///
+/// The name is seven bytes, so it takes a `movz` and three `movk` — the
+/// existing [`encode_resolve_exit`] only carries a 16-bit immediate, which
+/// is why the oracle demo bound `ab`.
+pub const fn encode_resolve_send_exit(slot: u16, byte: u8) -> [u8; 52] {
+    let mut out = [0u8; 52];
+    let mut i = 0;
+    let n = CONSOLE_NAME_LE;
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_NAME_LEN));
+    push_word(&mut out, &mut i, a64::movz_x(2, (n & 0xffff) as u16));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movk_x_lsl16(2, ((n >> 16) & 0xffff) as u16),
+    );
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movk_x_lsl32(2, ((n >> 32) & 0xffff) as u16),
+    );
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movk_x_lsl48(2, ((n >> 48) & 0xffff) as u16),
+    );
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RESOLVE));
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
+    push_word(&mut out, &mut i, a64::movz_x(2, byte as u16));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// A64: resolve short name into empty slot, then exit (ADR-0039).
 ///
 /// `name_le` is up to two ASCII bytes little-endian in a 16-bit imm (e.g.
@@ -576,6 +620,16 @@ mod tests {
             "encode_resolve_exit(2, 2, 0x6261)",
             &encode_resolve_exit(2, 2, 0x6261),
             "movz x0, #2\nmovz x1, #2\nmovz x2, #25185\nsvc #7\nsvc #1\nb .\n",
+        );
+
+        // ADR-0102: seven-byte `console` plus a send. The immediates are the
+        // little-endian halves, written as llvm-mc prints them (decimal).
+        assert_program(
+            "encode_resolve_send_exit(0, b'N')",
+            &encode_resolve_send_exit(0, b'N'),
+            "movz x0, #0\nmovz x1, #7\nmovz x2, #28515\n\
+             movk x2, #29550, lsl #16\nmovk x2, #27759, lsl #32\nmovk x2, #101, lsl #48\n\
+             svc #7\nmovz x0, #0\nmovz x1, #0\nmovz x2, #78\nsvc #3\nsvc #1\nb .\n",
         );
 
         assert_program(

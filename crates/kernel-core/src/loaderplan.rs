@@ -145,6 +145,7 @@ mod tests {
             text_pages: 1,
             stack_pages: 3,
             slots,
+            may_resolve: false,
             device: None,
             home_cpu: 0,
         }

@@ -70,6 +70,8 @@ pub struct AgentEntry {
     pub stack_pages: usize,
     /// Slot `i` holds the capability at index `slots[i]` of the loader's list.
     pub slots: [Option<u8>; MAX_SLOTS],
+    /// Permit this agent to use the non-ambient `SYS_RESOLVE` grant (ADR-0102).
+    pub may_resolve: bool,
     /// One optional device page.
     pub device: Option<DeviceGrant>,
     /// Sticky home CPU for the EL1 driver task ([ADR-0088](../../../docs/adr/0088-product-home-cpu.md)).
@@ -185,6 +187,7 @@ impl AgentEntry {
 ///     text_pages: 1,
 ///     stack_pages: 3,
 ///     slots: [Some(1), None, None, None],
+///     may_resolve: false,
 ///     device: None,
 ///     home_cpu: 0,
 /// };
@@ -264,6 +267,7 @@ pub struct ResolvedWindow {
 ///     text_pages: 1,
 ///     stack_pages: 3,
 ///     slots: [None; 4],
+///     may_resolve: false,
 ///     device: Some(DeviceGrant { va: 0x2000, window: 0 }),
 ///     home_cpu: 0,
 /// };
@@ -323,6 +327,7 @@ mod tests {
             text_pages: 1,
             stack_pages: 3,
             slots,
+            may_resolve: false,
             device: None,
             home_cpu: 0,
         }

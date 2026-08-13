@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Pack a Harbor external agent store (ADR-0027).
 
-Default product composition (P1): beacon (H!) + chirp (?) — two agents, one
-console grant each at slot 1 → held[0].
+Default product composition: beacon (H!) + chirp (?) + lookup (N) + entropy.
 """
 from __future__ import annotations
 
@@ -58,6 +57,24 @@ CHIRP_ASM = """\
 movz x0, #1
 movz x1, #0
 movz x2, #63
+svc #3
+svc #1
+b .
+"""
+
+# encode_resolve_send_exit(0, b'N') — ADR-0102. The agent starts with no
+# console slot, resolves the product binding by name, then sends one byte.
+LOOKUP_ASM = """\
+movz x0, #0
+movz x1, #7
+movz x2, #28515
+movk x2, #29550, lsl #16
+movk x2, #27759, lsl #32
+movk x2, #101, lsl #48
+svc #7
+movz x0, #0
+movz x1, #0
+movz x2, #78
 svc #3
 svc #1
 b .
@@ -132,6 +149,7 @@ def append_agent(
     slots: list[int],
     image: bytes,
     home_cpu: int = 0,
+    may_resolve: bool = False,
     window: int = WINDOW_NONE,
     device_va: int = 0,
 ) -> None:
@@ -145,8 +163,8 @@ def append_agent(
     buf += pad_name(name)
     buf += struct.pack("<II", text_pages, stack_pages)
     buf += bytes(slots)
-    # ADR-0088: reserved u32 low byte = home_cpu
-    buf += struct.pack("<I", home_cpu & 0xFF)
+    # ADR-0088/0102: reserved u32 low byte = home_cpu, bit 8 = resolve grant
+    buf += struct.pack("<I", (home_cpu & 0xFF) | (int(may_resolve) << 8))
     # ADR-0100: device u32 low byte = window index, then the VA it lands at.
     buf += struct.pack("<I", window & 0xFF)
     buf += struct.pack("<Q", device_va)
@@ -156,18 +174,19 @@ def append_agent(
         buf += b"\x00"
 
 
-# (name, text_pages, stack_pages, slots, image, home_cpu, window, device_va)
-PackAgent = tuple[str, int, int, list[int], bytes, int, int, int]
+# (name, text_pages, stack_pages, slots, image, home_cpu, may_resolve, window, device_va)
+PackAgent = tuple[str, int, int, list[int], bytes, int, bool, int, int]
 
 
 def pack(agents: list[PackAgent]) -> bytes:
     buf = bytearray()
     buf += MAGIC
     buf += struct.pack("<III", VERSION, len(agents), 0)
-    for name, tp, sp, slots, image, home, window, device_va in agents:
+    for name, tp, sp, slots, image, home, may_resolve, window, device_va in agents:
         append_agent(
             buf, name, tp, sp, slots, image,
-            home_cpu=home, window=window, device_va=device_va,
+            home_cpu=home, may_resolve=may_resolve,
+            window=window, device_va=device_va,
         )
     return bytes(buf)
 
@@ -191,6 +210,7 @@ def main() -> int:
     try:
         beacon = assemble(BEACON_ASM)
         chirp = assemble(CHIRP_ASM)
+        lookup = assemble(LOOKUP_ASM)
         entropy = assemble(ENTROPY_ASM)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"pack-agent-store: FAIL — need llvm-mc and llvm-objcopy: {e}", file=sys.stderr)
@@ -202,7 +222,7 @@ def main() -> int:
     # something adjacent.
     slots = [SLOT_NONE, HELD["console"], SLOT_NONE, SLOT_NONE]
     if args.single_beacon:
-        agents = [("beacon", 1, 3, slots, beacon, 0, WINDOW_NONE, 0)]
+        agents = [("beacon", 1, 3, slots, beacon, 0, False, WINDOW_NONE, 0)]
     else:
         # P1 + ADR-0088: beacon homes on product CPU 0; chirp pins to CPU 1
         # so the shipped composition exercises dual-current without oracle demos.
@@ -210,15 +230,16 @@ def main() -> int:
         # reaches the wire is this table's, and `make vocabulary-sync` is what
         # keeps it the same integer the kernel declared.
         agents = [
-            ("beacon", 1, 3, slots, beacon, 0, WINDOW_NONE, 0),
-            ("chirp", 1, 3, slots, chirp, 1, WINDOW_NONE, 0),
-            ("entropy", 1, 3, slots, entropy, 0, WINDOWS["rng"], ENTROPY_VA),
+            ("beacon", 1, 3, slots, beacon, 0, False, WINDOW_NONE, 0),
+            ("chirp", 1, 3, slots, chirp, 1, False, WINDOW_NONE, 0),
+            ("lookup", 1, 3, [SLOT_NONE] * 4, lookup, 0, True, WINDOW_NONE, 0),
+            ("entropy", 1, 3, slots, entropy, 0, False, WINDOWS["rng"], ENTROPY_VA),
         ]
     blob = pack(agents)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(blob)
     names = ",".join(
-        f"{a[0]}@cpu{a[5]}" + ("" if a[6] == WINDOW_NONE else f"+w{a[6]}")
+        f"{a[0]}@cpu{a[5]}" + ("" if a[7] == WINDOW_NONE else f"+w{a[7]}")
         for a in agents
     )
     print(

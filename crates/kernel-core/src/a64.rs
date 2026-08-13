@@ -21,6 +21,24 @@ pub const fn movz_x_lsl16(rd: u8, imm16: u16) -> u32 {
     0xD2A0_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
 }
 
+/// `movk xd, #imm16, lsl #16`.
+#[inline]
+pub const fn movk_x_lsl16(rd: u8, imm16: u16) -> u32 {
+    0xF2A0_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
+}
+
+/// `movk xd, #imm16, lsl #32`.
+#[inline]
+pub const fn movk_x_lsl32(rd: u8, imm16: u16) -> u32 {
+    0xF2C0_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
+}
+
+/// `movk xd, #imm16, lsl #48`.
+#[inline]
+pub const fn movk_x_lsl48(rd: u8, imm16: u16) -> u32 {
+    0xF2E0_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
+}
+
 /// `mov xd, xm` — the register-to-register move, which A64 spells
 /// `orr xd, xzr, xm`.
 ///
@@ -135,6 +153,13 @@ mod tests {
     fn movz_pl011_va_half() {
         // USER_PL011_VA = 0x5000_0000 → movz x0, #0x5000, lsl #16
         assert_eq!(movz_x_lsl16(0, 0x5000), 0xD2A0_0000 | (0x5000 << 5));
+    }
+
+    #[test]
+    fn movk_shifts() {
+        assert_eq!(movk_x_lsl16(2, 0x736e), 0xF2A0_0000 | (0x736e << 5) | 2);
+        assert_eq!(movk_x_lsl32(2, 0x6c6f), 0xF2C0_0000 | (0x6c6f << 5) | 2);
+        assert_eq!(movk_x_lsl48(2, 0x65), 0xF2E0_0000 | (0x65 << 5) | 2);
     }
 
     #[test]

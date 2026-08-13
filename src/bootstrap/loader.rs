@@ -53,6 +53,7 @@ const CONSOLE_SLOT: usize = 1;
 
 /// `H!` via two `SYS_SEND`s, then exit — shared product/oracle image bytes.
 const CONSOLE_HI: [u8; 40] = prog::encode_console_hi_exit(CONSOLE_SLOT as u16);
+const LOOKUP_CONSOLE: [u8; 52] = prog::encode_resolve_send_exit(0, b'N');
 
 const fn slots_with(console: Option<u8>) -> [Option<u8>; MAX_SLOTS] {
     let mut slots = [None; MAX_SLOTS];
@@ -64,13 +65,14 @@ const fn slots_with(console: Option<u8>) -> [Option<u8>; MAX_SLOTS] {
 fn builtin_manifest() -> &'static [AgentEntry] {
     #[cfg(feature = "oracle")]
     {
-        static M: [AgentEntry; 3] = [
+        static M: [AgentEntry; 5] = [
             AgentEntry {
                 name: "beacon",
                 image: &CONSOLE_HI,
                 text_pages: 1,
                 stack_pages: 3,
                 slots: slots_with(Some(HELD_CONSOLE)),
+                may_resolve: false,
                 device: None,
                 home_cpu: 0,
             },
@@ -80,6 +82,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                 text_pages: 2,
                 stack_pages: 3,
                 slots: slots_with(None),
+                may_resolve: false,
                 device: None,
                 home_cpu: 0,
             },
@@ -93,11 +96,35 @@ fn builtin_manifest() -> &'static [AgentEntry] {
             // path instead (which `entropy` already covers on a board with no
             // RNG200). Two different refusals, one agent each.
             AgentEntry {
+                name: "lookup",
+                image: &LOOKUP_CONSOLE,
+                text_pages: 1,
+                stack_pages: 3,
+                slots: slots_with(None),
+                may_resolve: true,
+                device: None,
+                home_cpu: 0,
+            },
+            AgentEntry {
+                name: "noresolve",
+                image: &LOOKUP_CONSOLE,
+                text_pages: 1,
+                stack_pages: 3,
+                slots: slots_with(None),
+                may_resolve: false,
+                device: None,
+                home_cpu: 0,
+            },
+            // ADR-0100: the device half of what `mute` is for. It names a
+            // window **past the end** of the vocabulary, so every oracle boot
+            // shows the arithmetic refusal on the good path.
+            AgentEntry {
                 name: "nowindow",
                 image: &CONSOLE_HI,
                 text_pages: 1,
                 stack_pages: 3,
                 slots: slots_with(Some(HELD_CONSOLE)),
+                may_resolve: false,
                 device: Some(kernel_core::manifest::DeviceGrant {
                     va: 0x9000,
                     window: 3,
@@ -115,6 +142,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
             text_pages: 1,
             stack_pages: 3,
             slots: slots_with(Some(HELD_CONSOLE)),
+            may_resolve: false,
             device: None,
             home_cpu: 0,
         }];
@@ -198,6 +226,7 @@ fn try_store_manifest() -> Option<&'static [AgentEntry]> {
         stack_pages: 0,
         slots: [agentstore::SLOT_NONE; MAX_SLOTS],
         home_cpu: 0,
+        may_resolve: false,
         window: agentstore::WINDOW_NONE,
         device_va: 0,
         image: b"",
@@ -308,6 +337,9 @@ pub fn load_all(auth: &super::authority::Authority) {
                 // order SIDE → SCHED, documented in `crate::sync`.
                 let spawned: Result<TaskId, sched::SpawnError> = SIDE.with(|side| {
                     let task = sched::spawn_with_slots_on(home_cpu, agent_body, &slots)?;
+                    if entry.may_resolve && !sched::grant_resolve(task) {
+                        crate::kprintln!("loader: {} resolve grant FAILED", entry.name);
+                    }
                     side.entry_of_task[task.slot()] = Some(index);
                     side.window_of_task[task.slot()] = device;
                     Ok(task)

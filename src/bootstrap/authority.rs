@@ -75,7 +75,13 @@ pub fn assemble(rng_present: bool) -> Authority {
     // why the mint moved here from `bootstrap::run` (ADR-0099 §3).
     if let Some(index) = console {
         match start_console_service() {
-            Some(cap) => provide_or_report(&mut set, index, cap, NAME_CONSOLE),
+            Some(cap) => {
+                provide_or_report(&mut set, index, cap, NAME_CONSOLE);
+                match crate::naming::bind(NAME_CONSOLE.as_bytes(), cap) {
+                    Ok(()) => crate::kprintln!("authority: bound {NAME_CONSOLE}"),
+                    Err(e) => crate::kprintln!("authority: bind {NAME_CONSOLE} FAILED {e:?}"),
+                }
+            }
             None => crate::kprintln!("authority: {index} {NAME_CONSOLE} VACANT"),
         }
     }
