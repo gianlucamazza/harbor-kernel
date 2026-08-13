@@ -187,8 +187,8 @@ F-R1-P1 shared-state, **K5-S** Mini stacks
 the first composed driver-agent
 ([ADR-0099](adr/0099-composition-vocabulary.md)/[0100](adr/0100-device-windows.md)/[0101](adr/0101-composed-driver-agent.md)).
 **K5-B design** paid ([ADR-0089](adr/0089-k5-b-pair-collapse-design.md)).
-Remaining depth is trigger-gated or product-target: **P3 network implementation**
-(what the product still compiles in), optional **K5-H** / K5-B
+Remaining depth is trigger-gated or product-target: Pi4 backend evidence for the
+QEMU-complete **P3 network implementation**, optional **K5-H** / K5-B
 **code** ([ADR-0085](adr/0085-k5-density-residual-design.md)), **K7-T** TTBR1
 only if [ADR-0084](adr/0084-k7-residual-policy.md) triggers, optional **K7-M**
 lab and **K8** agent+TLB steal, deferred **P4**. Resolve-grant is done

@@ -56,8 +56,8 @@ the named level — not when prose wishes it.
 | Horizon                             | Product outcome                                                                                             | Tracks that close it                                                                                                                                                                                                                                                                                |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **H0 — Foundation**                 | Boundary lab on Pi 4B: tasks, caps, EL0, PL011 agent, blocking recv, console + beacon, cancel               | **Done (HW)** — M0–M8 + ADR-0024/0025                                                                                                                                                                                                                                                               |
-| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story      | **Paid (HW stamp 2026-08-08):** bar 1–7 + K5 thin + P2 durable + K4 budget + lifecycle residuals (serial `.serial-log/20260808-030219.log`). **Still open / residual:** P3 implementation and P4                                                                                 |
-| **H2 — Boundary OS**                | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** + **K7** first + **K8** through steal + F-R1-P1 + **K5-S** Mini **done (HW)**; **K5** residual policy [ADR-0085](adr/0085-k5-density-residual-design.md) (**K5-H/B** later); **K7** residual [ADR-0084](adr/0084-k7-residual-policy.md); P3 implementation and P4 remain open; **P2** SD power-cycle **done (HW)** |
+| **H1 — Composition / appliance OS** | Multi-agent product you can compose and load without rebuild-only demos; early device/supervisor story      | **Paid (HW stamp 2026-08-08):** bar 1–7 + K5 thin + P2 durable + K4 budget + lifecycle residuals (serial `.serial-log/20260808-030219.log`). **Still open / residual:** Pi4 backend evidence for P3 and P4                                                                                 |
+| **H2 — Boundary OS**                | Full boundary OS: fair execution, denser agents, production isolation, multi-core, remaining platform paths | **K4** + **K7** first + **K8** through steal + F-R1-P1 + **K5-S** Mini **done (HW)**; **K5** residual policy [ADR-0085](adr/0085-k5-density-residual-design.md) (**K5-H/B** later); **K7** residual [ADR-0084](adr/0084-k7-residual-policy.md); Pi4 backend evidence for P3 and P4 remain open; **P2** SD power-cycle **done (HW)** |
 
 **H1 product bar (what “composition OS” means here):**
 
@@ -126,14 +126,16 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 |  next | **P3 Pi4 backend evidence**                              | ADR-0104 is complete at the QEMU target: the resident EL1 service owns split queues, bounded payload copies, restart handling, external-store packet-pool encoding, and EL0 directional capabilities; `make qemu-virtio-check` covers deterministic peer RX, reset/recovery, descriptor lifecycle and absent-device refusal. Pi 4 backend design and hardware capture remain tracked separately in [ADR-0105](adr/0105-pi4-nic-backend-boundary.md). | — |
 |  held | **K5-H** design (**no slot wall**)                        | The trigger now has a number instead of an opinion: measured product peak **5 of 54** slots on QEMU (3 live + 2 idle; `entropy` refused — no RNG200), **6** on a Pi 4B that provides the window. ADR-0085 §3 keeps K5-H deferred until that peak approaches the ceiling; `oracle-census` (QEMU) is what will say so                                                                                                    | —                                                               |
 | watch | **K7-M** switch-cost lab / **K7-T** if trigger            | Optional; policy [ADR-0084](adr/0084-k7-residual-policy.md)                                                                                                                                                                                                                                                                                                                                                             | [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) |
-| gated | **K5-H** / agent+TLB / **H3 L1+** / **P4** / cores 2–3 | Trigger or composition target only; P3 has an accepted target and remains implementation work                                                                                                                                                                                                                                                                                                                                                                                      | —                                                               |
+| gated | **K5-H** / agent+TLB / **H3 L1+** / **P4** / cores 2–3 | Trigger or composition target only; P3 QEMU implementation is complete, while the Pi4 backend remains evidence-gated by ADR-0105                                                                                                                                                                                                                                                                                                                                                      | —                                                               |
 
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
 K7 ASID slice **done (HW)** (stamp 2026-08-09). Resolve-grant + peer transfer
 **done (HW)** (same stamp). K4 EL0 + EL1 preemption **done (HW)** (ADR-0064/0068).
 K8 unpark + IPI + queues first slice **done (HW)** (ADR-0070/0074/0076/0077;
 stamp 2026-08-10, transcript `20260810-130305.log`: `smp: core1 alive` +
-`ipi` + `ran`). P3 target accepted in ADR-0104; implementation and P4 remain open. P2 power-cycle **done (HW)** (2026-08-09).
+`ipi` + `ran`). P3 is **done (QEMU)** at the accepted ADR-0104 target;
+Pi4 backend evidence remains open under ADR-0105, and P4 remains deferred. P2
+power-cycle **done (HW)** (2026-08-09).
 **H3 L0** **done (QEMU-x86)** ([ADR-0071](adr/0071-h3-l0-x86-qemu-first-slice.md)).
 **Discovery** **done (QEMU)** + **done (HW)** (ADR-0072/0073). **K8 per-core
 timer + EL1 preempt on CPU 1** **done (HW)**
@@ -159,9 +161,9 @@ stamp 2026-08-10, transcript `20260810-134826.log`: `preempt-el0-cpu1: rotated`
   **Composition vocabulary + first composed driver-agent paid (HW)**
   ([ADR-0099](adr/0099-composition-vocabulary.md)/[0100](adr/0100-device-windows.md)/[0101](adr/0101-composed-driver-agent.md),
   stamps 2026-08-12…13).
-  **Next:** P3 edge-gateway network implementation. Held: K5-H until
-  the slot peak approaches 54. Trigger-only: K5-B **code**, K7-T, agent+TLB,
-  H3 L1+, P4.
+**Next:** Pi4 backend evidence for the completed QEMU P3 edge-gateway target.
+Held: K5-H until the slot peak approaches 54. Trigger-only: K5-B **code**,
+K7-T, agent+TLB, H3 L1+, P4.
 
 ```text
 Mission: agents · grants · evidence · finish the OS

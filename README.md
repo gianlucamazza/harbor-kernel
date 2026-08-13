@@ -94,11 +94,11 @@ architecture target ([ADR-0104](docs/adr/0104-p3-edge-network-composition.md));
 its Pi4 backend evidence and P4 remain open, along with H3 L1+ and trigger-gated
 residuals.
 
-Next: **P3 edge-gateway network implementation** — transport and split-queue
-lifecycle, packet service and directional EL0 ownership are integrated and gated by
-`make qemu-virtio-check`; deterministic peer RX and service reset/recovery are
-now exercised; Pi4 backend evidence remains open under
-[ADR-0104](docs/adr/0104-p3-edge-network-composition.md).
+Next: **Pi4 backend evidence for the completed P3 edge-gateway target** — the
+transport and split-queue lifecycle, packet service, directional EL0 ownership,
+deterministic peer RX, and service reset/recovery are integrated and gated by
+`make qemu-virtio-check`; the board-specific evidence remains open under
+[ADR-0105](docs/adr/0105-pi4-nic-backend-boundary.md).
 K5-H stays held: measured
 peak is 5 of 54 slots on QEMU (6 on a board with RNG200).
 
