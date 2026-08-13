@@ -241,6 +241,9 @@ pub fn run() -> ! {
         // ADR-0008: drain IRQ wake posts before scheduling work.
         crate::sched::poll_wakes();
 
+        #[cfg(feature = "board-qemu-virt")]
+        super::network_runtime::poll();
+
         // 1. Echo RX ring when kernel owns the drain (not while an agent does).
         if !console::rx_drain_suspended() {
             let _ = console::with_tx(|uart| {

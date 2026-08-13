@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Verify the AArch64 QEMU virt modern virtio-mmio transport probe.
+# Verify the AArch64 QEMU virt modern virtio-mmio transport and descriptor path.
 #
 # This gate is narrower than the product oracle: it proves the BSP map, DTB
-# reservation, slot discovery, modern negotiation, and reset lifecycle. It
-# does not claim queues, packet I/O, or EL0 capabilities.
+# reservation, slot discovery, modern negotiation, split-ring descriptor
+# submission/completion, and reset lifecycle. It does not claim packet payload
+# delivery or EL0 capabilities.
 set -euo pipefail
 
 IMG="${1:?usage: $0 <qemu-virt-kernel.img> [ceiling-seconds]}"
@@ -51,8 +52,13 @@ if grep -aq 'DTB map FAILED\|BOOT REFUSED' "${modern_log}"; then
     echo "qemu-virtio-check: memory-map refusal or DTB collision" >&2
     exit 1
 fi
-grep -aqE 'virtio-net: modern probe ok base=0x[0-9a-f]+ vendor=0x[0-9a-f]+ features=0x100000000 queues=2 size=8 ready' "${modern_log}" || {
+grep -aqE 'virtio-net: modern probe ok base=0x[0-9a-f]+ vendor=0x[0-9a-f]+ features=0x100000000 queues=2 size=8 ready tx-descriptor=submitted' "${modern_log}" || {
     echo "qemu-virtio-check: modern virtio-net probe did not complete" >&2
+    grep -aE 'virtio-net:|discover:|boot:' "${modern_log}" >&2 || true
+    exit 1
+}
+grep -aqE 'virtio-net: tx descriptor complete used_len=[0-9]+' "${modern_log}" || {
+    echo "qemu-virtio-check: deterministic TX descriptor was not completed" >&2
     grep -aE 'virtio-net:|discover:|boot:' "${modern_log}" >&2 || true
     exit 1
 }

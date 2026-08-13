@@ -186,6 +186,31 @@ pub unsafe fn clean_dcache_poc(va: usize, len: usize) {
     }
 }
 
+/// Invalidate data cache lines by VA to the point of coherency.
+///
+/// # Safety
+/// `va..va+len` must be mapped Normal memory whose dirty lines are owned by a
+/// device or another observer; invalidation discards local dirty state.
+#[cfg(feature = "board-qemu-virt")]
+pub unsafe fn invalidate_dcache_poc(va: usize, len: usize) {
+    if len == 0 {
+        return;
+    }
+    let line = dcache_line_size();
+    let start = va & !(line - 1);
+    let end = va.saturating_add(len);
+    let mut p = start;
+    // SAFETY: caller guarantees the range is Normal memory and its dirty
+    // lines must be discarded before reading device-owned data.
+    unsafe {
+        while p < end {
+            asm!("dc ivac, {}", in(reg) p, options(nostack, preserves_flags));
+            p += line;
+        }
+        asm!("dsb ish", options(nostack, preserves_flags));
+    }
+}
+
 /// Make kernel stores to `[va, va + len)` visible to instruction fetch.
 ///
 /// Clean D to PoU, invalidate I (full), order with `isb`. Used after writing

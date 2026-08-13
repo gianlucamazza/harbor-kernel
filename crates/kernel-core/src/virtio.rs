@@ -291,6 +291,38 @@ pub const PACKET_BYTES: usize = 2 * 1024;
 /// Bounded first-slice pool size.
 pub const PACKET_SLOTS: usize = 16;
 
+/// Why a DMA descriptor was refused before it reached the transport.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DescriptorError {
+    NullAddress,
+    UnalignedAddress,
+    ZeroLength,
+    LengthTooLarge,
+}
+
+/// Validate the bounded single-buffer descriptor shape used by the first
+/// network service slice. Physical addresses remain opaque to EL0 and this
+/// function performs no memory access.
+pub const fn validate_descriptor(
+    address: u64,
+    len: usize,
+    maximum: usize,
+) -> Result<(), DescriptorError> {
+    if address == 0 {
+        return Err(DescriptorError::NullAddress);
+    }
+    if !address.is_multiple_of(16) {
+        return Err(DescriptorError::UnalignedAddress);
+    }
+    if len == 0 {
+        return Err(DescriptorError::ZeroLength);
+    }
+    if len > maximum {
+        return Err(DescriptorError::LengthTooLarge);
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SlotState {
     TxAgent,
@@ -580,6 +612,26 @@ mod tests {
         assert_eq!(
             pool.publish_rx(PACKET_SLOTS / 2, PACKET_BYTES + 1),
             Err(PacketError::Oversize)
+        );
+    }
+
+    #[test]
+    fn malformed_descriptors_are_refused_without_memory_access() {
+        assert_eq!(
+            validate_descriptor(0, 64, PACKET_BYTES),
+            Err(DescriptorError::NullAddress)
+        );
+        assert_eq!(
+            validate_descriptor(3, 64, PACKET_BYTES),
+            Err(DescriptorError::UnalignedAddress)
+        );
+        assert_eq!(
+            validate_descriptor(0x1000, 0, PACKET_BYTES),
+            Err(DescriptorError::ZeroLength)
+        );
+        assert_eq!(
+            validate_descriptor(0x1000, PACKET_BYTES + 1, PACKET_BYTES),
+            Err(DescriptorError::LengthTooLarge)
         );
     }
 

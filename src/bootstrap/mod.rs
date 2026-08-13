@@ -688,7 +688,7 @@ pub fn run() -> ! {
     match network_runtime::start() {
         Ok(result) => println!(
             uart,
-            "virtio-net: modern probe ok base={:#x} vendor={:#x} features={:#x} queues={} size={} ready",
+            "virtio-net: modern probe ok base={:#x} vendor={:#x} features={:#x} queues={} size={} ready tx-descriptor=submitted",
             result.base,
             result.vendor,
             result.features,
