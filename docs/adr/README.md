@@ -121,6 +121,7 @@ the code that follows.
 | [0099](0099-composition-vocabulary.md)                       | The composition's vocabulary — a declared held list                                          | accepted   |
 | [0100](0100-device-windows.md)                               | Device windows — the composition names, the board decides                                    | accepted   |
 | [0101](0101-composed-driver-agent.md)                        | The first composed driver-agent — a device the store grants                                  | accepted   |
+| [0102](0102-product-binds-a-name.md)                         | The product binds a name — an agent finds the service                                        | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

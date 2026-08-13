@@ -116,7 +116,8 @@ assert_product_boot() {
 		fail "providing the declared RNG window failed"
 	fi
 	grep -qa 'console: capability minted' "${log}" || fail "console send capability was not minted"
-	grep -qa 'loader: store n=3 image' "${log}" || fail "product did not load the injected multi-agent store"
+	grep -qa 'authority: bound console' "${log}" || fail "product did not bind the console name (ADR-0102)"
+	grep -qa 'loader: store n=4 image' "${log}" || fail "product did not load the injected multi-agent store"
 	# ADR-0088: product composition pins chirp on CPU 1; beacon stays home 0.
 	grep -qaE 'loader: beacon loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" ||
 		fail "beacon was not loaded on home=0"
@@ -124,6 +125,8 @@ assert_product_boot() {
 		fail "chirp was not loaded on home=1 (product multi-core pin)"
 	grep -qa 'loader: beacon ran sends=2 refusals=0' "${log}" || fail "beacon did not run successfully"
 	grep -qa 'loader: chirp ran sends=1 refusals=0' "${log}" || fail "chirp did not run successfully"
+	grep -qaE 'loader: lookup loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" || fail "lookup was not loaded"
+	grep -qa 'loader: lookup ran sends=1 refusals=0' "${log}" || fail "lookup did not resolve and send successfully"
 	# Concurrent product agents share the console endpoint: bytes may interleave —
 	# and since ADR-0088 pins chirp on CPU 1, they *do*. `H!` was written when the
 	# composition was single-core and asserts the opposite of the line above it:
@@ -139,6 +142,7 @@ assert_product_boot() {
 	grep -qaE 'H[^[:alnum:][:space:]]*!' "${log}" ||
 		fail "beacon bytes did not reach the wire, or arrived out of order"
 	grep -qaF '?' "${log}" || fail "chirp byte did not reach the wire"
+	grep -qaF 'N' "${log}" || fail "lookup byte did not reach the wire (ADR-0102)"
 
 	# ---------------------------------------------------------------------------
 	# 5. Invariant beacon + anomaly negatives

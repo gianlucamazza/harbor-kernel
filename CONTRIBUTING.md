@@ -22,7 +22,7 @@ successor ADR, not a patch.
    README or vision. After a status flip, refresh residual prose in
    `SECURITY.md` / `verification.md` only if they restate status — and **close
    or update any GitHub issue that tracked the paid work** (do not leave a second
-   stale tracker; #14 is a standing watch, not a status table).
+   stale tracker; #21 is a standing watch, not a status table).
 4. **`make check` predicts CI.** Local green must mean remote green.
    Doc drift is a failed gate (`doc-claims`, `xrefs`, `doc-symbols`).
 5. **Ship path ≠ lab path.** The oracle image (`make boot-check`) proves

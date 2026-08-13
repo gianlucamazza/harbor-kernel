@@ -287,6 +287,12 @@ assert_boot_oracle() {
 		fail "EL0 resolve did not install a named cap (ADR-0039)"
 	grep -qa 'el0-resolve: refused' "${log}" ||
 		fail "EL0 resolve did not refuse a missing name (ADR-0039)"
+	# ADR-0102: the same resolve program is granted to lookup and denied to
+	# noresolve, so the product binding is exercised without making resolve ambient.
+	grep -qa 'loader: lookup ran sends=1 refusals=0' "${log}" ||
+		fail "the granted lookup agent did not resolve console"
+	grep -qa 'loader: noresolve ran sends=0 refusals=1' "${log}" ||
+		fail "the noresolve agent did not refuse SYS_RESOLVE"
 	# ADR-0040 / K2 residual: park timeout cancels without a sender.
 	grep -qa 'ipc: timed-out cancelled' "${log}" ||
 		fail "park timeout did not cancel the waiter (ADR-0040)"

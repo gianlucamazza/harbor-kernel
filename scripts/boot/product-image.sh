@@ -17,8 +17,8 @@
 #
 # Without the oracle, demo tasks and subsystem probes become unreachable —
 # that is intentional (rule 9), not rot. The product path **does** create
-# agents: console server + the injected multi-agent store (ADR-0029 beacon +
-# chirp). What stays unreachable is scaffolding that only the oracle feature
+# agents: console server + the injected multi-agent store (ADR-0029 beacon,
+# chirp, lookup and entropy). What stays unreachable is scaffolding that only the oracle feature
 # exercises. The unreachable-item count below is that gap as a number.
 #
 # So this gate does not run clippy with `-D warnings` on the product
@@ -210,4 +210,4 @@ fi
 printf 'product-builds: clean (no demo symbols; image %s B without the oracle, %s B with, +%s B)\n' \
 	"${product_size}" "${oracle_size}" "$((oracle_size - product_size))"
 printf '  %s items unreachable without the oracle.\n' "${unreachable}"
-printf '  Product carries console-server + loader; multi-agent store is external (P1).\n'
+printf '  Product carries console-server + loader; the four-agent store is external (P1/P5).\n'
