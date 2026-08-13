@@ -463,10 +463,10 @@ assert_boot_oracle() {
 	# The negative that matters is below it: a refused entry must not have been
 	# spawned, because an agent composed to drive a page it cannot have is not an
 	# agent anyone asked to run without one.
-	grep -qa 'authority: windows 0 declared' "${log}" ||
-		fail "the window vocabulary was not declared (ADR-0100)"
-	grep -qa 'loader: nowindow refused — names window 0 of 0' "${log}" ||
-		fail "an entry naming an undeclared device window was not refused"
+	grep -qa 'authority: windows 1 declared' "${log}" ||
+		fail "the window vocabulary was not declared (ADR-0100/0101)"
+	grep -qa 'loader: nowindow refused — names window 3 of 1' "${log}" ||
+		fail "an entry naming a window past the vocabulary was not refused"
 	if grep -qa 'loader: nowindow loaded' "${log}"; then
 		fail "an entry refused a device window was spawned anyway"
 	fi

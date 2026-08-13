@@ -111,15 +111,16 @@ the code that follows.
 | [0089](0089-k5-b-pair-collapse-design.md)                    | K5-B design — pair collapse (session schedulable); no code                                   | accepted   |
 | [0090](0090-k10-force-exit-running.md)                       | K10 force-exit Running at a safe point                                                       | accepted   |
 | [0091](0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` replaces the cell/lock pair                                    | accepted   |
-| [0092](0092-lifecycle-verdicts.md)                  | Supervisor lifecycle verdicts as a pure decision           | accepted |
-| [0093](0093-panic-path-positive-evidence.md)        | Positive evidence for the panic path — one deliberate fault | accepted |
-| [0094](0094-retire-debug-display.md)               | Retire `debug-display` — panel returns with a composition  | accepted |
-| [0095](0095-boot-phases.md)                        | Boot phases have names; the console handover is the seam  | accepted |
-| [0096](0096-gates-that-do-not-depend-on-remembering.md) | Gates that do not depend on remembering                    | accepted |
-| [0097](0097-loader-plan.md)                        | The loader's plan is data; the loader executes it          | accepted |
-| [0098](0098-slot-meter-measured.md)                | The slot meter is measured, not remembered                 | accepted |
-| [0099](0099-composition-vocabulary.md)             | The composition's vocabulary — a declared held list        | accepted |
-| [0100](0100-device-windows.md)                     | Device windows — the composition names, the board decides  | accepted |
+| [0092](0092-lifecycle-verdicts.md)                           | Supervisor lifecycle verdicts as a pure decision                                             | accepted   |
+| [0093](0093-panic-path-positive-evidence.md)                 | Positive evidence for the panic path — one deliberate fault                                  | accepted   |
+| [0094](0094-retire-debug-display.md)                         | Retire `debug-display` — panel returns with a composition                                    | accepted   |
+| [0095](0095-boot-phases.md)                                  | Boot phases have names; the console handover is the seam                                     | accepted   |
+| [0096](0096-gates-that-do-not-depend-on-remembering.md)      | Gates that do not depend on remembering                                                      | accepted   |
+| [0097](0097-loader-plan.md)                                  | The loader's plan is data; the loader executes it                                            | accepted   |
+| [0098](0098-slot-meter-measured.md)                          | The slot meter is measured, not remembered                                                   | accepted   |
+| [0099](0099-composition-vocabulary.md)                       | The composition's vocabulary — a declared held list                                          | accepted   |
+| [0100](0100-device-windows.md)                               | Device windows — the composition names, the board decides                                    | accepted   |
+| [0101](0101-composed-driver-agent.md)                        | The first composed driver-agent — a device the store grants                                  | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

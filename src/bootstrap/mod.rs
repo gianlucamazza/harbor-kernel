@@ -229,12 +229,19 @@ fn bind_interrupts(uart: &mut Pl011) -> bool {
     bound
 }
 
-/// Probe the SoC RNG200 and report one line.
+/// Probe the SoC RNG200, report one line, and say whether the block is there.
 ///
 /// After the MMU (Device attributes), before IRQs. On-die block, same class as
 /// the PL011 — always brought up. Logical failure (timeout, health) is soft:
 /// one line and the boot continues. Never refuse a boot for entropy.
-fn probe_rng(uart: &mut Pl011) {
+///
+/// The return value is what [`authority`](authority) needs to decide whether to
+/// provide the `rng` window (ADR-0101): present means an agent composed to
+/// drive it can be given the page, absent means the board does not have the
+/// device and the position stays a hole. Probing twice to answer the same
+/// question is how two answers start to disagree, so the boot's own probe is
+/// the one that answers.
+fn probe_rng(uart: &mut Pl011) -> bool {
     // SAFETY: single core; RNG200 window not otherwise claimed.
     match unsafe { board::rng::init() } {
         Ok(rng) => match rng.try_word() {
@@ -249,8 +256,12 @@ fn probe_rng(uart: &mut Pl011) {
             }
             Err(error) => println!(uart, "rng200: read FAILED: {error:?}"),
         },
-        Err(error) => println!(uart, "rng200: unavailable ({error:?})"),
+        Err(error) => {
+            println!(uart, "rng200: unavailable ({error:?})");
+            return false;
+        }
     }
+    true
 }
 
 /// Refuse to boot if the table arena is nearly spent.
@@ -617,7 +628,9 @@ pub fn run() -> ! {
 
     init_memory_pools(&mut uart, plan.heap_end, plan.frame_base, plan.frame_end);
 
-    probe_rng(&mut uart);
+    // Carried to `authority::assemble` below: the window vocabulary provides the
+    // RNG page only on a board that has the block (ADR-0101).
+    let rng_present = probe_rng(&mut uart);
 
     // Deliberate fault (ADR-0093), before IRQs are bound: the panic path is
     // then reporting one fault on one core with nothing else in flight, which
@@ -656,7 +669,7 @@ pub fn run() -> ! {
     // vocabulary is refused by arithmetic rather than by a check.
     //
     // Product path carries the beacon agent; oracle adds mute. See loader.
-    let authority = authority::assemble();
+    let authority = authority::assemble(rng_present);
     loader::load_all(&authority);
 
     // Everything the boot oracle needs, and nothing the product does — and

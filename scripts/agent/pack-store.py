@@ -31,9 +31,9 @@ HELD = {
 # never a physical address: the board decides what the page is, the composition
 # only decides where in its own window it lands.
 #
-# Empty because this product declares no window yet — the mechanism ships first,
-# the first grant arrives with the first composed driver-agent.
-WINDOWS = {}
+WINDOWS = {
+    "rng": 0,
+}
 
 # "No device window" — the value every agent in this product carries today.
 WINDOW_NONE = 0xFF
@@ -62,6 +62,31 @@ svc #3
 svc #1
 b .
 """
+
+
+# encode_read_device_bit_console_exit(0x5100, RNG_CTRL=0, CTRL_RBGEN=0, 1, 'R', 'r')
+# — keep in sync with kernel_core::prog.
+#
+# ADR-0101: the first agent that arrives in a store *and* drives a device. It
+# reads RNG_CTRL from the window the loader mapped for it and sends 'R' if the
+# block is enabled, 'r' if not — a byte only a real load can produce.
+ENTROPY_ASM = """\
+movz x0, #0x5100, lsl #16
+ldr w1, [x0, #0]
+tbnz w1, #0, #12
+movz x2, #114
+b #8
+movz x2, #82
+movz x0, #1
+movz x1, #0
+svc #3
+svc #1
+b .
+"""
+
+# Where the RNG window lands in the agent's own address space. The composition
+# chooses this; the board chooses which page appears there (ADR-0100).
+ENTROPY_VA = 0x5100_0000
 
 
 def assemble(asm: str) -> bytes:
@@ -131,12 +156,19 @@ def append_agent(
         buf += b"\x00"
 
 
-def pack(agents: list[tuple[str, int, int, list[int], bytes, int]]) -> bytes:
+# (name, text_pages, stack_pages, slots, image, home_cpu, window, device_va)
+PackAgent = tuple[str, int, int, list[int], bytes, int, int, int]
+
+
+def pack(agents: list[PackAgent]) -> bytes:
     buf = bytearray()
     buf += MAGIC
     buf += struct.pack("<III", VERSION, len(agents), 0)
-    for name, tp, sp, slots, image, home in agents:
-        append_agent(buf, name, tp, sp, slots, image, home_cpu=home)
+    for name, tp, sp, slots, image, home, window, device_va in agents:
+        append_agent(
+            buf, name, tp, sp, slots, image,
+            home_cpu=home, window=window, device_va=device_va,
+        )
     return bytes(buf)
 
 
@@ -159,6 +191,7 @@ def main() -> int:
     try:
         beacon = assemble(BEACON_ASM)
         chirp = assemble(CHIRP_ASM)
+        entropy = assemble(ENTROPY_ASM)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"pack-agent-store: FAIL — need llvm-mc and llvm-objcopy: {e}", file=sys.stderr)
         return 1
@@ -169,19 +202,25 @@ def main() -> int:
     # something adjacent.
     slots = [SLOT_NONE, HELD["console"], SLOT_NONE, SLOT_NONE]
     if args.single_beacon:
-        # (name, text, stack, slots, image, home_cpu)
-        agents = [("beacon", 1, 3, slots, beacon, 0)]
+        agents = [("beacon", 1, 3, slots, beacon, 0, WINDOW_NONE, 0)]
     else:
         # P1 + ADR-0088: beacon homes on product CPU 0; chirp pins to CPU 1
         # so the shipped composition exercises dual-current without oracle demos.
+        # ADR-0101: `entropy` names the `rng` window by name; the index that
+        # reaches the wire is this table's, and `make vocabulary-sync` is what
+        # keeps it the same integer the kernel declared.
         agents = [
-            ("beacon", 1, 3, slots, beacon, 0),
-            ("chirp", 1, 3, slots, chirp, 1),
+            ("beacon", 1, 3, slots, beacon, 0, WINDOW_NONE, 0),
+            ("chirp", 1, 3, slots, chirp, 1, WINDOW_NONE, 0),
+            ("entropy", 1, 3, slots, entropy, 0, WINDOWS["rng"], ENTROPY_VA),
         ]
     blob = pack(agents)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(blob)
-    names = ",".join(f"{a[0]}@cpu{a[5]}" for a in agents)
+    names = ",".join(
+        f"{a[0]}@cpu{a[5]}" + ("" if a[6] == WINDOW_NONE else f"+w{a[6]}")
+        for a in agents
+    )
     print(
         f"pack-agent-store: wrote {args.output} ({len(blob)} bytes, n={len(agents)} [{names}])"
     )

@@ -83,11 +83,15 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                 device: None,
                 home_cpu: 0,
             },
-            // ADR-0100: the device half of what `mute` is for. It names window
-            // 0 of a vocabulary this product declares empty, so every oracle
-            // boot shows the refusal on the good path — the arithmetic that
-            // keeps a composition from reaching a page the board never offered,
-            // seen working rather than argued for.
+            // ADR-0100: the device half of what `mute` is for. It names a
+            // window **past the end** of the vocabulary, so every oracle boot
+            // shows the arithmetic refusal on the good path — a composition
+            // cannot reach a page the board never declared.
+            //
+            // The index is deliberately not 0: since ADR-0101 the product
+            // declares `rng` there, and naming it would exercise the *vacancy*
+            // path instead (which `entropy` already covers on a board with no
+            // RNG200). Two different refusals, one agent each.
             AgentEntry {
                 name: "nowindow",
                 image: &CONSOLE_HI,
@@ -96,7 +100,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                 slots: slots_with(Some(HELD_CONSOLE)),
                 device: Some(kernel_core::manifest::DeviceGrant {
                     va: 0x9000,
-                    window: 0,
+                    window: 3,
                 }),
                 home_cpu: 0,
             },

@@ -19,6 +19,35 @@ WINDOW_NONE = 0xFF
 SUPPORTED = (2,)
 
 
+def _vocabularies() -> tuple[dict[int, str], dict[int, str]]:
+    """The kernel's index -> name tables, read from the packer beside this file.
+
+    So the audit reader can print what an index *means* rather than only what it
+    is (ADR-0101): `window 0 (rng)` audits a composition, `window 0` asks the
+    reader to go and look. Loaded from `pack-store.py` rather than restated,
+    because that table is the one `make vocabulary-sync` compares against
+    `src/bootstrap/authority.rs` — a third copy here would be the drift that
+    gate exists to catch.
+
+    A packer that cannot be loaded is not fatal: the indices still print.
+    """
+    import importlib.util
+
+    packer = Path(__file__).resolve().parent / "pack-store.py"
+    try:
+        spec = importlib.util.spec_from_file_location("harbor_pack_store", packer)
+        if spec is None or spec.loader is None:
+            return {}, {}
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return (
+            {v: k for k, v in mod.HELD.items()},
+            {v: k for k, v in mod.WINDOWS.items()},
+        )
+    except Exception:
+        return {}, {}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("path", type=Path, nargs="?", default=Path("target/agents.bin"))
@@ -26,6 +55,7 @@ def main() -> int:
     if not args.path.is_file():
         print(f"inspect-agent-store: missing {args.path}", file=sys.stderr)
         return 1
+    held_names, window_names = _vocabularies()
     raw = args.path.read_bytes()
     if len(raw) < 16 or raw[:4] != MAGIC:
         print("inspect-agent-store: bad magic or too short", file=sys.stderr)
@@ -67,8 +97,18 @@ def main() -> int:
         off += image_len
         while off % 4:
             off += 1
-        slot_s = ",".join("_" if s == SLOT_NONE else str(s) for s in slots)
-        device_s = "none" if window == WINDOW_NONE else f"window {window} @ {device_va:#x}"
+        def named(index: int, table: dict[int, str]) -> str:
+            name = table.get(index)
+            return f"{index}({name})" if name else str(index)
+
+        slot_s = ",".join(
+            "_" if s == SLOT_NONE else named(s, held_names) for s in slots
+        )
+        device_s = (
+            "none"
+            if window == WINDOW_NONE
+            else f"window {named(window, window_names)} @ {device_va:#x}"
+        )
         print(
             f"  [{i}] name={name!r} text_pages={text_pages} stack_pages={stack_pages} "
             f"home_cpu={home_cpu} slots=[{slot_s}] device={device_s} image_len={len(image)}"

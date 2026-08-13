@@ -73,14 +73,45 @@ assert_product_boot() {
 	# for `VACANT` is in §5, because a hole is not a boot the product should pass.
 	grep -qaE 'authority: 0 console ok' "${log}" ||
 		fail "the console position was not declared and provided (ADR-0099)"
-	# ADR-0100: the device vocabulary, said out loud even when it is empty.
-	# "This product grants no device" is a property worth reading off a boot log
-	# rather than inferring from the absence of a line, and the day a window is
-	# declared this assertion is what makes someone look at why.
-	grep -qa 'authority: windows 0 declared' "${log}" ||
-		fail "the product declared device windows, or did not say (ADR-0100)"
+	# ADR-0100/0101: the device vocabulary, and the one window this product
+	# declares. The expectation is **derived from the board**, not chosen from a
+	# list of them: the same transcript already says whether the RNG200 answered,
+	# and the two lines must agree. One oracle, two boards — the alternative is a
+	# hardware-flavoured copy that disagrees with this one on the day it matters.
+	grep -qa 'authority: windows 1 declared' "${log}" ||
+		fail "the product did not declare its one device window (ADR-0101)"
+	if grep -qa 'rng200: ok' "${log}"; then
+		grep -qa 'authority: 0 rng ok' "${log}" ||
+			fail "the board has an RNG200 and the window was not provided (ADR-0101)"
+		# The device is there, so the composed driver-agent runs and proves it
+		# read the register: 'R' is the byte only a real load can produce.
+		grep -qaE 'loader: entropy loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" ||
+			fail "the composed driver-agent was not loaded"
+		grep -qa 'loader: entropy ran sends=1 refusals=0' "${log}" ||
+			fail "the composed driver-agent did not send its reading"
+		# Anchored to the agent's own report, the way beacon's `H!` is: a bare
+		# 'R' would be matched by `IRQs`, `RX`, or any other line on the wire.
+		grep -qa 'Rloader: entropy ran' "${log}" ||
+			fail "the driver-agent's reading did not reach the wire before its report"
+	elif grep -qa 'rng200: unavailable' "${log}"; then
+		grep -qa 'authority: 0 rng absent' "${log}" ||
+			fail "the board has no RNG200 and the window did not say 'absent' (ADR-0101)"
+		# Declared and empty: the agent is refused by name, and nothing is mapped.
+		grep -qa 'loader: entropy refused — window rng is VACANT' "${log}" ||
+			fail "the agent naming an absent window was not refused by name"
+		if grep -qa 'loader: entropy loaded' "${log}"; then
+			fail "an agent whose window is absent was spawned anyway"
+		fi
+	else
+		fail "no rng200 line to derive the window expectation from (ADR-0101)"
+	fi
+	# Either way, 'FAILED' is never right: it means the board should have had the
+	# device and providing it did not work.
+	if grep -qa 'authority: 0 rng FAILED' "${log}"; then
+		fail "providing the declared RNG window failed"
+	fi
 	grep -qa 'console: capability minted' "${log}" || fail "console send capability was not minted"
-	grep -qa 'loader: store n=2 image' "${log}" || fail "product did not load the injected multi-agent store"
+	grep -qa 'loader: store n=3 image' "${log}" || fail "product did not load the injected multi-agent store"
 	# ADR-0088: product composition pins chirp on CPU 1; beacon stays home 0.
 	grep -qaE 'loader: beacon loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" ||
 		fail "beacon was not loaded on home=0"
@@ -128,11 +159,19 @@ assert_product_boot() {
 	((slots_live >= 1)) || fail "slots reports ${slots_live} live with the console loop running"
 	((slots_peak >= slots_live)) ||
 		fail "slots peak ${slots_peak} is below the live count ${slots_live} — the watermark does not track"
-	# A declared position nobody minted into (ADR-0099). The agents that named it
-	# are refused, which is correct — and a product boot that reaches it is a
-	# service that did not start, not a composition to ship.
-	if grep -qa 'VACANT' "${log}"; then
-		fail "a declared authority position came up empty (ADR-0099)"
+	# A declared **capability** position nobody minted into (ADR-0099). The agents
+	# that named it are refused, which is correct — and a product boot that
+	# reaches it is a service that did not start, not a composition to ship.
+	#
+	# Anchored to the capability lines since ADR-0101, because a *window* may
+	# legitimately be empty: `entropy` naming an absent RNG200 prints `window rng
+	# is VACANT` on every QEMU boot, and a bare `grep VACANT` failed that — the
+	# device half is judged above, where `absent` and `FAILED` are told apart.
+	if grep -qaE 'authority: [0-9]+ [a-z0-9_]+ VACANT' "${log}"; then
+		fail "a declared capability position came up empty (ADR-0099)"
+	fi
+	if grep -qa 'which is VACANT' "${log}"; then
+		fail "an agent named a capability position that was never minted (ADR-0099)"
 	fi
 	# The loader spawns and records the manifest entry under one lock hold; a
 	# task that reached its body without one means the record lost a race with

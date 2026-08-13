@@ -376,6 +376,57 @@ pub const fn encode_pl011_rx_poll_exit(console_slot: u16) -> [u8; 36] {
     out
 }
 
+/// Read a device register from a granted window and report one bit of it
+/// (ADR-0101).
+///
+/// The program a **composed** driver-agent runs: it is handed a device page by
+/// the loader — index into the window vocabulary, resolved by the board — reads
+/// a register from it, and sends `set_byte` or `clear_byte` to the console
+/// endpoint depending on one bit.
+///
+/// The bit is the point. A program that is given a page and exits proves only
+/// that the mapping did not fault; an encoder that dropped the load would pass
+/// that test unchanged. Branching on a bit of what was read means the byte on
+/// the wire is an answer only a real load can give.
+///
+/// ```text
+/// movz x0, #va_hi16, lsl #16
+/// ldr  w1, [x0, #reg_off]
+/// tbnz w1, #bit, +3        // set → skip the clear-byte movz
+/// movz x2, #clear_byte
+/// b    +2
+/// movz x2, #set_byte
+/// movz x0, #console_slot
+/// movz x1, #CONSOLE_TAG
+/// svc  #3                  // SYS_SEND
+/// svc  #1                  // SYS_EXIT
+/// b .
+/// ```
+pub const fn encode_read_device_bit_console_exit(
+    va_hi16: u16,
+    reg_off: u16,
+    bit: u8,
+    console_slot: u16,
+    set_byte: u8,
+    clear_byte: u8,
+) -> [u8; 44] {
+    let mut out = [0u8; 44];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x_lsl16(0, va_hi16));
+    push_word(&mut out, &mut i, a64::ldr_w_imm(1, 0, reg_off));
+    // Bit set → jump over the clear-byte movz and its branch (2 insns).
+    push_word(&mut out, &mut i, a64::tbnz_w(1, bit, 3));
+    push_word(&mut out, &mut i, a64::movz_x(2, clear_byte as u16));
+    push_word(&mut out, &mut i, a64::b_rel(2));
+    push_word(&mut out, &mut i, a64::movz_x(2, set_byte as u16));
+    push_word(&mut out, &mut i, a64::movz_x(0, console_slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -594,6 +645,33 @@ mod tests {
              ldr w1, [x0, #24]\n\
              tbnz w1, #4, #20\n\
              ldrb w2, [x0]\n\
+             movz x0, #1\n\
+             movz x1, #0\n\
+             svc #3\n\
+             svc #1\n\
+             b .\n",
+        );
+    }
+
+    #[cfg_attr(
+        miri,
+        ignore = "shells out to llvm-mc, which Miri cannot run; these encoders are pure and a64's unit tests cover the instruction words"
+    )]
+    #[test]
+    fn the_device_read_sends_a_byte_that_depends_on_what_it_read() {
+        // ADR-0101. The branch is the whole assertion: an encoder that dropped
+        // the load, or that always sent the same byte, would still map, still
+        // send, and still exit — and would be indistinguishable from this one
+        // on any test that only checked the agent ran.
+        assert_program(
+            "encode_read_device_bit_console_exit(0x5100, 0, 0, 1, b'R', b'r')",
+            &encode_read_device_bit_console_exit(0x5100, 0, 0, 1, b'R', b'r'),
+            "movz x0, #0x5100, lsl #16\n\
+             ldr w1, [x0, #0]\n\
+             tbnz w1, #0, #12\n\
+             movz x2, #114\n\
+             b #8\n\
+             movz x2, #82\n\
              movz x0, #1\n\
              movz x1, #0\n\
              svc #3\n\
