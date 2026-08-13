@@ -125,7 +125,10 @@ else
 	echo "mutants: serial, per-mutant floor ${MUTANTS_MIN_TIMEOUT:-300}s" >&2
 fi
 
-CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core "${jobs_args[@]}" "${file_args[@]}"
+# Mutation builds are deliberately independent of any repository-wide compiler
+# wrapper. A wrapper can serialize or cache-mutated scratch trees incorrectly,
+# turning a valid mutation run into a jobserver/contention failure.
+RUSTC_WRAPPER= CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core "${jobs_args[@]}" "${file_args[@]}"
 status=$?
 
 # 0 = nothing survived, 3 = something did. Anything else is the tool failing.
