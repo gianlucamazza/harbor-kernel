@@ -31,6 +31,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Read-only runner telemetry explains QEMU starvation without weakening the
+  # boot oracle. It intentionally records no environment variables or secrets.
+  HARBOR_CI_DIAGNOSTICS: "1"
   # Pinned by digest, not by tag. `rust-toolchain.toml` argues at length that a
   # green from yesterday says nothing about today, and then the richest gate in
   # this project — the QEMU boot oracle, over a hundred assertions — used to run
@@ -91,6 +94,9 @@ jobs:
           #!/usr/bin/env bash
           # Forward host paths into the container (kernel image, cwd).
           set -euo pipefail
+          if [[ "${HARBOR_CI_DIAGNOSTICS:-0}" == "1" && -x scripts/check/ci-runner-diagnostics.sh ]]; then
+            scripts/check/ci-runner-diagnostics.sh --phase qemu-wrapper
+          fi
           exec docker run --rm -i \
             -v /home/runner:/home/runner \
             -v /tmp:/tmp \
@@ -130,11 +136,25 @@ jobs:
       - name: Install cargo-mutants
         run: cargo install cargo-mutants --locked
 
+      - name: Capture runner capacity (before check)
+        run: |
+          mkdir -p target/ci-diagnostics
+          scripts/check/ci-runner-diagnostics.sh --phase before-check \
+            | tee target/ci-diagnostics/before-check.txt
+
       # Every gate, including the boot oracle. `make check` is deliberately a
       # superset of this job's gates — the sole exception is the firmware blob
       # fetch below, a network step kept out of the offline target on purpose.
       - name: make check
         run: make check
+
+      - name: Capture runner capacity (after check)
+        if: always()
+        continue-on-error: true
+        run: |
+          mkdir -p target/ci-diagnostics
+          scripts/check/ci-runner-diagnostics.sh --phase after-check \
+            | tee target/ci-diagnostics/after-check.txt
 
       - name: Shell scripts
         run: make shellcheck
@@ -162,4 +182,13 @@ jobs:
           path: |
             target/aarch64-unknown-none-softfloat/release/kernel8.img
             target/aarch64-unknown-none-softfloat/release/kernel8.img.sha256
+          retention-days: 30
+
+      - name: Upload runner diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-runner-diagnostics
+          path: target/ci-diagnostics/*.txt
+          if-no-files-found: ignore
           retention-days: 30
