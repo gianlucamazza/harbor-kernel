@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pack a Harbor external agent store (ADR-0027).
 
-Default product composition: beacon (H!) + chirp (?) + lookup (N) + entropy.
+Default product composition: beacon (H!) + chirp (?) + lookup (N) + entropy + blob (S).
 """
 from __future__ import annotations
 
@@ -22,6 +22,8 @@ SLOT_NONE = 0xFF
 # places is how the oracle-marker list and the MAX_TASKS census both went wrong.
 HELD = {
     "console": 0,
+    "blob": 1,
+    "blob-reply": 2,
 }
 
 # The device-window vocabulary (ADR-0100). Same ABI relationship as HELD above,
@@ -96,6 +98,35 @@ b #8
 movz x2, #82
 movz x0, #1
 movz x1, #0
+svc #3
+svc #1
+b .
+"""
+
+# encode_blob_round_trip_exit(2, 3, 1) — P2 durable endpoint.
+BLOB_ASM = """\
+movz x0, #2
+movz x1, #0x1001
+movz x2, #0x6663
+movk x2, #0x0067, lsl #16
+movk x2, #0x0300, lsl #48
+movz x3, #0x6570
+movk x3, #0x7372, lsl #16
+movk x3, #0x6973, lsl #32
+movk x3, #0x0774, lsl #48
+svc #3
+movz x0, #2
+movz x1, #0x1002
+movz x2, #0x6663
+movk x2, #0x0067, lsl #16
+movk x2, #0x0300, lsl #48
+movz x3, #0
+svc #3
+movz x0, #3
+svc #4
+movz x0, #1
+movz x1, #0
+movz x2, #83
 svc #3
 svc #1
 b .
@@ -212,6 +243,7 @@ def main() -> int:
         chirp = assemble(CHIRP_ASM)
         lookup = assemble(LOOKUP_ASM)
         entropy = assemble(ENTROPY_ASM)
+        blob = assemble(BLOB_ASM)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"pack-agent-store: FAIL — need llvm-mc and llvm-objcopy: {e}", file=sys.stderr)
         return 1
@@ -220,9 +252,10 @@ def main() -> int:
     # three stay empty. The convention that slot 0 is deliberately unused is
     # `manifest.rs`'s: a program that miscounts finds nothing rather than
     # something adjacent.
-    slots = [SLOT_NONE, HELD["console"], SLOT_NONE, SLOT_NONE]
+    console_slots = [SLOT_NONE, HELD["console"], SLOT_NONE, SLOT_NONE]
+    blob_slots = [SLOT_NONE, HELD["console"], HELD["blob"], HELD["blob-reply"]]
     if args.single_beacon:
-        agents = [("beacon", 1, 3, slots, beacon, 0, False, WINDOW_NONE, 0)]
+        agents = [("beacon", 1, 3, console_slots, beacon, 0, False, WINDOW_NONE, 0)]
     else:
         # P1 + ADR-0088: beacon homes on product CPU 0; chirp pins to CPU 1
         # so the shipped composition exercises dual-current without oracle demos.
@@ -230,10 +263,11 @@ def main() -> int:
         # reaches the wire is this table's, and `make vocabulary-sync` is what
         # keeps it the same integer the kernel declared.
         agents = [
-            ("beacon", 1, 3, slots, beacon, 0, False, WINDOW_NONE, 0),
-            ("chirp", 1, 3, slots, chirp, 1, False, WINDOW_NONE, 0),
+            ("beacon", 1, 3, console_slots, beacon, 0, False, WINDOW_NONE, 0),
+            ("chirp", 1, 3, console_slots, chirp, 1, False, WINDOW_NONE, 0),
             ("lookup", 1, 3, [SLOT_NONE] * 4, lookup, 0, True, WINDOW_NONE, 0),
-            ("entropy", 1, 3, slots, entropy, 0, False, WINDOWS["rng"], ENTROPY_VA),
+            ("entropy", 1, 3, console_slots, entropy, 0, False, WINDOWS["rng"], ENTROPY_VA),
+            ("blob", 1, 3, blob_slots, blob, 0, False, WINDOW_NONE, 0),
         ]
     blob = pack(agents)
     args.output.parent.mkdir(parents=True, exist_ok=True)

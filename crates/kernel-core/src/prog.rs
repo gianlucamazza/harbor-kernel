@@ -176,6 +176,70 @@ pub const CONSOLE_NAME_LE: u64 = u64::from_le_bytes(*b"console\0");
 /// Length of [`CONSOLE_NAME_LE`] without the padding NUL.
 pub const CONSOLE_NAME_LEN: u16 = 7;
 
+pub const BLOB_KEY_CFG: u64 = crate::blob::Field::pack(b"cfg");
+pub const BLOB_PAYLOAD_PERSIST: u64 = crate::blob::Field::pack(b"persist");
+
+const fn push_u64(out: &mut [u8], i: &mut usize, reg: u8, value: u64) {
+    push_word(out, i, a64::movz_x(reg, (value & 0xffff) as u16));
+    push_word(
+        out,
+        i,
+        a64::movk_x_lsl16(reg, ((value >> 16) & 0xffff) as u16),
+    );
+    push_word(
+        out,
+        i,
+        a64::movk_x_lsl32(reg, ((value >> 32) & 0xffff) as u16),
+    );
+    push_word(
+        out,
+        i,
+        a64::movk_x_lsl48(reg, ((value >> 48) & 0xffff) as u16),
+    );
+}
+
+/// Put `cfg=persist`, get it back, notify the console, then exit (P2).
+///
+/// The request and reply capabilities are separate slots because IPC endpoint
+/// rights are directional. The program intentionally does not inspect the
+/// reply payload: the service oracle checks the durable round-trip, and
+/// reaching the later console send proves the blocking reply receive returned.
+pub const fn encode_blob_round_trip_exit(
+    request_slot: u16,
+    reply_slot: u16,
+    console_slot: u16,
+) -> [u8; 112] {
+    let mut out = [0u8; 112];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, request_slot));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movz_x(1, crate::blob::TAG_PUT as u16),
+    );
+    push_u64(&mut out, &mut i, 2, BLOB_KEY_CFG);
+    push_u64(&mut out, &mut i, 3, BLOB_PAYLOAD_PERSIST);
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::movz_x(0, request_slot));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movz_x(1, crate::blob::TAG_GET as u16),
+    );
+    push_u64(&mut out, &mut i, 2, BLOB_KEY_CFG);
+    push_word(&mut out, &mut i, a64::movz_x(3, 0));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::movz_x(0, reply_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
+    push_word(&mut out, &mut i, a64::movz_x(0, console_slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
+    push_word(&mut out, &mut i, a64::movz_x(2, b'S' as u16));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// A64: resolve `console` into `slot`, send one byte through it, then exit
 /// (ADR-0102).
 ///

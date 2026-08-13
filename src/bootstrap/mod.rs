@@ -7,6 +7,7 @@
 //! has to be read in order: every line here depends on the ones above it.
 
 mod authority;
+mod blob_server;
 mod console_loop;
 mod console_server;
 #[cfg(feature = "oracle")]

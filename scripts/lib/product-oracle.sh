@@ -117,7 +117,12 @@ assert_product_boot() {
 	fi
 	grep -qa 'console: capability minted' "${log}" || fail "console send capability was not minted"
 	grep -qa 'authority: bound console' "${log}" || fail "product did not bind the console name (ADR-0102)"
-	grep -qa 'loader: store n=4 image' "${log}" || fail "product did not load the injected multi-agent store"
+	grep -qa 'blob: service up' "${log}" || fail "durable blob service did not spawn (ADR-0103)"
+	grep -qa 'authority: 1 blob ok' "${log}" || fail "blob request capability was not provided (ADR-0103)"
+	grep -qa 'authority: 2 blob-reply ok' "${log}" || fail "blob reply capability was not provided (ADR-0103)"
+	grep -qa 'authority: bound blob' "${log}" || fail "product did not bind the blob endpoint (ADR-0103)"
+	grep -qa 'authority: bound blob-reply' "${log}" || fail "product did not bind the blob reply endpoint (ADR-0103)"
+	grep -qa 'loader: store n=5 image' "${log}" || fail "product did not load the injected multi-agent store"
 	# ADR-0088: product composition pins chirp on CPU 1; beacon stays home 0.
 	grep -qaE 'loader: beacon loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" ||
 		fail "beacon was not loaded on home=0"
@@ -127,6 +132,10 @@ assert_product_boot() {
 	grep -qa 'loader: chirp ran sends=1 refusals=0' "${log}" || fail "chirp did not run successfully"
 	grep -qaE 'loader: lookup loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" || fail "lookup was not loaded"
 	grep -qa 'loader: lookup ran sends=1 refusals=0' "${log}" || fail "lookup did not resolve and send successfully"
+	grep -qaE 'loader: blob loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" || fail "blob agent was not loaded"
+	grep -qa 'loader: blob ran sends=3 refusals=0' "${log}" || fail "blob agent did not complete its IPC round trip"
+	grep -qa 'blob: put ok' "${log}" || fail "blob endpoint did not persist the put request"
+	grep -qa 'blob: got' "${log}" || fail "blob endpoint did not answer the get request"
 	# Concurrent product agents share the console endpoint: bytes may interleave —
 	# and since ADR-0088 pins chirp on CPU 1, they *do*. `H!` was written when the
 	# composition was single-core and asserts the opposite of the line above it:

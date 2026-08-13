@@ -210,4 +210,4 @@ fi
 printf 'product-builds: clean (no demo symbols; image %s B without the oracle, %s B with, +%s B)\n' \
 	"${product_size}" "${oracle_size}" "$((oracle_size - product_size))"
 printf '  %s items unreachable without the oracle.\n' "${unreachable}"
-printf '  Product carries console-server + loader; the four-agent store is external (P1/P5).\n'
+printf '  Product carries console-server + loader; the five-agent store is external (P1/P2/P5).\n'

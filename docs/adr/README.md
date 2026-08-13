@@ -122,6 +122,7 @@ the code that follows.
 | [0100](0100-device-windows.md)                               | Device windows — the composition names, the board decides                                    | accepted   |
 | [0101](0101-composed-driver-agent.md)                        | The first composed driver-agent — a device the store grants                                  | accepted   |
 | [0102](0102-product-binds-a-name.md)                         | The product binds a name — an agent finds the service                                        | accepted   |
+| [0103](0103-p2-el0-durable-endpoint.md)                      | P2 durable storage endpoint for EL0 agents                                                  | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

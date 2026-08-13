@@ -21,7 +21,7 @@
 use kernel_core::held::{DeclareError, Held, Window, Windows};
 use kernel_core::paging::Perms;
 
-use super::console_server;
+use super::{blob_server, console_server};
 
 /// The console send end (M8).
 ///
@@ -32,6 +32,10 @@ use super::console_server;
 /// constant cannot drift from the order below.
 pub const HELD_CONSOLE: u8 = 0;
 pub const NAME_CONSOLE: &str = "console";
+pub const HELD_BLOB: u8 = 1;
+pub const NAME_BLOB: &str = "blob";
+pub const HELD_BLOB_REPLY: u8 = 2;
+pub const NAME_BLOB_REPLY: &str = "blob-reply";
 
 /// The SoC RNG200 page (ADR-0101).
 ///
@@ -86,6 +90,23 @@ pub fn assemble(rng_present: bool) -> Authority {
         }
     }
 
+    let blob = declare_or_report(&mut set, NAME_BLOB, HELD_BLOB);
+    let blob_reply = declare_or_report(&mut set, NAME_BLOB_REPLY, HELD_BLOB_REPLY);
+    if let (Some(blob), Some(blob_reply)) = (blob, blob_reply) {
+        match start_blob_service() {
+            Some((request, reply)) => {
+                provide_or_report(&mut set, blob, request, NAME_BLOB);
+                provide_or_report(&mut set, blob_reply, reply, NAME_BLOB_REPLY);
+                bind_or_report(NAME_BLOB, request);
+                bind_or_report(NAME_BLOB_REPLY, reply);
+            }
+            None => {
+                crate::kprintln!("authority: {blob} {NAME_BLOB} VACANT");
+                crate::kprintln!("authority: {blob_reply} {NAME_BLOB_REPLY} VACANT");
+            }
+        }
+    }
+
     // ADR-0100/0101: the device-window vocabulary. One position, the RNG200
     // page, provided only on a board that has the block — `rng_present` is the
     // boot's own probe answering, not a second one.
@@ -134,6 +155,13 @@ fn provide_or_report(set: &mut Held, index: u8, cap: kernel_core::cap::CapId, na
     }
 }
 
+fn bind_or_report(name: &str, cap: kernel_core::cap::CapId) {
+    match crate::naming::bind(name.as_bytes(), cap) {
+        Ok(()) => crate::kprintln!("authority: bound {name}"),
+        Err(error) => crate::kprintln!("authority: bind {name} FAILED {error:?}"),
+    }
+}
+
 /// Mint the console channel and start the resident EL1 server (M8).
 ///
 /// The send end is what agents receive through the vocabulary; the recv end
@@ -157,6 +185,24 @@ fn start_console_service() -> Option<kernel_core::cap::CapId> {
             None
         }
     }
+}
+
+/// Mint the request/reply channels and start the durable storage service.
+///
+/// The product gives agents the request SEND end and reply RECV end. The
+/// service keeps the opposite ends, so an agent cannot read another service's
+/// mailbox or call the durable backend directly.
+fn start_blob_service() -> Option<(kernel_core::cap::CapId, kernel_core::cap::CapId)> {
+    let requests = crate::ipc::create_channel().ok()?;
+    let replies = crate::ipc::create_channel().ok()?;
+    if let Err(error) =
+        crate::sched::spawn_with_caps(blob_server::run, &[requests.recv, replies.send])
+    {
+        crate::kprintln!("blob: service spawn FAILED {error:?}");
+        return None;
+    }
+    crate::kprintln!("blob: service up");
+    Some((requests.send, replies.recv))
 }
 
 /// Declare a window position, or say why the vocabulary refused it.
