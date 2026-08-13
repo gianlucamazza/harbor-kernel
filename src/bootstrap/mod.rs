@@ -14,6 +14,8 @@ mod console_server;
 mod demos;
 mod discover;
 mod loader;
+#[cfg(feature = "board-qemu-virt")]
+mod network_runtime;
 #[cfg(feature = "panic-probe")]
 mod panic_probe;
 #[cfg(feature = "bringup")]
@@ -37,55 +39,6 @@ const TIMER_HZ: u32 = 10;
 
 /// Kernel heap size, clamped to the identity-mapped RAM window.
 const HEAP_SIZE: usize = 64 * 1024 * 1024;
-
-#[cfg(feature = "board-qemu-virt")]
-const DMA_RING_PAGE_BYTES: usize = 4096;
-
-#[cfg(feature = "board-qemu-virt")]
-struct DmaRingFrames {
-    ids: [kernel_core::frame::FrameId; 3],
-    memory: crate::drivers::virtio_mmio::QueueMemory,
-}
-
-#[cfg(feature = "board-qemu-virt")]
-impl DmaRingFrames {
-    fn release(self) {
-        for id in self.ids {
-            let _ = mm::frames::free(id);
-        }
-    }
-}
-
-#[cfg(feature = "board-qemu-virt")]
-fn allocate_dma_ring() -> Option<DmaRingFrames> {
-    let first = mm::frames::alloc();
-    let second = mm::frames::alloc();
-    let third = mm::frames::alloc();
-    let (Some((desc, desc_pa)), Some((avail, avail_pa)), Some((used, used_pa))) =
-        (first, second, third)
-    else {
-        for allocation in [first, second, third].into_iter().flatten() {
-            let _ = mm::frames::free(allocation.0);
-        }
-        return None;
-    };
-    for address in [desc_pa, avail_pa, used_pa] {
-        // SAFETY: each frame is identity-mapped Normal RW and exclusively
-        // owned by this bootstrap lifecycle until the matching release.
-        unsafe {
-            core::ptr::write_bytes(address as *mut u8, 0, DMA_RING_PAGE_BYTES);
-            crate::arch::cache::clean_dcache_poc(address, DMA_RING_PAGE_BYTES);
-        }
-    }
-    Some(DmaRingFrames {
-        ids: [desc, avail, used],
-        memory: crate::drivers::virtio_mmio::QueueMemory {
-            desc_pa: desc_pa as u64,
-            avail_pa: avail_pa as u64,
-            used_pa: used_pa as u64,
-        },
-    })
-}
 
 /// Keep firmware-owned DTB pages outside the kernel's identity-mapped heap and
 /// frame-pool carve-outs. Firmware is allowed to place the blob anywhere in
@@ -227,6 +180,9 @@ fn enable_interrupts(uart: &mut Pl011, interrupts_bound: bool) {
         cpu::sync_pipeline();
         cpu::irq_enable();
         cpu::sync_pipeline();
+        #[cfg(feature = "board-qemu-virt")]
+        println!(uart, "IRQs enabled (timer + UART RX + virtio-mmio slots)");
+        #[cfg(not(feature = "board-qemu-virt"))]
         println!(uart, "IRQs enabled (timer + UART RX)");
         println!(uart, "idle: WFI when no RX/tick work");
     } else {
@@ -719,52 +675,6 @@ pub fn run() -> ! {
     // RNG page only on a board that has the block (ADR-0101).
     let rng_present = probe_rng(&mut uart);
 
-    #[cfg(feature = "board-qemu-virt")]
-    {
-        // The queue lifecycle gate allocates only EL1 frame-pool pages, proves
-        // both rings are accepted, then resets and releases them. The resident
-        // service still remains absent until it owns the configured object.
-        // SAFETY: the BSP window is mapped Device and no network owner exists.
-        let rings = [allocate_dma_ring(), allocate_dma_ring()];
-        let ring_memory = match (&rings[0], &rings[1]) {
-            (Some(first), Some(second)) => Some([first.memory, second.memory]),
-            _ => None,
-        };
-        match ring_memory {
-            // SAFETY: the MMIO window is mapped Device, the ring frames are
-            // exclusively owned by this bootstrap call, and no network owner
-            // exists yet.
-            Some(ring_memory) => match unsafe { board::network::configure(ring_memory) } {
-                Ok(result) => {
-                    for ring in rings.into_iter().flatten() {
-                        ring.release();
-                    }
-                    println!(
-                        uart,
-                        "virtio-net: modern probe ok base={:#x} vendor={:#x} features={:#x} queues={} size={} reset",
-                        result.base,
-                        result.negotiated.device.vendor,
-                        result.negotiated.features,
-                        result.queues,
-                        result.queue_size
-                    )
-                }
-                Err(error) => {
-                    for ring in rings.into_iter().flatten() {
-                        ring.release();
-                    }
-                    println!(uart, "virtio-net: unavailable ({error:?})")
-                }
-            },
-            None => {
-                for ring in rings.into_iter().flatten() {
-                    ring.release();
-                }
-                println!(uart, "virtio-net: unavailable (FramesUnavailable)")
-            }
-        }
-    }
-
     // Deliberate fault (ADR-0093), before IRQs are bound: the panic path is
     // then reporting one fault on one core with nothing else in flight, which
     // is what makes `FAR` comparable with the address the probe announced.
@@ -773,6 +683,20 @@ pub fn run() -> ! {
     panic_probe::fault_on_a_stack_guard(&mut uart);
 
     let interrupts_bound = bind_interrupts(&mut uart);
+
+    #[cfg(feature = "board-qemu-virt")]
+    match network_runtime::start() {
+        Ok(result) => println!(
+            uart,
+            "virtio-net: modern probe ok base={:#x} vendor={:#x} features={:#x} queues={} size={} ready",
+            result.base,
+            result.vendor,
+            result.features,
+            result.queues,
+            result.queue_size
+        ),
+        Err(error) => println!(uart, "virtio-net: unavailable ({error:?})"),
+    }
 
     // Hardware gates, only when built with `--features bringup`.
     #[cfg(feature = "bringup")]

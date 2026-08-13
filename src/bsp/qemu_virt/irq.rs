@@ -1,9 +1,13 @@
 //! QEMU `virt` GICv2 binding for the shared kernel IRQ policy.
 
 use crate::arch::{cpu, smp, timer};
-use crate::bsp::qemu_virt::memmap::{GICC_BASE, GICD_BASE, TIMER_PPI, UART0_SPI};
+use crate::bsp::qemu_virt::memmap::{
+    GICC_BASE, GICD_BASE, TIMER_PPI, UART0_SPI, VIRTIO_MMIO_SLOTS, VIRTIO_MMIO_STRIDE,
+    VIRTIO_NET_BASE,
+};
 use crate::console;
 use crate::drivers::gicv2::GicV2;
+use crate::drivers::virtio_mmio;
 use crate::irq;
 use crate::time;
 
@@ -16,6 +20,7 @@ pub const UART_IRQ: u32 = UART0_SPI;
 pub const WAKE_SGI: u32 = 0;
 const CORE1_TARGET_BIT: u8 = 1 << 1;
 const SECONDARY_SPIN_BUDGET: u64 = 200_000_000;
+const VIRTIO_NET_SPI: u32 = 48;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BindError {
@@ -35,9 +40,20 @@ pub unsafe fn init(timer_hz: u32) -> Result<(), BindError> {
         irq::register(UART_IRQ, console::on_uart_rx_irq, 2)
             .map_err(BindError::HandlerNotRegistered)?;
         irq::register(WAKE_SGI, on_wake_sgi, 3).map_err(BindError::HandlerNotRegistered)?;
+        for slot in 0..VIRTIO_MMIO_SLOTS {
+            irq::register(
+                VIRTIO_NET_SPI + slot as u32,
+                virtio_mmio::on_irq,
+                (VIRTIO_NET_BASE + slot * VIRTIO_MMIO_STRIDE) as u32,
+            )
+            .map_err(BindError::HandlerNotRegistered)?;
+        }
         timer::init(timer_hz).map_err(BindError::Timer)?;
         irq::enable(TIMER_IRQ);
         irq::enable(UART_IRQ);
+        for slot in 0..VIRTIO_MMIO_SLOTS {
+            irq::enable(VIRTIO_NET_SPI + slot as u32);
+        }
         Ok(())
     }
 }

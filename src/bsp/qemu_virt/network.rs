@@ -11,13 +11,12 @@ pub struct QueueReport {
     pub queue_size: usize,
 }
 
-/// Configure both EL1-owned queues, then reset and release them.
+/// Find the QEMU virtio-net slot and configure both split queues.
 ///
-/// This is a lifecycle gate until the resident network service owns the
-/// configured object. It proves that queue memory can be allocated and
-/// accepted by the device without leaking frames or advertising readiness
-/// beyond the scope of this call.
-pub unsafe fn configure(rings: [QueueMemory; 2]) -> Result<QueueReport, QueueSetupFailure> {
+/// The caller retains the returned object and owns its reset lifecycle.
+pub unsafe fn configure(
+    rings: [QueueMemory; 2],
+) -> Result<(QueueReport, virtio_mmio::Configured), QueueSetupFailure> {
     let mut last_error = None;
     for slot in 0..super::memmap::VIRTIO_MMIO_SLOTS {
         let base = super::memmap::VIRTIO_NET_BASE + slot * super::memmap::VIRTIO_MMIO_STRIDE;
@@ -30,8 +29,7 @@ pub unsafe fn configure(rings: [QueueMemory; 2]) -> Result<QueueReport, QueueSet
                     queues: configured.queue_count(),
                     queue_size: configured.queue_size(),
                 };
-                configured.reset();
-                return Ok(report);
+                return Ok((report, configured));
             }
             Err(error) => last_error = Some(error),
         }

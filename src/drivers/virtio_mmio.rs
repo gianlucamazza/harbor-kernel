@@ -65,8 +65,25 @@ impl Configured {
     }
 
     /// Reset the device and release every EL1-owned ring frame.
-    pub fn reset(self) {
+    pub fn reset(&mut self) {
         write_status(self.mmio, 0);
+    }
+}
+
+/// Acknowledge one virtio-mmio interrupt using the trusted transport base
+/// carried by the opaque IRQ cookie. Queue consumption remains a service
+/// concern; the IRQ path never allocates, blocks, or switches tasks.
+pub fn on_irq(cookie: u32) {
+    let base = cookie as usize;
+    if base == 0 {
+        return;
+    }
+    // SAFETY: only the BSP registers this handler and supplies a mapped
+    // virtio-mmio base as its cookie.
+    let mmio = unsafe { Mmio::new(base) };
+    let status = mmio.read32(virtio::mmio::INTERRUPT_STATUS);
+    if status != 0 {
+        mmio.write32(virtio::mmio::INTERRUPT_ACK, status);
     }
 }
 
