@@ -5,7 +5,7 @@
 //! bus, resolves its MDIO PHY, and returns a bounded binding contract.  No
 //! address, interrupt, or PHY number is compiled into the backend.
 
-use crate::genet::DmaWindow;
+use crate::genet::{DmaWindow, DmaWindows};
 
 const BEGIN_NODE: u32 = 1;
 const END_NODE: u32 = 2;
@@ -47,7 +47,7 @@ pub struct Binding {
     pub mmio_len: u64,
     pub interrupt_parent: u32,
     pub interrupts: [Interrupt; 2],
-    pub dma: DmaWindow,
+    pub dma: DmaWindows,
     pub phy_addr: u32,
     pub phy_mode_rgmii_rxid: bool,
 }
@@ -365,8 +365,11 @@ pub fn extract(data: &[u8]) -> Result<Binding, Error> {
         return Err(Error::Incompatible);
     }
     let mmio_base = translate(bus_addr, mmio_len, &s.ranges, s.range_count)?;
-    let dma_range = s.dma_ranges.first().ok_or(Error::Missing)?;
-    let dma = DmaWindow::new(dma_range.child, dma_range.size).ok_or(Error::InvalidRange)?;
+    let mut dma_windows = [DmaWindow { base: 0, len: 0 }; MAX_RANGES];
+    for (index, range) in s.dma_ranges.iter().take(s.dma_range_count).enumerate() {
+        dma_windows[index] = DmaWindow::new(range.child, range.size).ok_or(Error::InvalidRange)?;
+    }
+    let dma = DmaWindows::new(dma_windows, s.dma_range_count as u8).ok_or(Error::InvalidRange)?;
     let phy_addr = s
         .phy_candidate
         .and_then(|(phandle, addr)| (Some(phandle) == s.phy_handle).then_some(addr))
@@ -466,6 +469,7 @@ mod tests {
         assert_eq!(x.interrupts[1].number, 0x9e);
         assert_eq!(x.phy_addr, 1);
         assert!(x.phy_mode_rgmii_rxid);
+        assert_eq!(x.dma.count, 2);
         assert!(x.dma.contains(0x47c000000, 0x1000));
     }
 

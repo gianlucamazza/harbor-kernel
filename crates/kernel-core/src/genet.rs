@@ -52,6 +52,34 @@ pub struct DmaWindow {
     pub len: u64,
 }
 
+/// The bounded set of DMA apertures supplied by a device-tree binding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DmaWindows {
+    pub windows: [DmaWindow; 4],
+    pub count: u8,
+}
+
+impl DmaWindows {
+    pub const fn new(windows: [DmaWindow; 4], count: u8) -> Option<Self> {
+        if count == 0 || count > windows.len() as u8 {
+            None
+        } else {
+            Some(Self { windows, count })
+        }
+    }
+
+    pub const fn contains(self, address: u64, len: u64) -> bool {
+        let mut index = 0;
+        while index < self.count as usize {
+            if self.windows[index].contains(address, len) {
+                return true;
+            }
+            index += 1;
+        }
+        false
+    }
+}
+
 impl DmaWindow {
     pub const fn new(base: u64, len: u64) -> Option<Self> {
         if len == 0 || base.checked_add(len).is_none() {
@@ -173,7 +201,18 @@ pub enum DescriptorError {
 }
 
 impl Descriptor {
-    pub const fn validate(self, dma: DmaWindow) -> Result<(), DescriptorError> {
+    pub fn validate(self, dma: DmaWindow) -> Result<(), DescriptorError> {
+        self.validate_address(|address, len| dma.contains(address, len))
+    }
+
+    pub fn validate_windows(self, dma: DmaWindows) -> Result<(), DescriptorError> {
+        self.validate_address(|address, len| dma.contains(address, len))
+    }
+
+    fn validate_address(
+        self,
+        contains: impl FnOnce(u64, u64) -> bool,
+    ) -> Result<(), DescriptorError> {
         if self.length == 0 {
             return Err(DescriptorError::Empty);
         }
@@ -183,7 +222,7 @@ impl Descriptor {
         if self.address.checked_add(self.length as u64).is_none() {
             return Err(DescriptorError::AddressOverflow);
         }
-        if !dma.contains(self.address, self.length as u64) {
+        if !contains(self.address, self.length as u64) {
             return Err(DescriptorError::AddressOutsideDma);
         }
         Ok(())
@@ -312,6 +351,23 @@ mod tests {
         assert_eq!(DmaWindow::new(u64::MAX, 2), None);
         assert!(DMA.contains(0x1000, 1));
         assert!(!DMA.contains(0x4fff, 2));
+    }
+
+    #[test]
+    fn dma_windows_preserve_multiple_device_apertures() {
+        let windows = DmaWindows::new(
+            [
+                DmaWindow::new(0x1000, 0x100).unwrap(),
+                DmaWindow::new(0x4000, 0x100).unwrap(),
+                DmaWindow::new(0x8000, 0x100).unwrap(),
+                DmaWindow::new(0xc000, 0x100).unwrap(),
+            ],
+            2,
+        )
+        .unwrap();
+        assert!(windows.contains(0x1080, 4));
+        assert!(windows.contains(0x4080, 4));
+        assert!(!windows.contains(0x8080, 4));
     }
 
     #[test]
