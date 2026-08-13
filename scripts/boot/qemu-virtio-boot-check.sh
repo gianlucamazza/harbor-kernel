@@ -51,7 +51,7 @@ if grep -aq 'DTB map FAILED\|BOOT REFUSED' "${modern_log}"; then
     echo "qemu-virtio-check: memory-map refusal or DTB collision" >&2
     exit 1
 fi
-grep -aqE 'virtio-net: modern probe ok base=0x[0-9a-f]+ vendor=0x[0-9a-f]+ features=0x100000000 reset' "${modern_log}" || {
+grep -aqE 'virtio-net: modern probe ok base=0x[0-9a-f]+ vendor=0x[0-9a-f]+ features=0x100000000 queues=2 size=8 reset' "${modern_log}" || {
     echo "qemu-virtio-check: modern virtio-net probe did not complete" >&2
     grep -aE 'virtio-net:|discover:|boot:' "${modern_log}" >&2 || true
     exit 1

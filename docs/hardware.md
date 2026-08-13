@@ -24,8 +24,9 @@ The check boots `virt` with GICv2, a 128 MiB RAM aperture at `0x4000_0000`,
 PL011 at `0x0900_0000`, and QEMU's virtio-mmio slot aperture at
 `0x0a00_0000`. It runs once with `virtio-net-device` and once without it. The
 current evidence proves DTB reservation/mapping, modern `VERSION_1` transport
-negotiation, reset before readiness, and absent-device refusal. It does not yet
-prove split-queue DMA, packet TX/RX, or EL0 capability delivery.
+negotiation, two size-8 split queues backed by six EL1 frame-pool pages,
+`DRIVER_OK`, reset/release, and absent-device refusal. It does not yet prove a
+persistent IRQ-owned service, packet TX/RX, or EL0 capability delivery.
 
 ## Serial console
 

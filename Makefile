@@ -210,9 +210,9 @@ boot-check: img
 
 # P3 transport gate: build the dedicated AArch64 QEMU virt composition and
 # prove modern virtio-mmio negotiation plus refusal when the device is absent.
-# Queue DMA, IRQ service, and EL0 capability evidence are deliberately separate
-# successors; this target must not make those claims by sharing the product
-# oracle.
+# Persistent IRQ service, packet I/O, and EL0 capability evidence are
+# deliberately separate successors; this target must not make those claims by
+# sharing the product oracle.
 QEMU_VIRT_OUT := target/$(TARGET)/$(PROFILE)
 QEMU_VIRT_ELF := $(QEMU_VIRT_OUT)/harbor-kernel
 QEMU_VIRT_IMG := $(QEMU_VIRT_OUT)/harbor-qemu-virt.img

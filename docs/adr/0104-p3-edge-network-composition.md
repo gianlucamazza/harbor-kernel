@@ -68,11 +68,13 @@ requires `FEATURES_OK` before `DRIVER_OK`; feature negotiation requires
 `VIRTIO_F_VERSION_1`; split-queue arithmetic is checked for alignment and
 overflow; and the bounded packet pool validates direction, owner, length, slot,
 and generation before a transport can be touched. The AArch64 virtio-mmio
-transport probe is now integrated on QEMU `virt` and is gated by
-`make qemu-virtio-check`; it intentionally resets before advertising readiness
-because queues are not configured. The `edge-gateway` composition, queue/DMA
-service, and directional capabilities remain successors, not implied
-consequences of the probe or host tests.
+transport probe and two-queue lifecycle are now integrated on QEMU `virt` and
+gated by `make qemu-virtio-check`; the driver allocates six frame-pool pages
+inside EL1, reaches `DRIVER_OK`, then resets and releases them. It intentionally
+does not retain the object until the resident IRQ/service owner exists. The
+`edge-gateway` composition, persistent queue/DMA service, and directional
+capabilities remain successors, not implied consequences of this gate or host
+tests.
 
 ### Lifecycle and failure policy
 

@@ -10,12 +10,18 @@ use kernel_core::virtio::{self, DeviceInfo, DriverStatus, FeatureError, ProbeErr
 
 use crate::arch::mmio::Mmio;
 
+const QUEUE_COUNT: usize = 2;
+const QUEUE_SIZE: usize = 8;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProbeFailure {
+pub enum QueueSetupFailure {
     Identity(ProbeError),
     Features(FeatureError),
     Status(StatusError),
     DeviceClearedFeatures,
+    QueueTooSmall { queue: u32, maximum: u32 },
+    QueueNotReady(u32),
+    DriverNotReady(u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,43 +30,121 @@ pub struct Negotiated {
     pub features: u64,
 }
 
-/// Probe one modern virtio-mmio slot and leave it reset.
+/// Physical addresses of the three split-ring regions for one queue.
+///
+/// The allocator and cache policy remain above the driver layer. The driver
+/// receives only these already-owned DMA addresses and never knows which
+/// allocator or board supplied them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QueueMemory {
+    pub desc_pa: u64,
+    pub avail_pa: u64,
+    pub used_pa: u64,
+}
+
+/// A configured but not yet service-owned transport.
+///
+/// The object owns the transport status lifecycle. The caller owns the DMA
+/// frame lifetime and must release those frames after calling `reset`.
+pub struct Configured {
+    mmio: Mmio,
+    negotiated: Negotiated,
+}
+
+impl Configured {
+    pub const fn queue_count(&self) -> usize {
+        QUEUE_COUNT
+    }
+
+    pub const fn queue_size(&self) -> usize {
+        QUEUE_SIZE
+    }
+
+    pub const fn negotiated(&self) -> Negotiated {
+        self.negotiated
+    }
+
+    /// Reset the device and release every EL1-owned ring frame.
+    pub fn reset(self) {
+        write_status(self.mmio, 0);
+    }
+}
+
+/// Configure both virtio-net split queues using six EL1-owned frame pages.
 ///
 /// # Safety
-/// `mmio` must cover one valid virtio-mmio register window mapped as Device
-/// memory, and no other driver may access the slot concurrently.
-pub unsafe fn probe(mmio: Mmio) -> Result<Negotiated, ProbeFailure> {
+/// `mmio` must be a valid, exclusively-owned modern virtio-mmio network slot;
+/// the frame pool must already be initialised and the MMIO window mapped as
+/// Device memory.
+pub unsafe fn configure(
+    mmio: Mmio,
+    rings: [QueueMemory; QUEUE_COUNT],
+) -> Result<Configured, QueueSetupFailure> {
+    let negotiated = begin_transport(mmio)?;
+
+    for (queue, ring) in rings.iter().enumerate() {
+        let queue = queue as u32;
+        mmio.write32(virtio::mmio::QUEUE_SEL, queue);
+        let maximum = mmio.read32(virtio::mmio::QUEUE_NUM_MAX);
+        if maximum < QUEUE_SIZE as u32 {
+            write_status(mmio, 0);
+            return Err(QueueSetupFailure::QueueTooSmall { queue, maximum });
+        }
+
+        mmio.write32(virtio::mmio::QUEUE_NUM, QUEUE_SIZE as u32);
+        mmio.write32(virtio::mmio::QUEUE_DESC_LOW, ring.desc_pa as u32);
+        mmio.write32(virtio::mmio::QUEUE_DESC_HIGH, (ring.desc_pa >> 32) as u32);
+        mmio.write32(virtio::mmio::QUEUE_AVAIL_LOW, ring.avail_pa as u32);
+        mmio.write32(virtio::mmio::QUEUE_AVAIL_HIGH, (ring.avail_pa >> 32) as u32);
+        mmio.write32(virtio::mmio::QUEUE_USED_LOW, ring.used_pa as u32);
+        mmio.write32(virtio::mmio::QUEUE_USED_HIGH, (ring.used_pa >> 32) as u32);
+        mmio.write32(virtio::mmio::QUEUE_READY, 1);
+        if mmio.read32(virtio::mmio::QUEUE_READY) != 1 {
+            write_status(mmio, 0);
+            return Err(QueueSetupFailure::QueueNotReady(queue));
+        }
+    }
+
+    let status = virtio::status::ACKNOWLEDGE
+        | virtio::status::DRIVER
+        | virtio::status::FEATURES_OK
+        | virtio::status::DRIVER_OK;
+    mmio.write32(virtio::mmio::STATUS, u32::from(status));
+    let observed = mmio.read32(virtio::mmio::STATUS) as u8;
+    if observed & virtio::status::DRIVER_OK == 0 {
+        write_status(mmio, 0);
+        return Err(QueueSetupFailure::DriverNotReady(observed));
+    }
+
+    Ok(Configured { mmio, negotiated })
+}
+
+fn begin_transport(mmio: Mmio) -> Result<Negotiated, QueueSetupFailure> {
+    write_status(mmio, 0);
     let magic = mmio.read32(virtio::mmio::MAGIC_VALUE);
     let version = mmio.read32(virtio::mmio::VERSION);
     let device_id = mmio.read32(virtio::mmio::DEVICE_ID);
     let vendor = mmio.read32(virtio::mmio::VENDOR_ID);
     let features = read_features(mmio);
     let device = virtio::probe_device(magic, version, device_id, vendor, features)
-        .map_err(ProbeFailure::Identity)?;
-
+        .map_err(QueueSetupFailure::Identity)?;
     let negotiated = virtio::negotiate_features(device.features, virtio::FEATURE_VERSION_1, 0)
-        .map_err(ProbeFailure::Features)?;
+        .map_err(QueueSetupFailure::Features)?;
 
     let mut status = DriverStatus::new();
-    status.acknowledge().map_err(ProbeFailure::Status)?;
+    status.acknowledge().map_err(QueueSetupFailure::Status)?;
     write_status(mmio, status.bits());
-    status.driver().map_err(ProbeFailure::Status)?;
+    status.driver().map_err(QueueSetupFailure::Status)?;
     write_status(mmio, status.bits());
     write_features(mmio, negotiated);
     status
         .features_ok(negotiated)
-        .map_err(ProbeFailure::Status)?;
+        .map_err(QueueSetupFailure::Status)?;
     write_status(mmio, status.bits());
-
     if mmio.read32(virtio::mmio::STATUS) as u8 & virtio::status::FEATURES_OK == 0 {
         write_status(mmio, 0);
-        return Err(ProbeFailure::DeviceClearedFeatures);
+        return Err(QueueSetupFailure::DeviceClearedFeatures);
     }
-
-    // No queue has been selected or exposed, so DRIVER_OK would be an invalid
-    // readiness claim. Reset makes this probe side-effect free for the future
-    // queue owner and is required on every failure path after recognition.
-    write_status(mmio, 0);
     Ok(Negotiated {
         device,
         features: negotiated,

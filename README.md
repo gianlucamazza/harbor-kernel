@@ -94,9 +94,9 @@ architecture target ([ADR-0104](docs/adr/0104-p3-edge-network-composition.md));
 its implementation and P4 remain open, along with H3 L1+ and trigger-gated
 residuals.
 
-Next: **P3 edge-gateway network implementation** — the transport probe is
-integrated and gated by `make qemu-virtio-check`; compose split queues, the
-virtio-net service, and the packet ownership boundary from
+Next: **P3 edge-gateway network implementation** — transport and split-queue
+lifecycle are integrated and gated by `make qemu-virtio-check`; retain them in
+the virtio-net service and complete the packet ownership boundary from
 [ADR-0104](docs/adr/0104-p3-edge-network-composition.md).
 K5-H stays held: measured
 peak is 5 of 54 slots on QEMU (6 on a board with RNG200).
