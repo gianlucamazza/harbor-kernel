@@ -97,12 +97,37 @@ jobs:
           if [[ "${HARBOR_CI_DIAGNOSTICS:-0}" == "1" && -x scripts/check/ci-runner-diagnostics.sh ]]; then
             scripts/check/ci-runner-diagnostics.sh --phase qemu-wrapper
           fi
-          exec docker run --rm -i \
+          if [[ "${HARBOR_CI_DIAGNOSTICS:-0}" != "1" ]]; then
+            exec docker run --rm -i \
+              -v /home/runner:/home/runner \
+              -v /tmp:/tmp \
+              -w "${PWD}" \
+              harbor-qemu-raspi4b \
+              "$@"
+          fi
+          container_name="harbor-qemu-${BASHPID}"
+          docker run --rm --name "${container_name}" -i \
             -v /home/runner:/home/runner \
             -v /tmp:/tmp \
             -w "${PWD}" \
             harbor-qemu-raspi4b \
-            "$@"
+            "$@" &
+          container_pid=$!
+          for _ in {1..20}; do
+            if docker inspect "${container_name}" \
+              --format 'qemu-container host_config cpus={{.HostConfig.NanoCpus}} quota={{.HostConfig.CpuQuota}} period={{.HostConfig.CpuPeriod}} cpuset={{.HostConfig.CpusetCpus}} shares={{.HostConfig.CpuShares}}' \
+              2>/dev/null; then
+              docker stats --no-stream --format 'qemu-container stats name={{.Name}} cpus={{.CPUPerc}} mem={{.MemUsage}}' \
+                "${container_name}" 2>&1 || true
+              break
+            fi
+            sleep 0.1
+          done
+          set +e
+          wait "${container_pid}"
+          rc=$?
+          set -e
+          exit "${rc}"
           WRAP
           sudo chmod +x /usr/local/bin/qemu-system-aarch64
           qemu-system-aarch64 -version
