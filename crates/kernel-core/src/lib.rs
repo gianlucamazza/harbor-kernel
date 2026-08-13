@@ -64,6 +64,7 @@ pub mod loaderplan;
 pub mod manifest;
 pub mod mbr;
 pub mod naming;
+pub mod net;
 pub mod paging;
 pub mod parktime;
 pub mod poll;

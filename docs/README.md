@@ -80,7 +80,7 @@ not every symbol.
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
   a64, agentstore, asid, blob, budget, bump, cap, capslots, cpuid, delay, density, display, durable, durable_media, fault, fdt, font8x8, frame, gic,
   heap, held, hwdesc, ipc, irqcap, irqtable, irqwait, layout, lifecycle, loaderplan, manifest, mbr, naming, paging, parktime, poll, preempt, prog, reply, reset, ring, rng,
-  runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, virtio, wake
+  net, runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, virtio, wake
   tests/ public_api, model_sched, model_ipc
 src/
   main.rs         kernel_main — product vs lab dispatch only
