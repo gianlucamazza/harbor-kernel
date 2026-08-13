@@ -68,8 +68,10 @@ use crate::time;
 /// 46 → 49 for ADR-0081: CPU1 EL0 preempt oracle (watcher + peer + spinner).
 /// 49 → 52 for ADR-0083: steal oracle (watch + two thin victims).
 /// 52 → 54 for ADR-0090: force-kill supervisor + EL0 spinner child (oracle tax).
+/// 54 → 57 for the three final lifecycle oracles, which can overlap the
+/// preemption and supervisor tasks on a fast native runner (ADR-0031/0033).
 /// Raising it costs task stacks and page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 54;
+pub const MAX_TASKS: usize = 57;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,

@@ -30,10 +30,11 @@ fail() {
 	exit 1
 }
 
-# Last justified raise: ADR-0090 force-kill oracle pair (supervisor + EL0 child)
-# — on top of ADR-0083's steal oracle (watcher + two thin victims).
+# Last justified raise: three lifecycle oracle tasks can overlap the
+# ADR-0090 force-kill pair and the preemption/supervisor tasks on a fast runner
+# (ADR-0031/0033). This is concurrency headroom, not a product-density raise.
 # Do not bump without a named concurrent-demo reason (ADR-0085).
-readonly EXPECTED_MAX_TASKS=54
+readonly EXPECTED_MAX_TASKS=57
 
 # Headroom floor: product must not need more than half the ceiling without an
 # explicit design ADR. The ratio catches a silent product census explosion or a

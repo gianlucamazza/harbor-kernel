@@ -81,8 +81,9 @@ the resolve changes the byte on the wire, the same way `entropy` proves it
 read a register.
 
 The oracle builtin table gains `noresolve`: the same image, the flag off.
-It loads and runs; `SYS_RESOLVE` is refused; nothing it sends reaches the
-wire. That is `mute` for the grant, as `nowindow` is `mute` for a window.
+It loads and runs; `SYS_RESOLVE` is refused and its following console `SEND`
+is refused as well; nothing reaches the wire. That is `mute` for the grant,
+as `nowindow` is `mute` for a window.
 
 ### 5. QEMU is the positive path
 
@@ -105,7 +106,7 @@ A hardware stamp confirms; it does not replace.
 `product-boot-check` requires `authority: bound console` and `N` on the wire
 from `lookup`. A product that stops binding, or that grants `lookup` the
 console slot instead of the name, fails one of those. `boot-check` requires
-`noresolve` to have run with refusals and without a send, so a loader that
+`noresolve` to have run with two refusals and without a send, so a loader that
 grants resolve by default fails the denial.
 
 Going back to “names exist only in `demos.rs`” removes the bind line.
