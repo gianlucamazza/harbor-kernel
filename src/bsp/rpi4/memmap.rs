@@ -24,6 +24,7 @@ pub const EARLY_BLOCKS: [kernel_core::paging::MemKind; 4] = {
 
 /// Granule for page tables, frame pool, and agent MMIO maps (4 KiB).
 pub const FRAME_SIZE: usize = 0x1000;
+pub const RAM_START: usize = 0;
 
 /// GPIO controller.
 pub const GPIO_BASE: usize = PERIPHERAL_BASE + 0x0020_0000;

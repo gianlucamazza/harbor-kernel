@@ -17,6 +17,9 @@ default = ["board-rpi4", "oracle"]
 # Active board package (exactly one board-* for a product image).
 # Selection is compile-time; see docs/porting.md and ADR-0015.
 board-rpi4 = []
+# AArch64 QEMU `virt` product target for P3; build with the target-specific
+# linker base described by the qemu-virt Makefile target.
+board-qemu-virt = []
 # QEMU q35 lab board (H3 L0 / ADR-0071). Build with:
 #   --no-default-features --features board-qemu-q35 --target x86_64-unknown-none
 board-qemu-q35 = []

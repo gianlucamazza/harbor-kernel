@@ -85,7 +85,7 @@ crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
 src/
   main.rs         kernel_main — product vs lab dispatch only
   arch/           ISA axis (aarch64 product + x86_64 lab roles)
-  bsp/            board axis (rpi4 product + qemu_q35 lab)
+  bsp/            board axis (rpi4 product + qemu_q35 lab + qemu_virt P3)
   drivers/        protocol axis (PL011, GICv2, …; uart16550 lab)
   lab/            lab maturity path (x86 L0 entry + panic; ADR-0071)
   irq/            IRQ ownership, masking, counters, wait port, notification caps

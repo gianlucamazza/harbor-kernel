@@ -94,8 +94,10 @@ architecture target ([ADR-0104](docs/adr/0104-p3-edge-network-composition.md));
 its implementation and P4 remain open, along with H3 L1+ and trigger-gated
 residuals.
 
-Next: **P3 edge-gateway network implementation** — compose the virtio-net
-service and packet ownership boundary from [ADR-0104](docs/adr/0104-p3-edge-network-composition.md).
+Next: **P3 edge-gateway network implementation** — the transport probe is
+integrated and gated by `make qemu-virtio-check`; compose split queues, the
+virtio-net service, and the packet ownership boundary from
+[ADR-0104](docs/adr/0104-p3-edge-network-composition.md).
 K5-H stays held: measured
 peak is 5 of 54 slots on QEMU (6 on a board with RNG200).
 
@@ -109,7 +111,7 @@ density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |
 | ------------ | ------------------------------------------------------------ |
-| Verification | 536 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 537 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

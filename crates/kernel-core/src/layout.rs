@@ -62,6 +62,8 @@ pub struct GuardedStack {
 /// Pairs are `(start, end)`, end exclusive.
 #[derive(Clone, Copy, Debug)]
 pub struct Boundaries {
+    /// Physical start of RAM. Pi4 is zero; QEMU `virt` starts RAM at 1 GiB.
+    pub ram_start: u64,
     pub image_start: u64,
     pub text: (u64, u64),
     pub rodata: (u64, u64),
@@ -144,7 +146,7 @@ pub fn kernel_regions<'a>(
     }
 
     out[0] = region(
-        (0, bounds.image_start),
+        (bounds.ram_start, bounds.image_start),
         MemKind::NormalWb,
         Perms::RW,
         "low RAM",
@@ -190,7 +192,24 @@ pub fn kernel_regions<'a>(
         };
     }
 
-    let filled = &mut out[..ram_count + devices.len()];
+    // Device windows are normally above RAM (Pi4), but QEMU `virt` places its
+    // GIC/UART/virtio windows below RAM at 1 GiB. Sort the complete candidate
+    // list so the validator proves one invariant for both layouts instead of
+    // making each BSP arrange its constants to suit an implementation detail.
+    let count = ram_count + devices.len();
+    let mut i = 1;
+    while i < count {
+        let value = out[i];
+        let mut j = i;
+        while j > 0 && out[j - 1].base > value.base {
+            out[j] = out[j - 1];
+            j -= 1;
+        }
+        out[j] = value;
+        i += 1;
+    }
+
+    let filled = &mut out[..count];
     validate(filled, bounds)?;
     Ok(filled)
 }
@@ -675,6 +694,7 @@ mod tests {
     /// Boundaries with the shape `link.ld` produces, at round numbers.
     fn bounds() -> Boundaries {
         Boundaries {
+            ram_start: 0,
             image_start: 0x8_0000,
             text: (0x8_0000, 0x8_6000),
             rodata: (0x8_6000, 0x8_7000),
@@ -729,6 +749,7 @@ mod tests {
     #[test]
     fn the_real_board_layout_is_accepted() {
         let b = Boundaries {
+            ram_start: 0,
             image_start: 0x8_0000,
             text: (0x8_0000, 0x8_6000),
             rodata: (0x8_6000, 0x8_7000),
@@ -752,6 +773,57 @@ mod tests {
             assert_eq!(guarded.guard.1, guarded.stack.0, "guard touches its stack");
         }
         build(&b).expect("the real layout must validate");
+    }
+
+    #[test]
+    fn a_qemu_virt_ram_aperture_can_follow_low_devices() {
+        let b = Boundaries {
+            ram_start: 0x4000_0000,
+            image_start: 0x4008_0000,
+            text: (0x4008_0000, 0x4008_6000),
+            rodata: (0x4008_6000, 0x4008_7000),
+            data: (0x4008_7000, 0x4008_C000),
+            pagetables: (0x4008_C000, 0x4009_C000),
+            exception_stack: GuardedStack {
+                guard: (0x4009_C000, 0x4009_D000),
+                stack: (0x4009_D000, 0x400A_1000),
+                name: "exception stack",
+            },
+            kernel_stack: GuardedStack {
+                guard: (0x400A_1000, 0x400A_2000),
+                stack: (0x400A_2000, 0x400B_2000),
+                name: "stack",
+            },
+            heap: (0x400B_2000, 0x440B_2000),
+            frame_pool: (0x440B_2000, 0x442B_2000),
+        };
+        let devices = [
+            DeviceWindow {
+                base: 0x0800_0000,
+                len: 0x20000,
+                name: "GICv2",
+            },
+            DeviceWindow {
+                base: 0x0900_0000,
+                len: 0x1000,
+                name: "PL011",
+            },
+            DeviceWindow {
+                base: 0x0A00_0000,
+                len: 0x4000,
+                name: "virtio-mmio",
+            },
+        ];
+        let mut out = [Region {
+            base: 0,
+            len: 0,
+            kind: MemKind::NormalWb,
+            perms: Perms::RW,
+            name: "unused",
+        }; 12];
+        let regions = kernel_regions(&b, &devices, &mut out).unwrap();
+        assert_eq!(regions[0].name, "GICv2");
+        assert_eq!(regions.last().unwrap().name, "frame pool");
     }
 
     #[test]

@@ -22,6 +22,12 @@
 
 ENTRY(_start)
 
+/* The product linker base is selected by the target's boot contract. Pi4
+   keeps the firmware's 0x80000 load address; QEMU `virt` supplies RAM at
+   0x40000000 and uses 0x40080000 for `-kernel`. The default remains the Pi
+   contract, while the QEMU virt target passes `--defsym=QEMU_IMAGE_BASE=...`. */
+IMAGE_BASE = DEFINED(QEMU_IMAGE_BASE) ? QEMU_IMAGE_BASE : 0x80000;
+
 /* One page of nothing between the stack and whatever precedes it: a stack
    overflow then faults instead of quietly eating the page tables. */
 GUARD_PAGE_SIZE = 0x1000;
@@ -57,7 +63,7 @@ EXCEPTION_STACK_SIZE = 0x4000;
 
 SECTIONS
 {
-    . = 0x80000;
+    . = IMAGE_BASE;
     __image_start = .;
 
     .text : ALIGN(0x1000) {
