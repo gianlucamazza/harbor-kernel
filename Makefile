@@ -377,7 +377,12 @@ miri:
 	  echo "  rustup toolchain install nightly --component miri, or set ALLOW_MIRI_SKIP=1" >&2; \
 	  exit 1; \
 	fi; \
-	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET)
+	# Miri is an aliasing/provenance gate for the two module-scoped unsafe
+	# queues, not a second run of every pure kernel test. Running the whole
+	# package also interprets unrelated integration/model tests and made CI
+	# exceed its timeout without increasing coverage of unsafe code.
+	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET) --lib ring::tests
+	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET) --lib wake::tests
 
 # The bring-up gates are what you reach for when the board will not talk, which
 # is the worst moment to discover they no longer compile. Nothing else builds
