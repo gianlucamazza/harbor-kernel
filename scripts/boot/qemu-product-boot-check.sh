@@ -32,16 +32,24 @@ source "$(dirname "$0")/../lib/product-boot.sh"
 log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 
-product_boot_capture "${log}" product-boot-check || {
-	# Skipped: no emulator on this workstation (CI already failed above).
-	exit 0
-}
+product_status=0
+product_boot_capture "${log}" product-boot-check || product_status=$?
+case "${product_status}" in
+	0) ;;
+	2) exit 0 ;; # Explicit local opt-out: no emulator installed.
+	3) exit 3 ;; # Environment did not establish a credible QEMU verdict.
+	*) exit "${product_status}" ;;
+esac
 
 fail() {
 	echo "product-boot-check: FAIL — $1" >&2
 	echo "--- serial log ---" >&2
 	cat "${log}" >&2 || true
 	exit 1
+}
+
+on_timer_missed() {
+	fail "timer deadlines expired unserviced on the product path"
 }
 
 # shellcheck source=scripts/lib/product-oracle.sh

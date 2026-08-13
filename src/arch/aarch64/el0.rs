@@ -47,9 +47,10 @@
 //! slot — concurrent dual EL0 is structural.
 //!
 //! The field offsets the assembly applies to that pointer are derived from the
-//! struct rather than written out — see the `.equ` block below. Nothing still
-//! checks that the symbol *holds a pointer*; that is the residual debt ADR-0019
-//! records.
+//! struct rather than written out — see the `.equ` block below. Compile-time
+//! layout assertions also bind the table element to a pointer-sized atomic and
+//! the table to exactly two such elements, which is the contract consumed by
+//! the vector `ldr`.
 
 use core::sync::atomic::{AtomicPtr, Ordering};
 
@@ -397,6 +398,23 @@ static CURRENT_EL0: [AtomicPtr<El0Session>; N_EL0_PUBLISH] = [
     AtomicPtr::new(core::ptr::null_mut()),
     AtomicPtr::new(core::ptr::null_mut()),
 ];
+
+// The vector path loads one pointer-sized cell per Aff0 slot. Keep that
+// assembly contract structural: changing the Rust cell or table shape must
+// fail compilation rather than silently changing what `ldr [base, #8*n]`
+// reads.
+const _: () = {
+    assert!(
+        core::mem::size_of::<AtomicPtr<El0Session>>() == core::mem::size_of::<*mut El0Session>()
+    );
+    assert!(
+        core::mem::align_of::<AtomicPtr<El0Session>>() == core::mem::align_of::<*mut El0Session>()
+    );
+    assert!(
+        core::mem::size_of::<[AtomicPtr<El0Session>; N_EL0_PUBLISH]>()
+            == N_EL0_PUBLISH * core::mem::size_of::<*mut El0Session>()
+    );
+};
 
 #[inline]
 fn publish_index() -> usize {

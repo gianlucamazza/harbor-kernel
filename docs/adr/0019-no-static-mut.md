@@ -99,10 +99,9 @@ following the `related` links finds.
   It is not: `El0Session` behind it is `&mut`-aliased under an interrupt mask,
   and a second core needs a lock, not an atomic. The type is chosen for its
   layout guarantee and its ordering vocabulary, not as a concurrency claim.
-- **The assembly still hard-codes that this symbol is a pointer.** Nothing
-  compares `vectors.s`'s `ldr x16, [x16]` against the Rust type. The offsets
-  _inside_ the session are derived (`.equ` from `offset_of!`); the fact that the
-  symbol holds a pointer is not, and no gate covers it.
+- The vector path necessarily consumes a fixed pointer-sized table, but that
+  contract is structural: compile-time assertions bind the atomic cell
+  size/alignment and the complete table size to the pointer-sized `ldr` stride.
 
 ### Gates that catch reversal
 
@@ -111,6 +110,7 @@ following the `related` links finds.
 | A `static mut` reappears anywhere in `src/`          | `make no-static-mut` — a new grep gate, seen red against the tree as it stands today |
 | The published pointer stops being the current task's | the `CURRENT_EL0` assertion from ADR-0017 §1, already seen red                       |
 | The symbol stops being loadable by name              | link failure — `vectors.s` names it                                                  |
+| The symbol/table stops matching the vector load      | compile-time layout assertions beside `CURRENT_EL0`                                  |
 
 ## Alternatives rejected
 
