@@ -61,6 +61,14 @@ copies received frames into RX slots before notifying the agent. This is the
 first-slice safety boundary; zero-copy DMA into agent memory is explicitly not
 part of P3.
 
+The transport-independent contract is implemented in
+`kernel_core::virtio`: feature negotiation requires `VIRTIO_F_VERSION_1`,
+split-queue arithmetic is checked for alignment and overflow, and the bounded
+packet pool validates direction, owner, length, slot, and generation before a
+transport can be touched. The AArch64 virtio-mmio driver and `edge-gateway`
+composition remain the integration successor, not an implied consequence of
+these host tests.
+
 ### Lifecycle and failure policy
 
 The service is started by authority assembly and remains EL1 infrastructure,

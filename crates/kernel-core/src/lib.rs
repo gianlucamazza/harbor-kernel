@@ -85,4 +85,5 @@ pub mod tasks;
 pub mod textgrid;
 pub mod timer;
 pub mod uart;
+pub mod virtio;
 pub mod wake;
