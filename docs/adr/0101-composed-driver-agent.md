@@ -130,8 +130,8 @@ assertions fail before the device ones do.
 
 ## Evidence
 
-| Level | What                                                                                                                                                                              |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Host  | The encoder's bytes against the assembler oracle; `bind_window` resolving the entry against a provided and an absent window (ADR-0100's tests, now with a real caller)            |
-| QEMU  | `authority: 0 rng absent` agreeing with `rng200: unavailable`, `entropy` refused for a vacant window, no page mapped, and the rest of the composition unaffected                  |
-| HW    | Pi 4B stamp: `rng200: ok`, `authority: 0 rng ok`, `loader: entropy loaded`, `R` on the wire, `entropy ran refusals=0` — a driver-agent that arrived in a store and drove a device |
+| Level | What                                                                                                                                                                                                                                                                |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Host  | The encoder's bytes against the assembler oracle; `bind_window` resolving the entry against a provided and an absent window (ADR-0100's tests, now with a real caller)                                                                                              |
+| QEMU  | `authority: 0 rng absent` agreeing with `rng200: unavailable`, `entropy` refused for a vacant window, no page mapped, and the rest of the composition unaffected                                                                                                    |
+| HW    | **Pi 4B stamp 2026-08-13** (`20260813-101713.log`, `src=25c44332`): `rng200: ok word=0xfbf39375`, `authority: 0 rng ok`, `loader: entropy loaded`, `?H!R` on the wire, `entropy ran sends=1 refusals=0` — a driver-agent that arrived in a store and drove a device |
