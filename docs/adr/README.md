@@ -124,6 +124,7 @@ the code that follows.
 | [0102](0102-product-binds-a-name.md)                         | The product binds a name — an agent finds the service                                        | accepted   |
 | [0103](0103-p2-el0-durable-endpoint.md)                      | P2 durable storage endpoint for EL0 agents                                                  | accepted   |
 | [0104](0104-p3-edge-network-composition.md)                 | P3 edge-gateway composition over virtio-net                                                 | accepted   |
+| [0105](0105-pi4-nic-backend-boundary.md)                    | Pi 4 NIC backend boundary and evidence gate                                                  | proposed   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

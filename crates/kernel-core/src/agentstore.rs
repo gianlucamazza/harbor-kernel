@@ -262,11 +262,12 @@ pub fn append_agent(
 
 /// One agent argument to [`pack`] (host / packer helper).
 ///
-/// No device fields: an agent with a window is the exception, and a test that
-/// wants one calls [`append_agent`] directly rather than making every other
-/// caller carry two more tuple members.
+/// No device-window fields: an agent with a window is the exception, and a
+/// test that wants one calls [`append_agent`] directly. The packet-pool grant
+/// is part of the common composition tuple because it changes the address
+/// space contract even when no device window is present.
 #[cfg(test)]
-type PackAgent<'a> = (&'a str, u32, u32, [u8; MAX_SLOTS], u8, bool, &'a [u8]);
+type PackAgent<'a> = (&'a str, u32, u32, [u8; MAX_SLOTS], u8, bool, bool, &'a [u8]);
 
 /// Build a complete store blob (host / packer helper).
 #[cfg(test)]
@@ -276,7 +277,7 @@ pub fn pack(agents: &[PackAgent<'_>]) -> Vec<u8> {
     buf.extend_from_slice(&VERSION.to_le_bytes());
     buf.extend_from_slice(&(agents.len() as u32).to_le_bytes());
     buf.extend_from_slice(&0u32.to_le_bytes());
-    for (name, tp, sp, slots, home, may_resolve, image) in agents {
+    for (name, tp, sp, slots, home, may_resolve, packet_pool, image) in agents {
         append_agent(
             &mut buf,
             name,
@@ -285,7 +286,7 @@ pub fn pack(agents: &[PackAgent<'_>]) -> Vec<u8> {
             *slots,
             *home,
             *may_resolve,
-            false,
+            *packet_pool,
             WINDOW_NONE,
             0,
             image,
@@ -344,7 +345,7 @@ mod tests {
         let image = prog::encode_console_hi_exit(1);
         let mut slots = [SLOT_NONE; MAX_SLOTS];
         slots[1] = 0; // held console at index 0
-        let blob = pack(&[("beacon", 1, 3, slots, 0, false, &image)]);
+        let blob = pack(&[("beacon", 1, 3, slots, 0, false, false, &image)]);
 
         let mut out = [empty_slot(); MAX_AGENTS];
         let agents = parse(&blob, &mut out).expect("parse");
@@ -362,7 +363,7 @@ mod tests {
         let image = prog::encode_console_hi_exit(1);
         let mut slots = [SLOT_NONE; MAX_SLOTS];
         slots[1] = 0;
-        let blob = pack(&[("chirp", 1, 3, slots, 1, false, &image)]);
+        let blob = pack(&[("chirp", 1, 3, slots, 1, false, false, &image)]);
         let mut out = [empty_slot(); MAX_AGENTS];
         let agents = parse(&blob, &mut out).expect("parse");
         assert_eq!(agents[0].home_cpu, 1);
@@ -372,12 +373,41 @@ mod tests {
     #[test]
     fn resolve_grant_round_trips_in_reserved_word() {
         let image = prog::encode_resolve_send_exit(0, b'N');
-        let blob = pack(&[("lookup", 1, 3, [SLOT_NONE; MAX_SLOTS], 0, true, &image)]);
+        let blob = pack(&[(
+            "lookup",
+            1,
+            3,
+            [SLOT_NONE; MAX_SLOTS],
+            0,
+            true,
+            false,
+            &image,
+        )]);
         let mut out = [empty_slot(); MAX_AGENTS];
         let agents = parse(&blob, &mut out).expect("parse");
         assert!(agents[0].may_resolve);
         static IMG: [u8; 4] = [0; 4];
         assert!(to_entry(&agents[0], "lookup", &IMG).may_resolve);
+    }
+
+    #[test]
+    fn packet_pool_grant_round_trips_in_reserved_word() {
+        let image = prog::encode_console_hi_exit(1);
+        let blob = pack(&[(
+            "edge-gateway",
+            1,
+            3,
+            [SLOT_NONE; MAX_SLOTS],
+            0,
+            false,
+            true,
+            &image,
+        )]);
+        let mut out = [empty_slot(); MAX_AGENTS];
+        let agents = parse(&blob, &mut out).expect("parse");
+        assert!(agents[0].packet_pool);
+        static IMG: [u8; 4] = [0; 4];
+        assert!(to_entry(&agents[0], "edge-gateway", &IMG).packet_pool);
     }
 
     /// Pack one agent that asks for a device window (ADR-0100).
@@ -476,7 +506,16 @@ mod tests {
         // parse image bytes as a device word. Refusing is the only honest
         // answer, and no store in existence is v1 anyway.
         let image = prog::encode_console_hi_exit(1);
-        let mut blob = pack(&[("beacon", 1, 3, [SLOT_NONE; MAX_SLOTS], 0, false, &image)]);
+        let mut blob = pack(&[(
+            "beacon",
+            1,
+            3,
+            [SLOT_NONE; MAX_SLOTS],
+            0,
+            false,
+            false,
+            &image,
+        )]);
         blob[4..8].copy_from_slice(&1u32.to_le_bytes());
         let mut out = [empty_slot(); MAX_AGENTS];
         assert!(matches!(
@@ -488,14 +527,23 @@ mod tests {
     #[test]
     fn home_cpu_out_of_range_is_refused() {
         let image = [0u8; 4];
-        let blob = pack(&[("x", 1, 1, [SLOT_NONE; MAX_SLOTS], 2, false, &image)]);
+        let blob = pack(&[("x", 1, 1, [SLOT_NONE; MAX_SLOTS], 2, false, false, &image)]);
         let mut out = [empty_slot(); MAX_AGENTS];
         assert!(matches!(parse(&blob, &mut out), Err(ParseError::BadHome)));
     }
 
     #[test]
     fn bad_magic_is_refused() {
-        let mut blob = pack(&[("x", 1, 1, [SLOT_NONE; MAX_SLOTS], 0, false, &[0u8; 4])]);
+        let mut blob = pack(&[(
+            "x",
+            1,
+            1,
+            [SLOT_NONE; MAX_SLOTS],
+            0,
+            false,
+            false,
+            &[0u8; 4],
+        )]);
         blob[0] = b'X';
         let mut out = [empty_slot(); MAX_AGENTS];
         assert!(matches!(parse(&blob, &mut out), Err(ParseError::BadMagic)));

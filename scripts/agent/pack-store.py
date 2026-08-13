@@ -213,18 +213,20 @@ def append_agent(
         buf += b"\x00"
 
 
-# (name, text_pages, stack_pages, slots, image, home_cpu, may_resolve, window, device_va)
-PackAgent = tuple[str, int, int, list[int], bytes, int, bool, int, int]
+# (name, text_pages, stack_pages, slots, image, home_cpu, may_resolve,
+#  packet_pool, window, device_va)
+PackAgent = tuple[str, int, int, list[int], bytes, int, bool, bool, int, int]
 
 
 def pack(agents: list[PackAgent]) -> bytes:
     buf = bytearray()
     buf += MAGIC
     buf += struct.pack("<III", VERSION, len(agents), 0)
-    for name, tp, sp, slots, image, home, may_resolve, window, device_va in agents:
+    for name, tp, sp, slots, image, home, may_resolve, packet_pool, window, device_va in agents:
         append_agent(
             buf, name, tp, sp, slots, image,
             home_cpu=home, may_resolve=may_resolve,
+            packet_pool=packet_pool,
             window=window, device_va=device_va,
         )
     return bytes(buf)
@@ -263,7 +265,7 @@ def main() -> int:
     console_slots = [SLOT_NONE, HELD["console"], SLOT_NONE, SLOT_NONE]
     blob_slots = [SLOT_NONE, HELD["console"], HELD["blob"], HELD["blob-reply"]]
     if args.single_beacon:
-        agents = [("beacon", 1, 3, console_slots, beacon, 0, False, WINDOW_NONE, 0)]
+        agents = [("beacon", 1, 3, console_slots, beacon, 0, False, False, WINDOW_NONE, 0)]
     else:
         # P1 + ADR-0088: beacon homes on product CPU 0; chirp pins to CPU 1
         # so the shipped composition exercises dual-current without oracle demos.
@@ -271,17 +273,17 @@ def main() -> int:
         # reaches the wire is this table's, and `make vocabulary-sync` is what
         # keeps it the same integer the kernel declared.
         agents = [
-            ("beacon", 1, 3, console_slots, beacon, 0, False, WINDOW_NONE, 0),
-            ("chirp", 1, 3, console_slots, chirp, 1, False, WINDOW_NONE, 0),
-            ("lookup", 1, 3, [SLOT_NONE] * 4, lookup, 0, True, WINDOW_NONE, 0),
-            ("entropy", 1, 3, console_slots, entropy, 0, False, WINDOWS["rng"], ENTROPY_VA),
-            ("blob", 1, 3, blob_slots, blob, 0, False, WINDOW_NONE, 0),
+            ("beacon", 1, 3, console_slots, beacon, 0, False, False, WINDOW_NONE, 0),
+            ("chirp", 1, 3, console_slots, chirp, 1, False, False, WINDOW_NONE, 0),
+            ("lookup", 1, 3, [SLOT_NONE] * 4, lookup, 0, True, False, WINDOW_NONE, 0),
+            ("entropy", 1, 3, console_slots, entropy, 0, False, False, WINDOWS["rng"], ENTROPY_VA),
+            ("blob", 1, 3, blob_slots, blob, 0, False, False, WINDOW_NONE, 0),
         ]
     blob = pack(agents)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(blob)
     names = ",".join(
-        f"{a[0]}@cpu{a[5]}" + ("" if a[7] == WINDOW_NONE else f"+w{a[7]}")
+        f"{a[0]}@cpu{a[5]}" + ("" if a[8] == WINDOW_NONE else f"+w{a[8]}")
         for a in agents
     )
     print(

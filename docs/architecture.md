@@ -535,6 +535,7 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0102](adr/0102-product-binds-a-name.md)                         | Product binds `console` in the name registry; store `lookup` finds it by grant, not by slot (**accepted**) |
 | [ADR-0103](adr/0103-p2-el0-durable-endpoint.md)                      | P2 durable storage request/reply endpoint for EL0 agents (**accepted**) |
 | [ADR-0104](adr/0104-p3-edge-network-composition.md)                 | P3 edge-gateway composition over virtio-net (**accepted**) |
+| [ADR-0105](adr/0105-pi4-nic-backend-boundary.md)                    | Pi 4 NIC backend boundary and evidence gate (**proposed**) |
 | [ADR-0048](adr/0048-k8-smp-design.md)                                | K8 SMP design (**accepted**); first code slice [ADR-0070](adr/0070-k8-smp-first-slice.md)                                                                                                    |
 | [ADR-0049](adr/0049-deferred-residuals.md)                           | Deferred residuals policy (**accepted**)                                                                                                                                                     |
 | [ADR-0051](adr/0051-k4-irq-preemption-design.md)                     | K4 IRQ preemption design (**accepted**); code [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md)                                       |

@@ -96,7 +96,7 @@ residuals.
 
 Next: **P3 edge-gateway network implementation** — transport and split-queue
 lifecycle, packet service and directional EL0 ownership are integrated and gated by
-`make qemu-virtio-check`; complete deterministic payload RX/reset evidence from
+`make qemu-virtio-check`; complete deterministic peer RX/reset evidence from
 [ADR-0104](docs/adr/0104-p3-edge-network-composition.md).
 K5-H stays held: measured
 peak is 5 of 54 slots on QEMU (6 on a board with RNG200).
@@ -111,7 +111,7 @@ density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |
 | ------------ | ------------------------------------------------------------ |
-| Verification | 544 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 545 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

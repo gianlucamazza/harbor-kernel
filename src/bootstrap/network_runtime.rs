@@ -285,24 +285,47 @@ pub fn poll() {
     LEASE.with(|lease| {
         let Some(lease) = lease.as_mut() else { return };
         consume_used(&lease.rings[0], &lease.rings[1]);
-        while let Ok(Some(used)) = lease.configured.poll_used(Configured::rx_queue()) {
+        loop {
+            let used = match lease.configured.poll_used(Configured::rx_queue()) {
+                Ok(used) => used,
+                Err(error) => {
+                    crate::kprintln!("virtio-net: rx poll failed {error:?}; recovering");
+                    recover(lease);
+                    break;
+                }
+            };
+            let Some(used) = used else { break };
             let descriptor = usize::from(used.descriptor);
-            if descriptor >= lease.rx_slots.len() || used.len < PACKET_HEADER_BYTES as u32 {
+            if descriptor >= lease.rx_slots.len()
+                || used.len < PACKET_HEADER_BYTES as u32
+                || used.len as usize > PACKET_HEADER_BYTES + virtio::PACKET_BYTES
+            {
                 REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
+                rearm_rx(lease, descriptor);
                 continue;
             }
             let len = used.len as usize - PACKET_HEADER_BYTES;
             let slot = usize::from(lease.rx_slots[descriptor]);
+            let source = dma_address(&lease.dma_packets, 1 + descriptor) as usize;
+            let destination = pool_address(&lease.packets, slot as u8) as usize;
+            // The device owns the private RX page until used-ring consumption;
+            // make the frame visible before copying it into the EL0 pool.
+            // SAFETY: both ranges are retained packet pages and `len` is
+            // bounded by the virtio packet slot size above.
+            unsafe {
+                cache::invalidate_dcache_poc(source, used.len as usize);
+                core::ptr::copy_nonoverlapping(
+                    (source + PACKET_HEADER_BYTES) as *const u8,
+                    destination as *mut u8,
+                    len,
+                );
+                cache::clean_dcache_poc(destination, len);
+            }
             match lease.pool.publish_rx(slot, len) {
-                Ok(_) => {
+                Ok(token) => {
                     if RX_PACKETS.fetch_add(1, Ordering::Relaxed) == 0 {
                         crate::kprintln!("virtio-net: rx available len={}", len);
                     }
-                    let token = kernel_core::virtio::PacketToken {
-                        slot: slot as u8,
-                        generation: 0,
-                        len: len as u16,
-                    };
                     if SERVICE_ACTIVE.load(Ordering::Acquire) {
                         if lease.rx_event.is_none() {
                             lease.rx_event = Some(token);
@@ -311,19 +334,25 @@ pub fn poll() {
                         }
                     } else {
                         let _ = lease.pool.return_rx(token);
-                        let _ = lease.configured.post_rx(
-                            dma_address(&lease.dma_packets, 1 + descriptor),
-                            PACKET_HEADER_BYTES + virtio::PACKET_BYTES,
-                        );
-                        publish_ring(&lease.rings[0], &lease.rings[1]);
+                        rearm_rx(lease, descriptor);
                     }
                 }
                 Err(_) => {
                     REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
+                    rearm_rx(lease, descriptor);
                 }
             }
         }
-        while let Ok(Some(used)) = lease.configured.poll_used(Configured::tx_queue()) {
+        loop {
+            let used = match lease.configured.poll_used(Configured::tx_queue()) {
+                Ok(used) => used,
+                Err(error) => {
+                    crate::kprintln!("virtio-net: tx poll failed {error:?}; recovering");
+                    recover(lease);
+                    break;
+                }
+            };
+            let Some(used) = used else { break };
             if used.len <= (PACKET_HEADER_BYTES + virtio::PACKET_BYTES) as u32 {
                 if let Some(token) = lease.service_tx.take() {
                     lease.tx_event = Some(token);
@@ -343,6 +372,38 @@ pub fn poll() {
             }
         }
     });
+}
+
+fn rearm_rx(lease: &mut Lease, descriptor: usize) {
+    if descriptor >= lease.rx_slots.len() {
+        return;
+    }
+    if lease
+        .configured
+        .post_rx(
+            dma_address(&lease.dma_packets, 1 + descriptor),
+            PACKET_HEADER_BYTES + virtio::PACKET_BYTES,
+        )
+        .is_ok()
+    {
+        publish_ring(&lease.rings[0], &lease.rings[1]);
+    }
+}
+
+fn recover(lease: &mut Lease) {
+    if lease.configured.restart().is_err() {
+        REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    lease.pool.reset();
+    lease.tx_token = None;
+    lease.service_tx = None;
+    lease.tx_event = None;
+    lease.rx_event = None;
+    for descriptor in 0..lease.rx_slots.len() {
+        rearm_rx(lease, descriptor);
+    }
+    crate::kprintln!("virtio-net: recovery complete");
 }
 
 fn publish_ring(first: &RingFrames, second: &RingFrames) {

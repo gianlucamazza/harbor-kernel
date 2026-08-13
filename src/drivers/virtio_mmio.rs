@@ -99,9 +99,23 @@ impl Configured {
         TX_QUEUE
     }
 
-    /// Reset the device and release every EL1-owned ring frame.
+    /// Reset the device and discard both queue cursors.
     pub fn reset(&mut self) {
         write_status(self.mmio, 0);
+        self.cursors = [QueueCursor { avail: 0, used: 0 }; QUEUE_COUNT];
+    }
+
+    /// Re-negotiate the transport and rebind the retained split queues.
+    ///
+    /// Recovery is explicit and complete: the device returns through the
+    /// modern transport handshake, queue addresses are written again, and
+    /// `DRIVER_OK` is observed before the caller can publish buffers.
+    pub fn restart(&mut self) -> Result<(), QueueSetupFailure> {
+        let negotiated = begin_transport(self.mmio)?;
+        let cursors = configure_queues(self.mmio, self.rings)?;
+        self.negotiated = negotiated;
+        self.cursors = cursors;
+        Ok(())
     }
 
     /// Publish one receive buffer and notify the device.
@@ -226,7 +240,20 @@ pub unsafe fn configure(
     rings: [QueueMemory; QUEUE_COUNT],
 ) -> Result<Configured, QueueSetupFailure> {
     let negotiated = begin_transport(mmio)?;
+    let cursors = configure_queues(mmio, rings)?;
 
+    Ok(Configured {
+        mmio,
+        negotiated,
+        rings,
+        cursors,
+    })
+}
+
+fn configure_queues(
+    mmio: Mmio,
+    rings: [QueueMemory; QUEUE_COUNT],
+) -> Result<[QueueCursor; QUEUE_COUNT], QueueSetupFailure> {
     for (queue, ring) in rings.iter().enumerate() {
         if ring.desc_pa == 0
             || ring.avail_pa == 0
@@ -276,12 +303,7 @@ pub unsafe fn configure(
         return Err(QueueSetupFailure::DriverNotReady(observed));
     }
 
-    Ok(Configured {
-        mmio,
-        negotiated,
-        rings,
-        cursors: [QueueCursor { avail: 0, used: 0 }; QUEUE_COUNT],
-    })
+    Ok([QueueCursor { avail: 0, used: 0 }; QUEUE_COUNT])
 }
 
 // The ring pages are identity mapped Normal memory in the EL1 address space.

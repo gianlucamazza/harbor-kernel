@@ -77,8 +77,9 @@ the driver reaches `DRIVER_OK`, publishes RX buffers and a bounded TX probe,
 and retains the object until its reset drop path. The IRQ handler only
 acknowledges status; the idle EL1 path consumes used entries. The gate proves
 descriptor completion and copy-backed TX acceptance/completion through the
-directional endpoint vocabulary. Deterministic payload RX, reset/recovery, and
-external-store packet-pool encoding remain successors.
+directional endpoint vocabulary. Payload copying, transport restart handling,
+and external-store packet-pool encoding are implemented; deterministic peer RX
+and QEMU reset/recovery evidence remain successors.
 
 ### Lifecycle and failure policy
 
