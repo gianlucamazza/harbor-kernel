@@ -78,8 +78,9 @@ and retains the object until its reset drop path. The IRQ handler only
 acknowledges status; the idle EL1 path consumes used entries. The gate proves
 descriptor completion and copy-backed TX acceptance/completion through the
 directional endpoint vocabulary. Payload copying, transport restart handling,
-and external-store packet-pool encoding are implemented; deterministic peer RX
-and QEMU reset/recovery evidence remain successors.
+and external-store packet-pool encoding are implemented; the QEMU gate now
+proves deterministic peer RX and service reset/recovery. Pi4 hardware remains
+separate under ADR-0105.
 
 ### Lifecycle and failure policy
 

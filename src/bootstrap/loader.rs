@@ -57,8 +57,8 @@ const CONSOLE_SLOT: usize = 1;
 const CONSOLE_HI: [u8; 40] = prog::encode_console_hi_exit(CONSOLE_SLOT as u16);
 const LOOKUP_CONSOLE: [u8; 52] = prog::encode_resolve_send_exit(0, b'N');
 #[cfg(feature = "board-qemu-virt")]
-const NET_IMAGE: [u8; 100] =
-    prog::encode_net_tx_exit(crate::bsp::board::memmap::USER_PACKET_POOL_VA, 0, 1);
+const NET_IMAGE: [u8; 120] =
+    prog::encode_net_tx_rx_exit(crate::bsp::board::memmap::USER_PACKET_POOL_VA, 0, 1, 2, 3);
 
 const fn slots_with(console: Option<u8>) -> [Option<u8>; MAX_SLOTS] {
     let mut slots = [None; MAX_SLOTS];

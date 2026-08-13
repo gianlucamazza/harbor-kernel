@@ -276,6 +276,15 @@ pub fn take_rx_available() -> Option<kernel_core::virtio::PacketToken> {
     LEASE.with(|lease| lease.as_mut()?.rx_event.take())
 }
 
+/// Recycle the resident network service after its current composition exits.
+///
+/// This is the explicit service-lifecycle reset boundary: all outstanding
+/// packet tokens become stale, the transport negotiates again, and fresh RX
+/// descriptors are published before the service can be reused.
+pub fn recycle_after_session() -> bool {
+    LEASE.with(|lease| lease.as_mut().is_some_and(recover))
+}
+
 /// Poll completed device work from the voluntary EL1 path.
 ///
 /// The IRQ handler only acknowledges the line. This function is called from
@@ -290,7 +299,7 @@ pub fn poll() {
                 Ok(used) => used,
                 Err(error) => {
                     crate::kprintln!("virtio-net: rx poll failed {error:?}; recovering");
-                    recover(lease);
+                    let _ = recover(lease);
                     break;
                 }
             };
@@ -348,7 +357,7 @@ pub fn poll() {
                 Ok(used) => used,
                 Err(error) => {
                     crate::kprintln!("virtio-net: tx poll failed {error:?}; recovering");
-                    recover(lease);
+                    let _ = recover(lease);
                     break;
                 }
             };
@@ -390,10 +399,10 @@ fn rearm_rx(lease: &mut Lease, descriptor: usize) {
     }
 }
 
-fn recover(lease: &mut Lease) {
+fn recover(lease: &mut Lease) -> bool {
     if lease.configured.restart().is_err() {
         REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
-        return;
+        return false;
     }
     lease.pool.reset();
     lease.tx_token = None;
@@ -404,6 +413,7 @@ fn recover(lease: &mut Lease) {
         rearm_rx(lease, descriptor);
     }
     crate::kprintln!("virtio-net: recovery complete");
+    true
 }
 
 fn publish_ring(first: &RingFrames, second: &RingFrames) {

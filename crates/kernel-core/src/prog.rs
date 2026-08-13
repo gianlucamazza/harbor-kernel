@@ -140,7 +140,59 @@ pub const fn encode_send_bare_exit(slot: u16) -> [u8; 16] {
 }
 
 /// Write one packet-pool slot, submit it through `net-tx`, await completion,
-/// then exit. The pool VA is board-owned; the descriptor never crosses EL0.
+/// receive one `net-rx` token, return it through `net-rx-return`, then exit.
+/// The pool VA is board-owned; the descriptor never crosses EL0.
+pub const fn encode_net_tx_rx_exit(
+    pool_va: u64,
+    tx_slot: u16,
+    complete_slot: u16,
+    rx_slot: u16,
+    rx_return_slot: u16,
+) -> [u8; 120] {
+    let mut out = [0u8; 120];
+    let mut i = 0;
+    push_u64(&mut out, &mut i, 0, pool_va);
+    push_u64(&mut out, &mut i, 1, 0x1122_3344_5566_7788);
+    push_word(&mut out, &mut i, a64::str_x_imm(1, 0, 0));
+    push_u64(&mut out, &mut i, 1, 0x99AA_BBCC_DDEE_FF00);
+    push_word(&mut out, &mut i, a64::str_x_imm(1, 0, 8));
+    push_word(&mut out, &mut i, a64::movz_x(0, tx_slot));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movz_x(1, crate::net::TAG_TX_SUBMIT as u16),
+    );
+    push_u64(
+        &mut out,
+        &mut i,
+        2,
+        crate::net::packed_token(crate::virtio::PacketToken {
+            slot: 1,
+            generation: 0,
+            len: 16,
+        }),
+    );
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::movz_x(0, complete_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
+    push_word(&mut out, &mut i, a64::movz_x(0, rx_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
+    // SYS_RECV leaves the packed RX token in x2. Preserve it while loading
+    // the return endpoint and wire tag.
+    push_word(&mut out, &mut i, a64::movz_x(0, rx_return_slot));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movz_x(1, crate::net::TAG_RX_RETURN as u16),
+    );
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
+/// Backward-compatible TX-only encoder for host callers that do not exercise
+/// the receive side of the service.
 pub const fn encode_net_tx_exit(pool_va: u64, tx_slot: u16, complete_slot: u16) -> [u8; 100] {
     let mut out = [0u8; 100];
     let mut i = 0;
@@ -690,6 +742,23 @@ mod tests {
             &encode_console_hi_exit(1),
             "movz x0, #1\nmovz x1, #0\nmovz x2, #72\nsvc #3\n\
              movz x0, #1\nmovz x1, #0\nmovz x2, #33\nsvc #3\nsvc #1\nb .\n",
+        );
+
+        assert_program(
+            "encode_net_tx_rx_exit(0x5300_0000, 0, 1, 2, 3)",
+            &encode_net_tx_rx_exit(0x5300_0000, 0, 1, 2, 3),
+            "movz x0, #0\nmovk x0, #21248, lsl #16\n\
+             movk x0, #0, lsl #32\nmovk x0, #0, lsl #48\n\
+             movz x1, #30600\nmovk x1, #21862, lsl #16\n\
+             movk x1, #13124, lsl #32\nmovk x1, #4386, lsl #48\n\
+             str x1, [x0]\n\
+             movz x1, #65280\nmovk x1, #56814, lsl #16\n\
+             movk x1, #48076, lsl #32\nmovk x1, #39338, lsl #48\n\
+             str x1, [x0, #8]\n\
+             movz x0, #0\nmovz x1, #4353\nmovz x2, #1\n\
+             movk x2, #0, lsl #16\nmovk x2, #4096, lsl #32\nmovk x2, #0, lsl #48\nsvc #3\n\
+             movz x0, #1\nsvc #4\nmovz x0, #2\nsvc #4\n\
+             movz x0, #3\nmovz x1, #4354\nsvc #3\nsvc #1\nb .\n",
         );
 
         // RECV leaves a in x2; SEND wants tag in x1 and a in x2.

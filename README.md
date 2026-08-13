@@ -91,12 +91,13 @@ the first driver-agent that *arrives* in the store is `entropy`
 available through the product's EL0 request/reply endpoint
 ([ADR-0103](docs/adr/0103-p2-el0-durable-endpoint.md)). P3 now has a named
 architecture target ([ADR-0104](docs/adr/0104-p3-edge-network-composition.md));
-its implementation and P4 remain open, along with H3 L1+ and trigger-gated
+its Pi4 backend evidence and P4 remain open, along with H3 L1+ and trigger-gated
 residuals.
 
 Next: **P3 edge-gateway network implementation** — transport and split-queue
 lifecycle, packet service and directional EL0 ownership are integrated and gated by
-`make qemu-virtio-check`; complete deterministic peer RX/reset evidence from
+`make qemu-virtio-check`; deterministic peer RX and service reset/recovery are
+now exercised; Pi4 backend evidence remains open under
 [ADR-0104](docs/adr/0104-p3-edge-network-composition.md).
 K5-H stays held: measured
 peak is 5 of 54 slots on QEMU (6 on a board with RNG200).

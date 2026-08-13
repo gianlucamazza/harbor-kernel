@@ -26,9 +26,10 @@ PL011 at `0x0900_0000`, and QEMU's virtio-mmio slot aperture at
 current evidence proves DTB reservation/mapping, modern `VERSION_1` transport
 negotiation, two size-8 split queues backed by six EL1 ring pages, private EL1
 RX/TX buffers, `DRIVER_OK`, split-ring TX descriptor submission/completion,
-retained EL1 ownership, 32 slot IRQ bindings, and absent-device refusal. It
-does not yet prove deterministic payload RX or service reset/recovery; the
-QEMU-only built-in edge-gateway capability path is not a Pi4 hardware claim.
+retained EL1 ownership, 32 slot IRQ bindings, deterministic peer RX payload
+delivery, the service reset/recovery boundary, and absent-device refusal. The
+QEMU-only built-in edge-gateway capability path is not a Pi4 hardware claim;
+the separate Pi4 backend evidence gate is [ADR-0105](adr/0105-pi4-nic-backend-boundary.md).
 
 ## Serial console
 

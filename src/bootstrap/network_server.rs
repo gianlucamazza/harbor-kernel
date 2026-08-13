@@ -7,12 +7,14 @@
 use crate::bootstrap::network_runtime;
 use crate::ipc;
 use crate::sched;
+use core::sync::atomic::{AtomicBool, Ordering};
 use kernel_core::net::{self, Request};
 
 const TX_REQUEST_SLOT: usize = 0;
 const TX_COMPLETE_SLOT: usize = 1;
 const RX_RETURN_SLOT: usize = 2;
 const RX_AVAILABLE_SLOT: usize = 3;
+static SESSION_RECYCLED: AtomicBool = AtomicBool::new(false);
 
 pub fn run() {
     let (Some(tx_request), Some(tx_complete), Some(rx_return), Some(rx_available)) = (
@@ -48,6 +50,9 @@ pub fn run() {
                 Ok(Request::RxReturn(token)) => {
                     if let Err(error) = network_runtime::return_service_rx(token) {
                         crate::kprintln!("net: rx return refused {error:?}");
+                    } else {
+                        crate::kprintln!("net: rx returned slot={} len={}", token.slot, token.len);
+                        recycle_after_session();
                     }
                     None
                 }
@@ -58,13 +63,16 @@ pub fn run() {
         }
         if let Ok(message) = ipc::try_recv(rx_return) {
             worked = true;
-            if let Ok(Request::RxReturn(token)) = net::decode(message)
-                && let Err(error) = network_runtime::return_service_rx(token)
-            {
-                crate::kprintln!("net: rx return refused {error:?}");
+            if let Ok(Request::RxReturn(token)) = net::decode(message) {
+                match network_runtime::return_service_rx(token) {
+                    Ok(()) => {
+                        crate::kprintln!("net: rx returned slot={} len={}", token.slot, token.len);
+                        recycle_after_session();
+                    }
+                    Err(error) => crate::kprintln!("net: rx return refused {error:?}"),
+                }
             }
         }
-
         network_runtime::poll();
         if let Some(token) = network_runtime::take_tx_complete() {
             worked = true;
@@ -73,6 +81,7 @@ pub fn run() {
         }
         if let Some(token) = network_runtime::take_rx_available() {
             worked = true;
+            crate::kprintln!("net: rx available slot={} len={}", token.slot, token.len);
             if ipc::send(rx_available, net::rx_available(token)).is_err() {
                 let _ = network_runtime::return_service_rx(token);
             }
@@ -80,5 +89,11 @@ pub fn run() {
         if !worked {
             sched::yield_now();
         }
+    }
+}
+
+fn recycle_after_session() {
+    if !SESSION_RECYCLED.swap(true, Ordering::AcqRel) && !network_runtime::recycle_after_session() {
+        crate::kprintln!("net: service recycle FAILED");
     }
 }

@@ -173,7 +173,7 @@ product store (**P1**); on-target keyed blobs (**P2**,
 **H1 entry + first-slice depth are paid (HW)** (composition bar, lifecycle
 residuals, **K5** thin stacks, **P2** durable + SD power-cycle, **K4** budget +
 EL0/EL1 preemption, declared vocabularies and the first composed driver-agent).
-Still open: P3 network implementation for the accepted edge-gateway target;
+Still open: Pi4 backend evidence for the completed QEMU P3 edge-gateway target;
 product display (**P4**) only when a composition needs it. Working
 order: [roadmap § next working order](roadmap.md#next-working-order-post-h1-hw-stamp).
 

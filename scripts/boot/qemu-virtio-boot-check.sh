@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Verify the AArch64 QEMU virt modern virtio-mmio transport and descriptor path.
+# Verify the AArch64 QEMU virt modern virtio-mmio transport and packet path.
 #
 # This gate is narrower than the product oracle: it proves the BSP map, DTB
 # reservation, slot discovery, modern negotiation, split-ring descriptor
-# submission/completion, and reset lifecycle. It does not claim packet payload
-# delivery or EL0 capabilities.
+# submission/completion, deterministic peer RX, payload delivery, directional
+# EL0 capabilities, and reset refusal lifecycle.
 set -euo pipefail
 
 IMG="${1:?usage: $0 <qemu-virt-kernel.img> [ceiling-seconds]}"
@@ -19,6 +19,7 @@ command -v "${QEMU}" >/dev/null || {
 
 modern_log="$(mktemp)"
 absent_log="$(mktemp)"
+peer_port="$(shuf -i 20000-45000 -n 1)"
 trap 'rm -f "${modern_log}" "${absent_log}"' EXIT
 
 run_boot() {
@@ -40,9 +41,32 @@ run_boot() {
     fi
 }
 
-run_boot "${modern_log}" \
-    -netdev user,id=n0 \
-    -device virtio-net-device,netdev=n0
+set +e
+timeout "${SECONDS_TO_RUN}s" "${QEMU}" \
+    -machine virt,gic-version=2 -cpu cortex-a72 -m 128M -smp 1 \
+    -kernel "${IMG}" -global virtio-mmio.force-legacy=false \
+    -serial mon:stdio -display none -no-reboot \
+    -netdev socket,id=n0,listen=127.0.0.1:"${peer_port}" \
+    -device virtio-net-device,netdev=n0 \
+    </dev/null >"${modern_log}" 2>&1 &
+qemu_pid=$!
+python3 "${BASH_SOURCE[0]%/*}/qemu-virtio-peer.py" \
+    --port "${peer_port}" --deadline "${SECONDS_TO_RUN}" \
+    --delay 5
+peer_result=$?
+wait "${qemu_pid}"
+qemu_result=$?
+set -e
+if [[ ${peer_result} -ne 0 ]]; then
+    echo "qemu-virtio-check: deterministic peer could not inject RX" >&2
+    cat "${modern_log}" >&2
+    exit 1
+fi
+if [[ ${qemu_result} -ne 0 && ${qemu_result} -ne 124 ]]; then
+    echo "qemu-virtio-check: QEMU failed with status ${qemu_result}" >&2
+    cat "${modern_log}" >&2
+    exit 1
+fi
 
 grep -aq 'DTB mapped:' "${modern_log}" || {
     echo "qemu-virtio-check: DTB was not mapped" >&2
@@ -72,8 +96,28 @@ grep -aqE 'net: tx complete slot=1 len=16' "${modern_log}" || {
     grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
     exit 1
 }
-grep -aq 'loader: edge-gateway ran sends=1 refusals=0' "${modern_log}" || {
+grep -aqE 'virtio-net: rx available len=[0-9]+' "${modern_log}" || {
+    echo "qemu-virtio-check: deterministic peer RX was not consumed" >&2
+    grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
+    exit 1
+}
+grep -aqE 'net: rx available slot=[0-9]+ len=[0-9]+' "${modern_log}" || {
+    echo "qemu-virtio-check: RX token did not cross the service endpoint" >&2
+    grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
+    exit 1
+}
+grep -aqE 'net: rx returned slot=[0-9]+ len=[0-9]+' "${modern_log}" || {
+    echo "qemu-virtio-check: EL0 did not return the RX token" >&2
+    grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
+    exit 1
+}
+grep -aq 'loader: edge-gateway ran sends=2 refusals=0' "${modern_log}" || {
     echo "qemu-virtio-check: edge-gateway did not complete through directional caps" >&2
+    grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
+    exit 1
+}
+grep -aq 'virtio-net: recovery complete' "${modern_log}" || {
+    echo "qemu-virtio-check: network reset/recovery was not exercised" >&2
     grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
     exit 1
 }
