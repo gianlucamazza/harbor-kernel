@@ -42,12 +42,15 @@ env:
   QEMU_MIN_MAJOR: "9"
 
 jobs:
-  # One job. There used to be two, and the second rebuilt the image and re-ran
+  # One native AArch64 job. The product and QEMU oracle both execute AArch64
+  # code; the public ARM runner gives that path a dedicated four-core VM
+  # instead of running an AArch64 emulator inside a contended x64 job.
+  # There used to be two jobs, and the second rebuilt the image and re-ran
   # `boot-check` — which `make check` had already run in the first. That is the
   # most expensive step in the pipeline, paid twice, plus a duplicated
   # twenty-five-line container setup that could drift between copies.
   check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -63,8 +66,11 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: cargo-${{ runner.os }}-
+          # Target artifacts are architecture-specific. Keeping runner.arch in
+          # the key prevents an x64 cache from being restored into the native
+          # AArch64 validation job (and vice versa).
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install llvm
         run: sudo apt-get update && sudo apt-get install -y llvm
