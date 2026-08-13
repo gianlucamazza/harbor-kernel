@@ -87,12 +87,16 @@ H0 is complete on Pi 4B and H1 is **done (HW)** — stamp 2026-08-08. H2
 Composition can now name a **declared vocabulary** of capabilities and device
 windows ([ADR-0099](docs/adr/0099-composition-vocabulary.md)/[0100](docs/adr/0100-device-windows.md));
 the first driver-agent that *arrives* in the store is `entropy`
-([ADR-0101](docs/adr/0101-composed-driver-agent.md)). Open product services
-remain P3–P4 (deferred until a composition names them), H3 L1+, and
-trigger-gated residuals.
+([ADR-0101](docs/adr/0101-composed-driver-agent.md)), and durable storage is
+available through the product's EL0 request/reply endpoint
+([ADR-0103](docs/adr/0103-p2-el0-durable-endpoint.md)). P3 now has a named
+architecture target ([ADR-0104](docs/adr/0104-p3-edge-network-composition.md));
+its implementation and P4 remain open, along with H3 L1+ and trigger-gated
+residuals.
 
-Next: **services on endpoints** — compose what the product binds the way
-`entropy` is composed — [roadmap](docs/roadmap.md). K5-H stays held: measured
+Next: **P3 edge-gateway network implementation** — compose the virtio-net
+service and packet ownership boundary from [ADR-0104](docs/adr/0104-p3-edge-network-composition.md).
+K5-H stays held: measured
 peak is 5 of 54 slots on QEMU (6 on a board with RNG200).
 
 **Working today (high level).** Preemptible tasks on both cores — voluntary

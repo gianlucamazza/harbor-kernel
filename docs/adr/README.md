@@ -123,6 +123,7 @@ the code that follows.
 | [0101](0101-composed-driver-agent.md)                        | The first composed driver-agent — a device the store grants                                  | accepted   |
 | [0102](0102-product-binds-a-name.md)                         | The product binds a name — an agent finds the service                                        | accepted   |
 | [0103](0103-p2-el0-durable-endpoint.md)                      | P2 durable storage endpoint for EL0 agents                                                  | accepted   |
+| [0104](0104-p3-edge-network-composition.md)                 | P3 edge-gateway composition over virtio-net                                                 | accepted   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

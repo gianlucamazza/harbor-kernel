@@ -92,8 +92,10 @@ Open work that realises these at scale (design ADR before code where needed):
 and K5-B **code** deferred); **K7** residual policy
 ([ADR-0084](adr/0084-k7-residual-policy.md): option C current; optional
 switch-cost lab; TTBR1 only if a named trigger fires); optional **K8** agent
-steal + TLB IPI; product network/display only with a composition target
-(**P3**, **P4** deferred). Closed on HW for fairness and multi-core depth:
+steal + TLB IPI; product network/display only with a composition target; P3
+now has an accepted edge-gateway target
+([ADR-0104](adr/0104-p3-edge-network-composition.md)) and P4 remains deferred.
+Closed on HW for fairness and multi-core depth:
 **K4** EL0+EL1 preemption; **K7** ASID first; **K8** unpark through steal
 (ADR-0070…0083); F-R1-P1 shared-state (+ loader 2026-08-11). Product
 composition pin and force-exit: **done (HW)** (0088/0090). Composition
@@ -171,9 +173,8 @@ product store (**P1**); on-target keyed blobs (**P2**,
 **H1 entry + first-slice depth are paid (HW)** (composition bar, lifecycle
 residuals, **K5** thin stacks, **P2** durable + SD power-cycle, **K4** budget +
 EL0/EL1 preemption, declared vocabularies and the first composed driver-agent).
-Still open: **services on endpoints** (what the product still compiles in);
-network (**P3**) and product display (**P4**) **only when a composition needs
-them** (deferred without a target). Working
+Still open: P3 network implementation for the accepted edge-gateway target;
+product display (**P4**) only when a composition needs it. Working
 order: [roadmap § next working order](roadmap.md#next-working-order-post-h1-hw-stamp).
 
 ### H2 — Boundary operating system
@@ -186,11 +187,11 @@ F-R1-P1 shared-state, **K5-S** Mini stacks
 the first composed driver-agent
 ([ADR-0099](adr/0099-composition-vocabulary.md)/[0100](adr/0100-device-windows.md)/[0101](adr/0101-composed-driver-agent.md)).
 **K5-B design** paid ([ADR-0089](adr/0089-k5-b-pair-collapse-design.md)).
-Remaining depth is trigger-gated or product-target: **services on endpoints**
+Remaining depth is trigger-gated or product-target: **P3 network implementation**
 (what the product still compiles in), optional **K5-H** / K5-B
 **code** ([ADR-0085](adr/0085-k5-density-residual-design.md)), **K7-T** TTBR1
 only if [ADR-0084](adr/0084-k7-residual-policy.md) triggers, optional **K7-M**
-lab and **K8** agent+TLB steal, deferred **P3**/**P4**. Resolve-grant is done
+lab and **K8** agent+TLB steal, deferred **P4**. Resolve-grant is done
 (HW) ([ADR-0052](adr/0052-p5-resolve-grant.md)). Full OS sense under this model
 — still not Linux.
 
