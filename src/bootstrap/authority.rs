@@ -51,11 +51,10 @@ pub struct Authority {
     pub held: Held,
     /// What a store entry's device grant indexes (ADR-0100).
     ///
-    /// **Empty in this product.** ADR-0100 built the mechanism and deliberately
-    /// declared no window with it: granting a device is a composition decision,
-    /// and the first one arrives with the first composed driver-agent. Until
-    /// then every entry naming a window is refused by arithmetic — `index >= 0`
-    /// — which is the property being shipped.
+    /// One window is declared: [`WINDOW_RNG`] (`rng`). The board probe decides
+    /// whether it is provided (`ok`) or left vacant (`absent`); a composition
+    /// that names it then is refused by vacancy, not by `index >= 0`.
+    /// ADR-0101 is the first store entry that asks for it.
     pub windows: Windows,
 }
 

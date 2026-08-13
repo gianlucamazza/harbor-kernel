@@ -4,7 +4,8 @@ title: Device windows — the composition names, the board decides
 status: accepted
 date: 2026-08-12
 accepted: 2026-08-12
-related: [0013, 0017, 0021, 0027, 0029, 0034, 0043, 0049, 0088, 0099]
+amended: 2026-08-13
+related: [0013, 0017, 0021, 0027, 0029, 0034, 0043, 0049, 0088, 0099, 0101]
 ---
 
 # ADR-0100: Device windows — the composition names, the board decides
@@ -150,12 +151,19 @@ QEMU — declares its position and provides nothing, so the boot names the
 vacancy and a composition asking for it is refused by name instead of mapping a
 page that is not there.
 
-**This product declares no window**, and that is the shipped state rather than
-an unfinished one: granting a device is a composition decision, and the first
-composition that needs one arrives with the first composed driver-agent, its own
-ADR and its own slice. So the boot says `authority: windows 0 declared` — the
-absence stated rather than inferred — and every entry naming a window is refused
-by `index >= 0`.
+**This slice declared no window**, and that was the shipped state of *this*
+ADR rather than an unfinished one: granting a device is a composition
+decision, and the first composition that needs one arrives with the first
+composed driver-agent, its own ADR and its own slice. So the 0100 boot said
+`authority: windows 0 declared` — the absence stated rather than inferred —
+and every entry naming a window was refused by `index >= 0`.
+
+> **Amendment (2026-08-13, reconciliation per [ADR-0058](0058-adr-amendments-and-mutation-freshness.md)
+> — reconciled by [ADR-0101](0101-composed-driver-agent.md)).** The product now
+> declares `rng` at index 0. The empty vocabulary is the 0100 slice, not the
+> product after 0101. `nowindow` still exists and is refused by being past the
+> vocabulary (`names window 3 of 1`), which is the same arithmetic with a
+> length of one.
 
 That refusal is not left to a document. The oracle's built-in manifest gains
 `nowindow`: `beacon`'s own bytes with a device grant naming window 0, so every
@@ -219,10 +227,12 @@ because the first version of the comparison could not fail: it anchored the
 table name with a trailing space, found nothing in `WINDOWS: dict[str, int] =
 {}`, and reported clean by comparing empty against empty.
 
-`product-boot-check` asserts `authority: windows 0 declared`, so the day this
-product starts granting a device the assertion is what makes someone look at
-why. `boot-check` asserts `nowindow`'s refusal and, as negatives, that a refused
-entry was neither loaded nor ran.
+`product-boot-check` asserted `authority: windows 0 declared` for this slice,
+so the day the product started granting a device the assertion is what made
+someone look at why. After [ADR-0101](0101-composed-driver-agent.md) that line
+reads `windows 1 declared`. `boot-check` still asserts `nowindow`'s refusal
+and, as negatives, that a refused entry was neither loaded nor ran — the
+index is now past a vocabulary of one (`names window 3 of 1`).
 
 **What no gate here catches** is worth stating plainly, because the alternative
 is a document that sounds safer than the tree is. The reversal that matters is
@@ -245,5 +255,5 @@ the absence of a field, which Rust gives no way to write.
 | Level | What                                                                                                                                                                                                                                                                                       |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Host  | `Set<T>` generic with the ADR-0099 properties intact for both instantiations; an index past the vocabulary refused as `NoSuchWindow` and a hole as `WindowVacant`, asserted **distinct**; a store record round-tripping `window` + `va`; the format-level test that no `pa` can be encoded |
-| QEMU  | `authority: windows 0 declared` in `make product-boot-check`; `loader: nowindow refused — names window 0 of 0` in `make boot-check`, with the negatives that a refused entry was neither loaded nor ran — an agent composed to drive a page it cannot have does not run without it |
-| HW    | Deferred to the first composed driver-agent: a vocabulary with no window declared has nothing to stamp on silicon that QEMU does not already show                                                                                                                                          |
+| QEMU  | This slice: `authority: windows 0 declared`; after [ADR-0101](0101-composed-driver-agent.md): `windows 1 declared`. `loader: nowindow refused` still, now `names window 3 of 1`, with the negatives that a refused entry was neither loaded nor ran |
+| HW    | **Pi stamp 2026-08-13** (`20260813-101713.log`) on the 0101 boot that first declared a window: `authority: windows 1 declared`, index 0 resolving to the board's `RNG200_BASE`. The empty-vocabulary property has no silicon of its own — it was the 0100 slice |

@@ -49,7 +49,7 @@ Traditional:                         Harbor:
 | Preemption            | Timer quantum; IRQs may switch                        | Voluntary yield primary + **quantum preemption on the IRQ epilogue** (EL0 [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md), EL1 [ADR-0068](adr/0068-k4-el1-preemption-second-slice.md)); device handlers still never switch ([ADR-0006](adr/0006-cooperative-execution-model.md) as amended) |
 | Authority names       | Forgeable-looking handles / FDs checked in the kernel | EL0 names only a **slot index** into its own table; raw `CapId` never leaves the kernel ([ADR-0017](adr/0017-el0-capability-abi.md))                                                                                                                                                              |
 | How work is created   | Dynamic spawn / load paths                            | Agents described as **manifest data**; the loader binds grants it already holds ([ADR-0021](adr/0021-agents-as-data-and-the-manifest.md))                                                                                                                                                         |
-| Device drivers        | In-kernel, or servers with broad maps                 | **Driver-as-agent** with page-sized named MMIO windows ([ADR-0013](adr/0013-narrow-device-windows.md))                                                                                                                                                                                            |
+| Device drivers        | In-kernel, or servers with broad maps                 | **Driver-as-agent** with page-sized MMIO windows named by **vocabulary index**, never by a physical address on the wire ([ADR-0013](adr/0013-narrow-device-windows.md), [ADR-0100](adr/0100-device-windows.md); first composed instance [ADR-0101](adr/0101-composed-driver-agent.md))               |
 | User fault            | Kernel reaps or signals the process                   | Kernel **ends the session**; the **creator** decides the driver task’s fate ([ADR-0018](adr/0018-agent-fault-policy.md))                                                                                                                                                                          |
 | “Done” for a boundary | Feature lands and tests pass in CI                    | **M** milestones add capability; **P** milestones add protection/evidence; hardware claims need Pi 4B stamps ([verification.md](verification.md))                                                                                                                                                 |
 
@@ -373,7 +373,7 @@ Code is authoritative; this table is the map.
 
 | Bound                        |                              Value (today) | Owns                      | Note                                                                                                                                                                                                       |
 | ---------------------------- | -----------------------------------------: | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sched::MAX_TASKS`           |                                     **54** | `src/sched/mod.rs`        | Includes dual idle + oracle census; product peaks at **5** slots (3 + 2 idle), measured by `make oracle-census` off the shipped image's `slots=` field (ADR-0098); **do not raise for density** (ADR-0085) |
+| `sched::MAX_TASKS`           |                                     **54** | `src/sched/mod.rs`        | Includes dual idle + oracle census; product peaks at **5** slots on QEMU (3 live + 2 idle; `entropy` refused) and **6** on a Pi 4B that provides the RNG window, measured from the shipped image's `slots=` field (ADR-0098 / ADR-0101); **do not raise for density** (ADR-0085) |
 | Stack classes                | Full 20 KiB · Thin 8 KiB · Mini 4 KiB heap | `kernel_core::density`    | Mini = one page, no unmapped guard (ADR-0086)                                                                                                                                                              |
 | Caps per task                |                                      **4** | `sched` / manifest        | Slot ABI width                                                                                                                                                                                             |
 | Task-caps (system)           |                                     **32** | `kernel_core::taskcap`    | Deliberately &lt; `MAX_TASKS`                                                                                                                                                                              |
@@ -404,10 +404,15 @@ loader's own side table, not a field in the TCB: the scheduler sits below
 knowing ([ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md)).
 
 The security argument is arithmetic, not a check. An entry's slot carries an
-**index into the loader's own capability list**, never a `CapId`, so there is
-nothing outside that list for a manifest to name. `manifest::bind` is where the
-index becomes a capability, and an index past the end is a refusal that says
-which one it reached for.
+**index into a declared vocabulary** (`held` — [ADR-0099](adr/0099-composition-vocabulary.md)),
+never a `CapId`, so there is nothing outside that list for a manifest to name.
+A device page is the same shape: the store names a **window index**, and
+`authority` is what that integer means ([ADR-0100](adr/0100-device-windows.md)).
+`manifest::bind` is where the index becomes a capability or a mapping, and an
+index past the end is a refusal that says which one it reached for. A
+declared position nobody filled is a different refusal (`HeldVacant` /
+`WindowVacant`) — a failed mint leaves a hole and does not shift later
+indices.
 
 What is **not** a manifest entry: a body that runs several programs in sequence
 and checks counters between them. That is an oracle, and `el0_scheduled_task`
@@ -441,12 +446,13 @@ status). Policy: [ADR-0026](adr/0026-kernel-and-product-completeness.md).
 | Snapshot                     | Tracks                                                                                                                                                            |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **done (HW)** H1 depth stamp | 2026-08-08 serial — K5 thin, P2 durable, K4 budget, lifecycle residuals ([verification](verification.md#hardware-evidence-h1-depth-stamps-on-silicon-2026-08-08)) |
-| **H1 next**                  | P3\|P4 only with composition (deferred)                                                                                                                           |
+| **H1 next**                  | Services on endpoints; P3\|P4 only with a composition target (deferred)                                                                                           |
 | **H2 depth**                 | K4+K7-ASID+K8+F-R1-P1+K5-S done (HW); K7 residual ADR-0084; K5-H / K5-B **code** if trigger (0085/0089)                                                           |
 | **open (kernel)**            | K5-H if trigger (0085); K5-B **design paid** (0089), code only if trigger; K7-M optional; K7-T if trigger (0084); optional agent steal+TLB                        |
-| **open (product)**           | P3/P4 deferred (ADR-0049); denser composition (K5-H if slots bind)                                                                                                |
-| **paid (QEMU)**              | Product `home_cpu` (0088); K10 force-exit (0090); composition-minimum product-boot + `oracle-census`                                                              |
-| **paid (hygiene)**           | SMP shared tables including loader (0077 amended 2026-08-11); multi-role F-R5-2 / F-R7-1                                                                          |
+| **open (product)**           | Services on endpoints (console server still compiled in); P3/P4 deferred (ADR-0049); denser composition (K5-H if slots bind)                                     |
+| **paid (HW) product SMP**    | `home_cpu` (0088); K10 force-exit (0090)                                                                                                                          |
+| **paid (HW) composition**    | Declared `held` (0099); device windows (0100); first composed driver-agent `entropy` (0101)                                                                       |
+| **paid (hygiene)**           | SMP shared tables including loader (0077 amended 2026-08-11); slot meter measured (0098); multi-role F-R5-2 / F-R7-1                                             |
 
 When a track changes status, edit **`roadmap.md` only** — do not re-list full
 K/P tables here. Horizon mapping and working order also live in `roadmap.md`.
@@ -512,17 +518,17 @@ that was rejected and the gate that would catch its reversal.
 | [ADR-0085](adr/0085-k5-density-residual-design.md)                   | K5 density residual — K5-S/H/B split; Mini first code (**accepted**)                                                                                                                         |
 | [ADR-0086](adr/0086-k5-mini-stack-first-slice.md)                    | K5-S Mini stacks — one page, no unmapped guard (**accepted**)                                                                                                                                |
 | [ADR-0087](adr/0087-oracle-waits-and-the-hosts-verdict.md)           | Oracle cross-core waits in guest time; a starved host earns no verdict (**accepted**)                                                                                                        |
-| [ADR-0088](adr/0088-product-home-cpu.md)                             | Product multi-core — manifest `home_cpu` + loader pin (**accepted**); done (QEMU)                                                                                                            |
+| [ADR-0088](adr/0088-product-home-cpu.md)                             | Product multi-core — manifest `home_cpu` + loader pin (**accepted**); done (HW)                                                                                                              |
 | [ADR-0089](adr/0089-k5-b-pair-collapse-design.md)                    | K5-B pair collapse design — session as schedulable; **no code** until trigger (**accepted**)                                                                                                 |
-| [ADR-0090](adr/0090-k10-force-exit-running.md)                       | K10 force-exit Running at safe point (**accepted**); done (QEMU)                                                                                                                             |
-| [ADR-0091](adr/0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` owns its datum; `SyncCell` a closed residual (**accepted**); done (QEMU)                                                                                       |
-| [ADR-0092](adr/0092-lifecycle-verdicts.md)                           | Supervisor lifecycle verdicts pure in `kernel-core` (**accepted**); done (QEMU)                                                                                                              |
-| [ADR-0093](adr/0093-panic-path-positive-evidence.md)                 | Panic path positive evidence — deliberate guard-page fault (**accepted**); done (QEMU)                                                                                                       |
+| [ADR-0090](adr/0090-k10-force-exit-running.md)                       | K10 force-exit Running at safe point (**accepted**); done (HW)                                                                                                                               |
+| [ADR-0091](adr/0091-data-in-lock.md)                                 | Data in the lock — `Mutex<T>` owns its datum; `SyncCell` a closed residual (**accepted**); done (HW)                                                                                         |
+| [ADR-0092](adr/0092-lifecycle-verdicts.md)                           | Supervisor lifecycle verdicts pure in `kernel-core` (**accepted**); done (HW)                                                                                                                |
+| [ADR-0093](adr/0093-panic-path-positive-evidence.md)                 | Panic path positive evidence — deliberate guard-page fault (**accepted**); done (HW)                                                                                                         |
 | [ADR-0094](adr/0094-retire-debug-display.md)                         | Retire `debug-display`; the panel returns with a composition (**accepted**)                                                                                                                  |
-| [ADR-0095](adr/0095-boot-phases.md)                                  | Boot phases as named functions; console handover as the seam (**accepted**); done (QEMU)                                                                                                     |
+| [ADR-0095](adr/0095-boot-phases.md)                                  | Boot phases as named functions; console handover as the seam (**accepted**); done (HW)                                                                                                       |
 | [ADR-0096](adr/0096-gates-that-do-not-depend-on-remembering.md)      | Mutation freshness, `hw-check`, and no CI skip (**accepted**); gates seen red                                                                                                                |
-| [ADR-0097](adr/0097-loader-plan.md)                                  | Loader plan pure in `kernel-core`; last of ADR-0049's R1 extractions (**accepted**); done (QEMU)                                                                                             |
-| [ADR-0098](adr/0098-slot-meter-measured.md)                          | Slot occupancy counted in `kernel_core::tasks`, printed by the product, read by `oracle-census` (**accepted**); done (QEMU)                                                                  |
+| [ADR-0097](adr/0097-loader-plan.md)                                  | Loader plan pure in `kernel-core`; last of ADR-0049's R1 extractions (**accepted**); done (HW)                                                                                               |
+| [ADR-0098](adr/0098-slot-meter-measured.md)                          | Slot occupancy counted in `kernel_core::tasks`, printed by the product, read by `oracle-census` (**accepted**); done (HW)                                                                    |
 | [ADR-0099](adr/0099-composition-vocabulary.md)                       | Declared `held` vocabulary in `kernel_core::held`; `bind` over `Option`; `HeldVacant`; `bootstrap::authority` (**accepted**); done (HW)                                                      |
 | [ADR-0100](adr/0100-device-windows.md)                               | Device windows named by index, not by physical address; `held::Set<T>` generic; store carries `window` + `va` (**accepted**); done (HW)                                                    |
 | [ADR-0101](adr/0101-composed-driver-agent.md)                        | First composed driver-agent: `entropy` arrives in the store holding the `rng` window and reads the device before it speaks; `absent` is not `FAILED` (**accepted**); done (HW) |

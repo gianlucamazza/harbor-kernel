@@ -32,7 +32,7 @@ Short version in the [root README](../README.md#technology-stack).
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SoC / board       | BCM2711, Raspberry Pi 4 Model B (Rev 1.5 is the stamped unit)                                                                                                                     |
 | ISA               | AArch64 (Cortex-A72, ARMv8.0-A)                                                                                                                                                   |
-| Cores used        | Dual-current schedule (**K8** through steal **done (HW)**; stamps 2026-08-10). Product default home **CPU 0**; store may pin `home_cpu` ([ADR-0088](adr/0088-product-home-cpu.md), **done (QEMU)** — default pack chirp@1). CPU 1: secondary idle, pinned/stolen EL1 work, product-pinned agents, lab EL0 oracles. Shared tables: `sync::Mutex<T>` ([ADR-0077](adr/0077-smp-shared-state-discipline.md), incl. loader) |
+| Cores used        | Dual-current schedule (**K8** through steal **done (HW)**; stamps 2026-08-10). Product default home **CPU 0**; store may pin `home_cpu` ([ADR-0088](adr/0088-product-home-cpu.md), **done (HW)** — default pack chirp@1). CPU 1: secondary idle, pinned/stolen EL1 work, product-pinned agents, lab EL0 oracles. Shared tables: `sync::Mutex<T>` ([ADR-0077](adr/0077-smp-shared-state-discipline.md), incl. loader) |
 | Exception levels  | Firmware enters at EL2; `boot.s` drops to EL1h. EL3 is **refused**, not handled                                                                                                   |
 | Console           | PL011 UART0 @ 115200, primary in every configuration                                                                                                                              |
 | Interrupts        | GICv2, Group 0 + `IAR`/`EOIR` ([ADR-0004](adr/0004-gic-group0-firmware-pin.md))                                                                                                   |
@@ -125,7 +125,8 @@ Four levels, in increasing cost and increasing authority
 Structural gates (`fmt-check`, `layering`, `arch-board-free`, `irq-scope`,
 `no-static-mut`, `no-simd`, `no-early-exclusives`, `board-guard`,
 `mutation-freshness`) and documentation gates
-(`doc-claims`, `doc-symbols`, `xrefs`, `roadmap-evidence`) run in the same `make check`, which is a
+(`doc-claims`, `doc-symbols`, `xrefs`, `roadmap-evidence`, `vocabulary-sync`)
+run in the same `make check`, which is a
 deliberate superset of CI: a local green must predict a remote one.
 
 **`done (QEMU)` and `done (HW)` are different words on purpose.** Status

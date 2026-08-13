@@ -4,6 +4,7 @@ title: K10 residual — force-exit a Running (or Ready) task at a safe point
 status: accepted
 date: 2026-08-10
 accepted: 2026-08-10
+amended: 2026-08-13
 related: [0018, 0023, 0025, 0033, 0038, 0064]
 ---
 
@@ -17,6 +18,11 @@ related: [0018, 0023, 0025, 0033, 0038, 0064]
 `SYS_EXIT` from EL0 text.
 
 Status: **done (QEMU)** via `make boot-check` after land; HW stamp optional.
+
+> **Amendment (2026-08-13, reconciliation per [ADR-0058](0058-adr-amendments-and-mutation-freshness.md)).**
+> The optional stamp landed: **done (HW)**, transcript `20260811-122821.log`
+> (`force-kill: requested` → `child forced` → `slot empty` on silicon). Living
+> status is the roadmap K10 row, not the landing line above.
 
 ## Context
 

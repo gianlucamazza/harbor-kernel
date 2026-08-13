@@ -78,28 +78,30 @@ Full stack, including what is deliberately **not** in it:
 
 ## Current status
 
-Snapshot, 2026-08-11. The status of record is
+Snapshot, 2026-08-13. The status of record is
 [`docs/roadmap.md`](docs/roadmap.md) — per-track state lives there and nowhere
 else; what follows is a summary, not a second ledger.
 
 H0 is complete on Pi 4B and H1 is **done (HW)** — stamp 2026-08-08. H2
-**mechanism depth** is largely paid on HW (K4/K7/K8/K5-S + shared-state); open
-product services remain P3–P4 (deferred), H3 L1+, and trigger-gated residuals.
+**mechanism depth** is largely paid on HW (K4/K7/K8/K5-S + shared-state).
+Composition can now name a **declared vocabulary** of capabilities and device
+windows ([ADR-0099](docs/adr/0099-composition-vocabulary.md)/[0100](docs/adr/0100-device-windows.md));
+the first driver-agent that *arrives* in the store is `entropy`
+([ADR-0101](docs/adr/0101-composed-driver-agent.md)). Open product services
+remain P3–P4 (deferred until a composition names them), H3 L1+, and
+trigger-gated residuals.
 
-Next: optional K5-H design if slot wall — [roadmap](docs/roadmap.md). Recent
-QEMU-paid slices: product `home_cpu` ([ADR-0088](docs/adr/0088-product-home-cpu.md)),
-K5-B design ([ADR-0089](docs/adr/0089-k5-b-pair-collapse-design.md)), K10
-force-exit ([ADR-0090](docs/adr/0090-k10-force-exit-running.md)); SMP loader
-tables closed, and every shared table restated as `Mutex<T>` — the lock owns
-its datum ([ADR-0077](docs/adr/0077-smp-shared-state-discipline.md) amended,
-[ADR-0091](docs/adr/0091-data-in-lock.md)).
+Next: **services on endpoints** — compose what the product binds the way
+`entropy` is composed — [roadmap](docs/roadmap.md). K5-H stays held: measured
+peak is 5 of 54 slots on QEMU (6 on a board with RNG200).
 
 **Working today (high level).** Preemptible tasks on both cores — voluntary
 yield plus IRQ-epilogue quantum preemption, EL0+EL1 — with dual-current SMP
 through steal; product composition can pin agent **home_cpu**; message IPC and
 EL0 agents with private memory, slot capabilities, revoke and auto-reap;
-supervisor force-exit of Running tasks; a least-privilege console and a PL011
-driver-agent; density stack classes Full / Thin / **Mini** stamped on hardware.
+supervisor force-exit of Running tasks; a least-privilege console; a
+composed RNG driver-agent granted its page by **index**, not by address;
+density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |
 | ------------ | ------------------------------------------------------------ |
