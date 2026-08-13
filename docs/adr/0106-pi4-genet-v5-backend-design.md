@@ -51,16 +51,22 @@ The first host-only slice now lives in `kernel_core::genet_fdt`. It extracts
 the exact compatible GENET node, applies the ordered parent-bus mapping,
 preserves the inherited interrupt-parent and two interrupt specifiers,
 resolves the MDIO PHY phandle, and constrains DMA addresses from
-`dma-ranges`. It has no MMIO or board binding and does not change this ADR's
-proposed status.
+`dma-ranges`. A separate AArch64 control-plane slice in
+`src/drivers/genet.rs` now validates that binding, performs a recoverable
+revision probe, masks interrupts, stops both DMA engines, and applies the
+bounded UniMAC reset sequence. It is compiled into the BSP driver surface but
+is not selected by `board-rpi4`, does not publish a network service, and does
+not change this ADR's proposed status.
 
 The companion `kernel_core::genet` model now also encodes and decodes the
 v4+-style status word, keeps ownership and SOP/EOP/WRAP explicit, bounds ring
 addresses against all discovered DMA apertures, and classifies both direct
 and per-queue DMA interrupt bits. `RingState` exercises the ordered
 driver/device/driver lifecycle and refuses full rings, missing completions,
-bad status ownership, and malformed descriptors. This remains a host
-contract, not a claim that the Pi4 BSP touches GENET MMIO.
+bad status ownership, and malformed descriptors. This remains a host contract.
+The AArch64 control-plane slice consumes the validated revision and register
+offsets, but it is not a claim that the Pi4 BSP has a working GENET network
+backend.
 
 Revision decoding and the v5 RDMA/TDMA common-register offsets are also part
 of the pure contract, so the MMIO layer will consume one tested register
@@ -151,6 +157,7 @@ No implementation status changes until all of the following exist:
 | Level | Required evidence |
 | --- | --- |
 | Host | Pure GENET v5 register/ring model tests: DT binding/refusal and address translation are covered by `kernel_core::genet_fdt`; DMA-window bounds, malformed descriptors, ownership transitions, interrupt classification, reset generations, and recovery refusal are covered by `kernel_core::genet`. |
+| AArch64 compile | The board-agnostic GENET control-plane driver is linted for the freestanding AArch64 target; no hardware success is inferred from compilation. |
 | Emulation | A GENET-capable emulator or deterministic model run labelled as non-hardware; QEMU `virtio-net` evidence cannot satisfy this row. |
 | Hardware | Real Pi 4B serial capture with exact DTB/image/commit and board revision proving probe, GENET revision, PHY/link state, one bounded TX, one bounded RX, reset/recovery, and absent-device refusal. |
 

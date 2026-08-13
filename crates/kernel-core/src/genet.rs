@@ -33,6 +33,11 @@ pub mod registers {
     pub const MDIO: u32 = 0x0e14;
     pub const RDMA: u32 = 0x2000;
     pub const TDMA: u32 = 0x4000;
+    pub const INTRL2_CPU_CLEAR: u32 = 0x08;
+    pub const INTRL2_CPU_MASK_SET: u32 = 0x10;
+    pub const RBUF_CTRL: u32 = RBUF;
+    pub const UMAC_CMD: u32 = UMAC + 0x08;
+    pub const UMAC_TX_FLUSH: u32 = UMAC + 0x334;
 }
 
 /// GENET v5 register layout shared by the RDMA and TDMA blocks.

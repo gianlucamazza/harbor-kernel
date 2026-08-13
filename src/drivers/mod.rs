@@ -3,6 +3,15 @@
 //! Drivers are board-agnostic. The BSP supplies addresses, clocks, and pinmux.
 
 #[cfg(target_arch = "aarch64")]
+#[cfg_attr(
+    any(feature = "board-rpi4", feature = "board-qemu-virt"),
+    expect(
+        dead_code,
+        reason = "GENET control plane is compiled but not bound to a board yet"
+    )
+)]
+pub mod genet;
+#[cfg(target_arch = "aarch64")]
 pub mod gicv2;
 #[cfg(target_arch = "aarch64")]
 pub mod pl011;
