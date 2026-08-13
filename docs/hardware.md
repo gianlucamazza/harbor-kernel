@@ -10,6 +10,27 @@
 | Arch                 | AArch64, EL1 after bootstrap                  |
 | Peripheral MMIO base | `0xFE00_0000`                                 |
 
+## AArch64 QEMU `virt` P3 composition
+
+The network transport uses a separate board bind, selected with
+`board-qemu-virt`; it is not a Raspberry Pi hardware claim and is not part of
+the default product image. The reproducible check is:
+
+```bash
+make qemu-virtio-check
+```
+
+The check boots `virt` with GICv2, a 128 MiB RAM aperture at `0x4000_0000`,
+PL011 at `0x0900_0000`, and QEMU's virtio-mmio slot aperture at
+`0x0a00_0000`. It runs once with `virtio-net-device` and once without it. The
+current evidence proves DTB reservation/mapping, modern `VERSION_1` transport
+negotiation, two size-8 split queues backed by six EL1 ring pages, private EL1
+RX/TX buffers, `DRIVER_OK`, split-ring TX descriptor submission/completion,
+retained EL1 ownership, 32 slot IRQ bindings, deterministic peer RX payload
+delivery, the service reset/recovery boundary, and absent-device refusal. The
+QEMU-only built-in edge-gateway capability path is not a Pi4 hardware claim;
+the separate Pi4 backend evidence gate is [ADR-0105](adr/0105-pi4-nic-backend-boundary.md).
+
 ## Serial console
 
 Harbor’s console is **only** the on-chip **PL011 UART0** on the 40-pin header.

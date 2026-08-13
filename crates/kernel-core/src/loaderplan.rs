@@ -147,6 +147,7 @@ mod tests {
             slots,
             may_resolve: false,
             device: None,
+            packet_pool: false,
             home_cpu: 0,
         }
     }

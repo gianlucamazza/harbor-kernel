@@ -10,7 +10,7 @@
 //! Not a substitute for real fault handling: anything outside an active probe
 //! still panics.
 
-use core::ptr::write_volatile;
+use core::ptr::{read_volatile, write_volatile};
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use super::cpu;
@@ -111,6 +111,37 @@ pub unsafe fn try_write32(addr: usize, value: u32) -> Result<(), ()> {
             Err(())
         } else {
             Ok(())
+        }
+    })
+}
+
+/// Read a 32-bit MMIO register; `Err` if the access aborts.
+///
+/// This is the read counterpart to [`try_write32`]. The returned value is
+/// never observed when the external abort path fires, so an unbacked device
+/// cannot turn an arbitrary bus value into a plausible revision.
+///
+/// # Safety
+///
+/// `addr` must be a Device-mapped MMIO address when the device exists.
+pub unsafe fn try_read32(addr: usize) -> Result<u32, ()> {
+    cpu::without_irqs(|| {
+        FAULTED.store(false, Ordering::Relaxed);
+        ADDR.store(addr, Ordering::Relaxed);
+        ACTIVE.store(true, Ordering::Release);
+        // SAFETY: ordered probe window; fault path clears via take_data_abort.
+        let value = unsafe {
+            core::arch::asm!("dsb sy", "isb", options(nostack, preserves_flags));
+            let value = read_volatile(addr as *const u32);
+            core::arch::asm!("dsb sy", "isb", options(nostack, preserves_flags));
+            value
+        };
+        ACTIVE.store(false, Ordering::Release);
+
+        if FAULTED.load(Ordering::Acquire) {
+            Err(())
+        } else {
+            Ok(value)
         }
     })
 }

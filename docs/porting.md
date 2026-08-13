@@ -48,6 +48,14 @@ Layering rules: [`architecture.md`](architecture.md).
 Default remains `board-rpi4`. Building with `--no-default-features` and no
 `board-*` must fail with the `bsp` `compile_error!`.
 
+The P3 transport composition is built explicitly with
+`--no-default-features --features board-qemu-virt,oracle` and verified with
+`make qemu-virtio-check`. That target uses QEMU `virt`, GICv2, one AArch64
+CPU, and a modern virtio-mmio net device. It proves transport and bounded
+split-ring descriptor lifecycle only, and
+reset/absence behavior; queue DMA, packet I/O, and EL0 capabilities require
+their own evidence before being marked complete.
+
 ## Add an ISA
 
 Follow the **scale axes** in

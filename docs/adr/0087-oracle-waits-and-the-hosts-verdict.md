@@ -5,7 +5,7 @@ status: accepted
 date: 2026-08-10
 accepted: 2026-08-10
 related: [0008, 0022, 0064, 0066, 0068, 0070, 0074, 0076, 0079, 0081, 0083, 0088]
-amended: 2026-08-11
+amended: 2026-08-14
 ---
 
 # ADR-0087: oracle waits are guest time, and a starved host gets no verdict
@@ -152,6 +152,18 @@ all of this. The assertions do not know which runner is asking. Only the QEMU
 runner has a starved-host excuse to weigh; the board owns its four cores, so
 its `fail` is unconditional.
 
+### 6. The product gate uses the same host verdict
+
+> **Amendment (2026-08-14, reconciliation per [ADR-0058](0058-adr-amendments-and-mutation-freshness.md)).**
+
+The product image is a separate composition gate, but it is still a QEMU
+execution whose serial assertions can be starved by the host. Its runner now
+measures the same 0.40-core bar before calling `product-oracle.sh`: below the
+bar it returns `INDETERMINATE` (exit 3), and above it `timer: MISSED` is passed
+to the hard-failure callback used by the hardware transcript checker. The
+product gate therefore cannot turn an unjudged or deadline-missing boot green
+by omitting that line from its oracle.
+
 ## Consequences
 
 - A deadline failure on a starved host is exit 3, not exit 1. `make check` and
@@ -168,6 +180,7 @@ its `fail` is unconditional.
 | Check       | Evidence                                                                                     |
 | ----------- | -------------------------------------------------------------------------------------------- |
 | QEMU        | `make boot-check` clean at 2.14 cores; `INDETERMINATE` (exit 3) at 0.22, 0.13 and 0.08     |
+| Product QEMU | `make product-boot-check` reports `INDETERMINATE` at 0.03 cores; product assertions are not run |
 | Measurement | Sampler agrees with `/usr/bin/time` on an identical run (1.89 vs 2.06 cores)                 |
 | HW          | `hw-transcript-check.sh` unchanged and still sharing every assertion                         |
 

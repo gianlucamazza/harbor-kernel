@@ -60,6 +60,13 @@ pub const fn str_xzr(rn: u8) -> u32 {
     0xF900_001F | ((rn as u32 & 0x1F) << 5)
 }
 
+/// `str xt, [xn, #pimm]` — unsigned scaled offset (8-byte aligned).
+#[inline]
+pub const fn str_x_imm(rt: u8, rn: u8, pimm: u16) -> u32 {
+    let imm12 = (pimm as u32) / 8;
+    0xF900_0000 | (imm12 << 10) | ((rn as u32 & 0x1F) << 5) | (rt as u32 & 0x1F)
+}
+
 /// `b .` — branch to self (infinite wait until interrupted or replaced).
 #[inline]
 pub const fn b_self() -> u32 {
@@ -132,6 +139,11 @@ mod tests {
         assert_eq!(mov_x_reg(0, 2), 0xAA02_03E0); // mov x0, x2
         assert_eq!(mov_x_reg(1, 0), 0xAA00_03E1); // mov x1, x0
         assert_eq!(mov_x_reg(30, 30), 0xAA1E_03FE); // mov x30, x30
+    }
+
+    #[test]
+    fn store_x_offset() {
+        assert_eq!(str_x_imm(1, 0, 8), 0xF900_0401);
     }
 
     #[test]

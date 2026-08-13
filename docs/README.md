@@ -78,14 +78,14 @@ not every symbol.
 
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
-  a64, agentstore, asid, blob, budget, bump, cap, capslots, cpuid, delay, density, display, durable, durable_media, fault, fdt, font8x8, frame, gic,
+  a64, agentstore, asid, blob, budget, bump, cap, capslots, cpuid, delay, density, display, durable, durable_media, fault, fdt, font8x8, genet, genet_fdt, frame, gic,
   heap, held, hwdesc, ipc, irqcap, irqtable, irqwait, layout, lifecycle, loaderplan, manifest, mbr, naming, paging, parktime, poll, preempt, prog, reply, reset, ring, rng,
-  runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, wake
+  net, runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, virtio, wake
   tests/ public_api, model_sched, model_ipc
 src/
   main.rs         kernel_main — product vs lab dispatch only
   arch/           ISA axis (aarch64 product + x86_64 lab roles)
-  bsp/            board axis (rpi4 product + qemu_q35 lab)
+  bsp/            board axis (rpi4 product + qemu_q35 lab + qemu_virt P3)
   drivers/        protocol axis (PL011, GICv2, …; uart16550 lab)
   lab/            lab maturity path (x86 L0 entry + panic; ADR-0071)
   irq/            IRQ ownership, masking, counters, wait port, notification caps
@@ -116,7 +116,7 @@ Do **not** treat this block as a second status table — it only steers readers.
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **H0 foundation**       | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                                                                                                                                                     |
 | **H1 entry + depth**    | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                                                                                                                                                         |
-| **H1 next**             | P3\|P4 composition residuals; P2 durable storage is now an EL0 request/reply service ([ADR-0103](adr/0103-p2-el0-durable-endpoint.md))                                                                                                                                           |
+| **H1 next**             | Pi4 backend evidence for the completed QEMU P3 edge-gateway target ([ADR-0104](adr/0104-p3-edge-network-composition.md), [ADR-0105](adr/0105-pi4-nic-backend-boundary.md), proposed design [ADR-0106](adr/0106-pi4-genet-v5-backend-design.md)); P2 durable storage is now an EL0 request/reply service ([ADR-0103](adr/0103-p2-el0-durable-endpoint.md)) |
 | **H2 mechanism**        | K4 + K7-ASID + K8 through steal + F-R1-P1 (+ loader lock 2026-08-11) + **K5-S** Mini **done (HW)**; K5-B **design** paid (0089); residual K5-H / K5-B **code** / K7-T if trigger                                                                   |
 | **Composition**         | Declared `held` + device windows **done (HW)** ([ADR-0099](adr/0099-composition-vocabulary.md)/[0100](adr/0100-device-windows.md)); first composed driver-agent `entropy` **done (HW)** ([ADR-0101](adr/0101-composed-driver-agent.md))            |
 | **Product SMP**         | Composition `home_cpu` **done (HW)** [ADR-0088](adr/0088-product-home-cpu.md); force-exit Running **done (HW)** [ADR-0090](adr/0090-k10-force-exit-running.md)                                                                                      |

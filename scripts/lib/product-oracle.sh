@@ -204,10 +204,10 @@ assert_product_boot() {
 	if grep -qa 'sched: PENDING-OVERWRITE' "${log}"; then
 		fail "an exit found a parked task stack — pending_free drain hole"
 	fi
-	# `timer: MISSED` is host-load sensitive under TCG (ADR-0087). The full
-	# boot-check measures emulator CPU and can say INDETERMINATE; this short
-	# product smoke does not — ignore deadline miss here rather than fail green
-	# composition on a busy laptop.
+	# `timer: MISSED` is host-load sensitive under TCG (ADR-0087). The QEMU
+	# product caller measures the emulator budget before reaching this oracle;
+	# below the credible bar it returns INDETERMINATE, otherwise the caller's
+	# `on_timer_missed` is a hard failure. Hardware uses the same hard failure.
 
 	# ---------------------------------------------------------------------------
 	# 6. Oracle-free surface — product must not carry demo scaffolding

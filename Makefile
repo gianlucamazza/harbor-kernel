@@ -100,7 +100,7 @@ endif
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
 	boot-check panic-check hw-check mutation-freshness x86-elf x86-boot-check doc-claims layering fmt fmt-check \
-	qemu qemu-gdb qemu-x86 blobs deploy \
+	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy \
 	restore-rpios serial clean agents vocabulary-sync
 
 all: img
@@ -207,6 +207,20 @@ agents:
 
 boot-check: img
 	./scripts/boot/qemu-boot-check.sh $(IMG) $(BOOT_CHECK_SECONDS)
+
+# P3 transport gate: build the dedicated AArch64 QEMU virt composition and
+# prove modern virtio-mmio negotiation plus refusal when the device is absent.
+# Persistent IRQ service, packet I/O, and EL0 capability evidence are
+# deliberately separate successors; this target must not make those claims by
+# sharing the product oracle.
+QEMU_VIRT_OUT := target/$(TARGET)/$(PROFILE)
+QEMU_VIRT_ELF := $(QEMU_VIRT_OUT)/harbor-kernel
+QEMU_VIRT_IMG := $(QEMU_VIRT_OUT)/harbor-qemu-virt.img
+
+qemu-virtio-check:
+	cargo build --target $(TARGET) --no-default-features --features board-qemu-virt,oracle $(if $(filter release,$(PROFILE)),--release,)
+	$(OBJCOPY) -O binary $(QEMU_VIRT_ELF) $(QEMU_VIRT_IMG)
+	./scripts/boot/qemu-virtio-boot-check.sh $(QEMU_VIRT_IMG) $(BOOT_CHECK_SECONDS)
 
 # The panic path is the one product path whose evidence was entirely negative
 # — every gate above asserts that no boot printed PANIC (ADR-0093). This boots
@@ -363,7 +377,12 @@ miri:
 	  echo "  rustup toolchain install nightly --component miri, or set ALLOW_MIRI_SKIP=1" >&2; \
 	  exit 1; \
 	fi; \
-	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET)
+	# Miri is an aliasing/provenance gate for the two module-scoped unsafe
+	# queues, not a second run of every pure kernel test. Running the whole
+	# package also interprets unrelated integration/model tests and made CI
+	# exceed its timeout without increasing coverage of unsafe code.
+	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET) --lib ring::tests
+	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET) --lib wake::tests
 
 # The bring-up gates are what you reach for when the board will not talk, which
 # is the worst moment to discover they no longer compile. Nothing else builds

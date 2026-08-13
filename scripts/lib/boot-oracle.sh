@@ -196,7 +196,7 @@ assert_boot_oracle() {
 	# dead endpoint too, so a boot that filled a four-deep mailbox would have
 	# satisfied this assertion without any capability ever being checked.
 	#
-	# Exactly six, not "at least one". The count is machine-wide and every
+	# Exactly seven, not "at least one". The count is machine-wide and every
 	# producer is deliberate:
 	#
 	#   1. the M4 forger, with a capability it does not hold
@@ -204,20 +204,22 @@ assert_boot_oracle() {
 	#   3. the EL0 agent denied the console
 	#   4-5. the manifest's `mute`, twice — it runs the same image as `beacon` and was
 	#        granted no console slot, so both of its console SYS_SEND calls are refused
-	#   6. ADR-0032 creator_try_send of a CapId after channel revoke (stale handle)
+	#   6. the manifest's `noresolve`, whose resolve/send image is denied the console
+	#        slot after its separate per-session resolve refusal
+	#   7. ADR-0032 creator_try_send of a CapId after channel revoke (stale handle)
 	#
 	# A range would let any one of them satisfy the assertion for the others; it
 	# already did, while a bug had the counter reset by any successful send in
-	# between. It was three until the loader landed, five with the loader, six with
-	# product-path revoke.
+	# between. It was three until the loader landed, six after the no-console
+	# `noresolve` entry, and seven with product-path revoke.
 	#
 	# "Machine-wide" means machine-wide *for IPC sends*: refusals raised by the
 	# syscall reply mappers (wait-irq, resolve, transfer — including every
 	# el0-xfer-peer refusal) land in per-session SessionStats and never in this
 	# counter. Budgeting a new refusal against this number is the mistake this
 	# sentence exists to prevent.
-	grep -qaE 'ipc: refuse count=6 ' "${log}" ||
-		fail "authority refusals are not exactly the six the boot performs"
+	grep -qaE 'ipc: refuse count=7 ' "${log}" ||
+		fail "authority refusals are not exactly the seven the boot performs"
 	# ADR-0024: parks leave a non-zero event count (console server parks repeatedly).
 	# Instantaneous blocked= can be zero if sampled while the server is draining.
 	grep -qaE 'sched: blocked=[0-9]+ block_events=[1-9][0-9]*' "${log}" ||
@@ -291,8 +293,8 @@ assert_boot_oracle() {
 	# noresolve, so the product binding is exercised without making resolve ambient.
 	grep -qa 'loader: lookup ran sends=1 refusals=0' "${log}" ||
 		fail "the granted lookup agent did not resolve console"
-	grep -qa 'loader: noresolve ran sends=0 refusals=1' "${log}" ||
-		fail "the noresolve agent did not refuse SYS_RESOLVE"
+	grep -qa 'loader: noresolve ran sends=0 refusals=2' "${log}" ||
+		fail "the noresolve agent did not refuse SYS_RESOLVE and the denied SEND"
 	# ADR-0040 / K2 residual: park timeout cancels without a sender.
 	grep -qa 'ipc: timed-out cancelled' "${log}" ||
 		fail "park timeout did not cancel the waiter (ADR-0040)"
@@ -458,7 +460,10 @@ assert_boot_oracle() {
 		fail "the granted manifest agent did not use the console it was given"
 	grep -qa 'loader: mute ran sends=0 refusals=2' "${log}" ||
 		fail "the ungranted manifest agent was not refused the console"
-	grep -qa 'H!loader: beacon ran' "${log}" ||
+	# Console output is an independent endpoint: another granted agent may emit a
+	# byte between `H!` and the loader's report without changing the ordering
+	# guarantee. Require the bytes before that report, not byte-for-byte adjacency.
+	grep -qaE 'H!.*loader: beacon ran' "${log}" ||
 		fail "the manifest agent's bytes did not reach the console before its report"
 
 	# ADR-0100: the same claim for the *device* vocabulary. `nowindow` is
@@ -542,8 +547,13 @@ assert_boot_oracle() {
 	# byte the *other* agent sent (42), not a status code.
 	grep -qa 'el0-ipc: got payload via EL0 recvs=1' "${log}" ||
 		fail "EL0 agent did not receive the message through its slot"
-	grep -qa '\*el0-ipc: got payload' "${log}" ||
-		fail "the received payload was not printed by the receiving agent"
+	# Serial output is byte-streamed independently of the report line; unrelated
+	# bytes may be interleaved and a newline may arrive before the report.
+	payload_at="$(grep -na '\*' "${log}" | head -1 | cut -d: -f1)"
+	got_report_at="$(grep -na 'el0-ipc: got payload via EL0 recvs=1' "${log}" | head -1 | cut -d: -f1)"
+	if [[ -z "${payload_at}" || -z "${got_report_at}" || ${payload_at} -gt ${got_report_at} ]]; then
+		fail "the received payload was not printed by the receiving agent before its report"
+	fi
 
 	# ADR-0022: the receiver waited, and the send is what woke it.
 	#
@@ -565,7 +575,7 @@ assert_boot_oracle() {
 	line_of() { grep -na "$1" "${log}" | head -1 | cut -d: -f1; }
 	empty_at="$(line_of 'el0-ipc: try-recv empty')"
 	sent_at="$(line_of 'el0-ipc: sent slot=0')"
-	got_at="$(line_of '\*el0-ipc: got payload')"
+	got_at="$(line_of 'el0-ipc: got payload')"
 	if [[ -z "${empty_at}" || -z "${sent_at}" || -z "${got_at}" ]]; then
 		fail "the EL0 exchange is missing a line the ordering check needs"
 	fi

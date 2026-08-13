@@ -20,6 +20,33 @@ readonly PRODUCT_QEMU="${QEMU:-qemu-system-aarch64}"
 # Ceiling, not a fixed duration: product reaches composition + first tick
 # report well under this on a quiet host (ADR-0087 shape for short boots).
 readonly PRODUCT_SECONDS_LIMIT="${PRODUCT_BOOT_SECONDS:-8}"
+product_clk_tck="$(getconf CLK_TCK 2>/dev/null || echo 100)"
+readonly PRODUCT_CLK_TCK="${product_clk_tck}"
+readonly PRODUCT_CORES_TO_BE_MEASURABLE=40
+
+product_read_cpu_hz() {
+	local stat rest
+	PRODUCT_CPU_HZ=0
+	[[ -r "/proc/$1/stat" ]] || return 0
+	read -r stat <"/proc/$1/stat" || return 0
+	rest="${stat##*) }"
+	# shellcheck disable=SC2086  # deliberate word splitting into positionals
+	set -- ${rest}
+	PRODUCT_CPU_HZ=$((${12} + ${13}))
+}
+
+product_read_host_busy_hz() {
+	local cpu user nice system rest irq softirq steal
+	PRODUCT_HOST_BUSY_HZ=0
+	read -r cpu user nice system rest </proc/stat || return 0
+	[[ "${cpu}" == "cpu" ]] || return 0
+	# shellcheck disable=SC2086  # deliberate word splitting into positionals
+	set -- ${rest}
+	irq="$3"
+	softirq="$4"
+	steal="$5"
+	PRODUCT_HOST_BUSY_HZ=$((user + nice + system + irq + softirq + steal))
+}
 
 # Boot the product image, writing serial output to $1.
 #
@@ -51,11 +78,47 @@ product_boot_capture() {
 	fi
 
 	# Store is already in the image (ADR-0029 inject). No -device loader.
-	timeout "${PRODUCT_SECONDS_LIMIT}" "${PRODUCT_QEMU}" \
+	# Keep the emulator observable while it runs: an exit code from `timeout`
+	# cannot distinguish a healthy ceiling from a starved guest, and treating
+	# both alike would make the product gate accept an unmeasured assertion.
+	local deadline started pid busy_before seconds watched_comm
+	product_read_host_busy_hz
+	busy_before="${PRODUCT_HOST_BUSY_HZ}"
+	started=${SECONDS}
+	deadline=$((started + PRODUCT_SECONDS_LIMIT))
+	"${PRODUCT_QEMU}" \
 		-machine raspi4b \
 		-nographic \
 		-serial mon:stdio \
 		-d guest_errors \
 		-kernel "${PRODUCT_IMG}" \
-		>"${log}" 2>&1 || true
+		>"${log}" 2>&1 &
+	pid=$!
+	watched_comm="$(cat "/proc/${pid}/comm" 2>/dev/null || echo unknown)"
+	PRODUCT_RUN_CPU_HZ=0
+	while ((SECONDS < deadline)) && kill -0 "${pid}" 2>/dev/null; do
+		product_read_cpu_hz "${pid}"
+		((PRODUCT_CPU_HZ > PRODUCT_RUN_CPU_HZ)) && PRODUCT_RUN_CPU_HZ="${PRODUCT_CPU_HZ}"
+		sleep 0.2
+	done
+	seconds=$((SECONDS - started))
+	((seconds > 0)) || seconds=1
+	kill -TERM "${pid}" 2>/dev/null || true
+	wait "${pid}" 2>/dev/null || true
+	product_read_host_busy_hz
+
+	PRODUCT_EMULATOR_CORES=$((PRODUCT_RUN_CPU_HZ * 100 / (PRODUCT_CLK_TCK * seconds)))
+	PRODUCT_SHARE_IS_HOST_WIDE=0
+	if [[ "${watched_comm}" != qemu* ]]; then
+		PRODUCT_EMULATOR_CORES=$(((PRODUCT_HOST_BUSY_HZ - busy_before) * 100 / (PRODUCT_CLK_TCK * seconds)))
+		PRODUCT_SHARE_IS_HOST_WIDE=1
+	fi
+	printf '%s: CPU budget %s.%02d cores over %ss%s\n' \
+		"${who}" $((PRODUCT_EMULATOR_CORES / 100)) $((PRODUCT_EMULATOR_CORES % 100)) \
+		"${seconds}" "$(if ((PRODUCT_SHARE_IS_HOST_WIDE == 1)); then echo ' (host-wide fallback)'; fi)" >&2
+	if ((PRODUCT_EMULATOR_CORES < PRODUCT_CORES_TO_BE_MEASURABLE)); then
+		echo "${who}: INDETERMINATE — QEMU received only ${PRODUCT_EMULATOR_CORES} hundredths of a core" >&2
+		echo "  The product assertions were not judged; rerun on a host with sufficient CPU." >&2
+		return 3
+	fi
 }

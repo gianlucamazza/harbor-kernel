@@ -89,6 +89,7 @@ harbor-kernel/
 | Path | Entry | Modules compiled | Gate |
 | ---- | ----- | ---------------- | ---- |
 | **Product** | `bootstrap::run` | Full aarch64 policy + `board-rpi4` | `make boot-check` / HW stamp |
+| **P3 composition** | `bootstrap::run` | AArch64 QEMU `virt` + modern virtio-mmio transport and descriptor lifecycle | `make qemu-virtio-check` |
 | **Lab** | `lab::<isa>::run` | Minimal: arch + bsp + drivers needed + `lab/` | `make x86-boot-check` (today) |
 
 **Rule:** lab never “stubs in” the product tree so it compiles. Product modules

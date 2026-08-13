@@ -175,6 +175,13 @@ pub fn busy_wait_ns(ns: u64) {
 
 /// Spin until at least `us` microseconds have elapsed.
 #[inline]
+#[cfg_attr(
+    feature = "board-qemu-virt",
+    expect(
+        dead_code,
+        reason = "QEMU virt has no polled board peripheral using this delay"
+    )
+)]
 pub fn busy_wait_us(us: u32) {
     // Route through `busy_wait_ns` so one counter path is always linked.
     busy_wait_ns(u64::from(us).saturating_mul(1_000));

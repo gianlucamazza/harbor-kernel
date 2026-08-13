@@ -14,6 +14,10 @@ mod console_server;
 mod demos;
 mod discover;
 mod loader;
+#[cfg(feature = "board-qemu-virt")]
+mod network_runtime;
+#[cfg(feature = "board-qemu-virt")]
+mod network_server;
 #[cfg(feature = "panic-probe")]
 mod panic_probe;
 #[cfg(feature = "bringup")]
@@ -37,6 +41,36 @@ const TIMER_HZ: u32 = 10;
 
 /// Kernel heap size, clamped to the identity-mapped RAM window.
 const HEAP_SIZE: usize = 64 * 1024 * 1024;
+
+/// Keep firmware-owned DTB pages outside the kernel's identity-mapped heap and
+/// frame-pool carve-outs. Firmware is allowed to place the blob anywhere in
+/// RAM; reserving a fixed address would merely move the collision to another
+/// machine model.
+fn heap_end_avoiding_device_tree(desired: usize) -> (usize, bool) {
+    let Some((dtb_base, dtb_len)) = bootinfo::device_tree_pages() else {
+        return (desired, false);
+    };
+    let dtb_base = dtb_base as usize;
+    let Some(dtb_end) = (dtb_base as u64).checked_add(dtb_len) else {
+        return (desired, false);
+    };
+    let dtb_end = dtb_end as usize;
+    let heap_start = mm::heap_start();
+    let Some(frame_end) = desired.checked_add(board::memmap::FRAME_POOL_BYTES) else {
+        return (desired, false);
+    };
+    let overlaps = heap_start < dtb_end && dtb_base < frame_end;
+    if !overlaps {
+        return (desired, false);
+    }
+
+    // The frame pool is contiguous and must remain whole. Move the complete
+    // heap+pool window below the DTB, preserving page alignment; if that is
+    // impossible, the normal frame/layout validation refuses the boot.
+    let before_dtb = dtb_base.saturating_sub(board::memmap::FRAME_POOL_BYTES);
+    let aligned = before_dtb & !(board::memmap::FRAME_SIZE - 1);
+    (aligned, true)
+}
 
 /// Page tables that must remain free once the kernel map is built.
 ///
@@ -148,6 +182,9 @@ fn enable_interrupts(uart: &mut Pl011, interrupts_bound: bool) {
         cpu::sync_pipeline();
         cpu::irq_enable();
         cpu::sync_pipeline();
+        #[cfg(feature = "board-qemu-virt")]
+        println!(uart, "IRQs enabled (timer + UART RX + virtio-mmio slots)");
+        #[cfg(not(feature = "board-qemu-virt"))]
         println!(uart, "IRQs enabled (timer + UART RX)");
         println!(uart, "idle: WFI when no RX/tick work");
     } else {
@@ -393,7 +430,14 @@ struct MemPlan {
 /// printed at the end is read back from `SCTLR_EL1` rather than inferred from
 /// the path that just ran.
 fn establish_kernel_map(uart: &mut Pl011) -> MemPlan {
-    let heap_end = (mm::heap_start() + HEAP_SIZE).min(board::memmap::IDENTITY_RAM_END);
+    let desired_heap_end = (mm::heap_start() + HEAP_SIZE).min(board::memmap::IDENTITY_RAM_END);
+    let (heap_end, dtb_reserved) = heap_end_avoiding_device_tree(desired_heap_end);
+    if dtb_reserved {
+        println!(
+            uart,
+            "heap: reserved DTB window, end moved to {heap_end:#x}"
+        );
+    }
     let (frame_base, frame_end) = match mm::frames::range_after_heap(heap_end) {
         Some(range) => range,
         None => refuse_to_boot(
@@ -641,6 +685,20 @@ pub fn run() -> ! {
     panic_probe::fault_on_a_stack_guard(&mut uart);
 
     let interrupts_bound = bind_interrupts(&mut uart);
+
+    #[cfg(feature = "board-qemu-virt")]
+    match network_runtime::start() {
+        Ok(result) => println!(
+            uart,
+            "virtio-net: modern probe ok base={:#x} vendor={:#x} features={:#x} queues={} size={} ready tx-descriptor=submitted",
+            result.base,
+            result.vendor,
+            result.features,
+            result.queues,
+            result.queue_size
+        ),
+        Err(error) => println!(uart, "virtio-net: unavailable ({error:?})"),
+    }
 
     // Hardware gates, only when built with `--features bringup`.
     #[cfg(feature = "bringup")]

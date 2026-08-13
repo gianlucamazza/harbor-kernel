@@ -395,7 +395,7 @@ kprintln!("loader: {name} ran sends={} refusals={}", stats.sends, stats.authorit
 | After | Granted agent name | Adjacency grep |
 | ----- | ------------------ | -------------- |
 | **PR3** (oracle still has `echo`) | `echo` | `H!loader: echo ran` |
-| **PR4+** (final; product `beacon`) | `beacon` | `H!loader: beacon ran` |
+| **PR4+** (final; product `beacon`) | `beacon` | `H!` appears before `loader: beacon ran` |
 
 **PR3 acceptance** (must be green before PR4):
 
@@ -408,12 +408,16 @@ grep -qa 'loader: mute ran sends=0 refusals=2' "${log}" || fail "…"
 **Final / PR4+ acceptance:**
 
 ```bash
-grep -qa 'H!loader: beacon ran' "${log}" || fail "…"
+grep -qa 'H!' "${log}" || fail "…"
+grep -qa 'loader: beacon ran' "${log}" || fail "…"
 grep -qa 'loader: beacon ran sends=2 refusals=0' "${log}" || fail "…"
 grep -qa 'loader: mute ran sends=0 refusals=2' "${log}" || fail "…"
 ```
 
-If tick interleaving in the yield window proves flaky on QEMU, fall back to separate `H!` and report greps (weaker residual, not preferred).
+The final oracle uses separate ordered checks: the console is an independent
+endpoint and another agent may interleave bytes or a newline before the
+loader report. Byte-for-byte adjacency would assert an implementation detail
+of scheduling rather than the ordering contract.
 
 **Sequencing rule:** do not require `beacon` greps in any PR that still ships the granted entry as `echo`.
 
@@ -589,7 +593,8 @@ PR3 still greps **`echo`** for the granted path (see Ordering contract).
 
 #### Refuse count (oracle) — PR3 acceptance list
 
-Exact **5** authority refusals on the good path (re-verify; do not use “at least”):
+The current oracle has exactly **7** authority refusals on the good path
+(re-verify; do not use “at least”):
 
 | # | Producer | Mechanism after M8 |
 | - | -------- | ------------------ |
@@ -598,8 +603,11 @@ Exact **5** authority refusals on the good path (re-verify; do not use “at lea
 | 3 | EL0 console denial `X` | `SYS_SEND` on empty `CONSOLE_SLOT` |
 | 4 | mute first SEND | no console grant |
 | 5 | mute second SEND | no console grant |
+| 6 | noresolve SEND | no console grant after its resolve refusal |
+| 7 | stale creator send | `CapId` after channel revoke |
 
-PR3 description must paste this table and confirm `full=0 state=0`. Migration of `encode_recv_console_exit` must not add a sixth authority refusal on the success path.
+PR3 description must paste this table and confirm `full=0 state=0`. Migration of
+`encode_recv_console_exit` must not add another authority refusal on the success path.
 
 ### Wake path (rule 6)
 

@@ -15,6 +15,13 @@
 
 fn main() {
     emit_source_id();
+    if std::env::var_os("CARGO_FEATURE_BOARD_QEMU_VIRT").is_some() {
+        // QEMU `virt` places RAM at 0x4000_0000 and its `-kernel` loader
+        // enters at 0x4008_0000. Keep the linker script shared with Pi4, but
+        // make the load address a target-owned build input.
+        println!("cargo:rustc-link-arg-bin=harbor-kernel=--defsym=QEMU_IMAGE_BASE=0x40080000");
+    }
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_BOARD_QEMU_VIRT");
     println!("cargo:rerun-if-changed=src/arch/aarch64/link.ld");
     // The entry stub and the exception vectors are pulled in with
     // `global_asm!(include_str!(...))`, which cargo does not track either.

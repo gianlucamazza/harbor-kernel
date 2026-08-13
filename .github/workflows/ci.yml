@@ -2,25 +2,19 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
+  workflow_dispatch:
 
-# `on: push` and `on: pull_request` both fire for a branch in this repo, so
-# every same-repo PR runs the whole pipeline twice. Superseded runs are
-# cancelled instead of racing each other for a runner.
-#
-# The key must name the *branch*, not the ref: a push carries
-# `refs/heads/<branch>` and a pull_request carries `refs/pull/N/merge`, so
-# grouping on `github.ref` puts the two runs in different groups and cancels
-# neither. That is what happened on the first run of this workflow — two jobs
-# for one branch, which is the thing the block exists to prevent.
-#
-# A cancelled run is reported by `gh run list` with `conclusion: failure`, not
-# `cancelled`, when the cancellation lands mid-step — the *job* says `cancelled`
-# and no step failed. That looks exactly like a real red on a PR, and cost a
-# diagnostic detour once. Check the job before believing the run:
-#   gh run view <id> --json jobs --jq '.jobs[] | "\(.name): \(.conclusion)"'
+# Pull requests are the validation path for feature branches. Pushes run on
+# the protected integration branch, and workflow_dispatch keeps an explicit
+# operator path for reproducing the same gates on another ref. This avoids a
+# second, cancellable push run for every same-repository pull request; a
+# cancelled duplicate can otherwise surface as a red PR check even though no
+# step failed.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name }}
   cancel-in-progress: true
 
 # The workflow reads the repository and uploads an artifact. It has no reason to
@@ -41,19 +35,22 @@ env:
   # Updating is a deliberate commit, exactly like the toolchain bump: change the
   # digest, watch the run, and the boot oracle validates the new emulator before
   # it reaches anyone else.
-  ARCH_IMAGE: archlinux@sha256:345a872f6c95e082d4b8c050af637eebb57402c6e2177b411c3acf7df84eb33b
+  QEMU_IMAGE: debian@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
   # `raspi4b` first appears in QEMU 9. Asserting the floor means a container
   # that somehow resolves to an older build fails loudly here rather than in the
   # middle of a boot check.
   QEMU_MIN_MAJOR: "9"
 
 jobs:
-  # One job. There used to be two, and the second rebuilt the image and re-ran
+  # One native AArch64 job. The product and QEMU oracle both execute AArch64
+  # code; the public ARM runner gives that path a dedicated four-core VM
+  # instead of running an AArch64 emulator inside a contended x64 job.
+  # There used to be two jobs, and the second rebuilt the image and re-ran
   # `boot-check` — which `make check` had already run in the first. That is the
   # most expensive step in the pipeline, paid twice, plus a duplicated
   # twenty-five-line container setup that could drift between copies.
   check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -69,22 +66,28 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: cargo-${{ runner.os }}-
+          # Target artifacts are architecture-specific. Keeping runner.arch in
+          # the key prevents an x64 cache from being restored into the native
+          # AArch64 validation job (and vice versa).
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install llvm
         run: sudo apt-get update && sudo apt-get install -y llvm
 
-      # Ubuntu's qemu-system-arm (even 8.2 on 24.04) does **not** ship the
-      # `raspi4b` machine Harbor boots under. CI therefore wraps an
-      # Arch-packaged qemu-system-aarch64 so `make boot-check` / `make check`
-      # keep a single path — the assertions live in the script, never here.
-      - name: QEMU with raspi4b (pinned Arch container)
+      # Ubuntu's qemu-system-arm does not provide the required `raspi4b`
+      # machine at the runner image's package version. CI therefore wraps the
+      # pinned Debian Trixie QEMU package; the assertions remain in
+      # `make boot-check` / `make check`, never in this setup step.
+      - name: QEMU with raspi4b (pinned Debian container)
         run: |
           set -euo pipefail
           docker build -t harbor-qemu-raspi4b - <<Dockerfile
-          FROM ${ARCH_IMAGE}
-          RUN pacman -Sy --noconfirm qemu-system-aarch64
+          FROM ${QEMU_IMAGE}
+          RUN apt-get update \
+            && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              qemu-system-arm=1:10.0.11+ds-0+deb13u1 \
+            && rm -rf /var/lib/apt/lists/*
           ENTRYPOINT ["qemu-system-aarch64"]
           Dockerfile
           sudo tee /usr/local/bin/qemu-system-aarch64 >/dev/null <<'WRAP'
