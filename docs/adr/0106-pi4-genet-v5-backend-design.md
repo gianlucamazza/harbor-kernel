@@ -47,6 +47,13 @@ does not parse `/soc`, `ranges`, `dma-ranges`, or device interrupt properties.
 That is an explicit ADR-0072/0073 boundary, not permission to hardcode the
 GENET address or interrupt numbers.
 
+The first host-only slice now lives in `kernel_core::genet_fdt`. It extracts
+the exact compatible GENET node, applies the ordered parent-bus mapping,
+preserves the inherited interrupt-parent and two interrupt specifiers,
+resolves the MDIO PHY phandle, and constrains DMA addresses from
+`dma-ranges`. It has no MMIO or board binding and does not change this ADR's
+proposed status.
+
 ## Decision
 
 ### 1. Discovery is device-tree-first
@@ -125,7 +132,7 @@ No implementation status changes until all of the following exist:
 
 | Level | Required evidence |
 | --- | --- |
-| Host | Pure GENET v5 register/ring model tests: DT binding/refusal, address translation, DMA-window bounds, malformed descriptors, ownership transitions, interrupt classification, reset generations, and recovery refusal. |
+| Host | Pure GENET v5 register/ring model tests: DT binding/refusal and address translation are covered by `kernel_core::genet_fdt`; DMA-window bounds, malformed descriptors, ownership transitions, interrupt classification, reset generations, and recovery refusal are covered by `kernel_core::genet`. |
 | Emulation | A GENET-capable emulator or deterministic model run labelled as non-hardware; QEMU `virtio-net` evidence cannot satisfy this row. |
 | Hardware | Real Pi 4B serial capture with exact DTB/image/commit and board revision proving probe, GENET revision, PHY/link state, one bounded TX, one bounded RX, reset/recovery, and absent-device refusal. |
 

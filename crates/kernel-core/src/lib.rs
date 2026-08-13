@@ -51,6 +51,7 @@ pub mod fdt;
 pub mod font8x8;
 pub mod frame;
 pub mod genet;
+pub mod genet_fdt;
 pub mod gic;
 pub mod heap;
 pub mod held;
