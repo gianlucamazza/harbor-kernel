@@ -146,8 +146,11 @@ impl DescriptorStatus {
     }
 
     pub const fn encode(self) -> Result<u32, DescriptorError> {
-        if self.length == 0 || self.length as u32 > DMA_LENGTH_MASK {
+        if self.length == 0 {
             return Err(DescriptorError::Empty);
+        }
+        if self.length as u32 > MAX_FRAME_BYTES || self.length as u32 > DMA_LENGTH_MASK {
+            return Err(DescriptorError::TooLarge);
         }
         let mut word = (self.length as u32) << DMA_LENGTH_SHIFT;
         if matches!(self.ownership, Ownership::Device) {
@@ -529,6 +532,14 @@ mod tests {
             }
             .encode(),
             Err(DescriptorError::Empty)
+        );
+        assert_eq!(
+            DescriptorStatus {
+                length: MAX_FRAME_BYTES as u16 + 1,
+                ..status
+            }
+            .encode(),
+            Err(DescriptorError::TooLarge)
         );
     }
 
