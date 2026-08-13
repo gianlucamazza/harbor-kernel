@@ -15,6 +15,12 @@ pub const TOTAL_DESCRIPTORS: u16 = 256;
 pub const MAX_FRAME_BYTES: u32 = 1536;
 /// GENET v5 DMA burst value required by BCM2711 platform data.
 pub const BCM2711_DMA_BURST: u32 = 0x08;
+pub const DMA_LENGTH_MASK: u32 = 0x0fff;
+pub const DMA_LENGTH_SHIFT: u32 = 16;
+pub const DMA_OWN: u32 = 0x8000;
+pub const DMA_EOP: u32 = 0x4000;
+pub const DMA_SOP: u32 = 0x2000;
+pub const DMA_WRAP: u32 = 0x1000;
 
 /// GENET register offsets used by the first bounded model.
 pub mod registers {
@@ -73,6 +79,88 @@ pub struct Descriptor {
     pub address: u64,
     pub length: u32,
     pub status: u32,
+}
+
+/// The ownership and packet-boundary bits in a GENET descriptor status word.
+///
+/// The length occupies bits 16..=27; the lower control bits are deliberately
+/// represented separately so callers cannot accidentally expose a raw status
+/// word as a packet length.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DescriptorStatus {
+    pub length: u16,
+    pub ownership: Ownership,
+    pub start: bool,
+    pub end: bool,
+    pub wrap: bool,
+}
+
+impl DescriptorStatus {
+    pub const fn decode(word: u32) -> Result<Self, DescriptorError> {
+        let length = ((word >> DMA_LENGTH_SHIFT) & DMA_LENGTH_MASK) as u16;
+        if length == 0 {
+            return Err(DescriptorError::Empty);
+        }
+        Ok(Self {
+            length,
+            ownership: if word & DMA_OWN != 0 {
+                Ownership::Device
+            } else {
+                Ownership::Driver
+            },
+            start: word & DMA_SOP != 0,
+            end: word & DMA_EOP != 0,
+            wrap: word & DMA_WRAP != 0,
+        })
+    }
+
+    pub const fn encode(self) -> Result<u32, DescriptorError> {
+        if self.length == 0 || self.length as u32 > DMA_LENGTH_MASK {
+            return Err(DescriptorError::Empty);
+        }
+        let mut word = (self.length as u32) << DMA_LENGTH_SHIFT;
+        if matches!(self.ownership, Ownership::Device) {
+            word |= DMA_OWN;
+        }
+        if self.start {
+            word |= DMA_SOP;
+        }
+        if self.end {
+            word |= DMA_EOP;
+        }
+        if self.wrap {
+            word |= DMA_WRAP;
+        }
+        Ok(word)
+    }
+}
+
+/// A descriptor ring's immutable address contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RingLayout {
+    pub base: u64,
+    pub count: u16,
+}
+
+impl RingLayout {
+    pub const fn new(base: u64, count: u16, dma: DmaWindow) -> Option<Self> {
+        if count == 0 || count > TOTAL_DESCRIPTORS || !base.is_multiple_of(4) {
+            return None;
+        }
+        let bytes = count as u64 * DESCRIPTOR_BYTES;
+        if !dma.contains(base, bytes) {
+            return None;
+        }
+        Some(Self { base, count })
+    }
+
+    pub const fn descriptor_address(self, index: u16) -> Option<u64> {
+        if index >= self.count {
+            None
+        } else {
+            self.base.checked_add(index as u64 * DESCRIPTOR_BYTES)
+        }
+    }
 }
 
 /// Why a descriptor was refused before any device access.
@@ -155,8 +243,9 @@ impl InterruptWork {
         Self {
             link: status0 & interrupt::LINK_EVENT != 0,
             mdio: status0 & interrupt::MDIO_EVENT != 0,
-            rx: status1 & (0xffff << interrupt::QUEUE_RX_SHIFT) != 0,
-            tx: status1 & interrupt::QUEUE_TX_MASK != 0,
+            rx: status0 & interrupt::RX_DONE != 0
+                || status1 & (0xffff << interrupt::QUEUE_RX_SHIFT) != 0,
+            tx: status0 & interrupt::TX_DONE != 0 || status1 & interrupt::QUEUE_TX_MASK != 0,
         }
     }
 }
@@ -266,6 +355,43 @@ mod tests {
     }
 
     #[test]
+    fn descriptor_status_round_trips_ownership_and_boundaries() {
+        let status = DescriptorStatus {
+            length: 1500,
+            ownership: Ownership::Device,
+            start: true,
+            end: true,
+            wrap: false,
+        };
+        assert_eq!(
+            DescriptorStatus::decode(status.encode().unwrap()),
+            Ok(status)
+        );
+        assert_eq!(
+            DescriptorStatus::decode(DMA_SOP),
+            Err(DescriptorError::Empty)
+        );
+        assert_eq!(
+            DescriptorStatus {
+                length: 0,
+                ..status
+            }
+            .encode(),
+            Err(DescriptorError::Empty)
+        );
+    }
+
+    #[test]
+    fn ring_layout_checks_dma_span_and_index() {
+        let ring = RingLayout::new(0x1000, 4, DMA).unwrap();
+        assert_eq!(ring.descriptor_address(0), Some(0x1000));
+        assert_eq!(ring.descriptor_address(3), Some(0x1024));
+        assert_eq!(ring.descriptor_address(4), None);
+        assert_eq!(RingLayout::new(0x5000, 1, DMA), None);
+        assert_eq!(RingLayout::new(0x1001, 1, DMA), None);
+    }
+
+    #[test]
     fn ring_cursor_wraps_and_refuses_out_of_range_input() {
         assert_eq!(RingCursor::new(TOTAL_DESCRIPTORS, Ownership::Driver), None);
         let cursor = RingCursor::new(TOTAL_DESCRIPTORS - 1, Ownership::Device).unwrap();
@@ -293,6 +419,8 @@ mod tests {
                 tx: true
             }
         );
+        assert!(InterruptWork::classify(interrupt::RX_DONE, 0).rx);
+        assert!(InterruptWork::classify(interrupt::TX_DONE, 0).tx);
     }
 
     #[test]

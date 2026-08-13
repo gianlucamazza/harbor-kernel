@@ -54,6 +54,12 @@ resolves the MDIO PHY phandle, and constrains DMA addresses from
 `dma-ranges`. It has no MMIO or board binding and does not change this ADR's
 proposed status.
 
+The companion `kernel_core::genet` model now also encodes and decodes the
+v4+-style status word, keeps ownership and SOP/EOP/WRAP explicit, bounds ring
+addresses against the discovered DMA aperture, and classifies both direct
+and per-queue DMA interrupt bits. This remains a host contract, not a claim
+that the Pi4 BSP touches GENET MMIO.
+
 ## Decision
 
 ### 1. Discovery is device-tree-first
