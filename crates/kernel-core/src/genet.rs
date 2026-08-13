@@ -21,6 +21,7 @@ pub const DMA_OWN: u32 = 0x8000;
 pub const DMA_EOP: u32 = 0x4000;
 pub const DMA_SOP: u32 = 0x2000;
 pub const DMA_WRAP: u32 = 0x1000;
+pub const GENET_V5_MAJOR: u8 = 5;
 
 /// GENET register offsets used by the first bounded model.
 pub mod registers {
@@ -32,6 +33,49 @@ pub mod registers {
     pub const MDIO: u32 = 0x0e14;
     pub const RDMA: u32 = 0x2000;
     pub const TDMA: u32 = 0x4000;
+}
+
+/// GENET v5 register layout shared by the RDMA and TDMA blocks.
+pub mod dma_registers {
+    pub const RING_BYTES: u32 = 0x40;
+    pub const RING_COUNT: u16 = 17;
+    pub const COMMON_BASE: u32 = RING_BYTES * RING_COUNT as u32;
+    pub const CTRL: u32 = COMMON_BASE + 0x04;
+    pub const STATUS: u32 = COMMON_BASE + 0x08;
+    pub const SCB_BURST_SIZE: u32 = COMMON_BASE + 0x0c;
+    pub const ARB_CTRL: u32 = COMMON_BASE + 0x2c;
+    pub const RING_CFG: u32 = COMMON_BASE;
+    pub const RING0: u32 = 0;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Revision {
+    pub major: u8,
+    pub minor: u8,
+    pub patch: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RevisionError {
+    Unsupported(u8),
+}
+
+impl Revision {
+    pub const fn decode(raw: u32) -> Result<Self, RevisionError> {
+        let encoded = ((raw >> 24) & 0x0f) as u8;
+        // BCM2711 reports the v5-compatible core as 5; later Broadcom
+        // revisions 6/7 use the same v5 descriptor contract in upstream's
+        // version normalization, but this binding accepts only v5.
+        let major = if encoded == 5 { 5 } else { encoded };
+        if major != GENET_V5_MAJOR {
+            return Err(RevisionError::Unsupported(major));
+        }
+        Ok(Self {
+            major,
+            minor: ((raw >> 16) & 0x0f) as u8,
+            patch: (raw & 0xffff) as u16,
+        })
+    }
 }
 
 /// GENET interrupt bits from the two INTRL2 instances.
@@ -107,6 +151,38 @@ pub struct Descriptor {
     pub address: u64,
     pub length: u32,
     pub status: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DescriptorWords {
+    pub length_status: u32,
+    pub address_low: u32,
+    pub address_high: u32,
+}
+
+impl Descriptor {
+    pub fn words(
+        self,
+        ownership: Ownership,
+        start: bool,
+        end: bool,
+        wrap: bool,
+    ) -> Result<DescriptorWords, DescriptorError> {
+        self.validate_address(|_, _| true)?;
+        let status = DescriptorStatus {
+            length: self.length as u16,
+            ownership,
+            start,
+            end,
+            wrap,
+        }
+        .encode()?;
+        Ok(DescriptorWords {
+            length_status: status,
+            address_low: self.address as u32,
+            address_high: (self.address >> 32) as u32,
+        })
+    }
 }
 
 /// The ownership and packet-boundary bits in a GENET descriptor status word.
@@ -457,6 +533,20 @@ mod tests {
     }
 
     #[test]
+    fn v5_revision_and_dma_register_layout_are_explicit() {
+        let revision = Revision::decode(5 << 24 | 3 << 16 | 0x2711).unwrap();
+        assert_eq!(revision.major, GENET_V5_MAJOR);
+        assert_eq!(revision.minor, 3);
+        assert_eq!(revision.patch, 0x2711);
+        assert_eq!(dma_registers::COMMON_BASE, 0x440);
+        assert_eq!(dma_registers::CTRL, 0x444);
+        assert_eq!(
+            Revision::decode(4 << 24),
+            Err(RevisionError::Unsupported(4))
+        );
+    }
+
+    #[test]
     fn dma_windows_preserve_multiple_device_apertures() {
         let windows = DmaWindows::new(
             [
@@ -545,6 +635,21 @@ mod tests {
             }
             .encode(),
             Err(DescriptorError::TooLarge)
+        );
+        let words = Descriptor {
+            address: 0x1_0000_2000,
+            length: 1500,
+            status: 0,
+        }
+        .words(Ownership::Device, true, true, false)
+        .unwrap();
+        assert_eq!(words.address_low, 0x0000_2000);
+        assert_eq!(words.address_high, 1);
+        assert_eq!(
+            DescriptorStatus::decode(words.length_status)
+                .unwrap()
+                .ownership,
+            Ownership::Device
         );
     }
 

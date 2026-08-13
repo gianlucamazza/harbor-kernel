@@ -62,6 +62,10 @@ driver/device/driver lifecycle and refuses full rings, missing completions,
 bad status ownership, and malformed descriptors. This remains a host
 contract, not a claim that the Pi4 BSP touches GENET MMIO.
 
+Revision decoding and the v5 RDMA/TDMA common-register offsets are also part
+of the pure contract, so the MMIO layer will consume one tested register
+layout rather than duplicate literal offsets.
+
 The model keeps two address domains distinct: GENET v5 descriptor slots live
 in the controller's internal RDMA/TDMA descriptor RAM, while the descriptor
 address fields point at packet buffers constrained by the discovered DMA
