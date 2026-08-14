@@ -19,8 +19,9 @@ provenance, SMP, and durable-media baseline. The product prints a `genet:`
 FDT report and, when that binding matches the compiled window, runs
 `Genet::probe`. Silicon stamp `20260814-174803.log` boot 2 (`src=ee650e06`) has the
 FDT line, `rev=6.0`, `phy=0x600d84a2`, `genet: link=down (bmsr, not a
-nic)`, and `VACANT`. A down BMSR is not this ADR's NIC gate. No TX/RX,
-service reset/recovery, or absent-device result was produced.
+nic)`, and `VACANT`. A down BMSR is not this ADR's NIC gate. After the frame pool exists the
+product may program queue 0 with DMA still disabled; that is not TX/RX.
+No service reset/recovery or absent-device result was produced.
 
 ## Context
 
