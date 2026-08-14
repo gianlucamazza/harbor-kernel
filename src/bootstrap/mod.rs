@@ -489,7 +489,7 @@ fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
 static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
     crate::sync::Mutex::new(None);
 
-/// Program, then enable, queue 0 after the frame pool exists.
+/// Program, then enable, the descriptor ring after the frame pool exists.
 ///
 /// Probe runs at discover time, before frames; the programmed descriptors
 /// need two identity-mapped frames inside the FDT DMA windows. Enable
@@ -501,31 +501,33 @@ static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
 #[cfg(feature = "board-rpi4")]
 fn report_genet_queue0(uart: &mut Pl011) {
     use crate::drivers::genet::Error;
-    use kernel_core::genet::Queue0Report;
+    use kernel_core::genet::DescRingReport;
 
     let lines = HELD_GENET.with(|held| {
         let controller = held.as_mut()?;
-        let programmed = program_held_queue0(controller);
-        let enabled = if matches!(programmed, Queue0Report::Programmed) {
-            Some(match controller.enable_queue0() {
-                Ok(()) => Queue0Report::Enabled,
-                Err(Error::Enable(error)) => Queue0Report::Enable(error),
-                Err(_) => Queue0Report::Enable(kernel_core::genet::QueueEnableError::NotProgrammed),
+        let programmed = program_held_desc_ring(controller);
+        let enabled = if matches!(programmed, DescRingReport::Programmed) {
+            Some(match controller.enable_desc_ring() {
+                Ok(()) => DescRingReport::Enabled,
+                Err(Error::Enable(error)) => DescRingReport::Enable(error),
+                Err(_) => {
+                    DescRingReport::Enable(kernel_core::genet::QueueEnableError::NotProgrammed)
+                }
             })
         } else {
             None
         };
-        let rgmii = if matches!(enabled, Some(Queue0Report::Enabled)) {
+        let rgmii = if matches!(enabled, Some(DescRingReport::Enabled)) {
             Some(controller.program_rgmii_oob())
         } else {
             None
         };
-        let umac = if matches!(enabled, Some(Queue0Report::Enabled)) {
+        let umac = if matches!(enabled, Some(DescRingReport::Enabled)) {
             Some(controller.program_umac_init())
         } else {
             None
         };
-        let tx = if matches!(enabled, Some(Queue0Report::Enabled)) {
+        let tx = if matches!(enabled, Some(DescRingReport::Enabled)) {
             Some(match controller.submit_one_tx() {
                 Ok(report) => report,
                 Err(Error::Timeout) => kernel_core::genet::TxReport::Timeout,
@@ -537,7 +539,7 @@ fn report_genet_queue0(uart: &mut Pl011) {
         } else {
             None
         };
-        let rx = if matches!(enabled, Some(Queue0Report::Enabled)) {
+        let rx = if matches!(enabled, Some(DescRingReport::Enabled)) {
             Some(match controller.submit_one_rx() {
                 Ok(report) => report,
                 Err(Error::Timeout) => kernel_core::genet::RxReport::Timeout,
@@ -549,7 +551,7 @@ fn report_genet_queue0(uart: &mut Pl011) {
         } else {
             None
         };
-        let recovered = if matches!(enabled, Some(Queue0Report::Enabled)) {
+        let recovered = if matches!(enabled, Some(DescRingReport::Enabled)) {
             Some(match controller.recover() {
                 Ok(report) => report,
                 Err(Error::Timeout) => kernel_core::genet::ResetReport::Timeout,
@@ -584,18 +586,18 @@ fn report_genet_queue0(uart: &mut Pl011) {
 }
 
 #[cfg(feature = "board-rpi4")]
-fn program_held_queue0(
+fn program_held_desc_ring(
     controller: &mut crate::drivers::genet::Genet,
-) -> kernel_core::genet::Queue0Report {
+) -> kernel_core::genet::DescRingReport {
     use crate::drivers::genet::Error;
-    use kernel_core::genet::{Descriptor, MAX_FRAME_BYTES, Queue0Report};
+    use kernel_core::genet::{DescRingReport, Descriptor, MAX_FRAME_BYTES};
 
     let Some((tx_id, tx_cpu)) = crate::mm::frames::alloc() else {
-        return Queue0Report::NoFrames;
+        return DescRingReport::NoFrames;
     };
     let Some((rx_id, rx_cpu)) = crate::mm::frames::alloc() else {
         let _ = crate::mm::frames::free(tx_id);
-        return Queue0Report::NoFrames;
+        return DescRingReport::NoFrames;
     };
     let release = || {
         let _ = crate::mm::frames::free(tx_id);
@@ -605,11 +607,11 @@ fn program_held_queue0(
     let dma = controller.binding().dma;
     let Ok(tx_dma) = dma.map_cpu(tx_cpu as u64, u64::from(len)) else {
         release();
-        return Queue0Report::OutsideDma;
+        return DescRingReport::OutsideDma;
     };
     let Ok(rx_dma) = dma.map_cpu(rx_cpu as u64, u64::from(len)) else {
         release();
-        return Queue0Report::OutsideDma;
+        return DescRingReport::OutsideDma;
     };
     let tx = Descriptor {
         address: tx_dma,
@@ -621,17 +623,17 @@ fn program_held_queue0(
         length: len,
         status: 0,
     };
-    match controller.configure_queue0(tx, rx, tx_cpu, rx_cpu) {
-        Ok(()) => Queue0Report::Programmed,
+    match controller.configure_desc_ring(tx, rx, tx_cpu, rx_cpu) {
+        Ok(()) => DescRingReport::Programmed,
         Err(error) => {
             release();
             match error {
-                Error::Descriptor(error) => Queue0Report::Descriptor(error),
-                Error::Ring(error) => Queue0Report::Ring(error),
-                Error::Enable(error) => Queue0Report::Enable(error),
-                _ => {
-                    Queue0Report::Descriptor(kernel_core::genet::DescriptorError::AddressOutsideDma)
-                }
+                Error::Descriptor(error) => DescRingReport::Descriptor(error),
+                Error::Ring(error) => DescRingReport::Ring(error),
+                Error::Enable(error) => DescRingReport::Enable(error),
+                _ => DescRingReport::Descriptor(
+                    kernel_core::genet::DescriptorError::AddressOutsideDma,
+                ),
             }
         }
     }
