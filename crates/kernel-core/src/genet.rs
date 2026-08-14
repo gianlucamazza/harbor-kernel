@@ -766,7 +766,8 @@ pub enum MdioError {
     RegisterOutOfRange,
     Busy,
     ReadFail,
-    InvalidPhyId,
+    AbsentPhyId,
+    StuckHighPhyId,
 }
 
 /// One clause-22 MDIO transaction. `write = None` is a read.
@@ -816,10 +817,12 @@ impl MdioTxn {
     }
 }
 
-/// Combine PHYIDR1/PHYIDR2. All-zero and all-ones IDs are absent silicon.
+/// Combine PHYIDR1/PHYIDR2. All-zero is absent; all-ones is a stuck bus.
 pub const fn classify_phy_id(hi: u16, lo: u16) -> Result<u32, MdioError> {
-    if (hi == 0 && lo == 0) || (hi == 0xffff && lo == 0xffff) {
-        Err(MdioError::InvalidPhyId)
+    if hi == 0 && lo == 0 {
+        Err(MdioError::AbsentPhyId)
+    } else if hi == 0xffff && lo == 0xffff {
+        Err(MdioError::StuckHighPhyId)
     } else {
         Ok(((hi as u32) << 16) | lo as u32)
     }
@@ -894,6 +897,56 @@ impl PhyLink {
         match self.state {
             LinkState::Up => Ok(self),
             LinkState::Down => Err(PhyError::LinkDown),
+        }
+    }
+}
+
+/// Boot report for a clause-22 PHY identify. Not a NIC and not a link claim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhyIdentify {
+    Identity(PhyLink),
+    Unavailable(PhyError),
+    Timeout,
+}
+
+impl PhyIdentify {
+    pub const fn from_identify(hi: u16, lo: u16, rgmii_rxid: bool) -> Self {
+        match PhyLink::identify(hi, lo, rgmii_rxid) {
+            Ok(link) => Self::Identity(link),
+            Err(error) => Self::Unavailable(error),
+        }
+    }
+}
+
+impl Display for PhyIdentify {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            PhyIdentify::Identity(link) => {
+                write!(f, "genet: phy={:#010x} (id, not a nic)", link.id)
+            }
+            PhyIdentify::Unavailable(PhyError::ModeNotRgmiiRxid) => {
+                f.write_str("genet: phy unavailable (mode)")
+            }
+            PhyIdentify::Unavailable(PhyError::Id(MdioError::AbsentPhyId)) => {
+                f.write_str("genet: phy unavailable (absent id)")
+            }
+            PhyIdentify::Unavailable(PhyError::Id(MdioError::StuckHighPhyId)) => {
+                f.write_str("genet: phy unavailable (stuck-high id)")
+            }
+            PhyIdentify::Unavailable(PhyError::Id(MdioError::Busy)) => {
+                f.write_str("genet: phy unavailable (busy)")
+            }
+            PhyIdentify::Unavailable(PhyError::Id(MdioError::ReadFail)) => {
+                f.write_str("genet: phy unavailable (read fail)")
+            }
+            PhyIdentify::Unavailable(PhyError::Id(_)) => f.write_str("genet: phy unavailable (id)"),
+            PhyIdentify::Unavailable(PhyError::ResetPending) => {
+                f.write_str("genet: phy unavailable (reset pending)")
+            }
+            PhyIdentify::Unavailable(PhyError::LinkDown) => {
+                f.write_str("genet: phy unavailable (link down)")
+            }
+            PhyIdentify::Timeout => f.write_str("genet: phy unavailable (timeout)"),
         }
     }
 }
@@ -1399,10 +1452,10 @@ mod tests {
         assert_ne!(write & mdio::WRITE, 0);
         assert_eq!(write & mdio::DATA_MASK, 0x8000);
         assert_eq!(classify_phy_id(0x0362, 0x5e60), Ok(0x0362_5e60));
-        assert_eq!(classify_phy_id(0, 0), Err(MdioError::InvalidPhyId));
+        assert_eq!(classify_phy_id(0, 0), Err(MdioError::AbsentPhyId));
         assert_eq!(
             classify_phy_id(0xffff, 0xffff),
-            Err(MdioError::InvalidPhyId)
+            Err(MdioError::StuckHighPhyId)
         );
         assert_eq!(MdioTxn::new(32, 0, None), Err(MdioError::PhyOutOfRange));
         assert_eq!(
@@ -1440,11 +1493,31 @@ mod tests {
         );
         assert_eq!(
             PhyLink::identify(0, 0, true),
-            Err(PhyError::Id(MdioError::InvalidPhyId))
+            Err(PhyError::Id(MdioError::AbsentPhyId))
         );
         assert_eq!(
             PhyLink::identify(0xffff, 0xffff, true),
-            Err(PhyError::Id(MdioError::InvalidPhyId))
+            Err(PhyError::Id(MdioError::StuckHighPhyId))
+        );
+        assert_eq!(
+            PhyIdentify::from_identify(0x0362, 0x5e60, true).to_string(),
+            "genet: phy=0x03625e60 (id, not a nic)"
+        );
+        assert_eq!(
+            PhyIdentify::from_identify(0, 0, true).to_string(),
+            "genet: phy unavailable (absent id)"
+        );
+        assert_eq!(
+            PhyIdentify::from_identify(0xffff, 0xffff, true).to_string(),
+            "genet: phy unavailable (stuck-high id)"
+        );
+        assert_eq!(
+            PhyIdentify::from_identify(0x0362, 0x5e60, false).to_string(),
+            "genet: phy unavailable (mode)"
+        );
+        assert_eq!(
+            PhyIdentify::Timeout.to_string(),
+            "genet: phy unavailable (timeout)"
         );
     }
 

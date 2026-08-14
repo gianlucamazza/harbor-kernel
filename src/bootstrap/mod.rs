@@ -416,42 +416,62 @@ fn map_dtb_and_discover(uart: &mut Pl011, core1: bool) -> u64 {
 
 /// Bring up GENET through the existing driver when the FDT binding matches
 /// the compiled window. Always prints one probe line (ADR-0072: fail-open).
+/// After a successful revision probe, prints one PHY-identify line.
 ///
-/// Uses `Genet::probe` (mask, stop DMA, UniMAC reset). Does not program
-/// queues, enable DMA, or bind the network vocabulary.
+/// Uses `Genet::probe` (mask, stop DMA, UniMAC reset) then
+/// `Genet::identify_phy` (PHYIDR only). Does not program queues, enable
+/// DMA, or bind the network vocabulary.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
     use crate::bsp::board::memmap;
     use crate::drivers::genet::{Error, Genet};
-    use kernel_core::genet::{MmioProbe, RevisionError, mmio_probe_intent};
+    use kernel_core::genet::{
+        MdioError, MmioProbe, PhyError, PhyIdentify, RevisionError, mmio_probe_intent,
+    };
 
-    let line = match report {
-        kernel_core::genet_fdt::Report::Unavailable(_) => MmioProbe::NoBinding,
+    let (line, phy) = match report {
+        kernel_core::genet_fdt::Report::Unavailable(_) => (MmioProbe::NoBinding, None),
         kernel_core::genet_fdt::Report::Binding(binding) => {
             match mmio_probe_intent(
                 Some((binding.mmio_base, binding.mmio_len)),
                 memmap::GENET_BASE as u64,
                 memmap::GENET_REG_BYTES as u64,
             ) {
-                Err(outcome) => outcome,
+                Err(outcome) => (outcome, None),
                 Ok(()) => {
                     // SAFETY: the compiled window is in DEVICE_REGIONS and
                     // mapped Device; extract already validated this Binding.
                     match unsafe { Genet::probe(binding) } {
-                        Ok(controller) => MmioProbe::Revision(controller.revision()),
-                        Err(Error::NotPresent) => MmioProbe::NotPresent,
-                        Err(Error::Revision(RevisionError::Unsupported(major))) => {
-                            MmioProbe::Unsupported(major)
+                        Ok(controller) => {
+                            let phy = Some(match controller.identify_phy() {
+                                Ok(link) => PhyIdentify::Identity(link),
+                                Err(Error::Timeout) => PhyIdentify::Timeout,
+                                Err(Error::Phy(error)) => PhyIdentify::Unavailable(error),
+                                Err(Error::Mdio(error)) => {
+                                    PhyIdentify::Unavailable(PhyError::Id(error))
+                                }
+                                Err(_) => {
+                                    PhyIdentify::Unavailable(PhyError::Id(MdioError::ReadFail))
+                                }
+                            });
+                            (MmioProbe::Revision(controller.revision()), phy)
                         }
-                        Err(Error::Timeout) => MmioProbe::Timeout,
-                        Err(Error::InvalidBinding) => MmioProbe::InvalidBinding,
-                        Err(_) => MmioProbe::InvalidBinding,
+                        Err(Error::NotPresent) => (MmioProbe::NotPresent, None),
+                        Err(Error::Revision(RevisionError::Unsupported(major))) => {
+                            (MmioProbe::Unsupported(major), None)
+                        }
+                        Err(Error::Timeout) => (MmioProbe::Timeout, None),
+                        Err(Error::InvalidBinding) => (MmioProbe::InvalidBinding, None),
+                        Err(_) => (MmioProbe::InvalidBinding, None),
                     }
                 }
             }
         }
     };
     println!(uart, "{line}");
+    if let Some(phy) = phy {
+        println!(uart, "{phy}");
+    }
 }
 
 /// What the kernel map was built from, and when it went live.
