@@ -22,7 +22,10 @@ has the FDT line, `rev=6.0`, `phy=0x600d84a2`, `link=down`,
 `queue0 programmed`, `queue0 enabled`,
 `genet: tx unavailable (link down)`, and `VACANT`. A down BMSR refused
 before the doorbell. That is not a completed TX and not this ADR's NIC
-gate. No RX, service reset/recovery, or absent-device result was produced.
+gate. After Enabled the product may also attempt one bounded RX; a down
+BMSR refuses before UniMAC `RX_EN` (`rx unavailable (link down)`). That
+RX line is unpaid on silicon. No RX completion, service reset/recovery,
+or absent-device result was produced.
 
 ## Context
 

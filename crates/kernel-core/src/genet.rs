@@ -42,6 +42,7 @@ pub mod registers {
     pub const RBUF_CTRL: u32 = RBUF;
     pub const UMAC_CMD: u32 = UMAC + 0x08;
     pub const UMAC_CMD_TX_EN: u32 = 1 << 0;
+    pub const UMAC_CMD_RX_EN: u32 = 1 << 1;
     pub const UMAC_TX_FLUSH: u32 = UMAC + 0x334;
     pub const UMAC_MDIO_CMD: u32 = MDIO;
 }
@@ -1104,6 +1105,49 @@ impl Display for TxReport {
     }
 }
 
+/// Boot report for one bounded RX. Not a NIC and not a TX claim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RxReport {
+    Complete(u16),
+    LinkDown,
+    NotEnabled,
+    Timeout,
+}
+
+impl RxReport {
+    /// Refuse before arming UniMAC RX or posting the buffer. Enabled+Up returns `None`.
+    pub const fn refuse(phase: DmaPhase, link: LinkState) -> Option<Self> {
+        match (phase, link) {
+            (DmaPhase::Enabled, LinkState::Up) => None,
+            (DmaPhase::Enabled, LinkState::Down) => Some(Self::LinkDown),
+            (_, _) => Some(Self::NotEnabled),
+        }
+    }
+
+    pub const fn from_status(word: u32) -> Self {
+        match DescriptorStatus::decode(word) {
+            Ok(status) => match status.ownership {
+                Ownership::Driver => Self::Complete(status.length),
+                Ownership::Device => Self::Timeout,
+            },
+            Err(_) => Self::Timeout,
+        }
+    }
+}
+
+impl Display for RxReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RxReport::Complete(len) => {
+                write!(f, "genet: rx complete len={len} (one frame, not a nic)")
+            }
+            RxReport::LinkDown => f.write_str("genet: rx unavailable (link down)"),
+            RxReport::NotEnabled => f.write_str("genet: rx unavailable (not enabled)"),
+            RxReport::Timeout => f.write_str("genet: rx unavailable (timeout)"),
+        }
+    }
+}
+
 /// Why a queue-0 DMA enable word was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QueueEnableError {
@@ -1773,5 +1817,59 @@ mod tests {
         assert_eq!(TxReport::from_status(0), TxReport::Timeout);
         assert_eq!(registers::UMAC_CMD_TX_EN, 1);
         assert_eq!(MIN_FRAME_BYTES, 60);
+    }
+
+    #[test]
+    fn rx_report_refuses_before_arming_and_reads_ownership() {
+        assert_eq!(
+            RxReport::refuse(DmaPhase::Enabled, LinkState::Down),
+            Some(RxReport::LinkDown)
+        );
+        assert_eq!(RxReport::refuse(DmaPhase::Enabled, LinkState::Up), None);
+        assert_eq!(
+            RxReport::refuse(DmaPhase::Programmed, LinkState::Up),
+            Some(RxReport::NotEnabled)
+        );
+        assert_eq!(
+            RxReport::refuse(DmaPhase::Idle, LinkState::Up),
+            Some(RxReport::NotEnabled)
+        );
+        assert_eq!(
+            RxReport::LinkDown.to_string(),
+            "genet: rx unavailable (link down)"
+        );
+        assert_eq!(
+            RxReport::Timeout.to_string(),
+            "genet: rx unavailable (timeout)"
+        );
+        assert_eq!(
+            RxReport::Complete(MIN_FRAME_BYTES as u16).to_string(),
+            "genet: rx complete len=60 (one frame, not a nic)"
+        );
+        let done = DescriptorStatus {
+            length: MIN_FRAME_BYTES as u16,
+            ownership: Ownership::Driver,
+            start: true,
+            end: true,
+            wrap: true,
+        }
+        .encode()
+        .unwrap();
+        assert_eq!(
+            RxReport::from_status(done),
+            RxReport::Complete(MIN_FRAME_BYTES as u16)
+        );
+        let still_owned = DescriptorStatus {
+            length: MIN_FRAME_BYTES as u16,
+            ownership: Ownership::Device,
+            start: true,
+            end: true,
+            wrap: true,
+        }
+        .encode()
+        .unwrap();
+        assert_eq!(RxReport::from_status(still_owned), RxReport::Timeout);
+        assert_eq!(RxReport::from_status(0), RxReport::Timeout);
+        assert_eq!(registers::UMAC_CMD_RX_EN, 2);
     }
 }
