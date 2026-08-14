@@ -6,8 +6,8 @@
 //! future MMIO backend must preserve.
 
 use kernel_core::genet::{
-    classify_phy_id, dma_registers, mdio, registers, Descriptor, DescriptorStatus, MdioTxn,
-    Ownership, RingLayout, RingProgram, RingState,
+    Descriptor, DescriptorStatus, MdioTxn, Ownership, RingLayout, RingProgram, RingState,
+    classify_phy_id, dma_registers, mdio, registers,
 };
 use kernel_core::genet_fdt;
 

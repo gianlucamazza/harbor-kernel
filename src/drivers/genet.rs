@@ -6,8 +6,8 @@
 //! controller. Network-service publication is a later BSP composition step.
 
 use kernel_core::genet::{
-    self, dma_registers, mdio, registers, Descriptor, DescriptorError, MdioError, MdioTxn,
-    Revision, RevisionError, RingProgram, RingProgramError,
+    self, Descriptor, DescriptorError, MdioError, MdioTxn, Revision, RevisionError, RingProgram,
+    RingProgramError, dma_registers, mdio, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
