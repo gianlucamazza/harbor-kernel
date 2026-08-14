@@ -101,7 +101,7 @@ deterministic peer RX, and service reset/recovery are integrated and gated by
 [ADR-0105](docs/adr/0105-pi4-nic-backend-boundary.md) and the proposed
 [GENET design ADR-0106](docs/adr/0106-pi4-genet-v5-backend-design.md).
 K5-H stays held: measured
-peak is 5 of 54 slots on QEMU (6 on a board with RNG200).
+peak is 8 of 57 slots on QEMU (9 on a Pi 4B that runs the five-agent store).
 
 **Working today (high level).** Preemptible tasks on both cores — voluntary
 yield plus IRQ-epilogue quantum preemption, EL0+EL1 — with dual-current SMP
@@ -109,6 +109,7 @@ through steal; product composition can pin agent **home_cpu**; message IPC and
 EL0 agents with private memory, slot capabilities, revoke and auto-reap;
 supervisor force-exit of Running tasks; a least-privilege console; a
 composed RNG driver-agent granted its page by **index**, not by address;
+a product-bound `console` name and an EL0 durable blob endpoint;
 density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |

@@ -69,4 +69,5 @@ the external store packer.
 | --- | --- |
 | Host | `kernel-core` blob protocol tests; bare-metal `cargo check` |
 | Build | `make vocabulary-sync product-builds`; packer emits the five-agent store |
-| QEMU/HW | `product-boot-check` requires the service, both endpoint bindings, `blob: put ok`, and `blob: got` |
+| QEMU | `product-boot-check` requires the service, both endpoint bindings, `blob: put ok`, and `blob: got` |
+| HW | Same product lines on a Pi 4B, stamp 2026-08-14, transcript `20260814-113438.log` (`src=dcc997cc`): `authority: 1 blob ok`, `authority: 2 blob-reply ok`, `blob: put ok`, `blob: got`, `S`, `loader: blob ran sends=3 refusals=0`. `make hw-check` clean |
