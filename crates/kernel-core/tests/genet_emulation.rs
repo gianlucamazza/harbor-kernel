@@ -6,8 +6,8 @@
 //! future MMIO backend must preserve.
 
 use kernel_core::genet::{
-    Descriptor, DescriptorStatus, MdioTxn, Ownership, RingLayout, RingProgram, RingState,
-    classify_phy_id, dma_registers, mdio, registers,
+    Descriptor, DescriptorStatus, LinkState, MdioError, MdioTxn, Ownership, PhyError, PhyLink,
+    RingLayout, RingProgram, RingState, classify_phy_id, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt;
 
@@ -75,4 +75,42 @@ fn deterministic_genet_device_model_runs_bounded_tx_rx() {
     // Device-model reply: START_BUSY cleared, identifier in the data field.
     assert_eq!(MdioTxn::decode_read(0x0362), Ok(0x0362));
     assert_eq!(classify_phy_id(0x0362, 0x5e60), Ok(0x0362_5e60));
+}
+
+#[test]
+fn deterministic_phy_bring_up_and_absent_id() {
+    let binding = genet_fdt::extract(PI4).expect("Pi 4 DTB binding must be valid");
+    assert!(binding.phy_mode_rgmii_rxid);
+
+    let link = PhyLink::identify(0x0362, 0x5e60, binding.phy_mode_rgmii_rxid).unwrap();
+    let reset = MdioTxn::new(
+        binding.phy_addr as u8,
+        phy::BMCR,
+        Some(PhyLink::reset_command()),
+    )
+    .unwrap()
+    .encode()
+    .unwrap();
+    assert_ne!(reset & mdio::WRITE, 0);
+    assert_eq!(
+        PhyLink::reset_cleared(phy::BMCR_RESET),
+        Err(PhyError::ResetPending)
+    );
+    assert_eq!(PhyLink::reset_cleared(0), Ok(()));
+    assert_eq!(
+        link.with_bmsr(phy::BMSR_LINK | phy::BMSR_ANEG_DONE)
+            .require_up()
+            .unwrap()
+            .state,
+        LinkState::Up
+    );
+
+    assert_eq!(
+        PhyLink::identify(0, 0, true),
+        Err(PhyError::Id(MdioError::InvalidPhyId))
+    );
+    assert_eq!(
+        PhyLink::identify(0xffff, 0xffff, true),
+        Err(PhyError::Id(MdioError::InvalidPhyId))
+    );
 }

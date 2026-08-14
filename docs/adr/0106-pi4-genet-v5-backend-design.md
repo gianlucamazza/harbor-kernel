@@ -66,8 +66,10 @@ driver/device/driver lifecycle and refuses full rings, missing completions,
 bad status ownership, and malformed descriptors. The data-plane contract
 adds `RingProgram` for queue 0 (v5 word-unit start/end after the 256-slot
 descriptor RAM) and `MdioTxn` for a clause-22 read/write with busy/fail and
-absent PHY-ID refusal. This remains a host contract. The AArch64 driver can
-now write that program and issue an MDIO read; it still does not enable DMA,
+absent PHY-ID refusal. `PhyLink` classifies BMCR reset and BMSR link against
+the binding's `rgmii-rxid` fact; it does not invent RGMII delay tables. This
+remains a host contract. The AArch64 driver can write the queue-0 program,
+read the DT PHY, and run a bounded `init_phy`; it still does not enable DMA,
 select `board-rpi4`, or publish a network service.
 
 Revision decoding and the v5 RDMA/TDMA offsets — descriptor RAM, then 17

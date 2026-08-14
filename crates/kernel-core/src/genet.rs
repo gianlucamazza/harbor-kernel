@@ -56,6 +56,17 @@ pub mod mdio {
     pub const PHYIDR2: u8 = 3;
 }
 
+/// IEEE 802.3 clause-22 PHY registers used by the unpublished bring-up.
+pub mod phy {
+    pub const BMCR: u8 = 0;
+    pub const BMSR: u8 = 1;
+    pub const BMCR_RESET: u16 = 1 << 15;
+    pub const BMCR_ANENABLE: u16 = 1 << 12;
+    pub const BMCR_ANRESTART: u16 = 1 << 9;
+    pub const BMSR_LINK: u16 = 1 << 2;
+    pub const BMSR_ANEG_DONE: u16 = 1 << 5;
+}
+
 /// GENET v5 register layout shared by the RDMA and TDMA blocks.
 ///
 /// Descriptor RAM occupies the first [`DESCRIPTOR_RAM_BYTES`] of each
@@ -743,6 +754,79 @@ pub const fn classify_phy_id(hi: u16, lo: u16) -> Result<u32, MdioError> {
     }
 }
 
+/// Why a PHY identify / link classify was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhyError {
+    ModeNotRgmiiRxid,
+    Id(MdioError),
+    ResetPending,
+    LinkDown,
+}
+
+/// Clause-22 link snapshot. `rgmii-rxid` is a binding fact, not a delay table.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkState {
+    Down,
+    Up,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PhyLink {
+    pub id: u32,
+    pub rgmii_rxid: bool,
+    pub state: LinkState,
+}
+
+impl PhyLink {
+    pub const fn identify(hi: u16, lo: u16, rgmii_rxid: bool) -> Result<Self, PhyError> {
+        if !rgmii_rxid {
+            return Err(PhyError::ModeNotRgmiiRxid);
+        }
+        match classify_phy_id(hi, lo) {
+            Ok(id) => Ok(Self {
+                id,
+                rgmii_rxid: true,
+                state: LinkState::Down,
+            }),
+            Err(error) => Err(PhyError::Id(error)),
+        }
+    }
+
+    pub const fn reset_command() -> u16 {
+        phy::BMCR_RESET
+    }
+
+    pub const fn reset_cleared(bmcr: u16) -> Result<(), PhyError> {
+        if bmcr & phy::BMCR_RESET == 0 {
+            Ok(())
+        } else {
+            Err(PhyError::ResetPending)
+        }
+    }
+
+    pub const fn classify_bmsr(bmsr: u16) -> LinkState {
+        if bmsr & phy::BMSR_LINK != 0 {
+            LinkState::Up
+        } else {
+            LinkState::Down
+        }
+    }
+
+    pub const fn with_bmsr(self, bmsr: u16) -> Self {
+        Self {
+            state: Self::classify_bmsr(bmsr),
+            ..self
+        }
+    }
+
+    pub const fn require_up(self) -> Result<Self, PhyError> {
+        match self.state {
+            LinkState::Up => Ok(self),
+            LinkState::Down => Err(PhyError::LinkDown),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1121,6 +1205,43 @@ mod tests {
         assert_eq!(
             MdioTxn::new(0, 32, None),
             Err(MdioError::RegisterOutOfRange)
+        );
+    }
+
+    #[test]
+    fn phy_link_identifies_and_classifies_bmsr() {
+        let link = PhyLink::identify(0x0362, 0x5e60, true).unwrap();
+        assert_eq!(link.id, 0x0362_5e60);
+        assert!(link.rgmii_rxid);
+        assert_eq!(link.state, LinkState::Down);
+        assert_eq!(PhyLink::reset_command(), phy::BMCR_RESET);
+        assert_eq!(PhyLink::reset_cleared(0), Ok(()));
+        assert_eq!(
+            PhyLink::reset_cleared(phy::BMCR_RESET),
+            Err(PhyError::ResetPending)
+        );
+        assert_eq!(PhyLink::classify_bmsr(0), LinkState::Down);
+        assert_eq!(PhyLink::classify_bmsr(phy::BMSR_LINK), LinkState::Up);
+        assert_eq!(
+            link.with_bmsr(phy::BMSR_LINK).require_up().unwrap().state,
+            LinkState::Up
+        );
+        assert_eq!(link.with_bmsr(0).require_up(), Err(PhyError::LinkDown));
+    }
+
+    #[test]
+    fn phy_link_refuses_wrong_mode_and_absent_id() {
+        assert_eq!(
+            PhyLink::identify(0x0362, 0x5e60, false),
+            Err(PhyError::ModeNotRgmiiRxid)
+        );
+        assert_eq!(
+            PhyLink::identify(0, 0, true),
+            Err(PhyError::Id(MdioError::InvalidPhyId))
+        );
+        assert_eq!(
+            PhyLink::identify(0xffff, 0xffff, true),
+            Err(PhyError::Id(MdioError::InvalidPhyId))
         );
     }
 }
