@@ -7,7 +7,7 @@
     feature = "board-rpi4",
     expect(
         dead_code,
-        reason = "GENET dataplane compiled; only Genet::probe is selected"
+        reason = "GENET leftover dataplane compiled; probe/identify/link/queue0 selected"
     )
 )]
 #[cfg_attr(

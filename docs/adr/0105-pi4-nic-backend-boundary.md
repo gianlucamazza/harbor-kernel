@@ -20,8 +20,10 @@ FDT report and, when that binding matches the compiled window, runs
 `Genet::probe`. Silicon stamp `20260814-174803.log` boot 3 (`src=f7404550`) has the
 FDT line, `rev=6.0`, `phy=0x600d84a2`, `link=down`,
 `genet: queue0 programmed (rings, not a nic)`, and `VACANT`.
-Programmed rings with DMA disabled are not this ADR's NIC gate. No
-TX/RX, service reset/recovery, or absent-device result was produced.
+Programmed rings are not this ADR's NIC gate. After Programmed the
+product may enable queue 0 (`RING_CFG`+`CTRL`) without submitting a
+frame; that is still not TX/RX. No service reset/recovery or
+absent-device result was produced.
 
 ## Context
 

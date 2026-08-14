@@ -147,8 +147,16 @@ fn the_genet_queue0_report_and_dma_map_are_reachable_from_outside() {
         "genet: queue0 programmed (rings, not a nic)"
     );
     assert_eq!(
+        Queue0Report::Enabled.to_string(),
+        "genet: queue0 enabled (dma, not a nic)"
+    );
+    assert_eq!(
         Queue0Report::OutsideDma.to_string(),
         "genet: queue0 unavailable (outside dma)"
+    );
+    assert_eq!(
+        Queue0Report::Enable(kernel_core::genet::QueueEnableError::NotProgrammed).to_string(),
+        "genet: queue0 unavailable (not programmed)"
     );
 }
 
