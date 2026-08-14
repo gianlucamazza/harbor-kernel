@@ -62,6 +62,12 @@ unmodified fixture still extracts on the host. A real Pi firmware DTB keeps
 the node enabled: stamp 2026-08-14, transcript `20260814-140651.log`
 (`src=1aa3e894`) prints `genet: binding ok base=0xfd580000 len=0x10000
 phy=rgmii-rxid (fdt, not probed)` and leaves the network vocabulary vacant.
+
+The compiled BSP now maps that 64 KiB window (`GENET_BASE` in
+`board-rpi4` `DEVICE_REGIONS`). When the FDT binding matches it, the
+product calls `Genet::probe` (mask, stop DMA, UniMAC reset) and prints
+the decoded revision. The kernel does not map a discovered PA (ADR-0072).
+Queues stay disabled and the network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, and applies the

@@ -407,12 +407,51 @@ fn map_dtb_and_discover(uart: &mut Pl011, core1: bool) -> u64 {
     } else {
         None
     };
-    println!(
-        uart,
-        "{}",
-        kernel_core::genet_fdt::boot_report(dtb_mapped, dtb)
-    );
+    let genet = kernel_core::genet_fdt::boot_report(dtb_mapped, dtb);
+    println!(uart, "{genet}");
+    #[cfg(feature = "board-rpi4")]
+    report_genet_mmio(uart, genet);
     timer::physical_count()
+}
+
+/// Bring up GENET through the existing driver when the FDT binding matches
+/// the compiled window. Always prints one probe line (ADR-0072: fail-open).
+///
+/// Uses `Genet::probe` (mask, stop DMA, UniMAC reset). Does not program
+/// queues, enable DMA, or bind the network vocabulary.
+#[cfg(feature = "board-rpi4")]
+fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
+    use crate::bsp::board::memmap;
+    use crate::drivers::genet::{Error, Genet};
+    use kernel_core::genet::{MmioProbe, RevisionError, mmio_probe_intent};
+
+    let line = match report {
+        kernel_core::genet_fdt::Report::Unavailable(_) => MmioProbe::NoBinding,
+        kernel_core::genet_fdt::Report::Binding(binding) => {
+            match mmio_probe_intent(
+                Some((binding.mmio_base, binding.mmio_len)),
+                memmap::GENET_BASE as u64,
+                memmap::GENET_REG_BYTES as u64,
+            ) {
+                Err(outcome) => outcome,
+                Ok(()) => {
+                    // SAFETY: the compiled window is in DEVICE_REGIONS and
+                    // mapped Device; extract already validated this Binding.
+                    match unsafe { Genet::probe(binding) } {
+                        Ok(controller) => MmioProbe::Revision(controller.revision()),
+                        Err(Error::NotPresent) => MmioProbe::NotPresent,
+                        Err(Error::Revision(RevisionError::Unsupported(major))) => {
+                            MmioProbe::Unsupported(major)
+                        }
+                        Err(Error::Timeout) => MmioProbe::Timeout,
+                        Err(Error::InvalidBinding) => MmioProbe::InvalidBinding,
+                        Err(_) => MmioProbe::InvalidBinding,
+                    }
+                }
+            }
+        }
+    };
+    println!(uart, "{line}");
 }
 
 /// What the kernel map was built from, and when it went live.

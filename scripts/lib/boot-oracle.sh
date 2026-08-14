@@ -72,6 +72,9 @@ assert_boot_oracle() {
 	# boot 2 is DTB-less. Silence means the reporter never ran. Not a NIC.
 	grep -qaE 'genet: (binding ok |unavailable \()' "${log}" ||
 		fail "GENET FDT report missing (expected binding ok or unavailable)"
+	# Compiled-window bring-up (fail-open). Fixture QEMU deletes the node.
+	grep -qaE 'genet: (rev=|probe (unavailable|skipped) )' "${log}" ||
+		fail "GENET MMIO probe line missing (expected rev= or probe unavailable/skipped)"
 	grep -qa 'fully reclaimed' "${log}" ||
 		fail "the allocator did not return freed memory"
 	# Bring-up cost on the board's own clock. Shape only: an emulator starved by

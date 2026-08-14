@@ -30,9 +30,11 @@ retained EL1 ownership, 32 slot IRQ bindings, deterministic peer RX payload
 delivery, the service reset/recovery boundary, and absent-device refusal. The
 QEMU-only built-in edge-gateway capability path is not a Pi4 hardware claim;
 the separate Pi4 backend evidence gate is [ADR-0105](adr/0105-pi4-nic-backend-boundary.md).
-The default `board-rpi4` product prints a `genet:` FDT report and leaves
-`authority: network vocabulary VACANT`. That line is extract-only (no MMIO)
-and is not a Pi 4 NIC claim.
+The default `board-rpi4` product prints a `genet:` FDT report and a second
+`genet:` probe line. The kernel maps a compiled 64 KiB Device window at
+`0xFD58_0000` and, when the FDT binding matches that window, runs
+`Genet::probe`. The network vocabulary stays vacant. That is not a Pi 4 NIC
+claim.
 
 ## Serial console
 

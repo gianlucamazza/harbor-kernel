@@ -136,6 +136,28 @@ fn capability_rights_do_not_imply_each_other() {
 }
 
 #[test]
+fn the_genet_mmio_probe_classifier_is_reachable_from_outside() {
+    use kernel_core::genet::{MmioProbe, REGISTER_BYTES, mmio_probe_intent};
+
+    assert_eq!(
+        mmio_probe_intent(None, 0xfd58_0000, REGISTER_BYTES),
+        Err(MmioProbe::NoBinding)
+    );
+    assert_eq!(
+        mmio_probe_intent(
+            Some((0xfd58_0000, REGISTER_BYTES)),
+            0xfd58_0000,
+            REGISTER_BYTES
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        MmioProbe::NoBinding.to_string(),
+        "genet: probe unavailable (no binding)"
+    );
+}
+
+#[test]
 fn the_genet_fdt_boot_report_is_reachable_from_outside() {
     // What `bootstrap` prints after `discover:` (ADR-0106 report-only):
     // classify the mapped blob, never probe MMIO. An unmapped fixture must

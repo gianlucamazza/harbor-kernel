@@ -64,6 +64,15 @@ pub const RNG200_REG_BYTES: usize = FRAME_SIZE;
 /// Disjoint from [`USER_PL011_VA`] and from [`USER_VA_BASE`].
 pub const USER_RNG_VA: u64 = 0x0000_0000_5100_0000;
 
+/// GENET v5 register window (ADR-0106). CPU physical address after the SCB
+/// `ranges` translation of bus `0x7d58_0000`. Not inside [`PERIPHERAL_BASE`].
+///
+/// Compiled claim: the kernel maps this 64 KiB Device window. The FDT
+/// binding must match before any SYS_REV_CTRL read (ADR-0072: verify, don't
+/// select). Not a NIC and not an EL0 window.
+pub const GENET_BASE: usize = 0xFD58_0000;
+pub const GENET_REG_BYTES: usize = kernel_core::genet::REGISTER_BYTES as usize;
+
 /// EMMC2 SDHCI host — the SD card slot on BCM2711 silicon (ADR-0066).
 ///
 /// Low peripheral mode: legacy bus `0x7E34_0000` → ARM `0xFE34_0000`.
@@ -149,7 +158,10 @@ pub const USER_STACK_PAGES: usize = 4;
 /// allows: everything outside these windows faults, which is how a stray
 /// pointer into the peripheral range becomes a diagnosable exception instead
 /// of an unpredictable side effect on a device register.
-pub const DEVICE_REGIONS: [(usize, usize, &str); 3] = [
+pub const DEVICE_REGIONS: [(usize, usize, &str); 4] = [
+    // GENET v5: SCB-translated window, 64 KiB (ADR-0106). Before the low
+    // peripheral gigabyte so the const table stays ascending.
+    (GENET_BASE, GENET_REG_BYTES, "genet"),
     // Low peripherals: GPIO, PL011, mailboxes.
     (PERIPHERAL_BASE, 0x0100_0000, "peripherals"),
     // ARM local (timers, core mailboxes) — K8 unpark poke (ADR-0070).
