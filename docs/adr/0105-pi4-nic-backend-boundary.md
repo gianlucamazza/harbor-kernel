@@ -15,11 +15,12 @@ network backend on Raspberry Pi 4B. It deliberately does not select a device
 or claim that a driver exists.
 
 A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
-provenance, SMP, and durable-media baseline. The product now also prints a
+provenance, SMP, and durable-media baseline. The product also prints a
 `genet:` FDT report (`kernel_core::genet_fdt::boot_report`): extract only,
-never an MMIO probe, and the network vocabulary stays vacant. That line does
-not satisfy this ADR's NIC gate: no GENET probe, link, TX/RX, reset/recovery,
-or absent-device result was produced.
+never an MMIO probe. Silicon stamp `20260814-140651.log` (`src=1aa3e894`)
+prints `binding ok … (fdt, not probed)` and leaves the network vocabulary
+vacant. That line does not satisfy this ADR's NIC gate: no GENET probe,
+link, TX/RX, reset/recovery, or absent-device result was produced.
 
 ## Context
 
