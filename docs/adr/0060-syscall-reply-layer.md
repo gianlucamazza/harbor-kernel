@@ -63,5 +63,5 @@ adjective it cannot.
 | Check                       | Evidence                                                                   |
 | --------------------------- | -------------------------------------------------------------------------- |
 | Mapping is total and tested | host tests in `kernel_core::reply`, one per outcome variant                |
-| Behaviour unchanged         | boot oracle exact counts (`ipc: refuse count=6`, `el0-*` lines) stay green |
+| Behaviour unchanged         | boot oracle exact counts (`ipc: refuse count=7`, `el0-*` lines) stay green |
 | Mutation                    | `reply.rs` joins the mutation file list (ADR-0058 §2)                      |

@@ -64,7 +64,7 @@ Log line: `loader: store n=… image` vs `loader: builtin`.
 
 | Reversal | Gate |
 | --- | --- |
-| Product without inject | `product-boot-check` requires `loader: store n=2 image` |
+| Product without inject | `product-boot-check` requires the current injected store (`loader: store n=4 image`) |
 | Oracle without zeros | `boot-check` requires `loader: builtin` |
 | Section missing | inject tool fails; product-builds fails |
 

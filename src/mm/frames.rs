@@ -113,14 +113,3 @@ pub fn alloc() -> Option<(FrameId, usize)> {
 pub fn free(id: FrameId) -> Result<(), FrameFreeError> {
     OWNER.with(|owner| owner.pool.free(id))
 }
-
-/// Physical address of `id` if it lies in this pool's index range.
-#[expect(dead_code, reason = "S2 map helpers")]
-pub fn phys(id: FrameId) -> Option<usize> {
-    OWNER.with(|owner| {
-        if id.index() >= owner.pool.capacity() {
-            return None;
-        }
-        Some(owner.base + (id.index() as usize) * FRAME_SIZE)
-    })
-}

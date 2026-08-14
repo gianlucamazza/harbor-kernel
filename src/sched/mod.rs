@@ -68,8 +68,10 @@ use crate::time;
 /// 46 → 49 for ADR-0081: CPU1 EL0 preempt oracle (watcher + peer + spinner).
 /// 49 → 52 for ADR-0083: steal oracle (watch + two thin victims).
 /// 52 → 54 for ADR-0090: force-kill supervisor + EL0 spinner child (oracle tax).
+/// 54 → 57 for the three final lifecycle oracles, which can overlap the
+/// preemption and supervisor tasks on a fast native runner (ADR-0031/0033).
 /// Raising it costs task stacks and page-table reserve derived from this constant.
-pub const MAX_TASKS: usize = 54;
+pub const MAX_TASKS: usize = 57;
 
 const _: () = assert!(
     MAX_TASKS <= kernel_core::irqwait::MAX_TASK_IDS,
@@ -963,6 +965,16 @@ pub fn blocked_count() -> u32 {
 /// Cumulative successful entries into `Blocked` since boot (ADR-0024).
 pub fn block_events() -> u32 {
     with_sched(|sched| sched.tasks.block_events())
+}
+
+/// Occupied task slots right now, and the high-water mark since boot
+/// (ADR-0098).
+///
+/// The first of ADR-0085's density meters, read from the table rather than
+/// remembered by a gate. Idle identities are included — `oracle-census.sh`
+/// nets them out where a reader can see the subtraction.
+pub fn slot_occupancy() -> (u32, u32) {
+    with_sched(|sched| (sched.tasks.live_count(), sched.tasks.peak_slots()))
 }
 
 /// Successful supervisor cancels of a blocked wait (ADR-0025).

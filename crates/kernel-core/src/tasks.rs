@@ -99,6 +99,10 @@ pub struct Tasks<const N: usize> {
     overwrites: u32,
     /// Successful entries into [`State::Blocked`] (ADR-0024).
     block_events: u32,
+    /// High-water mark of occupied slots (ADR-0098). Never reset: it answers
+    /// how close a composition came to the ceiling, which a reading taken
+    /// after the demos exited cannot.
+    peak: u32,
 }
 
 impl<const N: usize> Default for Tasks<N> {
@@ -123,6 +127,7 @@ impl<const N: usize> Tasks<N> {
             parked: None,
             overwrites: 0,
             block_events: 0,
+            peak: 0,
         }
     }
 
@@ -132,6 +137,7 @@ impl<const N: usize> Tasks<N> {
         self.home[Self::IDLE.slot()] = 0;
         self.current[0] = Self::IDLE;
         self.idle[0] = Self::IDLE;
+        self.note_occupancy();
     }
 
     /// Reserve a non-queued idle task for **CPU 1** (ADR-0076).
@@ -152,6 +158,7 @@ impl<const N: usize> Tasks<N> {
         self.home[slot] = 1;
         self.current[1] = id;
         self.idle[1] = id;
+        self.note_occupancy();
         Some(id)
     }
 
@@ -243,6 +250,46 @@ impl<const N: usize> Tasks<N> {
         self.block_events
     }
 
+    /// How many slots are occupied right now — every state except
+    /// [`State::Empty`], **including** the per-CPU idle identities
+    /// (ADR-0098).
+    ///
+    /// The first of [ADR-0085]'s three density meters. Idle is counted rather
+    /// than netted out here: the subtraction that turns slots into *agents*
+    /// belongs to the reader, in the open, not to a constant this table would
+    /// also have to keep true.
+    ///
+    /// [ADR-0085]: https://github.com/gianlucamazza/harbor-kernel/blob/main/docs/adr/0085-k5-density-residual-design.md
+    #[inline]
+    pub fn live_count(&self) -> u32 {
+        self.states.iter().filter(|s| **s != State::Empty).count() as u32
+    }
+
+    /// The largest [`Self::live_count`] this table has ever held (ADR-0098).
+    ///
+    /// What the density census reads. A live count sampled after the
+    /// composition steadied says nothing about the peak it passed through, and
+    /// the peak is the number that approaches the ceiling.
+    #[inline]
+    pub const fn peak_slots(&self) -> u32 {
+        self.peak
+    }
+
+    /// Re-read occupancy and raise the watermark.
+    ///
+    /// Called from the three paths that can make a slot occupied — [`Self::start`],
+    /// [`Self::start_cpu1`] and [`Self::admit_on`] — after the state is
+    /// written. Nothing else can raise the count: `switch_on` only ever lowers
+    /// it (`Switch::Exit`), and every other transition moves a slot between
+    /// non-`Empty` states.
+    #[inline]
+    fn note_occupancy(&mut self) {
+        let live = self.live_count();
+        if live > self.peak {
+            self.peak = live;
+        }
+    }
+
     /// Take the free slot for a new task, marking it `Ready` and queueing it.
     ///
     /// `None` when every slot is taken, or when the queue refuses — in which
@@ -275,6 +322,7 @@ impl<const N: usize> Tasks<N> {
         self.states[slot] = State::Ready;
         self.home[slot] = cpu as u8;
         self.stealeable[slot] = false;
+        self.note_occupancy();
         Some(id)
     }
 
@@ -640,6 +688,90 @@ mod tests {
         t.wake(a);
         assert_eq!(t.blocked_count(), 0);
         assert_eq!(t.block_events(), 1, "wake does not erase history");
+    }
+
+    #[test]
+    fn live_count_follows_admits_and_exits_and_counts_idle() {
+        // ADR-0098 meter one: what the table holds right now, idle included.
+        // The census subtracts idle in the open rather than here.
+        let mut t = started();
+        assert_eq!(t.live_count(), 1, "CPU 0's idle occupies a slot");
+
+        let a = t.admit().unwrap();
+        let b = t.admit().unwrap();
+        assert_eq!(t.live_count(), 3);
+
+        t.switch(Switch::Yield); // → a
+        t.switch(Switch::Exit); // a leaves
+        assert_eq!(t.live_count(), 2, "an exit frees its slot immediately");
+        assert_eq!(t.state(a), None);
+
+        // a's exit switched straight to b. Blocking does not free a slot:
+        // the task is still there, just off the queue.
+        assert_eq!(t.current(), b);
+        assert!(matches!(t.switch(Switch::Block), Decision::Switch { .. }));
+        assert_eq!(t.live_count(), 2, "Blocked still occupies its slot");
+        assert_eq!(t.state(b), Some(State::Blocked));
+    }
+
+    #[test]
+    fn peak_slots_is_the_high_water_mark_and_survives_the_exits() {
+        // The watermark answers "how close did the composition get to the
+        // ceiling", which a live count taken after everything exited cannot.
+        let mut t = started();
+        assert_eq!(t.peak_slots(), 1);
+
+        let _a = t.admit().unwrap();
+        let _b = t.admit().unwrap();
+        let _c = t.admit().unwrap();
+        assert_eq!(t.live_count(), 4);
+        assert_eq!(t.peak_slots(), 4, "exactly the largest live count so far");
+
+        t.switch(Switch::Yield);
+        t.switch(Switch::Exit);
+        t.collect();
+        assert_eq!(t.live_count(), 3);
+        assert_eq!(t.peak_slots(), 4, "the peak is history, not a reading");
+
+        // Re-admitting into the freed slot does not push the peak past what
+        // was ever concurrent.
+        let _d = t.admit().unwrap();
+        assert_eq!(t.live_count(), 4);
+        assert_eq!(t.peak_slots(), 4);
+    }
+
+    #[test]
+    fn cpu1s_idle_moves_the_meter_like_any_other_occupant() {
+        // start_cpu1 takes a slot without going through admit (ADR-0076): a
+        // watermark maintained only in admit_on would miss it.
+        let mut t = started();
+        assert_eq!(t.live_count(), 1);
+        assert_eq!(t.peak_slots(), 1);
+
+        let id = t.start_cpu1().expect("a free slot for CPU 1's idle");
+        assert_eq!(t.live_count(), 2);
+        assert_eq!(t.peak_slots(), 2);
+
+        // Idempotent: the second call returns the same identity and must not
+        // count a second time.
+        assert_eq!(t.start_cpu1(), Some(id));
+        assert_eq!(t.live_count(), 2);
+        assert_eq!(t.peak_slots(), 2);
+    }
+
+    #[test]
+    fn a_refused_admit_moves_neither_reading() {
+        // The slot is left Empty rather than half-admitted, and a table that
+        // counted the attempt would report a wall one task early.
+        let mut t = started();
+        let ids: Vec<_> = (0..3).map(|_| t.admit().unwrap()).collect();
+        assert_eq!(t.live_count(), 4);
+        assert_eq!(t.peak_slots(), 4);
+
+        assert_eq!(t.admit(), None, "table is full");
+        assert_eq!(t.live_count(), 4, "a refusal is not an occupant");
+        assert_eq!(t.peak_slots(), 4);
+        assert_eq!(ids.len(), 3);
     }
 
     #[test]

@@ -78,32 +78,42 @@ Full stack, including what is deliberately **not** in it:
 
 ## Current status
 
-Snapshot, 2026-08-11. The status of record is
+Snapshot, 2026-08-13. The status of record is
 [`docs/roadmap.md`](docs/roadmap.md) — per-track state lives there and nowhere
 else; what follows is a summary, not a second ledger.
 
 H0 is complete on Pi 4B and H1 is **done (HW)** — stamp 2026-08-08. H2
-**mechanism depth** is largely paid on HW (K4/K7/K8/K5-S + shared-state); open
-product services remain P3–P4 (deferred), H3 L1+, and trigger-gated residuals.
+**mechanism depth** is largely paid on HW (K4/K7/K8/K5-S + shared-state).
+Composition can now name a **declared vocabulary** of capabilities and device
+windows ([ADR-0099](docs/adr/0099-composition-vocabulary.md)/[0100](docs/adr/0100-device-windows.md));
+the first driver-agent that *arrives* in the store is `entropy`
+([ADR-0101](docs/adr/0101-composed-driver-agent.md)), and durable storage is
+available through the product's EL0 request/reply endpoint
+([ADR-0103](docs/adr/0103-p2-el0-durable-endpoint.md)). P3 now has a named
+architecture target ([ADR-0104](docs/adr/0104-p3-edge-network-composition.md));
+its Pi4 backend evidence and P4 remain open, along with H3 L1+ and trigger-gated
+residuals.
 
-Next: optional K5-H design if slot wall — [roadmap](docs/roadmap.md). Recent
-QEMU-paid slices: product `home_cpu` ([ADR-0088](docs/adr/0088-product-home-cpu.md)),
-K5-B design ([ADR-0089](docs/adr/0089-k5-b-pair-collapse-design.md)), K10
-force-exit ([ADR-0090](docs/adr/0090-k10-force-exit-running.md)); SMP loader
-tables closed, and every shared table restated as `Mutex<T>` — the lock owns
-its datum ([ADR-0077](docs/adr/0077-smp-shared-state-discipline.md) amended,
-[ADR-0091](docs/adr/0091-data-in-lock.md)).
+Next: **Pi4 backend evidence for the completed P3 edge-gateway target** — the
+transport and split-queue lifecycle, packet service, directional EL0 ownership,
+deterministic peer RX, and service reset/recovery are integrated and gated by
+`make qemu-virtio-check`; the board-specific evidence remains open under
+[ADR-0105](docs/adr/0105-pi4-nic-backend-boundary.md) and the proposed
+[GENET design ADR-0106](docs/adr/0106-pi4-genet-v5-backend-design.md).
+K5-H stays held: measured
+peak is 5 of 54 slots on QEMU (6 on a board with RNG200).
 
 **Working today (high level).** Preemptible tasks on both cores — voluntary
 yield plus IRQ-epilogue quantum preemption, EL0+EL1 — with dual-current SMP
 through steal; product composition can pin agent **home_cpu**; message IPC and
 EL0 agents with private memory, slot capabilities, revoke and auto-reap;
-supervisor force-exit of Running tasks; a least-privilege console and a PL011
-driver-agent; density stack classes Full / Thin / **Mini** stamped on hardware.
+supervisor force-exit of Running tasks; a least-privilege console; a
+composed RNG driver-agent granted its page by **index**, not by address;
+density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |
 | ------------ | ------------------------------------------------------------ |
-| Verification | 492 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 562 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 
@@ -135,7 +145,7 @@ Toolchain: [`rust-toolchain.toml`](rust-toolchain.toml) · target
 make              # release kernel8.img
 make test         # host tests
 make qemu         # boot in QEMU
-make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri mutation-freshness doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence, then clippy
+make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri mutation-freshness doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence vocabulary-sync, then clippy
 ```
 
 On a Pi 4B (FAT boot partition + 3.3 V USB-serial):

@@ -21,6 +21,24 @@ pub const fn movz_x_lsl16(rd: u8, imm16: u16) -> u32 {
     0xD2A0_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
 }
 
+/// `movk xd, #imm16, lsl #16`.
+#[inline]
+pub const fn movk_x_lsl16(rd: u8, imm16: u16) -> u32 {
+    0xF2A0_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
+}
+
+/// `movk xd, #imm16, lsl #32`.
+#[inline]
+pub const fn movk_x_lsl32(rd: u8, imm16: u16) -> u32 {
+    0xF2C0_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
+}
+
+/// `movk xd, #imm16, lsl #48`.
+#[inline]
+pub const fn movk_x_lsl48(rd: u8, imm16: u16) -> u32 {
+    0xF2E0_0000 | ((imm16 as u32) << 5) | (rd as u32 & 0x1F)
+}
+
 /// `mov xd, xm` — the register-to-register move, which A64 spells
 /// `orr xd, xzr, xm`.
 ///
@@ -40,6 +58,13 @@ pub const fn mov_x_reg(rd: u8, rm: u8) -> u32 {
 #[inline]
 pub const fn str_xzr(rn: u8) -> u32 {
     0xF900_001F | ((rn as u32 & 0x1F) << 5)
+}
+
+/// `str xt, [xn, #pimm]` — unsigned scaled offset (8-byte aligned).
+#[inline]
+pub const fn str_x_imm(rt: u8, rn: u8, pimm: u16) -> u32 {
+    let imm12 = (pimm as u32) / 8;
+    0xF900_0000 | (imm12 << 10) | ((rn as u32 & 0x1F) << 5) | (rt as u32 & 0x1F)
 }
 
 /// `b .` — branch to self (infinite wait until interrupted or replaced).
@@ -117,6 +142,11 @@ mod tests {
     }
 
     #[test]
+    fn store_x_offset() {
+        assert_eq!(str_x_imm(1, 0, 8), 0xF900_0401);
+    }
+
+    #[test]
     fn svc_encodings() {
         assert_eq!(svc(0), 0xD400_0001);
         assert_eq!(svc(1), 0xD400_0021);
@@ -135,6 +165,13 @@ mod tests {
     fn movz_pl011_va_half() {
         // USER_PL011_VA = 0x5000_0000 → movz x0, #0x5000, lsl #16
         assert_eq!(movz_x_lsl16(0, 0x5000), 0xD2A0_0000 | (0x5000 << 5));
+    }
+
+    #[test]
+    fn movk_shifts() {
+        assert_eq!(movk_x_lsl16(2, 0x736e), 0xF2A0_0000 | (0x736e << 5) | 2);
+        assert_eq!(movk_x_lsl32(2, 0x6c6f), 0xF2C0_0000 | (0x6c6f << 5) | 2);
+        assert_eq!(movk_x_lsl48(2, 0x65), 0xF2E0_0000 | (0x65 << 5) | 2);
     }
 
     #[test]

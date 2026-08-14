@@ -105,10 +105,13 @@ pub unsafe extern "C" fn secondary_main() -> ! {
 
 /// QEMU `raspi*_64` spin-table base (absolute PA). Secondary *n* polls
 /// `SPIN_TABLE + 8*n` (see QEMU `write_smpboot64`). Core 1 → `0xe0`.
+#[cfg(not(feature = "board-qemu-virt"))]
 const QEMU_SPIN_TABLE: usize = 0xd8;
+#[cfg(not(feature = "board-qemu-virt"))]
 const QEMU_SPIN_CORE1: usize = QEMU_SPIN_TABLE + 8; // 0xe0
 
 /// BCM2711 ARM local: core1 mailbox-3 write-set (firmware-style poke).
+#[cfg(not(feature = "board-qemu-virt"))]
 const CORE1_MBOX3_SET: usize = 0xFF80_0000 + 0x9C;
 
 /// Publish core 1's entry point and wait until it signals alive.
@@ -122,53 +125,64 @@ const CORE1_MBOX3_SET: usize = 0xFF80_0000 + 0x9C;
 /// 2. QEMU AArch64 spin-table word at PA `0xe0` + SEV.
 /// 3. ARM-local mailbox 3 write-set (Pi firmware mailbox path).
 pub fn unpark_core1() -> bool {
-    unsafe extern "C" {
-        fn secondary_el2_entry();
-    }
-    let entry = secondary_el2_entry as *const () as usize as u64;
-    let Some(root) = mmu::kernel_root_phys() else {
-        return false;
-    };
-    // Handoff root first — secondary must see this with MMU off.
-    SECONDARY_ROOT_PHYS.store(root as u64, Ordering::Release);
-    // Path A: secondaries already in `secondary_wait` (real start4.elf).
-    secondary_entry[1].store(entry, Ordering::Release);
-    // Path B: QEMU / firmware spin-table (PA in low RAM, mapped "low RAM").
-    // SAFETY: page 0 is in the fine map as Normal RW for this reason.
-    unsafe {
-        core::ptr::write_volatile(QEMU_SPIN_CORE1 as *mut u64, entry);
-    }
-    // Path C: ARM local mailbox (mapped Device window).
-    // SAFETY: ARM local region is in DEVICE_REGIONS.
-    unsafe {
-        core::ptr::write_volatile(CORE1_MBOX3_SET as *mut u32, entry as u32);
-    }
-    // Publish every cacheable handoff word to PoC before SEV.
-    // SAFETY: all Normal-mapped (ROOT handoff + entry table in BSS; spin PA).
-    unsafe {
-        cache::clean_dcache_poc(core::ptr::addr_of!(SECONDARY_ROOT_PHYS) as usize, 8);
-        cache::clean_dcache_poc(core::ptr::addr_of!(secondary_entry[1]) as usize, 8);
-        cache::clean_dcache_poc(QEMU_SPIN_CORE1, 8);
-        core::arch::asm!("dsb ish", "sev", options(nostack, preserves_flags));
+    #[cfg(feature = "board-qemu-virt")]
+    {
+        // QEMU `virt` exposes PSCI rather than the Pi firmware spin table and
+        // ARM-local mailbox. Until a PSCI bring-up contract is implemented,
+        // keep the secondary parked instead of touching Pi-only PA 0xe0.
+        false
     }
 
-    // HW secondaries can be slower than QEMU; ~few seconds of spinning.
-    let budget: u64 = 200_000_000;
-    let mut spins = 0u64;
-    while spins < budget {
-        if CORE1_ALIVE.load(Ordering::Acquire) {
-            return true;
+    #[cfg(not(feature = "board-qemu-virt"))]
+    {
+        unsafe extern "C" {
+            fn secondary_el2_entry();
         }
-        if spins.is_multiple_of(100_000) {
-            // SAFETY: event signal only.
-            unsafe {
-                core::arch::asm!("sev", options(nostack, preserves_flags));
+        let entry = secondary_el2_entry as *const () as usize as u64;
+        let Some(root) = mmu::kernel_root_phys() else {
+            return false;
+        };
+        // Handoff root first — secondary must see this with MMU off.
+        SECONDARY_ROOT_PHYS.store(root as u64, Ordering::Release);
+        // Path A: secondaries already in `secondary_wait` (real start4.elf).
+        secondary_entry[1].store(entry, Ordering::Release);
+        // Path B: QEMU / firmware spin-table (PA in low RAM, mapped "low RAM").
+        // SAFETY: page 0 is in the fine map as Normal RW for this reason.
+        unsafe {
+            core::ptr::write_volatile(QEMU_SPIN_CORE1 as *mut u64, entry);
+        }
+        // Path C: ARM local mailbox (mapped Device window).
+        // SAFETY: ARM local region is in DEVICE_REGIONS.
+        unsafe {
+            core::ptr::write_volatile(CORE1_MBOX3_SET as *mut u32, entry as u32);
+        }
+        // Publish every cacheable handoff word to PoC before SEV.
+        // SAFETY: all Normal-mapped (ROOT handoff + entry table in BSS; spin PA).
+        unsafe {
+            cache::clean_dcache_poc(core::ptr::addr_of!(SECONDARY_ROOT_PHYS) as usize, 8);
+            cache::clean_dcache_poc(core::ptr::addr_of!(secondary_entry[1]) as usize, 8);
+            cache::clean_dcache_poc(QEMU_SPIN_CORE1, 8);
+            core::arch::asm!("dsb ish", "sev", options(nostack, preserves_flags));
+        }
+
+        // HW secondaries can be slower than QEMU; ~few seconds of spinning.
+        let budget: u64 = 200_000_000;
+        let mut spins = 0u64;
+        while spins < budget {
+            if CORE1_ALIVE.load(Ordering::Acquire) {
+                return true;
             }
+            if spins.is_multiple_of(100_000) {
+                // SAFETY: event signal only.
+                unsafe {
+                    core::arch::asm!("sev", options(nostack, preserves_flags));
+                }
+            }
+            core::hint::spin_loop();
+            spins += 1;
         }
-        core::hint::spin_loop();
-        spins += 1;
+        CORE1_ALIVE.load(Ordering::Acquire)
     }
-    CORE1_ALIVE.load(Ordering::Acquire)
 }
 
 /// Secondaries observed at `secondary_wait` (0 under QEMU `-kernel`;

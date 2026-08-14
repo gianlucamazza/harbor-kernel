@@ -47,7 +47,13 @@ cd "$(dirname "$0")/../.." || exit 1
 #       (`try_steal_into` opens with the same emptiness check; the other
 #       direction cannot happen). The other thirteen K8/steal survivors this
 #       run surfaced were killed by tests, not absorbed here.
-readonly BASELINE_MISSED=21
+# Tenth run (2026-08-11, ADR-0098 slot meter):
+#   1 × `note_occupancy`'s `live > self.peak` → `>=` — equivalent. The mutant
+#       re-assigns the watermark the value it already holds; no reachable state
+#       distinguishes them. The other three mutants of that function (the body
+#       to `()`, and `>` to `<`/`==`) all die, which is the useful half: the
+#       watermark is tested, only this one operator is unobservable.
+readonly BASELINE_MISSED=22
 
 # `partition`'s loop counter mutated to a no-op never terminates. That is a
 # detected mutant, not a surviving one — the suite would hang rather than pass —
@@ -57,7 +63,11 @@ readonly BASELINE_TIMEOUT=1
 # Where a clean run records what it covered (see the end of this script).
 readonly STAMP="docs/mutation-stamp.toml"
 run_date="$(date -u +%Y-%m-%d)"
-run_commit="$(git describe --always 2>/dev/null || echo unknown)"
+# Captured where the stamp is written, not here. A run takes over an hour, and
+# the 2026-08-11 run stamped `205f8ca` — three commits behind the code it had
+# just measured, because the value was read before the run started. The field
+# exists to say *which tree this covered*; taken at the wrong end it says the
+# opposite.
 
 HOST_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
 
@@ -99,13 +109,26 @@ done
 # So a parallel run raises the floor to ten minutes per mutant. A real hang
 # (`reset::partition`'s no-op loop counter) still hits it; a merely slow test
 # no longer does.
-jobs_args=()
+#
+# The floor is **not** conditional on `MUTANTS_JOBS`, and that is the 2026-08-11
+# correction: a serial run hit it too. `tasks::note_occupancy`'s `>` → `>=` was
+# filed as a timeout in a 68-minute serial run and re-ran in **6 seconds** when
+# examined alone — the laptop caps `make` at one core, so the auto-measured
+# baseline is a snapshot of one moment's scheduling and any later mutant can
+# drift past it. Conditioning the floor on parallelism assumed load only comes
+# from cargo-mutants' own jobs. It comes from the machine.
+jobs_args=(--minimum-test-timeout "${MUTANTS_MIN_TIMEOUT:-300}")
 if [[ -n "${MUTANTS_JOBS:-}" ]]; then
 	jobs_args=(--jobs "${MUTANTS_JOBS}" --minimum-test-timeout "${MUTANTS_MIN_TIMEOUT:-600}")
 	echo "mutants: ${MUTANTS_JOBS} jobs, per-mutant floor ${MUTANTS_MIN_TIMEOUT:-600}s" >&2
+else
+	echo "mutants: serial, per-mutant floor ${MUTANTS_MIN_TIMEOUT:-300}s" >&2
 fi
 
-CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core "${jobs_args[@]}" "${file_args[@]}"
+# Mutation builds are deliberately independent of any repository-wide compiler
+# wrapper. A wrapper can serialize or cache-mutated scratch trees incorrectly,
+# turning a valid mutation run into a jobserver/contention failure.
+env RUSTC_WRAPPER= CARGO_BUILD_TARGET="${HOST_TARGET}" cargo mutants -p kernel-core "${jobs_args[@]}" "${file_args[@]}"
 status=$?
 
 # 0 = nothing survived, 3 = something did. Anything else is the tool failing.
@@ -158,6 +181,7 @@ fi
 # — "has the mutable surface moved since anyone last ran this?" — is about the
 # repository's history, not about this working copy (ADR-0096).
 mutant_count="$(cargo mutants --list -p kernel-core "${file_args[@]}" 2>/dev/null | wc -l)"
+run_commit="$(git describe --always 2>/dev/null || echo unknown)"
 cat >"${STAMP}" <<STAMP
 # Written by scripts/host/run-mutants.sh. Do not edit by hand.
 #

@@ -261,6 +261,24 @@ fn drain_console_if_held() {
     }
 }
 
+/// Submit one console byte in a one-shot EL0 session and return whether the
+/// non-blocking send was accepted. The console endpoint is deliberately a
+/// bounded mailbox: a multi-SVC program could be preempted between two sends
+/// while other agents fill it, so the demo drains the endpoint between
+/// individually bounded submissions instead of treating `Full` as success.
+fn send_console_once(agent: &mut Agent, byte: u8) -> bool {
+    match agent.run_user_prog_resuming(&kernel_core::prog::encode_console_once_exit(
+        CONSOLE_SLOT,
+        byte,
+    )) {
+        Ok(stats) => stats.sends == 1 && matches!(stats.end, agent::SessionEnd::Exit),
+        Err(error) => {
+            crate::kprintln!("el0-task: console one-shot FAILED {error:?}");
+            false
+        }
+    }
+}
+
 /// M5-P1/P2 + resume/console SEND/IRQ: scheduled task via [`Agent`] shell.
 pub(super) fn el0_scheduled_task() {
     let free_before = mm::frames::free_count();
@@ -303,14 +321,21 @@ pub(super) fn el0_scheduled_task() {
         Err(e) => crate::kprintln!("el0-task: resume FAILED {e:?}"),
     }
 
-    // Console endpoint: two bytes via SYS_SEND, drained by the EL1 server.
-    match agent.run_user_prog_resuming(&kernel_core::prog::encode_console_hi_exit(CONSOLE_SLOT)) {
-        Ok(s) if s.sends == 2 => {
-            drain_console_if_held();
-            crate::kprintln!("el0-task: console sends=2");
+    // Console endpoint: two bounded SYS_SEND submissions, each drained by the
+    // EL1 server before the next one. This exercises accepted sends without
+    // making the oracle depend on mailbox occupancy or scheduler interleaving.
+    let mut console_sends = 0;
+    for byte in [b'H', b'!'] {
+        drain_console_if_held();
+        if send_console_once(&mut agent, byte) {
+            console_sends += 1;
         }
-        Ok(s) => crate::kprintln!("el0-task: console unexpected sends={}", s.sends),
-        Err(e) => crate::kprintln!("el0-task: console FAILED {e:?}"),
+    }
+    if console_sends == 2 {
+        drain_console_if_held();
+        crate::kprintln!("el0-task: console sends=2");
+    } else {
+        crate::kprintln!("el0-task: console unexpected sends={console_sends}");
     }
 
     // EL0 IRQ resume (architectural re-execute): arm the next tick under the

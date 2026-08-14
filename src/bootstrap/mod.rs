@@ -6,12 +6,18 @@
 //! `bringup` feature. Keeping the three apart matters because only this file
 //! has to be read in order: every line here depends on the ones above it.
 
+mod authority;
+mod blob_server;
 mod console_loop;
 mod console_server;
 #[cfg(feature = "oracle")]
 mod demos;
 mod discover;
 mod loader;
+#[cfg(feature = "board-qemu-virt")]
+mod network_runtime;
+#[cfg(feature = "board-qemu-virt")]
+mod network_server;
 #[cfg(feature = "panic-probe")]
 mod panic_probe;
 #[cfg(feature = "bringup")]
@@ -35,6 +41,36 @@ const TIMER_HZ: u32 = 10;
 
 /// Kernel heap size, clamped to the identity-mapped RAM window.
 const HEAP_SIZE: usize = 64 * 1024 * 1024;
+
+/// Keep firmware-owned DTB pages outside the kernel's identity-mapped heap and
+/// frame-pool carve-outs. Firmware is allowed to place the blob anywhere in
+/// RAM; reserving a fixed address would merely move the collision to another
+/// machine model.
+fn heap_end_avoiding_device_tree(desired: usize) -> (usize, bool) {
+    let Some((dtb_base, dtb_len)) = bootinfo::device_tree_pages() else {
+        return (desired, false);
+    };
+    let dtb_base = dtb_base as usize;
+    let Some(dtb_end) = (dtb_base as u64).checked_add(dtb_len) else {
+        return (desired, false);
+    };
+    let dtb_end = dtb_end as usize;
+    let heap_start = mm::heap_start();
+    let Some(frame_end) = desired.checked_add(board::memmap::FRAME_POOL_BYTES) else {
+        return (desired, false);
+    };
+    let overlaps = heap_start < dtb_end && dtb_base < frame_end;
+    if !overlaps {
+        return (desired, false);
+    }
+
+    // The frame pool is contiguous and must remain whole. Move the complete
+    // heap+pool window below the DTB, preserving page alignment; if that is
+    // impossible, the normal frame/layout validation refuses the boot.
+    let before_dtb = dtb_base.saturating_sub(board::memmap::FRAME_POOL_BYTES);
+    let aligned = before_dtb & !(board::memmap::FRAME_SIZE - 1);
+    (aligned, true)
+}
 
 /// Page tables that must remain free once the kernel map is built.
 ///
@@ -104,31 +140,6 @@ const fn build_features() -> &'static str {
     }
 }
 
-/// Mint the console channel and start the resident EL1 server (M8).
-///
-/// The send end is what agents — and the loader's `held` list — receive; the
-/// recv end stays with the server. Authority is ordinary `CapRights::SEND`:
-/// there is no special console capability type since `SYS_PUTC` was removed.
-///
-/// `None` if the channel could not be created; the boot goes on without a
-/// console endpoint rather than refusing, because the UART still works.
-fn start_console_service() -> Option<kernel_core::cap::CapId> {
-    match crate::ipc::create_channel() {
-        Ok(ch) => {
-            match crate::sched::spawn_with_caps(console_server::run, &[ch.recv]) {
-                Ok(_) => crate::kprintln!("console-server: up"),
-                Err(e) => crate::kprintln!("console-server: spawn FAILED {e:?}"),
-            }
-            crate::kprintln!("console: capability minted");
-            Some(ch.send)
-        }
-        Err(e) => {
-            crate::kprintln!("console: capability FAILED {e:?}");
-            None
-        }
-    }
-}
-
 /// How long the phases above took, on the board's own clock.
 ///
 /// The serial transcript carries host timestamps, but only when someone
@@ -171,6 +182,9 @@ fn enable_interrupts(uart: &mut Pl011, interrupts_bound: bool) {
         cpu::sync_pipeline();
         cpu::irq_enable();
         cpu::sync_pipeline();
+        #[cfg(feature = "board-qemu-virt")]
+        println!(uart, "IRQs enabled (timer + UART RX + virtio-mmio slots)");
+        #[cfg(not(feature = "board-qemu-virt"))]
         println!(uart, "IRQs enabled (timer + UART RX)");
         println!(uart, "idle: WFI when no RX/tick work");
     } else {
@@ -253,12 +267,19 @@ fn bind_interrupts(uart: &mut Pl011) -> bool {
     bound
 }
 
-/// Probe the SoC RNG200 and report one line.
+/// Probe the SoC RNG200, report one line, and say whether the block is there.
 ///
 /// After the MMU (Device attributes), before IRQs. On-die block, same class as
 /// the PL011 — always brought up. Logical failure (timeout, health) is soft:
 /// one line and the boot continues. Never refuse a boot for entropy.
-fn probe_rng(uart: &mut Pl011) {
+///
+/// The return value is what [`authority`](authority) needs to decide whether to
+/// provide the `rng` window (ADR-0101): present means an agent composed to
+/// drive it can be given the page, absent means the board does not have the
+/// device and the position stays a hole. Probing twice to answer the same
+/// question is how two answers start to disagree, so the boot's own probe is
+/// the one that answers.
+fn probe_rng(uart: &mut Pl011) -> bool {
     // SAFETY: single core; RNG200 window not otherwise claimed.
     match unsafe { board::rng::init() } {
         Ok(rng) => match rng.try_word() {
@@ -273,8 +294,12 @@ fn probe_rng(uart: &mut Pl011) {
             }
             Err(error) => println!(uart, "rng200: read FAILED: {error:?}"),
         },
-        Err(error) => println!(uart, "rng200: unavailable ({error:?})"),
+        Err(error) => {
+            println!(uart, "rng200: unavailable ({error:?})");
+            return false;
+        }
     }
+    true
 }
 
 /// Refuse to boot if the table arena is nearly spent.
@@ -405,7 +430,14 @@ struct MemPlan {
 /// printed at the end is read back from `SCTLR_EL1` rather than inferred from
 /// the path that just ran.
 fn establish_kernel_map(uart: &mut Pl011) -> MemPlan {
-    let heap_end = (mm::heap_start() + HEAP_SIZE).min(board::memmap::IDENTITY_RAM_END);
+    let desired_heap_end = (mm::heap_start() + HEAP_SIZE).min(board::memmap::IDENTITY_RAM_END);
+    let (heap_end, dtb_reserved) = heap_end_avoiding_device_tree(desired_heap_end);
+    if dtb_reserved {
+        println!(
+            uart,
+            "heap: reserved DTB window, end moved to {heap_end:#x}"
+        );
+    }
     let (frame_base, frame_end) = match mm::frames::range_after_heap(heap_end) {
         Some(range) => range,
         None => refuse_to_boot(
@@ -641,7 +673,9 @@ pub fn run() -> ! {
 
     init_memory_pools(&mut uart, plan.heap_end, plan.frame_base, plan.frame_end);
 
-    probe_rng(&mut uart);
+    // Carried to `authority::assemble` below: the window vocabulary provides the
+    // RNG page only on a board that has the block (ADR-0101).
+    let rng_present = probe_rng(&mut uart);
 
     // Deliberate fault (ADR-0093), before IRQs are bound: the panic path is
     // then reporting one fault on one core with nothing else in flight, which
@@ -651,6 +685,20 @@ pub fn run() -> ! {
     panic_probe::fault_on_a_stack_guard(&mut uart);
 
     let interrupts_bound = bind_interrupts(&mut uart);
+
+    #[cfg(feature = "board-qemu-virt")]
+    match network_runtime::start() {
+        Ok(result) => println!(
+            uart,
+            "virtio-net: modern probe ok base={:#x} vendor={:#x} features={:#x} queues={} size={} ready tx-descriptor=submitted",
+            result.base,
+            result.vendor,
+            result.features,
+            result.queues,
+            result.queue_size
+        ),
+        Err(error) => println!(uart, "virtio-net: unavailable ({error:?})"),
+    }
 
     // Hardware gates, only when built with `--features bringup`.
     #[cfg(feature = "bringup")]
@@ -671,29 +719,23 @@ pub fn run() -> ! {
     // that the whole kernel is cooperative-only — see K4 preemption).
     console::install_tx(uart);
 
-    let console_cap = start_console_service();
-
-    // Agents that are data (ADR-0021). One loop over a table, and the table is
-    // the *only* place those grants are written — so `held` here is the whole
-    // of what any manifest agent can be given, and an entry naming anything
-    // else is refused by arithmetic rather than by a check.
+    // The vocabulary a composition may name (ADR-0099). Declared positions,
+    // then whatever could be minted into them — so a service that fails to
+    // start leaves a hole at its own index instead of shifting every later one
+    // down. What each integer means lives in `authority.rs` and nowhere else.
+    //
+    // Agents that are data (ADR-0021): an entry naming anything outside this
+    // vocabulary is refused by arithmetic rather than by a check.
     //
     // Product path carries the beacon agent; oracle adds mute. See loader.
-    let one;
-    let held: &[kernel_core::cap::CapId] = match console_cap {
-        Some(cap) => {
-            one = [cap];
-            &one
-        }
-        None => &[],
-    };
-    loader::load_all(held);
+    let authority = authority::assemble(rng_present);
+    loader::load_all(&authority);
 
     // Everything the boot oracle needs, and nothing the product does — and
     // it lives in `demos`, which is the file `product-builds` derives its
     // forbidden-symbol list from (rule 9 of `architecture.md`).
     #[cfg(feature = "oracle")]
-    demos::run_all(console_cap);
+    demos::run_all(authority.held.get(authority::HELD_CONSOLE));
 
     // Deliberate fault, last so the demo tasks are alive when it runs: the
     // probe must overflow its own guard while a peer stack exists, or it cannot

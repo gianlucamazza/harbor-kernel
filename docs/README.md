@@ -12,7 +12,7 @@ correct picture:
 | --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------- |
 | 1   | Mission, objectives, stack                   | [root README](../README.md)                                                                                                     | 2       |
 | 2   | What is an _agent_ here (it is not an LLM)   | [glossary](glossary.md), then [architecture § How Harbor differs](architecture.md#how-harbor-differs-from-a-traditional-kernel) | 2       |
-| 3   | Where it is going, and what is actually done | [roadmap § K — microkernel mechanisms](roadmap.md#k--microkernel-mechanisms)                                                   | 1       |
+| 3   | Where it is going, and what is actually done | [roadmap § K — microkernel mechanisms](roadmap.md#k--microkernel-mechanisms)                                                    | 1       |
 | 4   | Why any of it should be believed             | [verification](verification.md) — **index only**, do not read it through                                                        | —       |
 
 Depth after that: [`architecture.md`](architecture.md) (normative model),
@@ -78,18 +78,18 @@ not every symbol.
 
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
-  a64, agentstore, asid, budget, bump, cap, capslots, cpuid, delay, density, display, durable, durable_media, fault, fdt, font8x8, frame, gic,
-  heap, hwdesc, ipc, irqcap, irqtable, irqwait, layout, lifecycle, loaderplan, manifest, mbr, naming, paging, parktime, poll, preempt, prog, reply, reset, ring, rng,
-  runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, wake
+  a64, agentstore, asid, blob, budget, bump, cap, capslots, cpuid, delay, density, display, durable, durable_media, fault, fdt, font8x8, genet, genet_fdt, frame, gic,
+  heap, held, hwdesc, ipc, irqcap, irqtable, irqwait, layout, lifecycle, loaderplan, manifest, mbr, naming, paging, parktime, poll, preempt, prog, reply, reset, ring, rng,
+  net, runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, virtio, wake
   tests/ public_api, model_sched, model_ipc
 src/
   main.rs         kernel_main — product vs lab dispatch only
   arch/           ISA axis (aarch64 product + x86_64 lab roles)
-  bsp/            board axis (rpi4 product + qemu_q35 lab)
+  bsp/            board axis (rpi4 product + qemu_q35 lab + qemu_virt P3)
   drivers/        protocol axis (PL011, GICv2, …; uart16550 lab)
   lab/            lab maturity path (x86 L0 entry + panic; ADR-0071)
   irq/            IRQ ownership, masking, counters, wait port, notification caps
-  bootstrap/      product boot sequence, loader (Mutex side tables), console server, demos
+  bootstrap/      product boot sequence, authority vocabularies, loader (Mutex side tables), console server, demos
   agent/          EL0 agent shell and session lifecycle
   sched/          TCBs, stacks, context switching and wake drain
   ipc/            kernel IPC policy and capability translation
@@ -112,15 +112,16 @@ docs/design/      scale topology + multi-arch contracts — see design/README.md
 Do **not** treat this block as a second status table — it only steers readers.
 **Status lives in [roadmap.md](roadmap.md).**
 
-| Layer                | State (2026-08-11)                                                                                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **H0 foundation**    | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                                                                                  |
-| **H1 entry + depth** | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                                                                                      |
-| **H1 next**          | P3\|P4 only with a composition target (deferred)                                                                                                                                |
-| **H2 mechanism**     | K4 + K7-ASID + K8 through steal + F-R1-P1 (+ loader lock 2026-08-11) + **K5-S** Mini **done (HW)**; K5-B **design** paid (0089); residual K5-H / K5-B **code** / K7-T if trigger |
-| **Product SMP**      | Composition `home_cpu` **done (QEMU)** [ADR-0088](adr/0088-product-home-cpu.md); force-exit Running **done (QEMU)** [ADR-0090](adr/0090-k10-force-exit-running.md)           |
-| **Evidence hygiene** | Composition-minimum `product-boot-check` + `oracle-census` (`MAX_TASKS=54`) in `make check`                                                                                     |
-| **Standing watch**   | [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) K7-M; x86 L0 done (QEMU-x86). #14 closed by [ADR-0094](adr/0094-retire-debug-display.md)                        |
+| Layer                   | State (2026-08-14)                                                                                                                                                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **H0 foundation**       | **done (HW)** on Pi 4B (M0–M8 + parked cancel)                                                                                                                                                                                                     |
+| **H1 entry + depth**    | **paid (HW)** — serial stamp 2026-08-08 (see verification)                                                                                                                                                                                         |
+| **H1 next**             | Pi4 GENET v5 backend implementation and hardware evidence for the completed QEMU P3 edge-gateway target ([ADR-0104](adr/0104-p3-edge-network-composition.md), [ADR-0105](adr/0105-pi4-nic-backend-boundary.md), proposed design [ADR-0106](adr/0106-pi4-genet-v5-backend-design.md)); a general Pi4 oracle boot baseline is now stamped in verification; P2 durable storage is an EL0 request/reply service ([ADR-0103](adr/0103-p2-el0-durable-endpoint.md)) |
+| **H2 mechanism**        | K4 + K7-ASID + K8 through steal + F-R1-P1 (+ loader lock 2026-08-11) + **K5-S** Mini **done (HW)**; K5-B **design** paid (0089); residual K5-H / K5-B **code** / K7-T if trigger                                                                   |
+| **Composition**         | Declared `held` + device windows **done (HW)** ([ADR-0099](adr/0099-composition-vocabulary.md)/[0100](adr/0100-device-windows.md)); first composed driver-agent `entropy` **done (HW)** ([ADR-0101](adr/0101-composed-driver-agent.md))            |
+| **Product SMP**         | Composition `home_cpu` **done (HW)** [ADR-0088](adr/0088-product-home-cpu.md); force-exit Running **done (HW)** [ADR-0090](adr/0090-k10-force-exit-running.md)                                                                                      |
+| **Evidence hygiene**    | Composition-minimum `product-boot-check` + `oracle-census` in `make check`; the census **boots the product and reads** its slot peak (5 of `MAX_TASKS=54` on QEMU; 6 on a board with RNG200) ([ADR-0098](adr/0098-slot-meter-measured.md))         |
+| **Standing watch**      | [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) K7-M; x86 L0 done (QEMU-x86). #14 closed by [ADR-0094](adr/0094-retire-debug-display.md)                                                                                           |
 
 ## Decision records and reviews
 

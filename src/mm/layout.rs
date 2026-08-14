@@ -75,6 +75,7 @@ macro_rules! symbol_addr {
 fn boundaries(heap_end: u64, frame_pool_end: u64) -> Boundaries {
     Boundaries {
         image_start: symbol_addr!(__image_start),
+        ram_start: crate::bsp::board::memmap::RAM_START as u64,
         text: (symbol_addr!(__text_start), symbol_addr!(__text_end)),
         rodata: (symbol_addr!(__rodata_start), symbol_addr!(__rodata_end)),
         data: (symbol_addr!(__data_start), symbol_addr!(__data_end)),

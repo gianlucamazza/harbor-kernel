@@ -100,8 +100,8 @@ endif
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
 	boot-check panic-check hw-check mutation-freshness x86-elf x86-boot-check doc-claims layering fmt fmt-check \
-	qemu qemu-gdb qemu-x86 blobs deploy \
-	restore-rpios serial clean agents
+	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy \
+	restore-rpios serial clean agents vocabulary-sync
 
 all: img
 
@@ -133,7 +133,7 @@ img: elf
 # `miri`/`shellcheck` fail loudly when their tool is absent rather than letting
 # the claim quietly become false (skip only with ALLOW_MIRI_SKIP=1 /
 # ALLOW_SHELLCHECK_SKIP=1, same shape as boot-check's ALLOW_BOOT_SKIP).
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri mutation-freshness doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence
+check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri mutation-freshness doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence vocabulary-sync
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -176,6 +176,13 @@ xrefs:
 doc-symbols:
 	./scripts/check/doc-symbols.sh
 
+# ADR-0099: the composition's vocabulary is stated in two files — the kernel
+# declares the indices, the packer writes them into store slots. A disagreement
+# grants an agent authority the composition did not choose, silently, so the two
+# copies are compared rather than trusted.
+vocabulary-sync:
+	./scripts/check/vocabulary-sync.sh
+
 # The layering rules in docs/architecture.md, checked against real imports.
 # They are the architecture, and were enforced by review alone until now.
 layering:
@@ -200,6 +207,20 @@ agents:
 
 boot-check: img
 	./scripts/boot/qemu-boot-check.sh $(IMG) $(BOOT_CHECK_SECONDS)
+
+# P3 transport gate: build the dedicated AArch64 QEMU virt composition and
+# prove modern virtio-mmio negotiation plus refusal when the device is absent.
+# Persistent IRQ service, packet I/O, and EL0 capability evidence are
+# deliberately separate successors; this target must not make those claims by
+# sharing the product oracle.
+QEMU_VIRT_OUT := target/$(TARGET)/$(PROFILE)
+QEMU_VIRT_ELF := $(QEMU_VIRT_OUT)/harbor-kernel
+QEMU_VIRT_IMG := $(QEMU_VIRT_OUT)/harbor-qemu-virt.img
+
+qemu-virtio-check:
+	cargo build --target $(TARGET) --no-default-features --features board-qemu-virt,oracle $(if $(filter release,$(PROFILE)),--release,)
+	$(OBJCOPY) -O binary $(QEMU_VIRT_ELF) $(QEMU_VIRT_IMG)
+	./scripts/boot/qemu-virtio-boot-check.sh $(QEMU_VIRT_IMG) $(BOOT_CHECK_SECONDS)
 
 # The panic path is the one product path whose evidence was entirely negative
 # — every gate above asserts that no boot printed PANIC (ADR-0093). This boots
@@ -292,6 +313,11 @@ product-boot-check: product-builds
 
 # ADR-0085 / multi-role F-R7-1: MAX_TASKS is oracle tax, not density.
 # Source, architecture table, and documented last raise must agree.
+#
+# ADR-0098: the fourth number — what the product actually occupies — is booted
+# and read off the invariant beacon's `slots=` field rather than carried as a
+# constant. The target therefore boots the product image (a few seconds), and
+# refuses to fall back to a remembered peak when the field is missing.
 oracle-census:
 	./scripts/check/oracle-census.sh
 
@@ -351,7 +377,12 @@ miri:
 	  echo "  rustup toolchain install nightly --component miri, or set ALLOW_MIRI_SKIP=1" >&2; \
 	  exit 1; \
 	fi; \
-	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET)
+	# Miri is an aliasing/provenance gate for the two module-scoped unsafe
+	# queues, not a second run of every pure kernel test. Running the whole
+	# package also interprets unrelated integration/model tests and made CI
+	# exceed its timeout without increasing coverage of unsafe code.
+	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET) --lib ring::tests
+	cargo +nightly miri test -p $(TEST_PKG) --target $(HOST_TARGET) --lib wake::tests
 
 # The bring-up gates are what you reach for when the board will not talk, which
 # is the worst moment to discover they no longer compile. Nothing else builds

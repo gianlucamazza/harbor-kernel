@@ -139,6 +139,92 @@ pub const fn encode_send_bare_exit(slot: u16) -> [u8; 16] {
     out
 }
 
+/// Write one packet-pool slot, submit it through `net-tx`, await completion,
+/// receive one `net-rx` token, return it through `net-rx-return`, then exit.
+/// The pool VA is board-owned; the descriptor never crosses EL0.
+pub const fn encode_net_tx_rx_exit(
+    pool_va: u64,
+    tx_slot: u16,
+    complete_slot: u16,
+    rx_slot: u16,
+    rx_return_slot: u16,
+) -> [u8; 120] {
+    let mut out = [0u8; 120];
+    let mut i = 0;
+    push_u64(&mut out, &mut i, 0, pool_va);
+    push_u64(&mut out, &mut i, 1, 0x1122_3344_5566_7788);
+    push_word(&mut out, &mut i, a64::str_x_imm(1, 0, 0));
+    push_u64(&mut out, &mut i, 1, 0x99AA_BBCC_DDEE_FF00);
+    push_word(&mut out, &mut i, a64::str_x_imm(1, 0, 8));
+    push_word(&mut out, &mut i, a64::movz_x(0, tx_slot));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movz_x(1, crate::net::TAG_TX_SUBMIT as u16),
+    );
+    push_u64(
+        &mut out,
+        &mut i,
+        2,
+        crate::net::packed_token(crate::virtio::PacketToken {
+            slot: 1,
+            generation: 0,
+            len: 16,
+        }),
+    );
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::movz_x(0, complete_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
+    push_word(&mut out, &mut i, a64::movz_x(0, rx_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
+    // SYS_RECV leaves the packed RX token in x2. Preserve it while loading
+    // the return endpoint and wire tag.
+    push_word(&mut out, &mut i, a64::movz_x(0, rx_return_slot));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movz_x(1, crate::net::TAG_RX_RETURN as u16),
+    );
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
+/// Backward-compatible TX-only encoder for host callers that do not exercise
+/// the receive side of the service.
+pub const fn encode_net_tx_exit(pool_va: u64, tx_slot: u16, complete_slot: u16) -> [u8; 100] {
+    let mut out = [0u8; 100];
+    let mut i = 0;
+    push_u64(&mut out, &mut i, 0, pool_va);
+    push_u64(&mut out, &mut i, 1, 0x1122_3344_5566_7788);
+    push_word(&mut out, &mut i, a64::str_x_imm(1, 0, 0));
+    push_u64(&mut out, &mut i, 1, 0x99AA_BBCC_DDEE_FF00);
+    push_word(&mut out, &mut i, a64::str_x_imm(1, 0, 8));
+    push_word(&mut out, &mut i, a64::movz_x(0, tx_slot));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movz_x(1, crate::net::TAG_TX_SUBMIT as u16),
+    );
+    push_u64(
+        &mut out,
+        &mut i,
+        2,
+        crate::net::packed_token(crate::virtio::PacketToken {
+            slot: 1,
+            generation: 0,
+            len: 16,
+        }),
+    );
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::movz_x(0, complete_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 /// A64: `movz x0,#slot; svc #5; svc #1; b .` — try to receive, then exit.
 ///
 /// The non-blocking half of the recv pair (ADR-0022 §4). Pointed at an empty
@@ -165,6 +251,114 @@ pub const fn encode_wait_irq_exit(slot: u16) -> [u8; 16] {
     let mut i = 0;
     push_word(&mut out, &mut i, a64::movz_x(0, slot));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_WAIT_IRQ));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
+/// Little-endian `u64` of the product name `console` (ADR-0102).
+pub const CONSOLE_NAME_LE: u64 = u64::from_le_bytes(*b"console\0");
+
+/// Length of [`CONSOLE_NAME_LE`] without the padding NUL.
+pub const CONSOLE_NAME_LEN: u16 = 7;
+
+pub const BLOB_KEY_CFG: u64 = crate::blob::Field::pack(b"cfg");
+pub const BLOB_PAYLOAD_PERSIST: u64 = crate::blob::Field::pack(b"persist");
+
+const fn push_u64(out: &mut [u8], i: &mut usize, reg: u8, value: u64) {
+    push_word(out, i, a64::movz_x(reg, (value & 0xffff) as u16));
+    push_word(
+        out,
+        i,
+        a64::movk_x_lsl16(reg, ((value >> 16) & 0xffff) as u16),
+    );
+    push_word(
+        out,
+        i,
+        a64::movk_x_lsl32(reg, ((value >> 32) & 0xffff) as u16),
+    );
+    push_word(
+        out,
+        i,
+        a64::movk_x_lsl48(reg, ((value >> 48) & 0xffff) as u16),
+    );
+}
+
+/// Put `cfg=persist`, get it back, notify the console, then exit (P2).
+///
+/// The request and reply capabilities are separate slots because IPC endpoint
+/// rights are directional. The program intentionally does not inspect the
+/// reply payload: the service oracle checks the durable round-trip, and
+/// reaching the later console send proves the blocking reply receive returned.
+pub const fn encode_blob_round_trip_exit(
+    request_slot: u16,
+    reply_slot: u16,
+    console_slot: u16,
+) -> [u8; 112] {
+    let mut out = [0u8; 112];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x(0, request_slot));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movz_x(1, crate::blob::TAG_PUT as u16),
+    );
+    push_u64(&mut out, &mut i, 2, BLOB_KEY_CFG);
+    push_u64(&mut out, &mut i, 3, BLOB_PAYLOAD_PERSIST);
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::movz_x(0, request_slot));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movz_x(1, crate::blob::TAG_GET as u16),
+    );
+    push_u64(&mut out, &mut i, 2, BLOB_KEY_CFG);
+    push_word(&mut out, &mut i, a64::movz_x(3, 0));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::movz_x(0, reply_slot));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RECV));
+    push_word(&mut out, &mut i, a64::movz_x(0, console_slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
+    push_word(&mut out, &mut i, a64::movz_x(2, b'S' as u16));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
+/// A64: resolve `console` into `slot`, send one byte through it, then exit
+/// (ADR-0102).
+///
+/// The name is seven bytes, so it takes a `movz` and three `movk` — the
+/// existing [`encode_resolve_exit`] only carries a 16-bit immediate, which
+/// is why the oracle demo bound `ab`.
+pub const fn encode_resolve_send_exit(slot: u16, byte: u8) -> [u8; 52] {
+    let mut out = [0u8; 52];
+    let mut i = 0;
+    let n = CONSOLE_NAME_LE;
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_NAME_LEN));
+    push_word(&mut out, &mut i, a64::movz_x(2, (n & 0xffff) as u16));
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movk_x_lsl16(2, ((n >> 16) & 0xffff) as u16),
+    );
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movk_x_lsl32(2, ((n >> 32) & 0xffff) as u16),
+    );
+    push_word(
+        &mut out,
+        &mut i,
+        a64::movk_x_lsl48(2, ((n >> 48) & 0xffff) as u16),
+    );
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_RESOLVE));
+    push_word(&mut out, &mut i, a64::movz_x(0, slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
+    push_word(&mut out, &mut i, a64::movz_x(2, byte as u16));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
     push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
     push_word(&mut out, &mut i, a64::b_self());
     out
@@ -376,6 +570,57 @@ pub const fn encode_pl011_rx_poll_exit(console_slot: u16) -> [u8; 36] {
     out
 }
 
+/// Read a device register from a granted window and report one bit of it
+/// (ADR-0101).
+///
+/// The program a **composed** driver-agent runs: it is handed a device page by
+/// the loader — index into the window vocabulary, resolved by the board — reads
+/// a register from it, and sends `set_byte` or `clear_byte` to the console
+/// endpoint depending on one bit.
+///
+/// The bit is the point. A program that is given a page and exits proves only
+/// that the mapping did not fault; an encoder that dropped the load would pass
+/// that test unchanged. Branching on a bit of what was read means the byte on
+/// the wire is an answer only a real load can give.
+///
+/// ```text
+/// movz x0, #va_hi16, lsl #16
+/// ldr  w1, [x0, #reg_off]
+/// tbnz w1, #bit, +3        // set → skip the clear-byte movz
+/// movz x2, #clear_byte
+/// b    +2
+/// movz x2, #set_byte
+/// movz x0, #console_slot
+/// movz x1, #CONSOLE_TAG
+/// svc  #3                  // SYS_SEND
+/// svc  #1                  // SYS_EXIT
+/// b .
+/// ```
+pub const fn encode_read_device_bit_console_exit(
+    va_hi16: u16,
+    reg_off: u16,
+    bit: u8,
+    console_slot: u16,
+    set_byte: u8,
+    clear_byte: u8,
+) -> [u8; 44] {
+    let mut out = [0u8; 44];
+    let mut i = 0;
+    push_word(&mut out, &mut i, a64::movz_x_lsl16(0, va_hi16));
+    push_word(&mut out, &mut i, a64::ldr_w_imm(1, 0, reg_off));
+    // Bit set → jump over the clear-byte movz and its branch (2 insns).
+    push_word(&mut out, &mut i, a64::tbnz_w(1, bit, 3));
+    push_word(&mut out, &mut i, a64::movz_x(2, clear_byte as u16));
+    push_word(&mut out, &mut i, a64::b_rel(2));
+    push_word(&mut out, &mut i, a64::movz_x(2, set_byte as u16));
+    push_word(&mut out, &mut i, a64::movz_x(0, console_slot));
+    push_word(&mut out, &mut i, a64::movz_x(1, CONSOLE_TAG_BYTE));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_SEND));
+    push_word(&mut out, &mut i, a64::svc(syscall::SYS_EXIT));
+    push_word(&mut out, &mut i, a64::b_self());
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -499,6 +744,23 @@ mod tests {
              movz x0, #1\nmovz x1, #0\nmovz x2, #33\nsvc #3\nsvc #1\nb .\n",
         );
 
+        assert_program(
+            "encode_net_tx_rx_exit(0x5300_0000, 0, 1, 2, 3)",
+            &encode_net_tx_rx_exit(0x5300_0000, 0, 1, 2, 3),
+            "movz x0, #0\nmovk x0, #21248, lsl #16\n\
+             movk x0, #0, lsl #32\nmovk x0, #0, lsl #48\n\
+             movz x1, #30600\nmovk x1, #21862, lsl #16\n\
+             movk x1, #13124, lsl #32\nmovk x1, #4386, lsl #48\n\
+             str x1, [x0]\n\
+             movz x1, #65280\nmovk x1, #56814, lsl #16\n\
+             movk x1, #48076, lsl #32\nmovk x1, #39338, lsl #48\n\
+             str x1, [x0, #8]\n\
+             movz x0, #0\nmovz x1, #4353\nmovz x2, #1\n\
+             movk x2, #0, lsl #16\nmovk x2, #4096, lsl #32\nmovk x2, #0, lsl #48\nsvc #3\n\
+             movz x0, #1\nsvc #4\nmovz x0, #2\nsvc #4\n\
+             movz x0, #3\nmovz x1, #4354\nsvc #3\nsvc #1\nb .\n",
+        );
+
         // RECV leaves a in x2; SEND wants tag in x1 and a in x2.
         assert_program(
             "encode_recv_console_exit(0, 1)",
@@ -525,6 +787,16 @@ mod tests {
             "encode_resolve_exit(2, 2, 0x6261)",
             &encode_resolve_exit(2, 2, 0x6261),
             "movz x0, #2\nmovz x1, #2\nmovz x2, #25185\nsvc #7\nsvc #1\nb .\n",
+        );
+
+        // ADR-0102: seven-byte `console` plus a send. The immediates are the
+        // little-endian halves, written as llvm-mc prints them (decimal).
+        assert_program(
+            "encode_resolve_send_exit(0, b'N')",
+            &encode_resolve_send_exit(0, b'N'),
+            "movz x0, #0\nmovz x1, #7\nmovz x2, #28515\n\
+             movk x2, #29550, lsl #16\nmovk x2, #27759, lsl #32\nmovk x2, #101, lsl #48\n\
+             svc #7\nmovz x0, #0\nmovz x1, #0\nmovz x2, #78\nsvc #3\nsvc #1\nb .\n",
         );
 
         assert_program(
@@ -575,6 +847,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn network_and_blob_program_encoders_preserve_their_parameters() {
+        let network = encode_net_tx_exit(0x5300_0000, 4, 5);
+        assert_eq!(
+            network[..4],
+            a64::movz_x(0, 0).to_le_bytes(),
+            "the network encoder must start by loading the pool address"
+        );
+        assert!(network.iter().any(|&byte| byte > 1));
+
+        let blob = encode_blob_round_trip_exit(6, 7, 8);
+        assert_eq!(
+            blob[..4],
+            a64::movz_x(0, 6).to_le_bytes(),
+            "the blob encoder must load the request capability slot"
+        );
+        assert!(blob.iter().any(|&byte| byte > 1));
+    }
+
     /// The one that earns the suite.
     ///
     /// `tbnz` skips the load, slot, tag and `SYS_SEND` when the RX FIFO is
@@ -594,6 +885,33 @@ mod tests {
              ldr w1, [x0, #24]\n\
              tbnz w1, #4, #20\n\
              ldrb w2, [x0]\n\
+             movz x0, #1\n\
+             movz x1, #0\n\
+             svc #3\n\
+             svc #1\n\
+             b .\n",
+        );
+    }
+
+    #[cfg_attr(
+        miri,
+        ignore = "shells out to llvm-mc, which Miri cannot run; these encoders are pure and a64's unit tests cover the instruction words"
+    )]
+    #[test]
+    fn the_device_read_sends_a_byte_that_depends_on_what_it_read() {
+        // ADR-0101. The branch is the whole assertion: an encoder that dropped
+        // the load, or that always sent the same byte, would still map, still
+        // send, and still exit — and would be indistinguishable from this one
+        // on any test that only checked the agent ran.
+        assert_program(
+            "encode_read_device_bit_console_exit(0x5100, 0, 0, 1, b'R', b'r')",
+            &encode_read_device_bit_console_exit(0x5100, 0, 0, 1, b'R', b'r'),
+            "movz x0, #0x5100, lsl #16\n\
+             ldr w1, [x0, #0]\n\
+             tbnz w1, #0, #12\n\
+             movz x2, #114\n\
+             b #8\n\
+             movz x2, #82\n\
              movz x0, #1\n\
              movz x1, #0\n\
              svc #3\n\

@@ -24,6 +24,8 @@
 //! from outside the image, and not before (ADR-0021 §4).
 
 use crate::cap::CapId;
+use crate::held::Window;
+use crate::paging::Perms;
 
 /// Capability slots an agent may be given.
 ///
@@ -32,19 +34,28 @@ use crate::cap::CapId;
 /// the array, but it has no business naming a manifest to state its own bound
 /// (ADR-0023).
 pub const MAX_SLOTS: usize = 4;
+/// Capability indices at and above this boundary belong to the network
+/// packet-pool vocabulary and require an explicit packet-pool grant.
+pub const PACKET_CAPABILITY_START: u8 = 3;
 
 /// One page of MMIO an agent is allowed to reach.
 ///
-/// A page, singular, and named by both addresses: the manifest lives in
-/// `bootstrap`, which is the only layer permitted to know a board's physical
-/// map (ADR-0013's narrow windows, `architecture.md` rule 3). The kernel maps
-/// what the entry says and nothing adjacent to it.
+/// A page, singular, named by **where** it lands and **which** declared window
+/// it is (ADR-0100).
+///
+/// The split is the security argument. The virtual address is the composition's
+/// to choose because it is the composition's own window; the physical address
+/// is not here at all, because an entry that could name one could name the
+/// kernel's text and have it mapped `USER_RW`. The index is resolved against
+/// [`crate::held::Windows`], which `bootstrap::authority` fills from the BSP —
+/// keeping the board's map in the one layer allowed to know it (ADR-0013's
+/// narrow windows, `architecture.md` rule 1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DeviceGrant {
     /// Virtual address inside the agent's own window.
     pub va: u64,
-    /// Physical address of the device page.
-    pub pa: u64,
+    /// Index into the loader's window vocabulary.
+    pub window: u8,
 }
 
 /// One agent, as data.
@@ -62,8 +73,13 @@ pub struct AgentEntry {
     pub stack_pages: usize,
     /// Slot `i` holds the capability at index `slots[i]` of the loader's list.
     pub slots: [Option<u8>; MAX_SLOTS],
+    /// Permit this agent to use the non-ambient `SYS_RESOLVE` grant (ADR-0102).
+    pub may_resolve: bool,
     /// One optional device page.
     pub device: Option<DeviceGrant>,
+    /// Grant the fixed packet-pool mapping owned by the EL1 network service.
+    /// The physical pages are never present in the manifest or on the wire.
+    pub packet_pool: bool,
     /// Sticky home CPU for the EL1 driver task ([ADR-0088](../../../docs/adr/0088-product-home-cpu.md)).
     ///
     /// Domain is `0 .. crate::tasks::N_CPUS`. Default product home is **0**;
@@ -80,6 +96,29 @@ pub enum BindError {
     /// — rather than a policy decision, which is the point: an entry that could
     /// name authority outside the loader's list would be a mint.
     NoSuchCapability { slot: usize, index: u8, held: usize },
+    /// The entry named a position that exists in the vocabulary and holds
+    /// nothing (ADR-0099).
+    ///
+    /// Not the same refusal as [`Self::NoSuchCapability`], and deliberately so:
+    /// this one says a service the composition was entitled to expect did not
+    /// come up this boot. The position's *name* is not here because this module
+    /// binds against a slice of capabilities and has no names to give — the
+    /// vocabulary ([`crate::held::Set::name_of`]) supplies it where the refusal
+    /// is printed.
+    HeldVacant { slot: usize, index: u8 },
+    /// A network capability was named without the corresponding pool mapping.
+    PacketPoolRequired { slot: usize, index: u8 },
+    /// The entry named a device window past the end of the vocabulary
+    /// (ADR-0100).
+    ///
+    /// The device half of [`Self::NoSuchCapability`], and arithmetic for the
+    /// same reason: `index >= windows.len()`. A composition cannot reach a page
+    /// the board did not declare, and cannot be given one by a check that was
+    /// forgotten, because there is no check.
+    NoSuchWindow { index: u8, windows: usize },
+    /// The entry named a declared window that holds nothing this boot
+    /// (ADR-0100) — the device is absent on this board.
+    WindowVacant { index: u8 },
     /// The image does not fit in the text pages the entry declared.
     ImageTooLarge { bytes: usize, capacity: usize },
     /// Zero text pages, or a window with no stack.
@@ -132,10 +171,18 @@ impl AgentEntry {
 
 /// Turn an entry's slot indices into the capability table a task is spawned with.
 ///
-/// `held` is what the loader itself holds. Every slot is an index into it, so
-/// the result can only contain capabilities the loader already had — which is
-/// the whole security argument of the manifest, and it is arithmetic rather than
-/// a check that could be forgotten.
+/// `held` is the loader's **vocabulary** ([`crate::held`]): one position per
+/// declared authority, `None` where nothing was minted this boot. Every slot is
+/// an index into it, so the result can only contain capabilities the loader
+/// already had — which is the whole security argument of the manifest, and it is
+/// arithmetic rather than a check that could be forgotten.
+///
+/// The two refusals are different facts (ADR-0099).
+/// [`BindError::NoSuchCapability`] means the entry named a position that does
+/// not exist; [`BindError::HeldVacant`] means it named one that does and that
+/// nobody filled — a boot-time failure of the kernel rather than a
+/// mis-composition. Collapsing them would make a service that failed to start
+/// read like a manifest that asked for too much.
 ///
 /// ```
 /// use kernel_core::cap::CapId;
@@ -148,19 +195,31 @@ impl AgentEntry {
 ///     text_pages: 1,
 ///     stack_pages: 3,
 ///     slots: [Some(1), None, None, None],
+///     may_resolve: false,
 ///     device: None,
+///     packet_pool: false,
 ///     home_cpu: 0,
 /// };
-/// let held = [CapId::new(7, 1), CapId::new(8, 1)];
+/// let held = [Some(CapId::new(7, 1)), Some(CapId::new(8, 1))];
 /// assert_eq!(bind(&entry, &held).unwrap()[0], Some(CapId::new(8, 1)));
 ///
-/// let short = [CapId::new(7, 1)];
+/// let short = [Some(CapId::new(7, 1))];
 /// assert_eq!(
 ///     bind(&entry, &short),
 ///     Err(BindError::NoSuchCapability { slot: 0, index: 1, held: 1 })
 /// );
+///
+/// // Declared, never minted: the position is there and empty.
+/// let vacant = [Some(CapId::new(7, 1)), None];
+/// assert_eq!(
+///     bind(&entry, &vacant),
+///     Err(BindError::HeldVacant { slot: 0, index: 1 })
+/// );
 /// ```
-pub fn bind(entry: &AgentEntry, held: &[CapId]) -> Result<[Option<CapId>; MAX_SLOTS], BindError> {
+pub fn bind(
+    entry: &AgentEntry,
+    held: &[Option<CapId>],
+) -> Result<[Option<CapId>; MAX_SLOTS], BindError> {
     let mut out = [None; MAX_SLOTS];
     // `enumerate` rather than a hand-rolled counter, and that is a mutation
     // result rather than a style preference: the `slot += 1` this replaced
@@ -178,9 +237,94 @@ pub fn bind(entry: &AgentEntry, held: &[CapId]) -> Result<[Option<CapId>; MAX_SL
                 held: held.len(),
             });
         }
-        out[slot] = Some(held[i]);
+        if index >= PACKET_CAPABILITY_START && !entry.packet_pool {
+            return Err(BindError::PacketPoolRequired { slot, index });
+        }
+        let Some(cap) = held[i] else {
+            return Err(BindError::HeldVacant { slot, index });
+        };
+        out[slot] = Some(cap);
     }
     Ok(out)
+}
+
+/// A device page the loader may now map: where the composition asked for it,
+/// and what the board says it is (ADR-0100).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResolvedWindow {
+    /// From the entry — inside the agent's own window.
+    pub va: u64,
+    /// From the vocabulary — never from the entry.
+    pub pa: u64,
+    /// From the vocabulary, so a read-only device stays read-only.
+    pub perms: Perms,
+}
+
+/// Resolve an entry's device grant against the loader's window vocabulary.
+///
+/// The companion to [`bind`], and the same argument one layer over: an entry
+/// carries an **index**, so the physical address it ends up with can only be
+/// one the board declared. `Ok(None)` means the entry asked for no device,
+/// which is what every entry in the tree does today.
+///
+/// ```
+/// use kernel_core::held::Window;
+/// use kernel_core::manifest::{bind_window, AgentEntry, BindError, DeviceGrant};
+/// use kernel_core::paging::Perms;
+///
+/// const IMAGE: [u8; 4] = [0; 4];
+/// let mut entry = AgentEntry {
+///     name: "rng-agent",
+///     image: &IMAGE,
+///     text_pages: 1,
+///     stack_pages: 3,
+///     slots: [None; 4],
+///     may_resolve: false,
+///     device: Some(DeviceGrant { va: 0x2000, window: 0 }),
+///     packet_pool: false,
+///     home_cpu: 0,
+/// };
+/// let windows = [Some(Window { pa: 0xfe10_4000, perms: Perms::USER_RW })];
+/// let got = bind_window(&entry, &windows).unwrap().unwrap();
+/// assert_eq!((got.va, got.pa), (0x2000, 0xfe10_4000));
+///
+/// // Past the end of the vocabulary: arithmetic, not a range check.
+/// entry.device = Some(DeviceGrant { va: 0x2000, window: 1 });
+/// assert_eq!(
+///     bind_window(&entry, &windows),
+///     Err(BindError::NoSuchWindow { index: 1, windows: 1 })
+/// );
+///
+/// // Declared, absent on this board.
+/// assert_eq!(
+///     bind_window(&entry, &[Some(Window { pa: 0, perms: Perms::USER_RW }), None]),
+///     Err(BindError::WindowVacant { index: 1 })
+/// );
+/// ```
+pub fn bind_window(
+    entry: &AgentEntry,
+    windows: &[Option<Window>],
+) -> Result<Option<ResolvedWindow>, BindError> {
+    let Some(grant) = entry.device else {
+        return Ok(None);
+    };
+    let i = grant.window as usize;
+    if i >= windows.len() {
+        return Err(BindError::NoSuchWindow {
+            index: grant.window,
+            windows: windows.len(),
+        });
+    }
+    let Some(window) = windows[i] else {
+        return Err(BindError::WindowVacant {
+            index: grant.window,
+        });
+    };
+    Ok(Some(ResolvedWindow {
+        va: grant.va,
+        pa: window.pa,
+        perms: window.perms,
+    }))
 }
 
 #[cfg(test)]
@@ -196,7 +340,9 @@ mod tests {
             text_pages: 1,
             stack_pages: 3,
             slots,
+            may_resolve: false,
             device: None,
+            packet_pool: false,
             home_cpu: 0,
         }
     }
@@ -220,7 +366,7 @@ mod tests {
         // capabilities is not a panic, not a silent `None`, and above all not a
         // read past the end of the loader's list — it is a refusal that names
         // the slot, the index, and how many the loader actually had.
-        let held = [CapId::new(1, 1), CapId::new(2, 1)];
+        let held = [Some(CapId::new(1, 1)), Some(CapId::new(2, 1))];
         assert_eq!(
             bind(&entry([Some(9), None, None, None]), &held),
             Err(BindError::NoSuchCapability {
@@ -232,10 +378,32 @@ mod tests {
     }
 
     #[test]
+    fn a_packet_capability_binds_only_when_the_packet_pool_is_granted() {
+        let held = [
+            Some(CapId::new(1, 1)),
+            Some(CapId::new(2, 1)),
+            Some(CapId::new(3, 1)),
+            Some(CapId::new(4, 1)),
+        ];
+        let mut e = entry([Some(PACKET_CAPABILITY_START), None, None, None]);
+
+        assert_eq!(
+            bind(&e, &held),
+            Err(BindError::PacketPoolRequired {
+                slot: 0,
+                index: PACKET_CAPABILITY_START,
+            })
+        );
+
+        e.packet_pool = true;
+        assert_eq!(bind(&e, &held).unwrap()[0], Some(CapId::new(4, 1)));
+    }
+
+    #[test]
     fn the_last_held_index_binds_and_the_next_one_does_not() {
         // The off-by-one, on the other side of the same boundary `from_slot`
         // guards: `index >= len` and `index > len` differ only here.
-        let held = [CapId::new(1, 1), CapId::new(2, 1)];
+        let held = [Some(CapId::new(1, 1)), Some(CapId::new(2, 1))];
         assert_eq!(
             bind(&entry([Some(1), None, None, None]), &held).unwrap()[0],
             Some(CapId::new(2, 1))
@@ -247,7 +415,7 @@ mod tests {
     fn an_entry_that_names_nothing_gets_nothing() {
         // Denied by default (ADR-0017 §3): an agent with no slots is not an
         // agent with the loader's own authority.
-        let held = [CapId::new(1, 1)];
+        let held = [Some(CapId::new(1, 1))];
         assert_eq!(
             bind(&entry([None; MAX_SLOTS]), &held),
             Ok([None; MAX_SLOTS])
@@ -260,7 +428,7 @@ mod tests {
         // so that a program which miscounts finds nothing rather than something
         // adjacent. A bind that compacted the array would silently repair the
         // miscount and destroy the property.
-        let held = [CapId::new(5, 2), CapId::new(6, 2)];
+        let held = [Some(CapId::new(5, 2)), Some(CapId::new(6, 2))];
         let bound = bind(&entry([None, Some(0), None, Some(1)]), &held).unwrap();
         assert_eq!(
             bound,
@@ -277,6 +445,150 @@ mod tests {
                 index: 0,
                 held: 0
             })
+        );
+    }
+
+    #[test]
+    fn a_declared_position_that_holds_nothing_is_a_different_refusal() {
+        // ADR-0099. Index 1 exists in the vocabulary and is empty, because the
+        // service behind it failed to start. Reporting NoSuchCapability here
+        // would tell whoever reads the console that the composition asked for
+        // too much, when what happened is that the kernel came up short.
+        let held = [Some(CapId::new(1, 1)), None];
+        assert_eq!(
+            bind(&entry([Some(1), None, None, None]), &held),
+            Err(BindError::HeldVacant { slot: 0, index: 1 })
+        );
+        assert_ne!(
+            bind(&entry([Some(1), None, None, None]), &held),
+            Err(BindError::NoSuchCapability {
+                slot: 0,
+                index: 1,
+                held: 2
+            }),
+            "the two refusals must not collapse into one"
+        );
+    }
+
+    #[test]
+    fn a_vacancy_does_not_shift_the_positions_after_it() {
+        // The whole point of a vocabulary with holes: index 1 still reaches the
+        // capability declared at 1, with 0 empty. A list built from what was
+        // minted would have handed slot 0's grant to whoever asked for 1.
+        let held = [None, Some(CapId::new(6, 2))];
+        assert_eq!(
+            bind(&entry([None, Some(1), None, None]), &held).unwrap(),
+            [None, Some(CapId::new(6, 2)), None, None]
+        );
+        assert_eq!(
+            bind(&entry([Some(0), None, None, None]), &held),
+            Err(BindError::HeldVacant { slot: 0, index: 0 }),
+            "and the hole itself is still refused"
+        );
+    }
+
+    #[test]
+    fn a_window_past_the_vocabulary_is_refused_by_arithmetic() {
+        // ADR-0100's security property, stated as a test: the entry names an
+        // index, so the only physical addresses reachable are the ones the
+        // board declared. There is no check to forget, and no range to widen.
+        let mut e = entry([None; MAX_SLOTS]);
+        e.device = Some(DeviceGrant {
+            va: 0x2000,
+            window: 1,
+        });
+        let windows = [Some(Window {
+            pa: 0xfe10_4000,
+            perms: Perms::USER_RW,
+        })];
+        assert_eq!(
+            bind_window(&e, &windows),
+            Err(BindError::NoSuchWindow {
+                index: 1,
+                windows: 1
+            })
+        );
+        // And an empty vocabulary refuses everything, which is what a product
+        // that declares no window is entitled to.
+        assert_eq!(
+            bind_window(&e, &[]),
+            Err(BindError::NoSuchWindow {
+                index: 1,
+                windows: 0
+            })
+        );
+    }
+
+    #[test]
+    fn an_absent_device_is_a_different_refusal_from_an_undeclared_one() {
+        // Same distinction ADR-0099 drew for capabilities, for the same reason:
+        // "this board does not have that device" and "your composition asked
+        // for a device nobody declared" are different problems with different
+        // owners, and one console line each.
+        let mut e = entry([None; MAX_SLOTS]);
+        e.device = Some(DeviceGrant {
+            va: 0x2000,
+            window: 0,
+        });
+        assert_eq!(
+            bind_window(&e, &[None]),
+            Err(BindError::WindowVacant { index: 0 })
+        );
+        assert_ne!(
+            bind_window(&e, &[None]),
+            Err(BindError::NoSuchWindow {
+                index: 0,
+                windows: 1
+            }),
+            "the two refusals must not collapse into one"
+        );
+    }
+
+    #[test]
+    fn the_physical_address_comes_from_the_board_and_the_va_from_the_entry() {
+        // Each half from the party entitled to decide it. A composition that
+        // could choose the pa would be minting memory; one that could not
+        // choose the va could not lay out its own window.
+        let mut e = entry([None; MAX_SLOTS]);
+        e.device = Some(DeviceGrant {
+            va: 0x9000,
+            window: 1,
+        });
+        let windows = [
+            Some(Window {
+                pa: 0xfe20_1000,
+                perms: Perms::USER_RW,
+            }),
+            Some(Window {
+                pa: 0xfe10_4000,
+                perms: Perms::USER_RO,
+            }),
+        ];
+        assert_eq!(
+            bind_window(&e, &windows).unwrap(),
+            Some(ResolvedWindow {
+                va: 0x9000,
+                pa: 0xfe10_4000,
+                perms: Perms::USER_RO,
+            }),
+            "index 1's page and index 1's rights, not index 0's"
+        );
+    }
+
+    #[test]
+    fn an_entry_that_names_no_device_resolves_to_nothing() {
+        // Denied by default, the device half: an agent with no grant is not an
+        // agent with the first window.
+        let e = entry([None; MAX_SLOTS]);
+        assert_eq!(
+            bind_window(
+                &e,
+                &[Some(Window {
+                    pa: 0xfe10_4000,
+                    perms: Perms::USER_RW
+                })]
+            ),
+            Ok(None)
         );
     }
 

@@ -4,7 +4,8 @@ title: Data in the lock — Mutex<T> replaces the cell-beside-a-lock pair
 status: accepted
 date: 2026-08-11
 accepted: 2026-08-11
-related: [0008, 0019, 0022, 0063, 0077]
+amended: 2026-08-11
+related: [0008, 0019, 0022, 0063, 0077, 0088]
 ---
 
 # ADR-0091: Data in the lock
@@ -133,6 +134,22 @@ path. TX is a leaf and the order is one-way, so the nesting is sound; the
 document simply did not say it, and a faithful copy would have propagated a
 false statement.
 
+**Amended 2026-08-11:** a second nesting edge, **SIDE → SCHED**.
+`loader::load_all` now holds its side tables across
+`sched::spawn_with_slots_on`, because since [ADR-0088](0088-product-home-cpu.md)
+the composition pins an agent to CPU 1 and that CPU can dispatch the task before
+the loader records which manifest entry it came from. The task then reached
+`agent_body`, found no entry for itself, and returned — the agent never ran, and
+the only trace was one line: `loader: a task reached the agent body with no
+manifest entry`. Measured on a loaded host: **3 boots in 8** lost an agent
+before, **0 in 8** after. The nesting is one-way — nothing holding SCHED takes
+SIDE — and `entry_for_task` waiting on the same lock is what turns the window
+into an ordering. This is a reconciliation of the stated order with what the
+code must do, not a change of decision. The `loader::remember` helper the Gates
+table below names is gone with it: the record now happens inside the hold that
+the spawn is made under, and a one-line wrapper that took the lock separately is
+exactly the shape that lost the race.
+
 ## Alternatives rejected
 
 - **`lock() -> Guard` that masks on acquire and restores on `Drop`.** The
@@ -153,12 +170,12 @@ false statement.
 
 ## Gates
 
-| Check                            | Evidence                                                                                                          |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| The pair cannot be written again | `IrqSpinLock` no longer exists; `SyncCell` has three named users and a doc that refuses a fourth                  |
-| The exception stays one file     | `irq-scope.sh` `allowed_masked_lock` clause, **seen red**: a `lock_masked` in `loader::remember` reported at `src/bootstrap/loader.rs:127`, exit 1 |
+| Check                            | Evidence                                                                                                                                                                                                                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The pair cannot be written again | `IrqSpinLock` no longer exists; `SyncCell` has three named users and a doc that refuses a fourth                                                                                                                                                                          |
+| The exception stays one file     | `irq-scope.sh` `allowed_masked_lock` clause, **seen red**: a `lock_masked` in `loader::remember` reported at `src/bootstrap/loader.rs:127`, exit 1                                                                                                                        |
 | The scope walker is not blinded  | `make irq-scope` counts **20 -> 18** masked regions. It falls rather than rises, and by exactly the two ad-hoc `without_irqs` regions in `bsp/rpi4/display.rs` that the mutex absorbed. No region became invisible; the walker's blind spot (indirect calls) is unchanged |
-| Behaviour unmoved end to end     | `make boot-check` green (~100 assertions), `make check` green |
+| Behaviour unmoved end to end     | `make boot-check` green (~100 assertions), `make check` green                                                                                                                                                                                                             |
 
 Evidence is **QEMU** for this slice: it is a refactor with no behavioural
 change, and no hardware claim is made. The MMU arena plumbing (§2, `mmu.rs`) is

@@ -377,8 +377,8 @@ sotto-dichiara il gate (scandisce anche `crates/`). (E-10/E-11) — **doc-fix**.
 **[F-33] INFO CONFIRMED** — architecture.md `:173` dichiara le Rules 1–4+10
 gate-checkate, ma la Rule 2 (BSP bind-only) non è meccanicamente decidibile da
 un import-graph; Rule 5 (un solo owner irqchip) non ha gate (conforme oggi:
-un solo `irq::init`). Il commento `ipc: refuse count=6` legge come ledger
-totale ma conta solo i refusal IPC-send, non quelli per-sessione dei reply
+un solo `irq::init`). Il commento corrente `ipc: refuse count=7` legge come
+ledger totale ma conta solo i refusal IPC-send, non quelli per-sessione dei reply
 mapper. verification.md ha un claim HW senza data/log (`:1104-1122`) e un
 «168 total suite» stale (`:260`). `docs/README.md:111` data «2026-08-07» con
 contenuto del 2026-08-08. `0x8000` duplicato come letterale in
@@ -433,8 +433,9 @@ maschera; W^X host-tested; ADR-0017 §1/§2, 0019, 0022, 0031, 0032, 0037,
 0041, 0046 §1/§3, 0050: conformi clausola per clausola; nessun indice EL0 non
 validato raggiunge un array (bound sull'array, non su costante); hold
 accounting conservato attraverso transfer; nessun path `Agent` attuale salta
-`destroy()`; `ipc: refuse count=6` non disturbato dalla slice (contatore
-per-sessione, verificato); SPSC ring/wake con pairing Acquire/Release corretto
+`destroy()`; il ledger corrente `ipc: refuse count=7` non è disturbato dalla
+slice (il contatore è machine-wide per gli IPC send, non per-sessione,
+verificato); SPSC ring/wake con pairing Acquire/Release corretto
 e Miri 2-thread; `use crate::{`: 0 forme nel tree; `/* */`: 0 nel tree (il
 buco block-comment dei gate è irraggiungibile); xrefs a tre vie coerenti per
 0053/0054.

@@ -4,6 +4,7 @@ title: Product multi-core — manifest home_cpu and loader pin
 status: accepted
 date: 2026-08-10
 accepted: 2026-08-10
+amended: 2026-08-13
 related: [0021, 0023, 0027, 0029, 0070, 0075, 0076, 0080, 0081, 0082, 0083]
 ---
 
@@ -20,6 +21,11 @@ sticky home.
 
 Status after land: **done (QEMU)** via `make product-boot-check` (and host
 tests); HW stamp optional follow-up on Pi when convenient.
+
+> **Amendment (2026-08-13, reconciliation per [ADR-0058](0058-adr-amendments-and-mutation-freshness.md)).**
+> The optional stamp landed: **done (HW)**, transcript `20260811-122821.log`
+> (`loader: chirp loaded … home=1` on silicon). Living status is the roadmap
+> K/P tables, not the landing line above.
 
 ## Context
 

@@ -68,8 +68,61 @@ assert_product_boot() {
 	# 4. Composition minimum (M8 + P1 store)
 	# ---------------------------------------------------------------------------
 	grep -qa 'console-server: up' "${log}" || fail "console server did not spawn"
+	# ADR-0099: the vocabulary a composition may name, printed before the loader
+	# runs. `ok` means the position was declared *and* minted into; the negative
+	# for `VACANT` is in §5, because a hole is not a boot the product should pass.
+	grep -qaE 'authority: 0 console ok' "${log}" ||
+		fail "the console position was not declared and provided (ADR-0099)"
+	# ADR-0100/0101: the device vocabulary, and the one window this product
+	# declares. The expectation is **derived from the board**, not chosen from a
+	# list of them: the same transcript already says whether the RNG200 answered,
+	# and the two lines must agree. One oracle, two boards — the alternative is a
+	# hardware-flavoured copy that disagrees with this one on the day it matters.
+	grep -qa 'authority: windows 1 declared' "${log}" ||
+		fail "the product did not declare its one device window (ADR-0101)"
+	if grep -qa 'rng200: ok' "${log}"; then
+		grep -qa 'authority: 0 rng ok' "${log}" ||
+			fail "the board has an RNG200 and the window was not provided (ADR-0101)"
+		# The device is there, so the composed driver-agent runs and proves it
+		# read the register: 'R' is the byte only a real load can produce.
+		grep -qaE 'loader: entropy loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" ||
+			fail "the composed driver-agent was not loaded"
+		grep -qa 'loader: entropy ran sends=1 refusals=0' "${log}" ||
+			fail "the composed driver-agent did not send its reading"
+		# Anchored to *a* loader report, the way beacon's `H!` is: a bare 'R'
+		# would be matched by `IRQs`, `RX`, or any other line on the wire. Which
+		# report it collides with is scheduling, not invariant — the first
+		# version of this line required `Rloader: entropy ran` and failed on the
+		# Pi 4B stamp of 2026-08-13, where the byte landed on beacon's report
+		# instead. Only `entropy` sends an 'R'; when it arrives is the board's
+		# business.
+		grep -qaE 'Rloader: [a-z]+ ran' "${log}" ||
+			fail "the driver-agent's reading did not reach the wire before its report"
+	elif grep -qa 'rng200: unavailable' "${log}"; then
+		grep -qa 'authority: 0 rng absent' "${log}" ||
+			fail "the board has no RNG200 and the window did not say 'absent' (ADR-0101)"
+		# Declared and empty: the agent is refused by name, and nothing is mapped.
+		grep -qa 'loader: entropy refused — window rng is VACANT' "${log}" ||
+			fail "the agent naming an absent window was not refused by name"
+		if grep -qa 'loader: entropy loaded' "${log}"; then
+			fail "an agent whose window is absent was spawned anyway"
+		fi
+	else
+		fail "no rng200 line to derive the window expectation from (ADR-0101)"
+	fi
+	# Either way, 'FAILED' is never right: it means the board should have had the
+	# device and providing it did not work.
+	if grep -qa 'authority: 0 rng FAILED' "${log}"; then
+		fail "providing the declared RNG window failed"
+	fi
 	grep -qa 'console: capability minted' "${log}" || fail "console send capability was not minted"
-	grep -qa 'loader: store n=2 image' "${log}" || fail "product did not load the injected multi-agent store"
+	grep -qa 'authority: bound console' "${log}" || fail "product did not bind the console name (ADR-0102)"
+	grep -qa 'blob: service up' "${log}" || fail "durable blob service did not spawn (ADR-0103)"
+	grep -qa 'authority: 1 blob ok' "${log}" || fail "blob request capability was not provided (ADR-0103)"
+	grep -qa 'authority: 2 blob-reply ok' "${log}" || fail "blob reply capability was not provided (ADR-0103)"
+	grep -qa 'authority: bound blob' "${log}" || fail "product did not bind the blob endpoint (ADR-0103)"
+	grep -qa 'authority: bound blob-reply' "${log}" || fail "product did not bind the blob reply endpoint (ADR-0103)"
+	grep -qa 'loader: store n=5 image' "${log}" || fail "product did not load the injected multi-agent store"
 	# ADR-0088: product composition pins chirp on CPU 1; beacon stays home 0.
 	grep -qaE 'loader: beacon loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" ||
 		fail "beacon was not loaded on home=0"
@@ -77,6 +130,12 @@ assert_product_boot() {
 		fail "chirp was not loaded on home=1 (product multi-core pin)"
 	grep -qa 'loader: beacon ran sends=2 refusals=0' "${log}" || fail "beacon did not run successfully"
 	grep -qa 'loader: chirp ran sends=1 refusals=0' "${log}" || fail "chirp did not run successfully"
+	grep -qaE 'loader: lookup loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" || fail "lookup was not loaded"
+	grep -qa 'loader: lookup ran sends=1 refusals=0' "${log}" || fail "lookup did not resolve and send successfully"
+	grep -qaE 'loader: blob loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" || fail "blob agent was not loaded"
+	grep -qa 'loader: blob ran sends=3 refusals=0' "${log}" || fail "blob agent did not complete its IPC round trip"
+	grep -qa 'blob: put ok' "${log}" || fail "blob endpoint did not persist the put request"
+	grep -qa 'blob: got' "${log}" || fail "blob endpoint did not answer the get request"
 	# Concurrent product agents share the console endpoint: bytes may interleave —
 	# and since ADR-0088 pins chirp on CPU 1, they *do*. `H!` was written when the
 	# composition was single-core and asserts the opposite of the line above it:
@@ -92,6 +151,7 @@ assert_product_boot() {
 	grep -qaE 'H[^[:alnum:][:space:]]*!' "${log}" ||
 		fail "beacon bytes did not reach the wire, or arrived out of order"
 	grep -qaF '?' "${log}" || fail "chirp byte did not reach the wire"
+	grep -qaF 'N' "${log}" || fail "lookup byte did not reach the wire (ADR-0102)"
 
 	# ---------------------------------------------------------------------------
 	# 5. Invariant beacon + anomaly negatives
@@ -100,16 +160,54 @@ assert_product_boot() {
 	# load-dependent and deliberately not pinned.
 	grep -qaE 'invariants: overwrites=0 abandoned=0 faults=0 ' "${log}" ||
 		fail "invariant beacon missing or non-zero (overwrites/abandoned/faults)"
+	# ADR-0098: the density meter must be on the line, in the shipped image —
+	# `oracle-census.sh` reads its peak instead of carrying a constant, and a
+	# missing field there fails the census rather than falling back to one.
+	# Shape only here (live ≤ peak, both non-zero); the ceiling is the census's
+	# question, not this smoke's.
+	# `|| true`: under `set -e` a grep with no match would end the gate with
+	# status 1 and no message, which is the failure mode this whole ADR is
+	# about — a red that says nothing.
+	slots_field="$(grep -oaE 'slots=[0-9]+/[0-9]+' "${log}" | tail -n1 || true)"
+	[[ -n "${slots_field}" ]] ||
+		fail "invariant beacon carries no slots=<live>/<peak> field (ADR-0098)"
+	slots_live="${slots_field#slots=}"
+	slots_peak="${slots_live#*/}"
+	slots_live="${slots_live%%/*}"
+	((slots_live >= 1)) || fail "slots reports ${slots_live} live with the console loop running"
+	((slots_peak >= slots_live)) ||
+		fail "slots peak ${slots_peak} is below the live count ${slots_live} — the watermark does not track"
+	# A declared **capability** position nobody minted into (ADR-0099). The agents
+	# that named it are refused, which is correct — and a product boot that
+	# reaches it is a service that did not start, not a composition to ship.
+	#
+	# Anchored to the capability lines since ADR-0101, because a *window* may
+	# legitimately be empty: `entropy` naming an absent RNG200 prints `window rng
+	# is VACANT` on every QEMU boot, and a bare `grep VACANT` failed that — the
+	# device half is judged above, where `absent` and `FAILED` are told apart.
+	if grep -qaE 'authority: [0-9]+ [a-z0-9_]+ VACANT' "${log}"; then
+		fail "a declared capability position came up empty (ADR-0099)"
+	fi
+	if grep -qa 'which is VACANT' "${log}"; then
+		fail "an agent named a capability position that was never minted (ADR-0099)"
+	fi
+	# The loader spawns and records the manifest entry under one lock hold; a
+	# task that reached its body without one means the record lost a race with
+	# the CPU it was admitted to. Seen 3 boots in 8 on a loaded host before the
+	# hold was extended (2026-08-11), and the agent silently never ran.
+	if grep -qa 'no manifest entry' "${log}"; then
+		fail "a task reached the agent body before its manifest entry was recorded"
+	fi
 	if grep -qa 'sched: ABANDONED' "${log}"; then
 		fail "a task stack was abandoned (guard remap refused)"
 	fi
 	if grep -qa 'sched: PENDING-OVERWRITE' "${log}"; then
 		fail "an exit found a parked task stack — pending_free drain hole"
 	fi
-	# `timer: MISSED` is host-load sensitive under TCG (ADR-0087). The full
-	# boot-check measures emulator CPU and can say INDETERMINATE; this short
-	# product smoke does not — ignore deadline miss here rather than fail green
-	# composition on a busy laptop.
+	# `timer: MISSED` is host-load sensitive under TCG (ADR-0087). The QEMU
+	# product caller measures the emulator budget before reaching this oracle;
+	# below the credible bar it returns INDETERMINATE, otherwise the caller's
+	# `on_timer_missed` is a hard failure. Hardware uses the same hard failure.
 
 	# ---------------------------------------------------------------------------
 	# 6. Oracle-free surface — product must not carry demo scaffolding

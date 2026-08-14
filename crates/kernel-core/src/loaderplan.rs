@@ -21,7 +21,8 @@
 //! a test rather than a reading of the loop.
 
 use crate::cap::CapId;
-use crate::manifest::{AgentEntry, BindError, MAX_SLOTS, bind};
+use crate::held::Window;
+use crate::manifest::{AgentEntry, BindError, MAX_SLOTS, ResolvedWindow, bind, bind_window};
 
 /// Which manifest a plan was made from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,7 +42,10 @@ pub enum Source {
 pub enum Refusal {
     /// `validate` refused: geometry, image size, or `home_cpu` out of range.
     Invalid(BindError),
-    /// `bind` refused: the entry named a capability the loader does not hold.
+    /// `bind` refused: the entry named a capability the loader does not hold,
+    /// or (ADR-0100) a device window the board did not declare. Both are the
+    /// same question — *may this loader grant this?* — asked of the two
+    /// vocabularies, so they share a variant and differ in the inner error.
     Unheld(BindError),
 }
 
@@ -54,6 +58,9 @@ pub enum EntryPlan {
         index: u8,
         home_cpu: u8,
         slots: [Option<CapId>; MAX_SLOTS],
+        /// The device page to map before entry, already resolved against the
+        /// window vocabulary (ADR-0100). `None` when the entry asked for none.
+        device: Option<ResolvedWindow>,
     },
     /// Refuse it, and say which check refused.
     Refuse(Refusal),
@@ -72,12 +79,22 @@ pub enum PlanError {
 
 /// Plan every entry of `table`, writing one [`EntryPlan`] per entry into `out`.
 ///
-/// Returns how many were written. `held` is the whole of what the loader may
-/// grant — an entry naming anything outside it is refused by arithmetic rather
-/// than by a check (ADR-0021).
+/// Returns how many were written. `held` is the loader's vocabulary
+/// ([`crate::held`], ADR-0099): the whole of what it may grant, one position per
+/// declared authority. An entry naming anything outside it is refused by
+/// arithmetic rather than by a check (ADR-0021), and one naming a position that
+/// exists and is empty is refused as `HeldVacant` — same `Refusal::Unheld`,
+/// different fact inside it.
+///
+/// `windows` is the second vocabulary (ADR-0100), and it answers the device
+/// half of the same question. An entry carries a window *index*, never a
+/// physical address, so the page a plan ends up with can only be one the board
+/// declared — and a plan is where that resolution belongs, because the loader
+/// should be holding a decision rather than making one while it maps.
 pub fn plan(
     table: &[AgentEntry],
-    held: &[CapId],
+    held: &[Option<CapId>],
+    windows: &[Option<Window>],
     frame_size: usize,
     out: &mut [EntryPlan],
 ) -> Result<usize, PlanError> {
@@ -94,12 +111,18 @@ pub fn plan(
     for (index, entry) in table.iter().enumerate() {
         out[index] = match entry.validate(frame_size) {
             Err(e) => EntryPlan::Refuse(Refusal::Invalid(e)),
-            Ok(()) => match bind(entry, held) {
+            // Capabilities, then the device window: both are `bind` questions,
+            // and asking them in one order rather than by chance is the whole
+            // point of this module (ADR-0097).
+            Ok(()) => match bind(entry, held)
+                .and_then(|slots| bind_window(entry, windows).map(|device| (slots, device)))
+            {
                 Err(e) => EntryPlan::Refuse(Refusal::Unheld(e)),
-                Ok(slots) => EntryPlan::Spawn {
+                Ok((slots, device)) => EntryPlan::Spawn {
                     index: index as u8,
                     home_cpu: entry.home_cpu,
                     slots,
+                    device,
                 },
             },
         };
@@ -110,6 +133,7 @@ pub fn plan(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::paging::Perms;
 
     const PAGE: usize = 4096;
     static IMAGE: [u8; 8] = [0; 8];
@@ -121,14 +145,17 @@ mod tests {
             text_pages: 1,
             stack_pages: 3,
             slots,
+            may_resolve: false,
             device: None,
+            packet_pool: false,
             home_cpu: 0,
         }
     }
 
-    fn caps(n: usize) -> [CapId; 2] {
+    /// A vocabulary of two provided positions (ADR-0099 shape).
+    fn caps(n: usize) -> [Option<CapId>; 2] {
         let _ = n;
-        [CapId::new(1, 1), CapId::new(2, 1)]
+        [Some(CapId::new(1, 1)), Some(CapId::new(2, 1))]
     }
 
     #[test]
@@ -139,7 +166,10 @@ mod tests {
             text_pages: 0,
             stack_pages: 0,
         })); 4];
-        assert_eq!(plan(&[], &caps(2), PAGE, &mut out), Err(PlanError::Empty));
+        assert_eq!(
+            plan(&[], &caps(2), &[], PAGE, &mut out),
+            Err(PlanError::Empty)
+        );
     }
 
     #[test]
@@ -150,7 +180,7 @@ mod tests {
             stack_pages: 0,
         })); 1];
         assert_eq!(
-            plan(&table, &caps(2), PAGE, &mut out),
+            plan(&table, &caps(2), &[], PAGE, &mut out),
             Err(PlanError::OutTooSmall {
                 entries: 2,
                 capacity: 1
@@ -170,7 +200,7 @@ mod tests {
             text_pages: 0,
             stack_pages: 0,
         })); 2];
-        assert_eq!(plan(&table, &caps(2), PAGE, &mut out), Ok(2));
+        assert_eq!(plan(&table, &caps(2), &[], PAGE, &mut out), Ok(2));
         assert!(matches!(out[0], EntryPlan::Spawn { index: 0, .. }));
         assert!(matches!(out[1], EntryPlan::Spawn { index: 1, .. }));
     }
@@ -185,17 +215,19 @@ mod tests {
             stack_pages: 0,
         })); 4];
 
-        assert_eq!(plan(&[e], &held, PAGE, &mut out), Ok(1));
+        assert_eq!(plan(&[e], &held, &[], PAGE, &mut out), Ok(1));
         match out[0] {
             EntryPlan::Spawn {
                 index,
                 home_cpu,
                 slots,
+                device,
             } => {
                 assert_eq!(index, 0);
                 assert_eq!(home_cpu, 1, "ADR-0088: the entry's home is carried");
-                assert_eq!(slots[0], Some(held[1]), "slot 0 names held[1]");
+                assert_eq!(slots[0], held[1], "slot 0 names held[1]");
                 assert_eq!(slots[1], None);
+                assert_eq!(device, None, "no grant asked for, no page resolved");
             }
             other => panic!("expected a spawn plan, got {other:?}"),
         }
@@ -209,7 +241,7 @@ mod tests {
             stack_pages: 0,
         })); 4];
 
-        assert_eq!(plan(&[e], &caps(2), PAGE, &mut out), Ok(1));
+        assert_eq!(plan(&[e], &caps(2), &[], PAGE, &mut out), Ok(1));
         assert_eq!(
             out[0],
             EntryPlan::Refuse(Refusal::Unheld(BindError::NoSuchCapability {
@@ -218,6 +250,74 @@ mod tests {
                 held: 2,
             })),
             "the three fields the loader prints come from the refusal itself"
+        );
+    }
+
+    #[test]
+    fn a_planned_device_carries_the_boards_page_and_the_entrys_va() {
+        // ADR-0100 end to end through the plan: the entry names window 1, the
+        // vocabulary says what window 1 is, and the loader is handed a decision
+        // rather than an address it has to look up while it maps.
+        let mut e = entry("driver", [None; MAX_SLOTS]);
+        e.device = Some(crate::manifest::DeviceGrant {
+            va: 0x9000,
+            window: 1,
+        });
+        let windows = [
+            Some(Window {
+                pa: 0xfe20_1000,
+                perms: Perms::USER_RW,
+            }),
+            Some(Window {
+                pa: 0xfe10_4000,
+                perms: Perms::USER_RO,
+            }),
+        ];
+        let mut out = [EntryPlan::Refuse(Refusal::Invalid(BindError::BadGeometry {
+            text_pages: 0,
+            stack_pages: 0,
+        })); 4];
+
+        assert_eq!(plan(&[e], &caps(2), &windows, PAGE, &mut out), Ok(1));
+        match out[0] {
+            EntryPlan::Spawn { device, .. } => assert_eq!(
+                device,
+                Some(ResolvedWindow {
+                    va: 0x9000,
+                    pa: 0xfe10_4000,
+                    perms: Perms::USER_RO,
+                })
+            ),
+            other => panic!("expected a spawn plan, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_window_the_board_never_declared_refuses_the_whole_entry() {
+        // The refusal is the entry's, not the device's: an agent composed to
+        // drive a page it cannot have does not run without it. It asked for
+        // authority the board never offered, and half an agent is not a policy
+        // anyone chose.
+        let mut e = entry("driver", [None; MAX_SLOTS]);
+        e.device = Some(crate::manifest::DeviceGrant {
+            va: 0x9000,
+            window: 0,
+        });
+        let mut out = [EntryPlan::Spawn {
+            index: 0,
+            home_cpu: 0,
+            slots: [None; MAX_SLOTS],
+            device: None,
+        }; 4];
+
+        assert_eq!(plan(&[e], &caps(2), &[], PAGE, &mut out), Ok(1));
+        assert_eq!(
+            out[0],
+            EntryPlan::Refuse(Refusal::Unheld(BindError::NoSuchWindow {
+                index: 0,
+                windows: 0
+            })),
+            "an empty window vocabulary refuses by arithmetic"
         );
     }
 
@@ -232,9 +332,10 @@ mod tests {
             index: 0,
             home_cpu: 0,
             slots: [None; MAX_SLOTS],
+            device: None,
         }; 4];
 
-        assert_eq!(plan(&[e], &caps(2), PAGE, &mut out), Ok(1));
+        assert_eq!(plan(&[e], &caps(2), &[], PAGE, &mut out), Ok(1));
         assert!(
             matches!(
                 out[0],
@@ -256,9 +357,10 @@ mod tests {
             index: 0,
             home_cpu: 0,
             slots: [None; MAX_SLOTS],
+            device: None,
         }; 4];
 
-        assert_eq!(plan(&[e], &caps(2), PAGE, &mut out), Ok(1));
+        assert_eq!(plan(&[e], &caps(2), &[], PAGE, &mut out), Ok(1));
         assert!(matches!(
             out[0],
             EntryPlan::Refuse(Refusal::Invalid(BindError::ImageTooLarge { .. }))
@@ -273,9 +375,10 @@ mod tests {
             index: 0,
             home_cpu: 0,
             slots: [None; MAX_SLOTS],
+            device: None,
         }; 4];
 
-        assert_eq!(plan(&[e], &caps(2), PAGE, &mut out), Ok(1));
+        assert_eq!(plan(&[e], &caps(2), &[], PAGE, &mut out), Ok(1));
         assert!(matches!(
             out[0],
             EntryPlan::Refuse(Refusal::Invalid(BindError::BadHome { .. }))
@@ -293,14 +396,15 @@ mod tests {
             index: 0,
             home_cpu: 0,
             slots: [None; MAX_SLOTS],
+            device: None,
         }; 4];
 
-        assert_eq!(plan(&[bad, good], &caps(2), PAGE, &mut out), Ok(2));
+        assert_eq!(plan(&[bad, good], &caps(2), &[], PAGE, &mut out), Ok(2));
         assert!(matches!(out[0], EntryPlan::Refuse(Refusal::Unheld(_))));
         match out[1] {
             EntryPlan::Spawn { index, slots, .. } => {
                 assert_eq!(index, 1, "the index is the entry's, not the plan's");
-                assert_eq!(slots[0], Some(caps(2)[0]));
+                assert_eq!(slots[0], caps(2)[0]);
             }
             other => panic!("expected the second entry to be planned, got {other:?}"),
         }
