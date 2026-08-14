@@ -7,7 +7,7 @@
 
 use kernel_core::genet::{
     self, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn, PhyError, PhyLink,
-    QueueEnable, QueueEnableError, ResetReport, Revision, RevisionError, RingProgram,
+    QueueEnable, QueueEnableError, ResetReport, Revision, RevisionError, RgmiiReport, RingProgram,
     RingProgramError, RxReport, TxReport, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
@@ -270,6 +270,7 @@ impl Genet {
         if let Err(report) = self.program_umac_speed() {
             return Ok(report);
         }
+        self.assert_rgmii_link();
         fill_minimum_frame(self.tx_cpu, genet::MIN_FRAME_BYTES);
         // SAFETY: configure_queue0 stored an identity-mapped TX frame.
         unsafe {
@@ -323,6 +324,7 @@ impl Genet {
             Err(TxReport::UnknownSpeed) => return Ok(RxReport::UnknownSpeed),
             Err(_) => return Ok(RxReport::NotEnabled),
         }
+        self.assert_rgmii_link();
         // SAFETY: configure_queue0 stored an identity-mapped RX frame.
         unsafe {
             cache::invalidate_dcache_poc(self.rx_cpu, self.rx_len as usize);
@@ -380,6 +382,31 @@ impl Genet {
             genet::umac_cmd_with_speed(cmd, speed),
         );
         Ok(())
+    }
+
+    /// Program `SYS_PORT_CTRL` and the RGMII OOB block for `rgmii-rxid`.
+    /// Does not claim link-up and does not publish a network service.
+    pub fn program_rgmii_oob(&self) -> RgmiiReport {
+        if !self.binding.phy_mode_rgmii_rxid {
+            return RgmiiReport::ModeNotRgmiiRxid;
+        }
+        self.regs
+            .write32(registers::SYS_PORT_CTRL as usize, genet::rgmii_port_ctrl());
+        let current = self.regs.read32(registers::EXT_RGMII_OOB_CTRL as usize);
+        self.regs.write32(
+            registers::EXT_RGMII_OOB_CTRL as usize,
+            genet::rgmii_oob_mode(current),
+        );
+        RgmiiReport::Programmed
+    }
+
+    /// OR `RGMII_LINK` after Enabled+Up. Does not change port mode.
+    fn assert_rgmii_link(&self) {
+        let current = self.regs.read32(registers::EXT_RGMII_OOB_CTRL as usize);
+        self.regs.write32(
+            registers::EXT_RGMII_OOB_CTRL as usize,
+            genet::rgmii_oob_with_link(current),
+        );
     }
 
     /// Stop DMA, UniMAC-reset, and return to Idle. Refuses Idle.

@@ -30,6 +30,16 @@ pub const GENET_V5_MAJOR: u8 = 5;
 /// GENET register offsets used by the first bounded model.
 pub mod registers {
     pub const SYS_REV_CTRL: u32 = 0x0000;
+    pub const SYS_PORT_CTRL: u32 = 0x0004;
+    /// External gigabit PHY on RGMII (`bcmgenet.h` `PORT_MODE_EXT_GPHY`).
+    pub const PORT_MODE_EXT_GPHY: u32 = 3;
+    pub const EXT: u32 = 0x0080;
+    pub const EXT_RGMII_OOB_CTRL: u32 = EXT + 0x0c;
+    pub const RGMII_LINK: u32 = 1 << 4;
+    pub const OOB_DISABLE: u32 = 1 << 5;
+    pub const RGMII_MODE_EN: u32 = 1 << 6;
+    /// Set only for plain `rgmii` (no delay). `rgmii-rxid` leaves this clear.
+    pub const ID_MODE_DIS: u32 = 1 << 16;
     pub const INTRL2_0: u32 = 0x0200;
     pub const INTRL2_1: u32 = 0x0240;
     pub const RBUF: u32 = 0x0300;
@@ -139,6 +149,25 @@ pub const fn umac_speed_bits(speed: LinkSpeed) -> u32 {
 /// Replace only the speed field; TX/RX enable bits are preserved.
 pub const fn umac_cmd_with_speed(cmd: u32, speed: LinkSpeed) -> u32 {
     (cmd & !registers::UMAC_CMD_SPEED_MASK) | umac_speed_bits(speed)
+}
+
+/// `SYS_PORT_CTRL` for the Pi 4 external BCM54213 on RGMII.
+pub const fn rgmii_port_ctrl() -> u32 {
+    registers::PORT_MODE_EXT_GPHY
+}
+
+/// Enable the RGMII block for `rgmii-rxid` without claiming link.
+///
+/// Clears `OOB_DISABLE`, `ID_MODE_DIS` (PHY owns the RX delay), and any
+/// leftover `RGMII_LINK`. Sets `RGMII_MODE_EN`. Link is [`rgmii_oob_with_link`].
+pub const fn rgmii_oob_mode(current: u32) -> u32 {
+    (current & !registers::OOB_DISABLE & !registers::ID_MODE_DIS & !registers::RGMII_LINK)
+        | registers::RGMII_MODE_EN
+}
+
+/// Same as [`rgmii_oob_mode`], with `RGMII_LINK` for an Enabled+Up path.
+pub const fn rgmii_oob_with_link(current: u32) -> u32 {
+    rgmii_oob_mode(current) | registers::RGMII_LINK
 }
 
 /// GENET v5 register layout shared by the RDMA and TDMA blocks.
@@ -1130,6 +1159,24 @@ impl Display for Queue0Report {
     }
 }
 
+/// Boot report for the RGMII OOB / port-mode program. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RgmiiReport {
+    Programmed,
+    ModeNotRgmiiRxid,
+}
+
+impl Display for RgmiiReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RgmiiReport::Programmed => f.write_str("genet: rgmii oob (ext-gphy, not a nic)"),
+            RgmiiReport::ModeNotRgmiiRxid => {
+                f.write_str("genet: rgmii unavailable (not rgmii-rxid)")
+            }
+        }
+    }
+}
+
 /// Boot report for one bounded TX. Not a NIC and not an RX claim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TxReport {
@@ -1993,6 +2040,38 @@ mod tests {
             "genet: tx unavailable (unknown speed)"
         );
         assert_eq!(registers::UMAC_CMD_SPEED_MASK, 0xc);
+    }
+
+    #[test]
+    fn rgmii_oob_is_ext_gphy_without_mac_delay() {
+        assert_eq!(rgmii_port_ctrl(), registers::PORT_MODE_EXT_GPHY);
+        assert_eq!(registers::PORT_MODE_EXT_GPHY, 3);
+        assert_eq!(registers::SYS_PORT_CTRL, 0x04);
+        assert_eq!(registers::EXT_RGMII_OOB_CTRL, 0x8c);
+        assert_eq!(registers::RGMII_LINK, 1 << 4);
+        assert_eq!(registers::OOB_DISABLE, 1 << 5);
+        assert_eq!(registers::RGMII_MODE_EN, 1 << 6);
+        assert_eq!(registers::ID_MODE_DIS, 1 << 16);
+        let leftover =
+            registers::OOB_DISABLE | registers::ID_MODE_DIS | registers::RGMII_LINK | 0x1;
+        let mode = rgmii_oob_mode(leftover);
+        assert_eq!(mode & registers::OOB_DISABLE, 0);
+        assert_eq!(mode & registers::ID_MODE_DIS, 0);
+        assert_ne!(mode & registers::RGMII_MODE_EN, 0);
+        assert_eq!(mode & registers::RGMII_LINK, 0);
+        assert_eq!(mode & 0x1, 0x1);
+        let up = rgmii_oob_with_link(mode);
+        assert_ne!(up & registers::RGMII_LINK, 0);
+        assert_eq!(up & registers::OOB_DISABLE, 0);
+        assert_eq!(up & registers::ID_MODE_DIS, 0);
+        assert_eq!(
+            RgmiiReport::Programmed.to_string(),
+            "genet: rgmii oob (ext-gphy, not a nic)"
+        );
+        assert_eq!(
+            RgmiiReport::ModeNotRgmiiRxid.to_string(),
+            "genet: rgmii unavailable (not rgmii-rxid)"
+        );
     }
 
     #[test]
