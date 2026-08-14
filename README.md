@@ -98,8 +98,9 @@ Next: **Pi4 backend evidence for the completed P3 edge-gateway target** — the
 transport and split-queue lifecycle, packet service, directional EL0 ownership,
 deterministic peer RX, and service reset/recovery are integrated and gated by
 `make qemu-virtio-check`. The Pi 4 product prints a `genet:` FDT report, probes, classifies
-link, programs and enables queue 0, and may attempt one bounded TX and one bounded RX
-(refused before the doorbell or RX arm when BMSR is down); it leaves the
+link, programs and enables queue 0, and may attempt one bounded TX, one bounded RX, and one recover
+(refused before the doorbell or RX arm when BMSR is down; recover
+returns Idle); it leaves the
 network vocabulary vacant; that is not a NIC. Board-specific
 backend evidence remains open under
 [ADR-0105](docs/adr/0105-pi4-nic-backend-boundary.md) and the proposed
@@ -119,7 +120,7 @@ density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |
 | ------------ | ------------------------------------------------------------ |
-| Verification | 585 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 587 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

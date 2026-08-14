@@ -1,4 +1,4 @@
-//! BCM2711 GENET v5 control-plane, unpublished queue-0 program, PHY bring-up, and one bounded TX/RX.
+//! BCM2711 GENET v5 control-plane, unpublished queue-0 program, PHY bring-up, bounded TX/RX, and reset.
 //!
 //! The verified FDT binding supplies the translated MMIO window and DMA
 //! apertures. Packet ownership, ring arithmetic, and MDIO words stay in
@@ -7,8 +7,8 @@
 
 use kernel_core::genet::{
     self, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn, PhyError, PhyLink,
-    QueueEnable, QueueEnableError, Revision, RevisionError, RingProgram, RingProgramError,
-    RxReport, TxReport, dma_registers, mdio, phy, registers,
+    QueueEnable, QueueEnableError, ResetReport, Revision, RevisionError, RingProgram,
+    RingProgramError, RxReport, TxReport, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -330,6 +330,16 @@ impl Genet {
         }
         let status = self.regs.read32(registers::RDMA as usize);
         Ok(RxReport::from_status(status))
+    }
+
+    /// Stop DMA, UniMAC-reset, and return to Idle. Refuses Idle.
+    /// Does not republish a network service.
+    pub fn recover(&mut self) -> Result<ResetReport, Error> {
+        if let Some(refused) = ResetReport::refuse(self.phase) {
+            return Ok(refused);
+        }
+        self.reset()?;
+        Ok(ResetReport::from_phase(self.phase))
     }
 
     /// Clause-22 MDIO read of `reg` on the DT PHY address.

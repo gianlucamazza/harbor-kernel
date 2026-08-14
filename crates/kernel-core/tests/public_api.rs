@@ -202,6 +202,25 @@ fn the_genet_rx_report_is_reachable_from_outside() {
 }
 
 #[test]
+fn the_genet_reset_report_is_reachable_from_outside() {
+    use kernel_core::genet::{DmaPhase, ResetReport};
+
+    assert_eq!(
+        ResetReport::refuse(DmaPhase::Idle),
+        Some(ResetReport::NotEnabled)
+    );
+    assert_eq!(ResetReport::refuse(DmaPhase::Enabled), None);
+    assert_eq!(
+        ResetReport::from_phase(DmaPhase::Enabled.reset()),
+        ResetReport::Recovered
+    );
+    assert_eq!(
+        ResetReport::Recovered.to_string(),
+        "genet: reset recovered (idle, not a nic)"
+    );
+}
+
+#[test]
 fn the_genet_queue0_report_and_dma_map_are_reachable_from_outside() {
     use kernel_core::genet::{DmaWindow, DmaWindows, Queue0Report};
 

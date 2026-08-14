@@ -82,17 +82,21 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths are paid on silicon; TX-complete
-and RX-complete are not. The network vocabulary stays vacant.
+and RX-complete are not. After those reports a bounded `recover()`
+returns the controller to Idle. That reset line is unpaid on silicon.
+The network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
 bounded UniMAC reset sequence, and can identify the DT PHY. `board-rpi4`
 selects `Genet::probe`, `identify_phy`, `classify_link`,
 `configure_queue0`, `enable_queue0` (after the frame pool exists),
-`submit_one_tx`, and `submit_one_rx`. Enable writes `RING_CFG`+`CTRL`
-only after Programmed. `submit_one_tx` ORs UniMAC `TX_EN` and rings
-`PROD_INDEX` only on Enabled+Up; `submit_one_rx` ORs `RX_EN` and posts
-the RDMA buffer only on Enabled+Up. It does not publish a
+`submit_one_tx`, `submit_one_rx`, and `recover`. Enable writes
+`RING_CFG`+`CTRL` only after Programmed. `submit_one_tx` ORs UniMAC
+`TX_EN` and rings `PROD_INDEX` only on Enabled+Up; `submit_one_rx` ORs
+`RX_EN` and posts the RDMA buffer only on Enabled+Up; `recover` refuses
+Idle and otherwise stops DMA, UniMAC-resets, and returns to Idle. It
+does not publish a
 network service and does not change this ADR's proposed status.
 
 The companion `kernel_core::genet` model now also encodes and decodes the
