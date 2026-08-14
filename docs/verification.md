@@ -1894,6 +1894,22 @@ saying the code was right; printing the comparison itself is what found it.
 
 ## Serial capture
 
+### Current Pi 4B oracle stamp (2026-08-14)
+
+The freshly deployed oracle image booted on a Raspberry Pi 4 Model B Rev 1.5
+over a CP2104 UART at 115200 8N1. The complete capture is
+`.serial-log/20260814-020236.log`; `scripts/check/hw-transcript-check.sh`
+reports clean. It records `smp: core1 alive`, `durable-media: boot=22
+from=Previous part=0x7f slot=A seq=21`, the verified flush to `seq=22`, and
+the full oracle sequence through stable tick reports (`overwrites=0`,
+`abandoned=0`). The image reports `src=6b5f612f`; the subsequent HEAD
+`791d39f` is a documentation-only merge, so the runtime source is explicitly
+identified rather than implying an unbuilt HEAD image.
+
+This is boot, SMP, EL0, IRQ, scheduler, IPC, and durable-media evidence only;
+it does not claim Pi 4 GENET support. ADR-0105/0106 remain the boundary for
+the still-unimplemented hardware NIC backend.
+
 One reader per port. Two `cat /dev/ttyUSB0` processes split the byte stream
 between them, which looks like a kernel dropping output: lines truncated
 mid-word and tick reports arriving at 30, 50, 70 instead of every 10. The
