@@ -29,6 +29,8 @@ pub const DMA_OWN: u32 = 0x8000;
 pub const DMA_EOP: u32 = 0x4000;
 pub const DMA_SOP: u32 = 0x2000;
 pub const DMA_WRAP: u32 = 0x1000;
+/// TX descriptor: UniMAC appends FCS. Linux `DMA_TX_APPEND_CRC`.
+pub const DMA_TX_APPEND_CRC: u32 = 0x0040;
 pub const GENET_V5_MAJOR: u8 = 5;
 
 /// GENET register offsets used by the first bounded model.
@@ -1303,6 +1305,20 @@ impl TxReport {
             _ => Self::StillOwned,
         }
     }
+
+    /// GENET TX completes on CONS. Silicon does not write back OWN on TX
+    /// (`src=fa00d083` printed still-owned with CONS posted).
+    pub const fn from_tx_cons(cons: u32, length: u16) -> Self {
+        if Self::cons_has_posted(cons) {
+            Self::Complete(length)
+        } else {
+            Self::Timeout
+        }
+    }
+
+    pub const fn with_tx_append_crc(word: u32) -> u32 {
+        word | DMA_TX_APPEND_CRC
+    }
 }
 
 impl Display for TxReport {
@@ -2114,6 +2130,19 @@ mod tests {
             TxReport::StillOwned.to_string(),
             "genet: tx unavailable (still owned)"
         );
+        assert_eq!(
+            TxReport::from_tx_cons(1, MIN_FRAME_BYTES as u16),
+            TxReport::Complete(MIN_FRAME_BYTES as u16)
+        );
+        assert_eq!(
+            TxReport::from_tx_cons(0, MIN_FRAME_BYTES as u16),
+            TxReport::Timeout
+        );
+        assert_eq!(
+            TxReport::with_tx_append_crc(0) & DMA_TX_APPEND_CRC,
+            DMA_TX_APPEND_CRC
+        );
+        assert_eq!(DMA_TX_APPEND_CRC, 0x0040);
         assert!(TxReport::cons_is_idle(0));
         assert!(TxReport::cons_is_idle(0x0001_0000));
         assert!(!TxReport::cons_is_idle(1));

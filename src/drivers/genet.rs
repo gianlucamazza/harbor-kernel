@@ -334,20 +334,16 @@ impl Genet {
         self.regs
             .write32(ring + dma_registers::PROD_INDEX as usize, 1);
         if !poll::until(RESET_SPIN_LIMIT, || {
-            let cons = self.regs.read32(ring + dma_registers::CONS_INDEX as usize);
-            TxReport::cons_has_posted(cons)
-                && matches!(
-                    TxReport::from_status(self.regs.read32(registers::TDMA as usize)),
-                    TxReport::Complete(_)
-                )
+            TxReport::cons_has_posted(self.regs.read32(ring + dma_registers::CONS_INDEX as usize))
         }) {
-            return Ok(TxReport::from_poll(
+            return Ok(TxReport::from_tx_cons(
                 self.regs.read32(ring + dma_registers::CONS_INDEX as usize),
-                self.regs.read32(registers::TDMA as usize),
+                genet::MIN_FRAME_BYTES as u16,
             ));
         }
-        Ok(TxReport::from_status(
-            self.regs.read32(registers::TDMA as usize),
+        Ok(TxReport::from_tx_cons(
+            self.regs.read32(ring + dma_registers::CONS_INDEX as usize),
+            genet::MIN_FRAME_BYTES as u16,
         ))
     }
 
@@ -617,8 +613,13 @@ impl Genet {
         let words = descriptor
             .words(genet::Ownership::Device, true, true, wrap)
             .map_err(Error::Descriptor)?;
+        let length_status = if block == registers::TDMA {
+            TxReport::with_tx_append_crc(words.length_status)
+        } else {
+            words.length_status
+        };
         let offset = (block + u32::from(index) * genet::DESCRIPTOR_BYTES as u32) as usize;
-        self.regs.write32(offset, words.length_status);
+        self.regs.write32(offset, length_status);
         self.regs.write32(offset + 4, words.address_low);
         self.regs.write32(offset + 8, words.address_high);
         Ok(())
