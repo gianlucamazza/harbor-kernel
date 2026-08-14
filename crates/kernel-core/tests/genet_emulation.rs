@@ -6,7 +6,8 @@
 //! future MMIO backend must preserve.
 
 use kernel_core::genet::{
-    Descriptor, DescriptorStatus, Ownership, RingLayout, RingState, registers,
+    Descriptor, DescriptorStatus, MdioTxn, Ownership, RingLayout, RingProgram, RingState,
+    classify_phy_id, dma_registers, mdio, registers,
 };
 use kernel_core::genet_fdt;
 
@@ -16,7 +17,6 @@ const PI4: &[u8] = include_bytes!("../tests/fixtures/bcm2711-rpi-4-b.dtb");
 fn deterministic_genet_device_model_runs_bounded_tx_rx() {
     let binding = genet_fdt::extract(PI4).expect("Pi 4 DTB binding must be valid");
     let ring_dma = binding.dma.windows[0];
-    let layout = RingLayout::new(registers::RDMA as u64, 2).unwrap();
     let packet = ring_dma.base + 0x2000;
     let descriptor = Descriptor {
         address: packet,
@@ -33,15 +33,46 @@ fn deterministic_genet_device_model_runs_bounded_tx_rx() {
     .encode()
     .unwrap();
 
+    let tx_program = RingProgram::new(registers::TDMA, 0, 0, 1, 128).unwrap();
+    let rx_program = RingProgram::new(registers::RDMA, 0, 0, 1, 128).unwrap();
+    assert_eq!(tx_program.ring_register_base(), registers::TDMA + 0xc00);
+    assert_eq!(rx_program.ring_register_base(), registers::RDMA + 0xc00);
+    assert_ne!(u64::from(tx_program.start_words()), packet);
+    assert_eq!(tx_program.words().ring_buf_size, 1 << 16 | 128);
+
+    let tx_layout = RingLayout::new(registers::TDMA as u64, 1).unwrap();
+    let rx_layout = RingLayout::new(registers::RDMA as u64, 1).unwrap();
+    assert_eq!(
+        tx_layout.descriptor_address(0),
+        Some(registers::TDMA as u64)
+    );
+    assert_eq!(
+        tx_layout.descriptor_address(0).unwrap() + dma_registers::DESCRIPTOR_RAM_BYTES as u64,
+        tx_program.ring_register_base() as u64
+    );
+
     // Virtual TX device: driver posts, device clears OWN, driver reclaims.
-    let mut tx = RingState::new(layout, binding.dma);
+    let mut tx = RingState::new(tx_layout, binding.dma);
     assert_eq!(tx.post(descriptor), Ok(0));
     assert_eq!(tx.complete(completion).unwrap().0, 0);
 
     // Virtual RX device follows the same ownership path with a separate ring.
-    let mut rx = RingState::new(layout, binding.dma);
+    let mut rx = RingState::new(rx_layout, binding.dma);
     assert_eq!(rx.post(descriptor), Ok(0));
     let (_, received) = rx.complete(completion).unwrap();
     assert_eq!(received.address, packet);
     assert_eq!(received.length, 128);
+
+    let cmd = MdioTxn::new(binding.phy_addr as u8, mdio::PHYIDR1, None)
+        .unwrap()
+        .encode()
+        .unwrap();
+    assert_eq!((cmd >> mdio::PHY_SHIFT) & mdio::PHY_MASK, binding.phy_addr);
+    assert_eq!(
+        MdioTxn::decode_read(cmd),
+        Err(kernel_core::genet::MdioError::Busy)
+    );
+    // Device-model reply: START_BUSY cleared, identifier in the data field.
+    assert_eq!(MdioTxn::decode_read(0x0362), Ok(0x0362));
+    assert_eq!(classify_phy_id(0x0362, 0x5e60), Ok(0x0362_5e60));
 }

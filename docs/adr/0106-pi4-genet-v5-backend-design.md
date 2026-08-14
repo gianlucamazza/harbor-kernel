@@ -63,14 +63,17 @@ v4+-style status word, keeps ownership and SOP/EOP/WRAP explicit, bounds ring
 addresses against all discovered DMA apertures, and classifies both direct
 and per-queue DMA interrupt bits. `RingState` exercises the ordered
 driver/device/driver lifecycle and refuses full rings, missing completions,
-bad status ownership, and malformed descriptors. This remains a host contract.
-The AArch64 control-plane slice consumes the validated revision and register
-offsets, but it is not a claim that the Pi4 BSP has a working GENET network
-backend.
+bad status ownership, and malformed descriptors. The data-plane contract
+adds `RingProgram` for queue 0 (v5 word-unit start/end after the 256-slot
+descriptor RAM) and `MdioTxn` for a clause-22 read/write with busy/fail and
+absent PHY-ID refusal. This remains a host contract. The AArch64 driver can
+now write that program and issue an MDIO read; it still does not enable DMA,
+select `board-rpi4`, or publish a network service.
 
-Revision decoding and the v5 RDMA/TDMA common-register offsets are also part
-of the pure contract, so the MMIO layer will consume one tested register
-layout rather than duplicate literal offsets.
+Revision decoding and the v5 RDMA/TDMA offsets — descriptor RAM, then 17
+rings, then the common control block — are also part of the pure contract,
+so the MMIO layer will consume one tested register layout rather than
+duplicate literal offsets.
 
 The model keeps two address domains distinct: GENET v5 descriptor slots live
 in the controller's internal RDMA/TDMA descriptor RAM, while the descriptor

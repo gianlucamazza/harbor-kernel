@@ -38,19 +38,62 @@ pub mod registers {
     pub const RBUF_CTRL: u32 = RBUF;
     pub const UMAC_CMD: u32 = UMAC + 0x08;
     pub const UMAC_TX_FLUSH: u32 = UMAC + 0x334;
+    pub const UMAC_MDIO_CMD: u32 = MDIO;
+}
+
+/// Clause-22 MDIO command word at [`registers::UMAC_MDIO_CMD`].
+pub mod mdio {
+    pub const START_BUSY: u32 = 1 << 29;
+    pub const READ_FAIL: u32 = 1 << 28;
+    pub const READ: u32 = 2 << 26;
+    pub const WRITE: u32 = 1 << 26;
+    pub const PHY_SHIFT: u32 = 21;
+    pub const PHY_MASK: u32 = 0x1f;
+    pub const REG_SHIFT: u32 = 16;
+    pub const REG_MASK: u32 = 0x1f;
+    pub const DATA_MASK: u32 = 0xffff;
+    pub const PHYIDR1: u8 = 2;
+    pub const PHYIDR2: u8 = 3;
 }
 
 /// GENET v5 register layout shared by the RDMA and TDMA blocks.
+///
+/// Descriptor RAM occupies the first [`DESCRIPTOR_RAM_BYTES`] of each
+/// block. Per-ring registers start after that RAM; the common control
+/// block follows all 17 rings. Offsets are relative to [`registers::RDMA`]
+/// or [`registers::TDMA`].
 pub mod dma_registers {
+    use super::{DESCRIPTOR_BYTES, TOTAL_DESCRIPTORS};
+
     pub const RING_BYTES: u32 = 0x40;
     pub const RING_COUNT: u16 = 17;
-    pub const COMMON_BASE: u32 = RING_BYTES * RING_COUNT as u32;
+    /// v4+ descriptor is three 32-bit words; start/end pointers are in words.
+    pub const WORDS_PER_DESCRIPTOR: u32 = 3;
+    pub const DESCRIPTOR_RAM_BYTES: u32 = TOTAL_DESCRIPTORS as u32 * DESCRIPTOR_BYTES as u32;
+    pub const RING_BASE: u32 = DESCRIPTOR_RAM_BYTES;
+    pub const COMMON_BASE: u32 = RING_BASE + RING_BYTES * RING_COUNT as u32;
     pub const CTRL: u32 = COMMON_BASE + 0x04;
     pub const STATUS: u32 = COMMON_BASE + 0x08;
     pub const SCB_BURST_SIZE: u32 = COMMON_BASE + 0x0c;
     pub const ARB_CTRL: u32 = COMMON_BASE + 0x2c;
     pub const RING_CFG: u32 = COMMON_BASE;
-    pub const RING0: u32 = 0;
+    pub const RING0: u32 = RING_BASE;
+
+    /// Per-ring offsets for the v4+ 40-bit pointer layout.
+    pub const READ_PTR: u32 = 0x00;
+    pub const READ_PTR_HI: u32 = 0x04;
+    pub const CONS_INDEX: u32 = 0x08;
+    pub const PROD_INDEX: u32 = 0x0c;
+    pub const RING_BUF_SIZE: u32 = 0x10;
+    pub const START_ADDR: u32 = 0x14;
+    pub const START_ADDR_HI: u32 = 0x18;
+    pub const END_ADDR: u32 = 0x1c;
+    pub const END_ADDR_HI: u32 = 0x20;
+    pub const MBUF_DONE_THRESH: u32 = 0x24;
+    pub const FLOW_PERIOD: u32 = 0x28;
+    pub const WRITE_PTR: u32 = 0x2c;
+    pub const WRITE_PTR_HI: u32 = 0x30;
+    pub const RING_SIZE_SHIFT: u32 = 16;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -516,6 +559,190 @@ impl Default for ResetState {
     }
 }
 
+/// Why a queue-0 ring program was refused before any MMIO write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RingProgramError {
+    InvalidBlock,
+    UnsupportedQueue,
+    Empty,
+    TooMany,
+    FirstOutOfRange,
+    SpanOverflow,
+    BufferEmpty,
+    BufferTooLarge,
+}
+
+/// Immutable v5 program for one queue-0 ring in descriptor RAM.
+///
+/// `start`/`end` are word offsets into the controller's internal descriptor
+/// RAM (`first * 3` .. `(first + count) * 3 - 1`). Packet-buffer DMA
+/// addresses are validated separately and never become a ring base.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RingProgram {
+    pub block: u32,
+    pub queue: u8,
+    pub count: u16,
+    pub first: u16,
+    pub buffer_bytes: u16,
+}
+
+/// Register values a programmed ring writes, in v4+ layout order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RingProgramWords {
+    pub prod: u32,
+    pub cons: u32,
+    pub ring_buf_size: u32,
+    pub start: u32,
+    pub start_hi: u32,
+    pub end: u32,
+    pub end_hi: u32,
+    pub mbuf_done: u32,
+    pub flow: u32,
+    pub read_ptr: u32,
+    pub write_ptr: u32,
+}
+
+impl RingProgram {
+    pub const fn new(
+        block: u32,
+        queue: u8,
+        first: u16,
+        count: u16,
+        buffer_bytes: u16,
+    ) -> Result<Self, RingProgramError> {
+        if block != registers::RDMA && block != registers::TDMA {
+            return Err(RingProgramError::InvalidBlock);
+        }
+        if queue != 0 {
+            return Err(RingProgramError::UnsupportedQueue);
+        }
+        if count == 0 {
+            return Err(RingProgramError::Empty);
+        }
+        if count > TOTAL_DESCRIPTORS {
+            return Err(RingProgramError::TooMany);
+        }
+        if first >= TOTAL_DESCRIPTORS {
+            return Err(RingProgramError::FirstOutOfRange);
+        }
+        if first as u32 + count as u32 > TOTAL_DESCRIPTORS as u32 {
+            return Err(RingProgramError::SpanOverflow);
+        }
+        if buffer_bytes == 0 {
+            return Err(RingProgramError::BufferEmpty);
+        }
+        if buffer_bytes as u32 > MAX_FRAME_BYTES {
+            return Err(RingProgramError::BufferTooLarge);
+        }
+        Ok(Self {
+            block,
+            queue,
+            count,
+            first,
+            buffer_bytes,
+        })
+    }
+
+    pub const fn ring_register_base(self) -> u32 {
+        self.block + dma_registers::RING_BASE + self.queue as u32 * dma_registers::RING_BYTES
+    }
+
+    pub const fn start_words(self) -> u32 {
+        self.first as u32 * dma_registers::WORDS_PER_DESCRIPTOR
+    }
+
+    pub const fn end_words(self) -> u32 {
+        (self.first as u32 + self.count as u32) * dma_registers::WORDS_PER_DESCRIPTOR - 1
+    }
+
+    pub const fn ring_buf_size(self) -> u32 {
+        (self.count as u32) << dma_registers::RING_SIZE_SHIFT | self.buffer_bytes as u32
+    }
+
+    pub const fn words(self) -> RingProgramWords {
+        let start = self.start_words();
+        RingProgramWords {
+            prod: 0,
+            cons: 0,
+            ring_buf_size: self.ring_buf_size(),
+            start,
+            start_hi: 0,
+            end: self.end_words(),
+            end_hi: 0,
+            mbuf_done: 1,
+            flow: 0,
+            read_ptr: start,
+            write_ptr: start,
+        }
+    }
+}
+
+/// Why a clause-22 MDIO word was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MdioError {
+    PhyOutOfRange,
+    RegisterOutOfRange,
+    Busy,
+    ReadFail,
+    InvalidPhyId,
+}
+
+/// One clause-22 MDIO transaction. `write = None` is a read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MdioTxn {
+    pub phy: u8,
+    pub reg: u8,
+    pub write: Option<u16>,
+}
+
+impl MdioTxn {
+    pub const fn new(phy: u8, reg: u8, write: Option<u16>) -> Result<Self, MdioError> {
+        if phy > mdio::PHY_MASK as u8 {
+            return Err(MdioError::PhyOutOfRange);
+        }
+        if reg > mdio::REG_MASK as u8 {
+            return Err(MdioError::RegisterOutOfRange);
+        }
+        Ok(Self { phy, reg, write })
+    }
+
+    pub const fn encode(self) -> Result<u32, MdioError> {
+        if self.phy > mdio::PHY_MASK as u8 {
+            return Err(MdioError::PhyOutOfRange);
+        }
+        if self.reg > mdio::REG_MASK as u8 {
+            return Err(MdioError::RegisterOutOfRange);
+        }
+        let mut word = mdio::START_BUSY
+            | (self.phy as u32) << mdio::PHY_SHIFT
+            | (self.reg as u32) << mdio::REG_SHIFT;
+        match self.write {
+            Some(data) => word |= mdio::WRITE | data as u32,
+            None => word |= mdio::READ,
+        }
+        Ok(word)
+    }
+
+    pub const fn decode_read(word: u32) -> Result<u16, MdioError> {
+        if word & mdio::START_BUSY != 0 {
+            return Err(MdioError::Busy);
+        }
+        if word & mdio::READ_FAIL != 0 {
+            return Err(MdioError::ReadFail);
+        }
+        Ok((word & mdio::DATA_MASK) as u16)
+    }
+}
+
+/// Combine PHYIDR1/PHYIDR2. All-zero and all-ones IDs are absent silicon.
+pub const fn classify_phy_id(hi: u16, lo: u16) -> Result<u32, MdioError> {
+    if (hi == 0 && lo == 0) || (hi == 0xffff && lo == 0xffff) {
+        Err(MdioError::InvalidPhyId)
+    } else {
+        Ok(((hi as u32) << 16) | lo as u32)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -543,8 +770,11 @@ mod tests {
         assert_eq!(revision.major, GENET_V5_MAJOR);
         assert_eq!(revision.minor, 3);
         assert_eq!(revision.patch, 0x2711);
-        assert_eq!(dma_registers::COMMON_BASE, 0x440);
-        assert_eq!(dma_registers::CTRL, 0x444);
+        assert_eq!(dma_registers::DESCRIPTOR_RAM_BYTES, 0xc00);
+        assert_eq!(dma_registers::RING_BASE, 0xc00);
+        assert_eq!(dma_registers::COMMON_BASE, 0x1040);
+        assert_eq!(dma_registers::CTRL, 0x1044);
+        assert_eq!(dma_registers::RING0, 0xc00);
         assert_eq!(
             Revision::decode(4 << 24),
             Err(RevisionError::Unsupported(4))
@@ -788,5 +1018,109 @@ mod tests {
         };
         state.reset();
         assert_eq!(state.generation(), 1);
+    }
+
+    #[test]
+    fn ring_program_encodes_v5_queue0_in_descriptor_word_units() {
+        let program = RingProgram::new(registers::TDMA, 0, 0, 2, 128).unwrap();
+        assert_eq!(program.ring_register_base(), registers::TDMA + 0xc00);
+        assert_eq!(program.start_words(), 0);
+        assert_eq!(program.end_words(), 5);
+        assert_eq!(program.ring_buf_size(), 2 << 16 | 128);
+        let words = program.words();
+        assert_eq!(words.prod, 0);
+        assert_eq!(words.cons, 0);
+        assert_eq!(words.start, 0);
+        assert_eq!(words.end, 5);
+        assert_eq!(words.read_ptr, 0);
+        assert_eq!(words.write_ptr, 0);
+        assert_eq!(words.mbuf_done, 1);
+        let shifted = RingProgram::new(registers::RDMA, 0, 4, 1, 64).unwrap();
+        assert_eq!(shifted.start_words(), 12);
+        assert_eq!(shifted.end_words(), 14);
+        assert_eq!(
+            shifted.ring_register_base(),
+            registers::RDMA + dma_registers::RING0
+        );
+    }
+
+    #[test]
+    fn ring_program_refuses_bad_queue_span_and_buffer() {
+        assert_eq!(
+            RingProgram::new(registers::RDMA, 1, 0, 1, 64),
+            Err(RingProgramError::UnsupportedQueue)
+        );
+        assert_eq!(
+            RingProgram::new(registers::RDMA, 0, 0, 0, 64),
+            Err(RingProgramError::Empty)
+        );
+        assert_eq!(
+            RingProgram::new(registers::RDMA, 0, 0, TOTAL_DESCRIPTORS + 1, 64),
+            Err(RingProgramError::TooMany)
+        );
+        assert_eq!(
+            RingProgram::new(registers::RDMA, 0, TOTAL_DESCRIPTORS, 1, 64),
+            Err(RingProgramError::FirstOutOfRange)
+        );
+        assert_eq!(
+            RingProgram::new(registers::RDMA, 0, TOTAL_DESCRIPTORS - 1, 2, 64),
+            Err(RingProgramError::SpanOverflow)
+        );
+        assert_eq!(
+            RingProgram::new(registers::RDMA, 0, 0, 1, 0),
+            Err(RingProgramError::BufferEmpty)
+        );
+        assert_eq!(
+            RingProgram::new(registers::RDMA, 0, 0, 1, MAX_FRAME_BYTES as u16 + 1),
+            Err(RingProgramError::BufferTooLarge)
+        );
+        assert_eq!(
+            RingProgram::new(0, 0, 0, 1, 64),
+            Err(RingProgramError::InvalidBlock)
+        );
+    }
+
+    #[test]
+    fn ring_program_does_not_reuse_a_packet_buffer_as_ring_base() {
+        let program = RingProgram::new(registers::RDMA, 0, 0, 1, 128).unwrap();
+        let packet = Descriptor {
+            address: 0x1800,
+            length: 128,
+            status: 0,
+        };
+        assert_eq!(packet.validate(DMA), Ok(()));
+        assert_ne!(u64::from(program.ring_register_base()), packet.address);
+        assert_ne!(u64::from(program.start_words()), packet.address);
+    }
+
+    #[test]
+    fn mdio_txn_encodes_clause22_and_classifies_phy_id() {
+        let read = MdioTxn::new(1, mdio::PHYIDR1, None).unwrap();
+        let word = read.encode().unwrap();
+        assert_ne!(word & mdio::START_BUSY, 0);
+        assert_ne!(word & mdio::READ, 0);
+        assert_eq!(word & mdio::WRITE, 0);
+        assert_eq!((word >> mdio::PHY_SHIFT) & mdio::PHY_MASK, 1);
+        assert_eq!((word >> mdio::REG_SHIFT) & mdio::REG_MASK, 2);
+        assert_eq!(MdioTxn::decode_read(0x600d), Ok(0x600d));
+        assert_eq!(MdioTxn::decode_read(mdio::START_BUSY), Err(MdioError::Busy));
+        assert_eq!(
+            MdioTxn::decode_read(mdio::READ_FAIL | 1),
+            Err(MdioError::ReadFail)
+        );
+        let write = MdioTxn::new(1, 0, Some(0x8000)).unwrap().encode().unwrap();
+        assert_ne!(write & mdio::WRITE, 0);
+        assert_eq!(write & mdio::DATA_MASK, 0x8000);
+        assert_eq!(classify_phy_id(0x0362, 0x5e60), Ok(0x0362_5e60));
+        assert_eq!(classify_phy_id(0, 0), Err(MdioError::InvalidPhyId));
+        assert_eq!(
+            classify_phy_id(0xffff, 0xffff),
+            Err(MdioError::InvalidPhyId)
+        );
+        assert_eq!(MdioTxn::new(32, 0, None), Err(MdioError::PhyOutOfRange));
+        assert_eq!(
+            MdioTxn::new(0, 32, None),
+            Err(MdioError::RegisterOutOfRange)
+        );
     }
 }
