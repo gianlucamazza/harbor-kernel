@@ -3,6 +3,10 @@
 //! Observe → pure decode (`kernel_core::{fdt,hwdesc}`) → reconcile against
 //! compiled BSP claims → unconditional `discover:` lines. Never selects
 //! configuration (verify, don't select).
+//!
+//! The GENET FDT binding is reported on its own `genet:` line
+//! (`kernel_core::genet_fdt::boot_report`), not here: ADR-0072/0073 keep
+//! `/soc` out of this inventory.
 
 use core::fmt::Write;
 

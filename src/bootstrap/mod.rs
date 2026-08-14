@@ -399,6 +399,19 @@ fn map_dtb_and_discover(uart: &mut Pl011, core1: bool) -> u64 {
     // secondary_wait counter — that stays 0 under QEMU -kernel).
     let smp_seen = 1u64 + u64::from(core1);
     discover::report(uart, dtb_mapped, smp_seen);
+    // GENET FDT binding, not a `discover:` fact (ADR-0072 closed inventory)
+    // and not a device probe (ADR-0105/0106 stay proposed).
+    let dtb = if dtb_mapped {
+        // SAFETY: same contract as `discover::report` — the blob is mapped RO.
+        unsafe { bootinfo::device_tree_slice() }
+    } else {
+        None
+    };
+    println!(
+        uart,
+        "{}",
+        kernel_core::genet_fdt::boot_report(dtb_mapped, dtb)
+    );
     timer::physical_count()
 }
 

@@ -40,6 +40,13 @@ assert_product_boot() {
 		fail "discover display line missing"
 	grep -qaE 'rng200: (ok |unavailable \()' "${log}" ||
 		fail "RNG200 probe line missing (expected ok or unavailable)"
+	# GENET FDT report (ADR-0106, unpublished): extract only, never a probe.
+	# QEMU product-boot is DTB-less → `unavailable (no dtb)`. QEMU with the
+	# Pi 4 fixture deletes the GENET node → `unavailable (Missing)`. Silicon
+	# firmware leaves the node enabled → `binding ok`. Silence means the
+	# reporter never ran. A network service bind is still a failure elsewhere.
+	grep -qaE 'genet: (binding ok |unavailable \()' "${log}" ||
+		fail "GENET FDT report missing (expected binding ok or unavailable)"
 	grep -qaE 'boot: mmu=[0-9]+ ms discover=[0-9]+ ms ready=[0-9]+ ms' "${log}" ||
 		fail "boot timing line missing"
 
