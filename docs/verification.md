@@ -1906,8 +1906,9 @@ The current capture is `.serial-log/20260814-140651.log` (two product boots);
 `genet: probe unavailable (Unsupported(6))`, `loader: store n=5 image`,
 `authority: bound console`, `blob: put ok` / `blob: got`, and
 `invariants: … slots=4/9`. Network stays `authority: network vocabulary VACANT`.
-`SYS_REV_CTRL` was read; this BCM2711 encodes major 6. The decoder that
-refused 6 is a model error, not a board error.
+`SYS_REV_CTRL` was read; this BCM2711 encodes major 6. Encoded 6/7 are
+GENET v5 (Linux remaps them to logical 5); encoded 5 is v4. The decoder
+that refused 6 is a model error, not a board error.
 
 Boot 1 in the same file (`src=1aa3e894`) has the FDT line only. The earlier
 product capture `20260814-113438.log` (`src=dcc997cc`) paid ADR-0102/0103.

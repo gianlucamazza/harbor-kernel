@@ -126,10 +126,13 @@ pub enum RevisionError {
 impl Revision {
     pub const fn decode(raw: u32) -> Result<Self, RevisionError> {
         let encoded = ((raw >> 24) & 0x0f) as u8;
-        // v5 descriptor contract: encoded 5, and Broadcom's later 6/7
-        // (same rings/status words). This Pi 4B reported 6
+        // SYS_REV_CTRL [27:24] is not the logical GENET major. Linux
+        // `bcmgenet_set_hw_params` remaps encoded 6/7 → logical v5,
+        // encoded 5 → v4, encoded 0 → v1. This product models only the
+        // v5 descriptor family, so 6/7 are accepted and the chip's
+        // encoded major is what the report prints. This Pi 4B reported 6
         // (`.serial-log/20260814-140651.log`, `src=92c889f4`).
-        if encoded < GENET_V5_MAJOR || encoded > 7 {
+        if encoded != 6 && encoded != 7 {
             return Err(RevisionError::Unsupported(encoded));
         }
         Ok(Self {
@@ -992,8 +995,8 @@ mod tests {
 
     #[test]
     fn v5_revision_and_dma_register_layout_are_explicit() {
-        let revision = Revision::decode(5 << 24 | 3 << 16 | 0x2711).unwrap();
-        assert_eq!(revision.major, GENET_V5_MAJOR);
+        let revision = Revision::decode(6 << 24 | 3 << 16 | 0x2711).unwrap();
+        assert_eq!(revision.major, 6);
         assert_eq!(revision.minor, 3);
         assert_eq!(revision.patch, 0x2711);
         assert_eq!(dma_registers::DESCRIPTOR_RAM_BYTES, 0xc00);
@@ -1004,6 +1007,11 @@ mod tests {
         assert_eq!(
             Revision::decode(4 << 24),
             Err(RevisionError::Unsupported(4))
+        );
+        // Encoded 5 is GENET v4, not v5.
+        assert_eq!(
+            Revision::decode(5 << 24),
+            Err(RevisionError::Unsupported(5))
         );
         let six = Revision::decode(6 << 24 | 1 << 16).unwrap();
         assert_eq!(six.major, 6);
@@ -1053,10 +1061,10 @@ mod tests {
             MmioProbe::NoBinding.to_string(),
             "genet: probe unavailable (no binding)"
         );
-        let raw = 5 << 24 | 3 << 16 | 0x2711;
+        let raw = 6 << 24 | 3 << 16 | 0x2711;
         assert_eq!(
             MmioProbe::Revision(Revision::decode(raw).unwrap()).to_string(),
-            "genet: rev=5.3 patch=0x2711 (mmio, not a nic)"
+            "genet: rev=6.3 patch=0x2711 (mmio, not a nic)"
         );
     }
 
