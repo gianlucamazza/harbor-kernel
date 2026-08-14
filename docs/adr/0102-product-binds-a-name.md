@@ -85,11 +85,12 @@ It loads and runs; `SYS_RESOLVE` is refused and its following console `SEND`
 is refused as well; nothing reaches the wire. That is `mute` for the grant,
 as `nowindow` is `mute` for a window.
 
-### 5. QEMU is the positive path
+### 5. QEMU is the daily positive path
 
 Unlike [ADR-0101](0101-composed-driver-agent.md), this slice does not depend
 on a block the emulator lacks. `product-boot-check` requires `N` every day.
-A hardware stamp confirms; it does not replace.
+A hardware stamp confirms the same lines on silicon; it does not replace the
+QEMU gate.
 
 ## Alternatives
 
@@ -117,4 +118,4 @@ Going back to “names exist only in `demos.rs`” removes the bind line.
 | --- | --- |
 | Host | Reserved-word bit 8 round-trips; bits 31:9 still refused; `encode_resolve_send_exit` against the `llvm-mc` oracle |
 | QEMU | `authority: bound console`; `lookup` loaded and ran; `N` on the wire; `noresolve` ran with refusals and no send |
-| HW | The same lines on a Pi 4B. Optional confirmation — the positive path is already green in `make check` |
+| HW | Same product lines on a Pi 4B, stamp 2026-08-14, transcript `20260814-113438.log` (`src=dcc997cc`): `authority: bound console`, `loader: lookup ran sends=1 refusals=0`, `N` on the wire. `make hw-check` clean. The daily gate remains `product-boot-check` |
