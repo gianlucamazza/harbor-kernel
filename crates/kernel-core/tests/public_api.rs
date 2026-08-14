@@ -166,6 +166,12 @@ fn the_genet_tx_report_is_reachable_from_outside() {
     .encode()
     .unwrap();
     assert_eq!(TxReport::from_status(word), TxReport::Complete(60));
+    assert!(TxReport::cons_is_idle(0));
+    assert!(!TxReport::cons_is_idle(0xffff));
+    assert_eq!(
+        TxReport::ImplausibleCons.to_string(),
+        "genet: tx unavailable (implausible cons)"
+    );
 }
 
 #[test]

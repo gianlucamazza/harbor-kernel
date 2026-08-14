@@ -17,15 +17,16 @@ or claim that a driver exists.
 A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
 provenance, SMP, and durable-media baseline. The product prints a `genet:`
 FDT report and, when that binding matches the compiled window, runs
-`Genet::probe`. Silicon stamp `20260814-174803.log` boot 7 (`src=30603cba`, PowerOn)
-has the FDT line, `rev=6.0`, `phy=0x600d84a2`, `link=down`,
+`Genet::probe`. Silicon stamp `20260814-232303.log` (`src=30603cba`, PowerOn) has the
+FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot `link=down`,
 `queue0 programmed`, `queue0 enabled`,
-`genet: tx unavailable (link down)`,
-`genet: rx unavailable (link down)`,
-`genet: reset recovered (idle, not a nic)`, and `VACANT`. A down BMSR
-refused before the doorbell and before UniMAC `RX_EN`; recover then
-returned Idle. Those are not completed TX/RX and not this ADR's NIC
-gate. No TX/RX completion or absent-device result was produced.
+`genet: tx unavailable (timeout)`,
+`genet: rx unavailable (timeout)`,
+`genet: reset recovered (idle, not a nic)`, and `VACANT`. A later BMSR
+in the same boot did not print `link down` (timeout is not that refuse).
+The attached laptop NIC received 0 frames. Those are not completed TX/RX
+and not this ADR's NIC gate. No TX/RX completion or Pi absent-device
+result was produced.
 
 ## Context
 
