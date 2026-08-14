@@ -153,8 +153,16 @@ impl Genet {
     }
 
     /// Program queue 0 on both DMA engines and publish one TX and one RX
-    /// descriptor. Does not enable DMA and does not claim a live link.
-    pub fn configure_queue0(&mut self, tx: Descriptor, rx: Descriptor) -> Result<(), Error> {
+    /// descriptor. Descriptor addresses are device DMA addresses;
+    /// `tx_cpu`/`rx_cpu` are the identity-mapped CPU addresses used for
+    /// cache maintenance. Does not enable DMA and does not claim a live link.
+    pub fn configure_queue0(
+        &mut self,
+        tx: Descriptor,
+        rx: Descriptor,
+        tx_cpu: usize,
+        rx_cpu: usize,
+    ) -> Result<(), Error> {
         self.phase = self.phase.program().map_err(Error::Enable)?;
         tx.validate_windows(self.binding.dma)
             .map_err(Error::Descriptor)?;
@@ -196,10 +204,11 @@ impl Genet {
         // Descriptor RAM is Device MMIO. Packet buffers are Normal; clean TX
         // so the engine sees CPU stores, invalidate RX so stale lines cannot
         // shadow a later device write (ADR-0106).
-        // SAFETY: validate_windows accepted both buffers as DMA RAM.
+        // SAFETY: the caller identity-mapped `tx_cpu`/`rx_cpu`; the DMA
+        // addresses were already accepted by validate_windows.
         unsafe {
-            cache::clean_dcache_poc(tx.address as usize, tx.length as usize);
-            cache::invalidate_dcache_poc(rx.address as usize, rx.length as usize);
+            cache::clean_dcache_poc(tx_cpu, tx.length as usize);
+            cache::invalidate_dcache_poc(rx_cpu, rx.length as usize);
         }
         Ok(())
     }

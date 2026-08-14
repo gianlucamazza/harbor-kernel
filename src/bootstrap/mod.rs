@@ -349,6 +349,8 @@ fn init_memory_pools(uart: &mut Pl011, heap_end: usize, frame_base: usize, frame
             board::memmap::FRAME_POOL_BYTES / 1024
         );
         crate::sched::init();
+        #[cfg(feature = "board-rpi4")]
+        report_genet_queue0(uart);
 
         // M5 S2/S3: AS create → prepare (kernel clone + user stack) → EL0 probes.
         #[cfg(feature = "oracle")]
@@ -476,6 +478,77 @@ fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
                     Err(_) => LinkReport::Unavailable(MdioError::ReadFail),
                 };
                 println!(uart, "{link}");
+            }
+            HELD_GENET.with(|held| *held = Some(controller));
+        }
+    }
+}
+
+#[cfg(feature = "board-rpi4")]
+static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
+    crate::sync::Mutex::new(None);
+
+/// Program queue 0 after the frame pool exists. DMA stays disabled.
+///
+/// Probe runs at discover time, before frames; the programmed descriptors
+/// need two identity-mapped frames inside the FDT DMA windows.
+#[cfg(feature = "board-rpi4")]
+fn report_genet_queue0(uart: &mut Pl011) {
+    let line = HELD_GENET.with(|held| held.as_mut().map(program_held_queue0));
+    if let Some(line) = line {
+        println!(uart, "{line}");
+    }
+}
+
+#[cfg(feature = "board-rpi4")]
+fn program_held_queue0(
+    controller: &mut crate::drivers::genet::Genet,
+) -> kernel_core::genet::Queue0Report {
+    use crate::drivers::genet::Error;
+    use kernel_core::genet::{Descriptor, MAX_FRAME_BYTES, Queue0Report};
+
+    let Some((tx_id, tx_cpu)) = crate::mm::frames::alloc() else {
+        return Queue0Report::NoFrames;
+    };
+    let Some((rx_id, rx_cpu)) = crate::mm::frames::alloc() else {
+        let _ = crate::mm::frames::free(tx_id);
+        return Queue0Report::NoFrames;
+    };
+    let release = || {
+        let _ = crate::mm::frames::free(tx_id);
+        let _ = crate::mm::frames::free(rx_id);
+    };
+    let len = MAX_FRAME_BYTES;
+    let dma = controller.binding().dma;
+    let Ok(tx_dma) = dma.map_cpu(tx_cpu as u64, u64::from(len)) else {
+        release();
+        return Queue0Report::OutsideDma;
+    };
+    let Ok(rx_dma) = dma.map_cpu(rx_cpu as u64, u64::from(len)) else {
+        release();
+        return Queue0Report::OutsideDma;
+    };
+    let tx = Descriptor {
+        address: tx_dma,
+        length: len,
+        status: 0,
+    };
+    let rx = Descriptor {
+        address: rx_dma,
+        length: len,
+        status: 0,
+    };
+    match controller.configure_queue0(tx, rx, tx_cpu, rx_cpu) {
+        Ok(()) => Queue0Report::Programmed,
+        Err(error) => {
+            release();
+            match error {
+                Error::Descriptor(error) => Queue0Report::Descriptor(error),
+                Error::Ring(error) => Queue0Report::Ring(error),
+                Error::Enable(error) => Queue0Report::Enable(error),
+                _ => {
+                    Queue0Report::Descriptor(kernel_core::genet::DescriptorError::AddressOutsideDma)
+                }
             }
         }
     }

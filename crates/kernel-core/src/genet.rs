@@ -220,9 +220,14 @@ pub mod interrupt {
 
 /// A device-tree-derived DMA aperture. Addresses are inclusive at the lower
 /// edge and exclusive at `end`.
+///
+/// `base` is the device-visible (child) address written into descriptors.
+/// `cpu_base` is the matching CPU physical address (parent). Identity
+/// maps set them equal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DmaWindow {
     pub base: u64,
+    pub cpu_base: u64,
     pub len: u64,
 }
 
@@ -252,14 +257,49 @@ impl DmaWindows {
         }
         false
     }
+
+    /// Translate a CPU physical address into the device DMA address.
+    pub const fn map_cpu(self, cpu: u64, len: u64) -> Result<u64, DmaMapError> {
+        let mut index = 0;
+        while index < self.count as usize {
+            if let Some(dma) = self.windows[index].map_cpu(cpu, len) {
+                return Ok(dma);
+            }
+            index += 1;
+        }
+        Err(DmaMapError::OutsideWindow)
+    }
+}
+
+/// Why a CPU→DMA translation was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DmaMapError {
+    OutsideWindow,
 }
 
 impl DmaWindow {
     pub const fn new(base: u64, len: u64) -> Option<Self> {
-        if len == 0 || base.checked_add(len).is_none() {
+        Self::mapped(base, base, len)
+    }
+
+    pub const fn mapped(dma_base: u64, cpu_base: u64, len: u64) -> Option<Self> {
+        if len == 0 || dma_base.checked_add(len).is_none() || cpu_base.checked_add(len).is_none() {
             None
         } else {
-            Some(Self { base, len })
+            Some(Self {
+                base: dma_base,
+                cpu_base,
+                len,
+            })
+        }
+    }
+
+    pub const fn map_cpu(self, cpu: u64, len: u64) -> Option<u64> {
+        match cpu.checked_add(len) {
+            Some(end) if cpu >= self.cpu_base && end <= self.cpu_base + self.len => {
+                Some(self.base + (cpu - self.cpu_base))
+            }
+            _ => None,
         }
     }
 
@@ -986,6 +1026,30 @@ impl Display for LinkReport {
     }
 }
 
+/// Boot report for a programmed queue-0 pair. Not a NIC: DMA stays disabled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Queue0Report {
+    Programmed,
+    OutsideDma,
+    NoFrames,
+    Descriptor(DescriptorError),
+    Ring(RingProgramError),
+    Enable(QueueEnableError),
+}
+
+impl Display for Queue0Report {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Queue0Report::Programmed => f.write_str("genet: queue0 programmed (rings, not a nic)"),
+            Queue0Report::OutsideDma => f.write_str("genet: queue0 unavailable (outside dma)"),
+            Queue0Report::NoFrames => f.write_str("genet: queue0 unavailable (no frames)"),
+            Queue0Report::Descriptor(_) => f.write_str("genet: queue0 unavailable (descriptor)"),
+            Queue0Report::Ring(_) => f.write_str("genet: queue0 unavailable (ring)"),
+            Queue0Report::Enable(_) => f.write_str("genet: queue0 unavailable (phase)"),
+        }
+    }
+}
+
 /// Why a queue-0 DMA enable word was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QueueEnableError {
@@ -1066,6 +1130,7 @@ mod tests {
 
     const DMA: DmaWindow = DmaWindow {
         base: 0x1000,
+        cpu_base: 0x1000,
         len: 0x4000,
     };
     const DMA_WINDOWS: DmaWindows = DmaWindows {
@@ -1079,6 +1144,15 @@ mod tests {
         assert_eq!(DmaWindow::new(u64::MAX, 2), None);
         assert!(DMA.contains(0x1000, 1));
         assert!(!DMA.contains(0x4fff, 2));
+        assert_eq!(DMA.map_cpu(0x1100, 16), Some(0x1100));
+        let aliased = DmaWindow::mapped(0x4_0000_0000, 0, 0x4000_0000).unwrap();
+        assert_eq!(aliased.map_cpu(0x411d000, 64), Some(0x4_0411_d000));
+        assert_eq!(
+            DmaWindows::new([aliased, aliased, aliased, aliased], 1)
+                .unwrap()
+                .map_cpu(0x9000_0000, 64),
+            Err(DmaMapError::OutsideWindow)
+        );
     }
 
     #[test]

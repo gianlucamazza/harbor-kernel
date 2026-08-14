@@ -426,9 +426,14 @@ pub fn extract(data: &[u8]) -> Result<Binding, Error> {
         return Err(Error::Incompatible);
     }
     let mmio_base = translate(bus_addr, mmio_len, &s.ranges, s.range_count)?;
-    let mut dma_windows = [DmaWindow { base: 0, len: 0 }; MAX_RANGES];
+    let mut dma_windows = [DmaWindow {
+        base: 0,
+        cpu_base: 0,
+        len: 0,
+    }; MAX_RANGES];
     for (index, range) in s.dma_ranges.iter().take(s.dma_range_count).enumerate() {
-        dma_windows[index] = DmaWindow::new(range.child, range.size).ok_or(Error::InvalidRange)?;
+        dma_windows[index] =
+            DmaWindow::mapped(range.child, range.parent, range.size).ok_or(Error::InvalidRange)?;
     }
     let dma = DmaWindows::new(dma_windows, s.dma_range_count as u8).ok_or(Error::InvalidRange)?;
     let phy_addr = s
@@ -532,6 +537,8 @@ mod tests {
         assert!(x.phy_mode_rgmii_rxid);
         assert_eq!(x.dma.count, 2);
         assert!(x.dma.contains(0x47c000000, 0x1000));
+        // Frame-pool CPU addresses sit in the first parent window.
+        assert!(x.dma.map_cpu(0x411d000, 1536).is_ok());
     }
 
     #[test]

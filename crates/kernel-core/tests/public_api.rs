@@ -136,6 +136,23 @@ fn capability_rights_do_not_imply_each_other() {
 }
 
 #[test]
+fn the_genet_queue0_report_and_dma_map_are_reachable_from_outside() {
+    use kernel_core::genet::{DmaWindow, DmaWindows, Queue0Report};
+
+    let aliased = DmaWindow::mapped(0x4_0000_0000, 0, 0x4000_0000).unwrap();
+    let windows = DmaWindows::new([aliased, aliased, aliased, aliased], 1).unwrap();
+    assert_eq!(windows.map_cpu(0x411d000, 1536), Ok(0x4_0411_d000));
+    assert_eq!(
+        Queue0Report::Programmed.to_string(),
+        "genet: queue0 programmed (rings, not a nic)"
+    );
+    assert_eq!(
+        Queue0Report::OutsideDma.to_string(),
+        "genet: queue0 unavailable (outside dma)"
+    );
+}
+
+#[test]
 fn the_genet_link_report_is_reachable_from_outside() {
     use kernel_core::genet::{LinkReport, phy};
 
