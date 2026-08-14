@@ -341,7 +341,10 @@ impl Genet {
                     TxReport::Complete(_)
                 )
         }) {
-            return Ok(TxReport::Timeout);
+            return Ok(TxReport::from_poll(
+                self.regs.read32(ring + dma_registers::CONS_INDEX as usize),
+                self.regs.read32(registers::TDMA as usize),
+            ));
         }
         Ok(TxReport::from_status(
             self.regs.read32(registers::TDMA as usize),
@@ -366,6 +369,7 @@ impl Genet {
             Ok(()) => {}
             Err(TxReport::LinkDown) => return Ok(RxReport::LinkDown),
             Err(TxReport::UnknownSpeed) => return Ok(RxReport::UnknownSpeed),
+            Err(TxReport::MdioTimeout) => return Ok(RxReport::MdioTimeout),
             Err(_) => return Ok(RxReport::NotEnabled),
         }
         self.assert_rgmii_link();
@@ -394,7 +398,10 @@ impl Genet {
                     RxReport::Complete(_)
                 )
         }) {
-            return Ok(RxReport::Timeout);
+            return Ok(RxReport::from_poll(
+                self.regs.read32(ring + dma_registers::CONS_INDEX as usize),
+                self.regs.read32(registers::RDMA as usize),
+            ));
         }
         // SAFETY: the device wrote the posted buffer; drop stale lines.
         unsafe {
@@ -407,14 +414,18 @@ impl Genet {
 
     /// Write UniMAC speed from clause-22 autoneg. Does not enable TX/RX.
     fn program_umac_speed(&self) -> Result<(), TxReport> {
-        let bmsr = self.mdio_read(phy::BMSR).map_err(|_| TxReport::Timeout)?;
-        let lpa = self.mdio_read(phy::LPA).map_err(|_| TxReport::Timeout)?;
+        let bmsr = self
+            .mdio_read(phy::BMSR)
+            .map_err(|_| TxReport::MdioTimeout)?;
+        let lpa = self
+            .mdio_read(phy::LPA)
+            .map_err(|_| TxReport::MdioTimeout)?;
         let ctrl1000 = self
             .mdio_read(phy::CTRL1000)
-            .map_err(|_| TxReport::Timeout)?;
+            .map_err(|_| TxReport::MdioTimeout)?;
         let stat1000 = self
             .mdio_read(phy::STAT1000)
-            .map_err(|_| TxReport::Timeout)?;
+            .map_err(|_| TxReport::MdioTimeout)?;
         let speed = match genet::classify_aneg_speed(bmsr, lpa, ctrl1000, stat1000) {
             Ok(speed) => speed,
             Err(genet::SpeedError::LinkDown) => return Err(TxReport::LinkDown),

@@ -181,6 +181,16 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         "genet: tx unavailable (unknown speed)"
     );
     assert_eq!(
+        TxReport::MdioTimeout.to_string(),
+        "genet: tx unavailable (mdio timeout)"
+    );
+    assert_eq!(
+        TxReport::StillOwned.to_string(),
+        "genet: tx unavailable (still owned)"
+    );
+    assert_eq!(TxReport::from_poll(0, 0), TxReport::Timeout);
+    assert_eq!(TxReport::from_poll(1, 0), TxReport::StillOwned);
+    assert_eq!(
         kernel_core::genet::rgmii_port_ctrl(),
         kernel_core::genet::registers::PORT_MODE_EXT_GPHY
     );
