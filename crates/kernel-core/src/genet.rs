@@ -5,6 +5,8 @@
 //! eventual Pi 4 binding must supply a verified device-tree translation and
 //! use these checks before programming the controller.
 
+use core::fmt::{self, Display, Formatter};
+
 /// BCM2711 GENET v5 register window size from the device tree.
 pub const REGISTER_BYTES: u64 = 0x1_0000;
 /// One GENET descriptor's status/address words for v4 and later.
@@ -136,6 +138,61 @@ impl Revision {
             minor: ((raw >> 16) & 0x0f) as u8,
             patch: (raw & 0xffff) as u16,
         })
+    }
+}
+
+/// Read-only SYS_REV_CTRL classification. Not a device reset and not a NIC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MmioProbe {
+    OutsideWindow,
+    NotPresent,
+    Revision(Revision),
+    Unsupported(u8),
+}
+
+/// Compare an FDT-translated register window to the compiled BSP claim.
+///
+/// ADR-0072: the kernel maps the compiled window, then verifies the binding.
+/// A discovered PA is never used as a map base.
+pub const fn matches_compiled_window(
+    mmio_base: u64,
+    mmio_len: u64,
+    compiled_base: u64,
+    compiled_len: u64,
+) -> bool {
+    mmio_base == compiled_base && mmio_len == compiled_len
+}
+
+/// Classify a recoverable SYS_REV_CTRL read against the compiled window.
+pub const fn classify_mmio_probe(window_matches: bool, raw: Option<u32>) -> MmioProbe {
+    if !window_matches {
+        return MmioProbe::OutsideWindow;
+    }
+    match raw {
+        None => MmioProbe::NotPresent,
+        Some(word) => match Revision::decode(word) {
+            Ok(revision) => MmioProbe::Revision(revision),
+            Err(RevisionError::Unsupported(major)) => MmioProbe::Unsupported(major),
+        },
+    }
+}
+
+impl Display for MmioProbe {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            MmioProbe::OutsideWindow => {
+                f.write_str("genet: probe skipped (binding outside compiled window)")
+            }
+            MmioProbe::NotPresent => f.write_str("genet: probe unavailable (NotPresent)"),
+            MmioProbe::Revision(revision) => write!(
+                f,
+                "genet: rev={}.{} patch={:#x} (mmio, not a nic)",
+                revision.major, revision.minor, revision.patch
+            ),
+            MmioProbe::Unsupported(major) => {
+                write!(f, "genet: probe unavailable (Unsupported({major}))")
+            }
+        }
     }
 }
 
@@ -938,6 +995,40 @@ mod tests {
         assert_eq!(
             Revision::decode(4 << 24),
             Err(RevisionError::Unsupported(4))
+        );
+    }
+
+    #[test]
+    fn mmio_probe_is_classified_against_the_compiled_window() {
+        assert!(matches_compiled_window(
+            0xfd58_0000,
+            REGISTER_BYTES,
+            0xfd58_0000,
+            REGISTER_BYTES
+        ));
+        assert!(!matches_compiled_window(
+            0xfd58_0000,
+            REGISTER_BYTES,
+            0xfe00_0000,
+            REGISTER_BYTES
+        ));
+        assert_eq!(
+            classify_mmio_probe(false, Some(5 << 24)),
+            MmioProbe::OutsideWindow
+        );
+        assert_eq!(classify_mmio_probe(true, None), MmioProbe::NotPresent);
+        assert_eq!(
+            classify_mmio_probe(true, Some(4 << 24)),
+            MmioProbe::Unsupported(4)
+        );
+        let raw = 5 << 24 | 3 << 16 | 0x2711;
+        assert_eq!(
+            classify_mmio_probe(true, Some(raw)),
+            MmioProbe::Revision(Revision::decode(raw).unwrap())
+        );
+        assert_eq!(
+            classify_mmio_probe(true, Some(raw)).to_string(),
+            "genet: rev=5.3 patch=0x2711 (mmio, not a nic)"
         );
     }
 

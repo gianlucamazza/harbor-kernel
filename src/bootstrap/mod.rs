@@ -407,12 +407,42 @@ fn map_dtb_and_discover(uart: &mut Pl011, core1: bool) -> u64 {
     } else {
         None
     };
-    println!(
-        uart,
-        "{}",
-        kernel_core::genet_fdt::boot_report(dtb_mapped, dtb)
-    );
+    let genet = kernel_core::genet_fdt::boot_report(dtb_mapped, dtb);
+    println!(uart, "{genet}");
+    #[cfg(feature = "board-rpi4")]
+    report_genet_mmio(uart, genet);
     timer::physical_count()
+}
+
+/// Read-only SYS_REV_CTRL after the FDT binding matches the compiled window.
+///
+/// Does not call `Genet::probe` (that resets the block), does not enable DMA,
+/// and does not bind the network vocabulary.
+#[cfg(feature = "board-rpi4")]
+fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
+    use crate::arch::probe;
+    use crate::bsp::board::memmap;
+    use kernel_core::genet::{self, classify_mmio_probe, matches_compiled_window};
+
+    let kernel_core::genet_fdt::Report::Binding(binding) = report else {
+        return;
+    };
+    let matches = matches_compiled_window(
+        binding.mmio_base,
+        binding.mmio_len,
+        memmap::GENET_BASE as u64,
+        memmap::GENET_REG_BYTES as u64,
+    );
+    let raw = if matches {
+        // SAFETY: `GENET_BASE` is in `DEVICE_REGIONS` and mapped Device.
+        // `try_read32` turns an external abort into `Err`.
+        unsafe {
+            probe::try_read32(memmap::GENET_BASE + genet::registers::SYS_REV_CTRL as usize).ok()
+        }
+    } else {
+        None
+    };
+    println!(uart, "{}", classify_mmio_probe(matches, raw));
 }
 
 /// What the kernel map was built from, and when it went live.
