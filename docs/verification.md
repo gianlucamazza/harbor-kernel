@@ -584,8 +584,10 @@ file; it is not a silicon pass for entropy.
 Deploy:
 
 ```bash
-make img
+# Product (no oracle, store injected) — what `make deploy` flashes.
 make deploy SD_MOUNT=/run/media/$USER/bootfs
+# Lab/oracle fleet (hw-check against boot-oracle.sh):
+make deploy-oracle SD_MOUNT=/run/media/$USER/bootfs
 ```
 
 ## Hardware evidence: ADR-0066 power-cycle stamp (2026-08-09)
