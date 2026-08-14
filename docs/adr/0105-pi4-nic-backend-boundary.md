@@ -17,12 +17,11 @@ or claim that a driver exists.
 A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
 provenance, SMP, and durable-media baseline. The product prints a `genet:`
 FDT report and, when that binding matches the compiled window, runs
-`Genet::probe`. Silicon stamp `20260814-140651.log` boot 4 (`src=61fe6774`) has
-the FDT line, `genet: rev=6.0 patch=0x0 (mmio, not a nic)`, and
-`VACANT`. After a successful revision the product also prints one
-PHY-identify line; that line is host-tested and is not this ADR's NIC
-gate. No link, TX/RX, service reset/recovery, or absent-device result
-was produced.
+`Genet::probe`. Silicon stamp `20260814-174803.log` (`src=58b7448c`) has the FDT
+line, `genet: rev=6.0 patch=0x0 (mmio, not a nic)`,
+`genet: phy=0x600d84a2 (id, not a nic)`, and `VACANT`. That is not
+this ADR's NIC gate. No link, TX/RX, service reset/recovery, or
+absent-device result was produced.
 
 ## Context
 

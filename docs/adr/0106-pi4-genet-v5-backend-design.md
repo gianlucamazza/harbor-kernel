@@ -68,10 +68,10 @@ The compiled BSP now maps that 64 KiB window (`GENET_BASE` in
 product calls `Genet::probe` (mask, stop DMA, UniMAC reset) and prints
 the decoded revision. After a successful revision it also prints one
 `PhyIdentify` line (`genet: phy=… (id, not a nic)` or a bounded refusal).
-A Pi 4B (`src=61fe6774`) printed
-`genet: rev=6.0 patch=0x0 (mmio, not a nic)`; encoded 6/7 are the v5
-descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The PHY
-identify line is host-tested and not yet silicon-stamped. The kernel does
+A Pi 4B (`src=58b7448c`) printed
+`genet: rev=6.0 patch=0x0 (mmio, not a nic)` and
+`genet: phy=0x600d84a2 (id, not a nic)`; encoded 6/7 are the v5
+descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). Queues stay disabled and the network
 vocabulary stays vacant.
 A separate AArch64 control-plane slice in
