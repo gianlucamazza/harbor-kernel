@@ -1,4 +1,4 @@
-//! BCM2711 GENET v5 control-plane, unpublished queue-0 program, and PHY bring-up.
+//! BCM2711 GENET v5 control-plane, unpublished queue-0 program, PHY bring-up, and one bounded TX.
 //!
 //! The verified FDT binding supplies the translated MMIO window and DMA
 //! apertures. Packet ownership, ring arithmetic, and MDIO words stay in
@@ -8,7 +8,7 @@
 use kernel_core::genet::{
     self, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn, PhyError, PhyLink,
     QueueEnable, QueueEnableError, Revision, RevisionError, RingProgram, RingProgramError,
-    dma_registers, mdio, phy, registers,
+    TxReport, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -41,6 +41,9 @@ pub struct Genet {
     binding: Binding,
     revision: Revision,
     phase: DmaPhase,
+    tx_cpu: usize,
+    tx_dma: u64,
+    tx_len: u32,
 }
 
 impl Genet {
@@ -75,6 +78,9 @@ impl Genet {
             binding,
             revision,
             phase: DmaPhase::Idle,
+            tx_cpu: 0,
+            tx_dma: 0,
+            tx_len: 0,
         };
         controller.reset()?;
         Ok(controller)
@@ -124,6 +130,9 @@ impl Genet {
             return Err(Error::Timeout);
         }
         self.phase = self.phase.reset();
+        self.tx_cpu = 0;
+        self.tx_dma = 0;
+        self.tx_len = 0;
         Ok(())
     }
 
@@ -201,6 +210,9 @@ impl Genet {
         self.write_ring(rx_ring);
         self.write_descriptor(registers::TDMA, 0, tx, true)?;
         self.write_descriptor(registers::RDMA, 0, rx, true)?;
+        self.tx_cpu = tx_cpu;
+        self.tx_dma = tx.address;
+        self.tx_len = tx.length;
         // Descriptor RAM is Device MMIO. Packet buffers are Normal; clean TX
         // so the engine sees CPU stores, invalidate RX so stale lines cannot
         // shadow a later device write (ADR-0106).
@@ -227,6 +239,44 @@ impl Genet {
                 .write32((block + dma_registers::CTRL) as usize, enable.ctrl());
         }
         Ok(())
+    }
+
+    /// One bounded TX on queue 0. Refuses unless Enabled and BMSR is up.
+    /// Does not claim RX or publish a network service.
+    pub fn submit_one_tx(&mut self) -> Result<TxReport, Error> {
+        let link = self.classify_link()?;
+        if let Some(refused) = TxReport::refuse(self.phase, link) {
+            return Ok(refused);
+        }
+        if self.tx_cpu == 0 || self.tx_len < genet::MIN_FRAME_BYTES {
+            return Ok(TxReport::NotEnabled);
+        }
+        fill_minimum_frame(self.tx_cpu, genet::MIN_FRAME_BYTES);
+        // SAFETY: configure_queue0 stored an identity-mapped TX frame.
+        unsafe {
+            cache::clean_dcache_poc(self.tx_cpu, genet::MIN_FRAME_BYTES as usize);
+        }
+        let descriptor = Descriptor {
+            address: self.tx_dma,
+            length: genet::MIN_FRAME_BYTES,
+            status: 0,
+        };
+        self.write_descriptor(registers::TDMA, 0, descriptor, true)?;
+        let cmd = self.regs.read32(registers::UMAC_CMD as usize);
+        self.regs.write32(
+            registers::UMAC_CMD as usize,
+            cmd | registers::UMAC_CMD_TX_EN,
+        );
+        let ring = (registers::TDMA + dma_registers::RING_BASE) as usize;
+        self.regs
+            .write32(ring + dma_registers::PROD_INDEX as usize, 1);
+        if !poll::until(RESET_SPIN_LIMIT, || {
+            self.regs.read32(ring + dma_registers::CONS_INDEX as usize) & 0xffff >= 1
+        }) {
+            return Ok(TxReport::Timeout);
+        }
+        let status = self.regs.read32(registers::TDMA as usize);
+        Ok(TxReport::from_status(status))
     }
 
     /// Clause-22 MDIO read of `reg` on the DT PHY address.
@@ -360,5 +410,23 @@ impl Genet {
         self.regs.write32(offset + 4, words.address_low);
         self.regs.write32(offset + 8, words.address_high);
         Ok(())
+    }
+}
+
+/// Locally-administered broadcast probe: dest ff:ff:ff:ff:ff:ff, src 02:00:00:00:00:01, ethertype 0x88b5.
+fn fill_minimum_frame(cpu: usize, len: u32) {
+    let n = core::cmp::min(len as usize, genet::MIN_FRAME_BYTES as usize);
+    // SAFETY: `cpu` is the identity-mapped TX frame stored by configure_queue0.
+    let buf = unsafe { core::slice::from_raw_parts_mut(cpu as *mut u8, n) };
+    buf.fill(0);
+    if n >= 6 {
+        buf[..6].fill(0xff);
+    }
+    if n >= 7 {
+        buf[6] = 0x02;
+    }
+    if n >= 14 {
+        buf[12] = 0x88;
+        buf[13] = 0xb5;
     }
 }

@@ -493,7 +493,8 @@ static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
 ///
 /// Probe runs at discover time, before frames; the programmed descriptors
 /// need two identity-mapped frames inside the FDT DMA windows. Enable
-/// writes RING_CFG+CTRL only after Programmed. No TX/RX completion.
+/// writes RING_CFG+CTRL only after Programmed. One bounded TX follows
+/// Enabled; a down BMSR refuses before the doorbell. No RX.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_queue0(uart: &mut Pl011) {
     use crate::drivers::genet::Error;
@@ -511,12 +512,27 @@ fn report_genet_queue0(uart: &mut Pl011) {
         } else {
             None
         };
-        Some((programmed, enabled))
+        let tx = if matches!(enabled, Some(Queue0Report::Enabled)) {
+            Some(match controller.submit_one_tx() {
+                Ok(report) => report,
+                Err(Error::Timeout) => kernel_core::genet::TxReport::Timeout,
+                Err(Error::Phy(kernel_core::genet::PhyError::LinkDown)) => {
+                    kernel_core::genet::TxReport::LinkDown
+                }
+                Err(_) => kernel_core::genet::TxReport::NotEnabled,
+            })
+        } else {
+            None
+        };
+        Some((programmed, enabled, tx))
     });
-    if let Some((programmed, enabled)) = lines {
+    if let Some((programmed, enabled, tx)) = lines {
         println!(uart, "{programmed}");
         if let Some(enabled) = enabled {
             println!(uart, "{enabled}");
+        }
+        if let Some(tx) = tx {
+            println!(uart, "{tx}");
         }
     }
 }

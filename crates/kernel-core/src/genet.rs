@@ -13,6 +13,8 @@ pub const REGISTER_BYTES: u64 = 0x1_0000;
 pub const DESCRIPTOR_BYTES: u64 = 12;
 /// The hardware's total descriptor count, shared by TX and RX rings.
 pub const TOTAL_DESCRIPTORS: u16 = 256;
+/// Minimum Ethernet payload the first TX slice writes (no FCS).
+pub const MIN_FRAME_BYTES: u32 = 60;
 /// Maximum standard Ethernet frame accepted by the first bounded slice.
 pub const MAX_FRAME_BYTES: u32 = 1536;
 /// GENET v5 DMA burst value required by BCM2711 platform data.
@@ -39,6 +41,7 @@ pub mod registers {
     pub const INTRL2_CPU_MASK_SET: u32 = 0x10;
     pub const RBUF_CTRL: u32 = RBUF;
     pub const UMAC_CMD: u32 = UMAC + 0x08;
+    pub const UMAC_CMD_TX_EN: u32 = 1 << 0;
     pub const UMAC_TX_FLUSH: u32 = UMAC + 0x334;
     pub const UMAC_MDIO_CMD: u32 = MDIO;
 }
@@ -1058,6 +1061,49 @@ impl Display for Queue0Report {
     }
 }
 
+/// Boot report for one bounded TX. Not a NIC and not an RX claim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TxReport {
+    Complete(u16),
+    LinkDown,
+    NotEnabled,
+    Timeout,
+}
+
+impl TxReport {
+    /// Refuse before ringing the doorbell. Enabled+Up returns `None`.
+    pub const fn refuse(phase: DmaPhase, link: LinkState) -> Option<Self> {
+        match (phase, link) {
+            (DmaPhase::Enabled, LinkState::Up) => None,
+            (DmaPhase::Enabled, LinkState::Down) => Some(Self::LinkDown),
+            (_, _) => Some(Self::NotEnabled),
+        }
+    }
+
+    pub const fn from_status(word: u32) -> Self {
+        match DescriptorStatus::decode(word) {
+            Ok(status) => match status.ownership {
+                Ownership::Driver => Self::Complete(status.length),
+                Ownership::Device => Self::Timeout,
+            },
+            Err(_) => Self::Timeout,
+        }
+    }
+}
+
+impl Display for TxReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            TxReport::Complete(len) => {
+                write!(f, "genet: tx complete len={len} (one frame, not a nic)")
+            }
+            TxReport::LinkDown => f.write_str("genet: tx unavailable (link down)"),
+            TxReport::NotEnabled => f.write_str("genet: tx unavailable (not enabled)"),
+            TxReport::Timeout => f.write_str("genet: tx unavailable (timeout)"),
+        }
+    }
+}
+
 /// Why a queue-0 DMA enable word was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QueueEnableError {
@@ -1672,5 +1718,60 @@ mod tests {
             Err(QueueEnableError::AlreadyEnabled)
         );
         assert_eq!(DmaPhase::Enabled.reset(), DmaPhase::Idle);
+    }
+
+    #[test]
+    fn tx_report_refuses_before_doorbell_and_reads_ownership() {
+        assert_eq!(
+            TxReport::refuse(DmaPhase::Enabled, LinkState::Down),
+            Some(TxReport::LinkDown)
+        );
+        assert_eq!(TxReport::refuse(DmaPhase::Enabled, LinkState::Up), None);
+        assert_eq!(
+            TxReport::refuse(DmaPhase::Programmed, LinkState::Up),
+            Some(TxReport::NotEnabled)
+        );
+        assert_eq!(
+            TxReport::refuse(DmaPhase::Idle, LinkState::Up),
+            Some(TxReport::NotEnabled)
+        );
+        assert_eq!(
+            TxReport::LinkDown.to_string(),
+            "genet: tx unavailable (link down)"
+        );
+        assert_eq!(
+            TxReport::Timeout.to_string(),
+            "genet: tx unavailable (timeout)"
+        );
+        assert_eq!(
+            TxReport::Complete(MIN_FRAME_BYTES as u16).to_string(),
+            "genet: tx complete len=60 (one frame, not a nic)"
+        );
+        let done = DescriptorStatus {
+            length: MIN_FRAME_BYTES as u16,
+            ownership: Ownership::Driver,
+            start: true,
+            end: true,
+            wrap: true,
+        }
+        .encode()
+        .unwrap();
+        assert_eq!(
+            TxReport::from_status(done),
+            TxReport::Complete(MIN_FRAME_BYTES as u16)
+        );
+        let still_owned = DescriptorStatus {
+            length: MIN_FRAME_BYTES as u16,
+            ownership: Ownership::Device,
+            start: true,
+            end: true,
+            wrap: true,
+        }
+        .encode()
+        .unwrap();
+        assert_eq!(TxReport::from_status(still_owned), TxReport::Timeout);
+        assert_eq!(TxReport::from_status(0), TxReport::Timeout);
+        assert_eq!(registers::UMAC_CMD_TX_EN, 1);
+        assert_eq!(MIN_FRAME_BYTES, 60);
     }
 }
