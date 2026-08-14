@@ -1,11 +1,14 @@
-//! BCM2711 GENET v5 control-plane driver.
+//! BCM2711 GENET v5 control-plane and unpublished queue-0 program.
 //!
-//! This layer owns only the device register lifecycle. The verified FDT
-//! binding supplies the translated MMIO window and DMA apertures; packet
-//! ownership and descriptor arithmetic remain in `kernel_core::genet`.
-//! Network-service publication is intentionally a later BSP composition step.
+//! The verified FDT binding supplies the translated MMIO window and DMA
+//! apertures. Packet ownership, ring arithmetic, and MDIO words stay in
+//! `kernel_core::genet`. This layer writes those contracts into the
+//! controller. Network-service publication is a later BSP composition step.
 
-use kernel_core::genet::{self, Revision, RevisionError};
+use kernel_core::genet::{
+    self, dma_registers, mdio, registers, Descriptor, DescriptorError, MdioError, MdioTxn,
+    Revision, RevisionError, RingProgram, RingProgramError,
+};
 use kernel_core::genet_fdt::Binding;
 
 use crate::arch::mmio::Mmio;
@@ -25,6 +28,9 @@ pub enum Error {
     NotPresent,
     Revision(RevisionError),
     Timeout,
+    Ring(RingProgramError),
+    Descriptor(DescriptorError),
+    Mdio(MdioError),
 }
 
 /// A probed and reset GENET v5 controller.
@@ -135,5 +141,125 @@ impl Genet {
     /// Queue-0 enable mask used by the first bounded TX/RX composition.
     pub const fn queue0_enable_mask() -> u32 {
         DMA_ENABLE | (1 << DMA_RING_BUF_EN_SHIFT)
+    }
+
+    /// Program queue 0 on both DMA engines and publish one TX and one RX
+    /// descriptor. Does not enable DMA and does not claim a live link.
+    pub fn configure_queue0(&self, tx: Descriptor, rx: Descriptor) -> Result<(), Error> {
+        tx.validate_windows(self.binding.dma)
+            .map_err(Error::Descriptor)?;
+        rx.validate_windows(self.binding.dma)
+            .map_err(Error::Descriptor)?;
+        let tx_ring = RingProgram::new(
+            registers::TDMA,
+            0,
+            0,
+            1,
+            tx.length
+                .try_into()
+                .map_err(|_| Error::Descriptor(DescriptorError::TooLarge))?,
+        )
+        .map_err(Error::Ring)?;
+        let rx_ring = RingProgram::new(
+            registers::RDMA,
+            0,
+            0,
+            1,
+            rx.length
+                .try_into()
+                .map_err(|_| Error::Descriptor(DescriptorError::TooLarge))?,
+        )
+        .map_err(Error::Ring)?;
+
+        self.regs.write32(
+            (registers::RDMA + dma_registers::SCB_BURST_SIZE) as usize,
+            self.dma_burst_value(),
+        );
+        self.regs.write32(
+            (registers::TDMA + dma_registers::SCB_BURST_SIZE) as usize,
+            self.dma_burst_value(),
+        );
+        self.write_ring(tx_ring);
+        self.write_ring(rx_ring);
+        self.write_descriptor(registers::TDMA, 0, tx, true)?;
+        self.write_descriptor(registers::RDMA, 0, rx, true)?;
+        Ok(())
+    }
+
+    /// Clause-22 MDIO read of `reg` on the DT PHY address.
+    pub fn mdio_read(&self, reg: u8) -> Result<u16, Error> {
+        let phy = u8::try_from(self.binding.phy_addr)
+            .map_err(|_| Error::Mdio(MdioError::PhyOutOfRange))?;
+        let txn = MdioTxn::new(phy, reg, None).map_err(Error::Mdio)?;
+        self.regs.write32(
+            registers::UMAC_MDIO_CMD as usize,
+            txn.encode().map_err(Error::Mdio)?,
+        );
+        if !poll::until(RESET_SPIN_LIMIT, || {
+            self.regs.read32(registers::UMAC_MDIO_CMD as usize) & mdio::START_BUSY == 0
+        }) {
+            return Err(Error::Timeout);
+        }
+        MdioTxn::decode_read(self.regs.read32(registers::UMAC_MDIO_CMD as usize))
+            .map_err(Error::Mdio)
+    }
+
+    /// Combine PHYIDR1/PHYIDR2. Absent or stuck-high IDs are a refusal.
+    pub fn phy_id(&self) -> Result<u32, Error> {
+        let hi = self.mdio_read(mdio::PHYIDR1)?;
+        let lo = self.mdio_read(mdio::PHYIDR2)?;
+        genet::classify_phy_id(hi, lo).map_err(Error::Mdio)
+    }
+
+    fn write_ring(&self, program: RingProgram) {
+        let base = program.ring_register_base() as usize;
+        let words = program.words();
+        self.regs
+            .write32(base + dma_registers::READ_PTR as usize, words.read_ptr);
+        self.regs
+            .write32(base + dma_registers::READ_PTR_HI as usize, 0);
+        self.regs
+            .write32(base + dma_registers::CONS_INDEX as usize, words.cons);
+        self.regs
+            .write32(base + dma_registers::PROD_INDEX as usize, words.prod);
+        self.regs.write32(
+            base + dma_registers::RING_BUF_SIZE as usize,
+            words.ring_buf_size,
+        );
+        self.regs
+            .write32(base + dma_registers::START_ADDR as usize, words.start);
+        self.regs
+            .write32(base + dma_registers::START_ADDR_HI as usize, words.start_hi);
+        self.regs
+            .write32(base + dma_registers::END_ADDR as usize, words.end);
+        self.regs
+            .write32(base + dma_registers::END_ADDR_HI as usize, words.end_hi);
+        self.regs.write32(
+            base + dma_registers::MBUF_DONE_THRESH as usize,
+            words.mbuf_done,
+        );
+        self.regs
+            .write32(base + dma_registers::FLOW_PERIOD as usize, words.flow);
+        self.regs
+            .write32(base + dma_registers::WRITE_PTR as usize, words.write_ptr);
+        self.regs
+            .write32(base + dma_registers::WRITE_PTR_HI as usize, 0);
+    }
+
+    fn write_descriptor(
+        &self,
+        block: u32,
+        index: u16,
+        descriptor: Descriptor,
+        wrap: bool,
+    ) -> Result<(), Error> {
+        let words = descriptor
+            .words(genet::Ownership::Device, true, true, wrap)
+            .map_err(Error::Descriptor)?;
+        let offset = (block + u32::from(index) * genet::DESCRIPTOR_BYTES as u32) as usize;
+        self.regs.write32(offset, words.length_status);
+        self.regs.write32(offset + 4, words.address_low);
+        self.regs.write32(offset + 8, words.address_high);
+        Ok(())
     }
 }
