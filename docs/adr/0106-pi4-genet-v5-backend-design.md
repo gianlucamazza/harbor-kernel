@@ -70,21 +70,21 @@ the decoded revision. After a successful revision it also prints one
 `PhyIdentify` line (`genet: phy=… (id, not a nic)` or a bounded refusal).
 After a successful identify it also prints one `LinkReport` line
 (`genet: link=up|down (bmsr, not a nic)`).
-A Pi 4B (`src=9cd383eb`) printed
+A Pi 4B (`src=30603cba`) printed
 `genet: rev=6.0 patch=0x0 (mmio, not a nic)`,
 `genet: phy=0x600d84a2 (id, not a nic)`,
 `genet: link=down (bmsr, not a nic)`,
 `genet: queue0 programmed (rings, not a nic)`,
 `genet: queue0 enabled (dma, not a nic)`,
-`genet: tx unavailable (link down)`, and
-`genet: rx unavailable (link down)`; encoded 6/7 are the v5
+`genet: tx unavailable (link down)`,
+`genet: rx unavailable (link down)`, and
+`genet: reset recovered (idle, not a nic)`; encoded 6/7 are the v5
 descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
-the doorbell or RX arm. Both refuse paths are paid on silicon; TX-complete
-and RX-complete are not. After those reports a bounded `recover()`
-returns the controller to Idle. That reset line is unpaid on silicon.
-The network vocabulary stays vacant.
+the doorbell or RX arm. Both refuse paths and the Idle recover are paid
+on silicon; TX-complete and RX-complete are not. The network vocabulary
+stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
