@@ -263,6 +263,10 @@ impl Genet {
         if self.tx_cpu == 0 || self.tx_len < genet::MIN_FRAME_BYTES {
             return Ok(TxReport::NotEnabled);
         }
+        let ring = (registers::TDMA + dma_registers::RING_BASE) as usize;
+        if !TxReport::cons_is_idle(self.regs.read32(ring + dma_registers::CONS_INDEX as usize)) {
+            return Ok(TxReport::ImplausibleCons);
+        }
         fill_minimum_frame(self.tx_cpu, genet::MIN_FRAME_BYTES);
         // SAFETY: configure_queue0 stored an identity-mapped TX frame.
         unsafe {
@@ -279,16 +283,21 @@ impl Genet {
             registers::UMAC_CMD as usize,
             cmd | registers::UMAC_CMD_TX_EN,
         );
-        let ring = (registers::TDMA + dma_registers::RING_BASE) as usize;
         self.regs
             .write32(ring + dma_registers::PROD_INDEX as usize, 1);
         if !poll::until(RESET_SPIN_LIMIT, || {
-            self.regs.read32(ring + dma_registers::CONS_INDEX as usize) & 0xffff >= 1
+            let cons = self.regs.read32(ring + dma_registers::CONS_INDEX as usize);
+            TxReport::cons_has_posted(cons)
+                && matches!(
+                    TxReport::from_status(self.regs.read32(registers::TDMA as usize)),
+                    TxReport::Complete(_)
+                )
         }) {
             return Ok(TxReport::Timeout);
         }
-        let status = self.regs.read32(registers::TDMA as usize);
-        Ok(TxReport::from_status(status))
+        Ok(TxReport::from_status(
+            self.regs.read32(registers::TDMA as usize),
+        ))
     }
 
     /// One bounded RX on queue 0. Refuses unless Enabled and BMSR is up.
@@ -300,6 +309,10 @@ impl Genet {
         }
         if self.rx_cpu == 0 || self.rx_len == 0 {
             return Ok(RxReport::NotEnabled);
+        }
+        let ring = (registers::RDMA + dma_registers::RING_BASE) as usize;
+        if !TxReport::cons_is_idle(self.regs.read32(ring + dma_registers::CONS_INDEX as usize)) {
+            return Ok(RxReport::ImplausibleCons);
         }
         // SAFETY: configure_queue0 stored an identity-mapped RX frame.
         unsafe {
@@ -316,11 +329,15 @@ impl Genet {
             registers::UMAC_CMD as usize,
             cmd | registers::UMAC_CMD_RX_EN,
         );
-        let ring = (registers::RDMA + dma_registers::RING_BASE) as usize;
         self.regs
             .write32(ring + dma_registers::PROD_INDEX as usize, 1);
         if !poll::until(RESET_SPIN_LIMIT, || {
-            self.regs.read32(ring + dma_registers::CONS_INDEX as usize) & 0xffff >= 1
+            let cons = self.regs.read32(ring + dma_registers::CONS_INDEX as usize);
+            TxReport::cons_has_posted(cons)
+                && matches!(
+                    RxReport::from_status(self.regs.read32(registers::RDMA as usize)),
+                    RxReport::Complete(_)
+                )
         }) {
             return Ok(RxReport::Timeout);
         }
@@ -328,8 +345,9 @@ impl Genet {
         unsafe {
             cache::invalidate_dcache_poc(self.rx_cpu, self.rx_len as usize);
         }
-        let status = self.regs.read32(registers::RDMA as usize);
-        Ok(RxReport::from_status(status))
+        Ok(RxReport::from_status(
+            self.regs.read32(registers::RDMA as usize),
+        ))
     }
 
     /// Stop DMA, UniMAC-reset, and return to Idle. Refuses Idle.

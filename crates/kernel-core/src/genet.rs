@@ -1069,6 +1069,7 @@ pub enum TxReport {
     LinkDown,
     NotEnabled,
     Timeout,
+    ImplausibleCons,
 }
 
 impl TxReport {
@@ -1090,6 +1091,16 @@ impl TxReport {
             Err(_) => Self::Timeout,
         }
     }
+
+    /// Queue-0 consumer must be idle before the first doorbell.
+    pub const fn cons_is_idle(word: u32) -> bool {
+        word & 0xffff == 0
+    }
+
+    /// Hardware posted at least one completion index. Not ownership.
+    pub const fn cons_has_posted(word: u32) -> bool {
+        word & 0xffff >= 1
+    }
 }
 
 impl Display for TxReport {
@@ -1101,6 +1112,7 @@ impl Display for TxReport {
             TxReport::LinkDown => f.write_str("genet: tx unavailable (link down)"),
             TxReport::NotEnabled => f.write_str("genet: tx unavailable (not enabled)"),
             TxReport::Timeout => f.write_str("genet: tx unavailable (timeout)"),
+            TxReport::ImplausibleCons => f.write_str("genet: tx unavailable (implausible cons)"),
         }
     }
 }
@@ -1112,6 +1124,7 @@ pub enum RxReport {
     LinkDown,
     NotEnabled,
     Timeout,
+    ImplausibleCons,
 }
 
 impl RxReport {
@@ -1144,6 +1157,7 @@ impl Display for RxReport {
             RxReport::LinkDown => f.write_str("genet: rx unavailable (link down)"),
             RxReport::NotEnabled => f.write_str("genet: rx unavailable (not enabled)"),
             RxReport::Timeout => f.write_str("genet: rx unavailable (timeout)"),
+            RxReport::ImplausibleCons => f.write_str("genet: rx unavailable (implausible cons)"),
         }
     }
 }
@@ -1850,6 +1864,16 @@ mod tests {
         .unwrap();
         assert_eq!(TxReport::from_status(still_owned), TxReport::Timeout);
         assert_eq!(TxReport::from_status(0), TxReport::Timeout);
+        assert!(TxReport::cons_is_idle(0));
+        assert!(TxReport::cons_is_idle(0x0001_0000));
+        assert!(!TxReport::cons_is_idle(1));
+        assert!(!TxReport::cons_is_idle(0xffff));
+        assert!(TxReport::cons_has_posted(1));
+        assert!(!TxReport::cons_has_posted(0));
+        assert_eq!(
+            TxReport::ImplausibleCons.to_string(),
+            "genet: tx unavailable (implausible cons)"
+        );
         assert_eq!(registers::UMAC_CMD_TX_EN, 1);
         assert_eq!(MIN_FRAME_BYTES, 60);
     }
