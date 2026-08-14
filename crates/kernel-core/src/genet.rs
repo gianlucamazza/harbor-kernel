@@ -89,6 +89,8 @@ pub mod dma_registers {
     pub const ARB_CTRL: u32 = COMMON_BASE + 0x2c;
     pub const RING_CFG: u32 = COMMON_BASE;
     pub const RING0: u32 = RING_BASE;
+    pub const DMA_ENABLE: u32 = 1 << 0;
+    pub const RING_BUF_EN_SHIFT: u32 = 1;
 
     /// Per-ring offsets for the v4+ 40-bit pointer layout.
     pub const READ_PTR: u32 = 0x00;
@@ -827,6 +829,80 @@ impl PhyLink {
     }
 }
 
+/// Why a queue-0 DMA enable word was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QueueEnableError {
+    UnsupportedQueue,
+    NotProgrammed,
+    AlreadyEnabled,
+}
+
+/// v5 common-block words that turn on queue 0 after the rings are programmed.
+///
+/// `RING_CFG` names the ring; `CTRL` then sets both `DMA_EN` and that ring's
+/// buffer-enable bit. Hardware completions live at [`dma_registers::CONS_INDEX`];
+/// software producer/consumer updates live at [`dma_registers::PROD_INDEX`]
+/// for both engines — the merged v4+ map aliases RDMA_PROD onto CONS and
+/// RDMA_CONS onto PROD.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct QueueEnable {
+    pub queue: u8,
+}
+
+impl QueueEnable {
+    pub const fn new(queue: u8) -> Result<Self, QueueEnableError> {
+        if queue != 0 {
+            return Err(QueueEnableError::UnsupportedQueue);
+        }
+        Ok(Self { queue })
+    }
+
+    pub const fn ring_cfg(self) -> u32 {
+        1 << self.queue
+    }
+
+    pub const fn ctrl(self) -> u32 {
+        dma_registers::DMA_ENABLE | (1 << (dma_registers::RING_BUF_EN_SHIFT + self.queue as u32))
+    }
+
+    pub const fn hardware_index(self) -> u32 {
+        dma_registers::CONS_INDEX
+    }
+
+    pub const fn software_index(self) -> u32 {
+        dma_registers::PROD_INDEX
+    }
+}
+
+/// Driver-side phase so enable cannot run before program or twice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DmaPhase {
+    Idle,
+    Programmed,
+    Enabled,
+}
+
+impl DmaPhase {
+    pub const fn program(self) -> Result<Self, QueueEnableError> {
+        match self {
+            Self::Idle | Self::Programmed => Ok(Self::Programmed),
+            Self::Enabled => Err(QueueEnableError::AlreadyEnabled),
+        }
+    }
+
+    pub const fn enable(self) -> Result<Self, QueueEnableError> {
+        match self {
+            Self::Programmed => Ok(Self::Enabled),
+            Self::Idle => Err(QueueEnableError::NotProgrammed),
+            Self::Enabled => Err(QueueEnableError::AlreadyEnabled),
+        }
+    }
+
+    pub const fn reset(self) -> Self {
+        Self::Idle
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1243,5 +1319,29 @@ mod tests {
             PhyLink::identify(0xffff, 0xffff, true),
             Err(PhyError::Id(MdioError::InvalidPhyId))
         );
+    }
+
+    #[test]
+    fn queue_enable_is_queue0_and_keeps_index_polarity() {
+        let enable = QueueEnable::new(0).unwrap();
+        assert_eq!(enable.ring_cfg(), 1);
+        assert_eq!(
+            enable.ctrl(),
+            dma_registers::DMA_ENABLE | (1 << dma_registers::RING_BUF_EN_SHIFT)
+        );
+        assert_eq!(enable.hardware_index(), dma_registers::CONS_INDEX);
+        assert_eq!(enable.software_index(), dma_registers::PROD_INDEX);
+        assert_eq!(QueueEnable::new(1), Err(QueueEnableError::UnsupportedQueue));
+        assert_eq!(DmaPhase::Idle.program(), Ok(DmaPhase::Programmed));
+        assert_eq!(
+            DmaPhase::Idle.enable(),
+            Err(QueueEnableError::NotProgrammed)
+        );
+        assert_eq!(DmaPhase::Programmed.enable(), Ok(DmaPhase::Enabled));
+        assert_eq!(
+            DmaPhase::Enabled.enable(),
+            Err(QueueEnableError::AlreadyEnabled)
+        );
+        assert_eq!(DmaPhase::Enabled.reset(), DmaPhase::Idle);
     }
 }

@@ -6,19 +6,19 @@
 //! controller. Network-service publication is a later BSP composition step.
 
 use kernel_core::genet::{
-    self, Descriptor, DescriptorError, MdioError, MdioTxn, PhyError, PhyLink, Revision,
-    RevisionError, RingProgram, RingProgramError, dma_registers, mdio, phy, registers,
+    self, Descriptor, DescriptorError, DmaPhase, MdioError, MdioTxn, PhyError, PhyLink,
+    QueueEnable, QueueEnableError, Revision, RevisionError, RingProgram, RingProgramError,
+    dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
+use crate::arch::cache;
 use crate::arch::mmio::Mmio;
 use crate::arch::probe;
 use kernel_core::poll;
 
 const RESET_SPIN_LIMIT: u32 = 1_000_000;
-const DMA_ENABLE_MASK: u32 = (1 << 0) | (1 << 1);
-const DMA_ENABLE: u32 = 1 << 0;
-const DMA_RING_BUF_EN_SHIFT: u32 = 1;
+const DMA_ENABLE_MASK: u32 = dma_registers::DMA_ENABLE | (1 << dma_registers::RING_BUF_EN_SHIFT);
 const DMA_DISABLED: u32 = DMA_ENABLE_MASK;
 const CMD_SW_RESET: u32 = 1 << 13;
 
@@ -32,6 +32,7 @@ pub enum Error {
     Descriptor(DescriptorError),
     Mdio(MdioError),
     Phy(PhyError),
+    Enable(QueueEnableError),
 }
 
 /// A probed and reset GENET v5 controller.
@@ -39,6 +40,7 @@ pub struct Genet {
     regs: Mmio,
     binding: Binding,
     revision: Revision,
+    phase: DmaPhase,
 }
 
 impl Genet {
@@ -68,10 +70,11 @@ impl Genet {
             unsafe { probe::try_read32(regs.base() + genet::registers::SYS_REV_CTRL as usize) }
                 .map_err(|_| Error::NotPresent)?;
         let revision = Revision::decode(raw_revision).map_err(Error::Revision)?;
-        let controller = Self {
+        let mut controller = Self {
             regs,
             binding,
             revision,
+            phase: DmaPhase::Idle,
         };
         controller.reset()?;
         Ok(controller)
@@ -99,8 +102,12 @@ impl Genet {
         }
     }
 
+    pub const fn phase(&self) -> DmaPhase {
+        self.phase
+    }
+
     /// Return the controller to a quiescent, restartable state.
-    pub fn reset(&self) -> Result<(), Error> {
+    pub fn reset(&mut self) -> Result<(), Error> {
         self.mask_interrupts();
         self.stop_dma(genet::registers::RDMA)?;
         self.stop_dma(genet::registers::TDMA)?;
@@ -116,6 +123,7 @@ impl Genet {
         }) {
             return Err(Error::Timeout);
         }
+        self.phase = self.phase.reset();
         Ok(())
     }
 
@@ -141,12 +149,13 @@ impl Genet {
 
     /// Queue-0 enable mask used by the first bounded TX/RX composition.
     pub const fn queue0_enable_mask() -> u32 {
-        DMA_ENABLE | (1 << DMA_RING_BUF_EN_SHIFT)
+        QueueEnable { queue: 0 }.ctrl()
     }
 
     /// Program queue 0 on both DMA engines and publish one TX and one RX
     /// descriptor. Does not enable DMA and does not claim a live link.
-    pub fn configure_queue0(&self, tx: Descriptor, rx: Descriptor) -> Result<(), Error> {
+    pub fn configure_queue0(&mut self, tx: Descriptor, rx: Descriptor) -> Result<(), Error> {
+        self.phase = self.phase.program().map_err(Error::Enable)?;
         tx.validate_windows(self.binding.dma)
             .map_err(Error::Descriptor)?;
         rx.validate_windows(self.binding.dma)
@@ -184,6 +193,30 @@ impl Genet {
         self.write_ring(rx_ring);
         self.write_descriptor(registers::TDMA, 0, tx, true)?;
         self.write_descriptor(registers::RDMA, 0, rx, true)?;
+        // Descriptor RAM is Device MMIO. Packet buffers are Normal; clean TX
+        // so the engine sees CPU stores, invalidate RX so stale lines cannot
+        // shadow a later device write (ADR-0106).
+        // SAFETY: validate_windows accepted both buffers as DMA RAM.
+        unsafe {
+            cache::clean_dcache_poc(tx.address as usize, tx.length as usize);
+            cache::invalidate_dcache_poc(rx.address as usize, rx.length as usize);
+        }
+        Ok(())
+    }
+
+    /// Enable programmed queue 0 on both engines. Refuses Idle and a second
+    /// enable. Does not publish a network service.
+    pub fn enable_queue0(&mut self) -> Result<(), Error> {
+        let enable = QueueEnable::new(0).map_err(Error::Enable)?;
+        self.phase = self.phase.enable().map_err(Error::Enable)?;
+        for block in [registers::RDMA, registers::TDMA] {
+            self.regs.write32(
+                (block + dma_registers::RING_CFG) as usize,
+                enable.ring_cfg(),
+            );
+            self.regs
+                .write32((block + dma_registers::CTRL) as usize, enable.ctrl());
+        }
         Ok(())
     }
 

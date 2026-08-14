@@ -6,8 +6,9 @@
 //! future MMIO backend must preserve.
 
 use kernel_core::genet::{
-    Descriptor, DescriptorStatus, LinkState, MdioError, MdioTxn, Ownership, PhyError, PhyLink,
-    RingLayout, RingProgram, RingState, classify_phy_id, dma_registers, mdio, phy, registers,
+    Descriptor, DescriptorStatus, DmaPhase, LinkState, MdioError, MdioTxn, Ownership, PhyError,
+    PhyLink, QueueEnable, RingLayout, RingProgram, RingState, classify_phy_id, dma_registers, mdio,
+    phy, registers,
 };
 use kernel_core::genet_fdt;
 
@@ -112,5 +113,17 @@ fn deterministic_phy_bring_up_and_absent_id() {
     assert_eq!(
         PhyLink::identify(0xffff, 0xffff, true),
         Err(PhyError::Id(MdioError::InvalidPhyId))
+    );
+
+    let enable = QueueEnable::new(0).unwrap();
+    assert_eq!(enable.ring_cfg(), 1);
+    assert_eq!(enable.ctrl(), dma_registers::DMA_ENABLE | (1 << 1));
+    assert_eq!(
+        DmaPhase::Idle.enable(),
+        Err(kernel_core::genet::QueueEnableError::NotProgrammed)
+    );
+    assert_eq!(
+        DmaPhase::Idle.program().unwrap().enable(),
+        Ok(DmaPhase::Enabled)
     );
 }
