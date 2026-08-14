@@ -83,8 +83,8 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=d53194dc`,
-`20260814-232303.log` boot 4) printed `genet: rgmii oob (ext-gphy, not a nic)`
+on silicon. A cable-up product boot (`src=6addf8f4`,
+`20260814-232303.log` boot 5) printed `genet: umac init (frame, not a nic)`
 and still `tx/rx unavailable (timeout)` after a first `link=down`
 snapshot; the laptop received 0 frames. That is not TX-complete. The
 network vocabulary stays vacant.
@@ -104,7 +104,9 @@ also writes `SYS_PORT_CTRL=EXT_GPHY` and `EXT_RGMII_OOB_CTRL`
 (`RGMII_MODE_EN`, `OOB_DISABLE` clear, `ID_MODE_DIS` clear for
 `rgmii-rxid`) and prints one `RgmiiReport` line, then writes
 `UMAC_MAX_FRAME_LEN` and station `UMAC_MAC0`/`UMAC_MAC1` and prints
-one `UmacReport` line. `recover` refuses Idle
+one `UmacReport` line. The product programs Linux `DESC_INDEX`
+(ring 16) for the bounded TX/RX doorbells and prints one
+`DescRingReport` line. `recover` refuses Idle
 and otherwise stops DMA, UniMAC-resets, and returns to Idle. It
 does not publish a
 network service and does not change this ADR's proposed status.

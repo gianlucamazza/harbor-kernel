@@ -13,6 +13,8 @@ pub const REGISTER_BYTES: u64 = 0x1_0000;
 pub const DESCRIPTOR_BYTES: u64 = 12;
 /// The hardware's total descriptor count, shared by TX and RX rings.
 pub const TOTAL_DESCRIPTORS: u16 = 256;
+/// Linux `DESC_INDEX`: the descriptor-based ring, not a priority queue.
+pub const DESC_RING: u8 = 16;
 /// Minimum Ethernet payload the first TX slice writes (no FCS).
 pub const MIN_FRAME_BYTES: u32 = 60;
 /// Locally-administered station address used as the probe frame SA.
@@ -173,6 +175,11 @@ pub const fn rgmii_oob_mode(current: u32) -> u32 {
 /// Same as [`rgmii_oob_mode`], with `RGMII_LINK` for an Enabled+Up path.
 pub const fn rgmii_oob_with_link(current: u32) -> u32 {
     rgmii_oob_mode(current) | registers::RGMII_LINK
+}
+
+/// Queue 0 (priority) or [`DESC_RING`] (descriptor-based). Other indices refuse.
+pub const fn queue_supported(queue: u8) -> bool {
+    queue == 0 || queue == DESC_RING
 }
 
 /// `UMAC_MAC0` word: first four station-address bytes, big-endian on the wire.
@@ -851,7 +858,7 @@ impl RingProgram {
         if block != registers::RDMA && block != registers::TDMA {
             return Err(RingProgramError::InvalidBlock);
         }
-        if queue != 0 {
+        if !queue_supported(queue) {
             return Err(RingProgramError::UnsupportedQueue);
         }
         if count == 0 {
@@ -1206,6 +1213,42 @@ impl Display for UmacReport {
     }
 }
 
+/// Boot report for the descriptor-based ring (Linux `DESC_INDEX` = 16). Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DescRingReport {
+    Programmed,
+    Enabled,
+    OutsideDma,
+    NoFrames,
+    Descriptor(DescriptorError),
+    Ring(RingProgramError),
+    Enable(QueueEnableError),
+}
+
+impl Display for DescRingReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            DescRingReport::Programmed => {
+                f.write_str("genet: desc ring programmed (16, not a nic)")
+            }
+            DescRingReport::Enabled => f.write_str("genet: desc ring enabled (dma, not a nic)"),
+            DescRingReport::OutsideDma => f.write_str("genet: desc ring unavailable (outside dma)"),
+            DescRingReport::NoFrames => f.write_str("genet: desc ring unavailable (no frames)"),
+            DescRingReport::Descriptor(_) => {
+                f.write_str("genet: desc ring unavailable (descriptor)")
+            }
+            DescRingReport::Ring(_) => f.write_str("genet: desc ring unavailable (ring)"),
+            DescRingReport::Enable(QueueEnableError::NotProgrammed) => {
+                f.write_str("genet: desc ring unavailable (not programmed)")
+            }
+            DescRingReport::Enable(QueueEnableError::AlreadyEnabled) => {
+                f.write_str("genet: desc ring unavailable (already enabled)")
+            }
+            DescRingReport::Enable(_) => f.write_str("genet: desc ring unavailable (phase)"),
+        }
+    }
+}
+
 /// Boot report for one bounded TX. Not a NIC and not an RX claim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TxReport {
@@ -1367,7 +1410,7 @@ pub struct QueueEnable {
 
 impl QueueEnable {
     pub const fn new(queue: u8) -> Result<Self, QueueEnableError> {
-        if queue != 0 {
+        if !queue_supported(queue) {
             return Err(QueueEnableError::UnsupportedQueue);
         }
         Ok(Self { queue })
@@ -1794,6 +1837,11 @@ mod tests {
             RingProgram::new(registers::RDMA, 1, 0, 1, 64),
             Err(RingProgramError::UnsupportedQueue)
         );
+        let desc = RingProgram::new(registers::TDMA, DESC_RING, 0, 1, 128).unwrap();
+        assert_eq!(
+            desc.ring_register_base(),
+            registers::TDMA + dma_registers::RING_BASE + 16 * dma_registers::RING_BYTES
+        );
         assert_eq!(
             RingProgram::new(registers::RDMA, 0, 0, 0, 64),
             Err(RingProgramError::Empty)
@@ -1948,6 +1996,16 @@ mod tests {
         assert_eq!(enable.hardware_index(), dma_registers::CONS_INDEX);
         assert_eq!(enable.software_index(), dma_registers::PROD_INDEX);
         assert_eq!(QueueEnable::new(1), Err(QueueEnableError::UnsupportedQueue));
+        let desc = QueueEnable::new(DESC_RING).unwrap();
+        assert_eq!(desc.ring_cfg(), 1 << 16);
+        assert_eq!(
+            desc.ctrl(),
+            dma_registers::DMA_ENABLE | (1 << (dma_registers::RING_BUF_EN_SHIFT + 16))
+        );
+        assert_eq!(
+            DescRingReport::Programmed.to_string(),
+            "genet: desc ring programmed (16, not a nic)"
+        );
         assert_eq!(DmaPhase::Idle.program(), Ok(DmaPhase::Programmed));
         assert_eq!(
             DmaPhase::Idle.enable(),

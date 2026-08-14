@@ -6,9 +6,10 @@
 //! controller. Network-service publication is a later BSP composition step.
 
 use kernel_core::genet::{
-    self, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn, PhyError, PhyLink,
-    QueueEnable, QueueEnableError, ResetReport, Revision, RevisionError, RgmiiReport, RingProgram,
-    RingProgramError, RxReport, TxReport, UmacReport, dma_registers, mdio, phy, registers,
+    self, DESC_RING, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn,
+    PhyError, PhyLink, QueueEnable, QueueEnableError, ResetReport, Revision, RevisionError,
+    RgmiiReport, RingProgram, RingProgramError, RxReport, TxReport, UmacReport, dma_registers,
+    mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -47,6 +48,7 @@ pub struct Genet {
     rx_cpu: usize,
     rx_dma: u64,
     rx_len: u32,
+    queue: u8,
 }
 
 impl Genet {
@@ -87,6 +89,7 @@ impl Genet {
             rx_cpu: 0,
             rx_dma: 0,
             rx_len: 0,
+            queue: 0,
         };
         controller.reset()?;
         Ok(controller)
@@ -142,6 +145,7 @@ impl Genet {
         self.rx_cpu = 0;
         self.rx_dma = 0;
         self.rx_len = 0;
+        self.queue = 0;
         Ok(())
     }
 
@@ -181,6 +185,28 @@ impl Genet {
         tx_cpu: usize,
         rx_cpu: usize,
     ) -> Result<(), Error> {
+        self.configure_named_ring(0, tx, rx, tx_cpu, rx_cpu)
+    }
+
+    /// Program the descriptor-based ring (16) on both engines. Not a NIC.
+    pub fn configure_desc_ring(
+        &mut self,
+        tx: Descriptor,
+        rx: Descriptor,
+        tx_cpu: usize,
+        rx_cpu: usize,
+    ) -> Result<(), Error> {
+        self.configure_named_ring(DESC_RING, tx, rx, tx_cpu, rx_cpu)
+    }
+
+    fn configure_named_ring(
+        &mut self,
+        queue: u8,
+        tx: Descriptor,
+        rx: Descriptor,
+        tx_cpu: usize,
+        rx_cpu: usize,
+    ) -> Result<(), Error> {
         self.phase = self.phase.program().map_err(Error::Enable)?;
         tx.validate_windows(self.binding.dma)
             .map_err(Error::Descriptor)?;
@@ -188,7 +214,7 @@ impl Genet {
             .map_err(Error::Descriptor)?;
         let tx_ring = RingProgram::new(
             registers::TDMA,
-            0,
+            queue,
             0,
             1,
             tx.length
@@ -198,7 +224,7 @@ impl Genet {
         .map_err(Error::Ring)?;
         let rx_ring = RingProgram::new(
             registers::RDMA,
-            0,
+            queue,
             0,
             1,
             rx.length
@@ -225,6 +251,7 @@ impl Genet {
         self.rx_cpu = rx_cpu;
         self.rx_dma = rx.address;
         self.rx_len = rx.length;
+        self.queue = queue;
         // Descriptor RAM is Device MMIO. Packet buffers are Normal; clean TX
         // so the engine sees CPU stores, invalidate RX so stale lines cannot
         // shadow a later device write (ADR-0106).
@@ -240,7 +267,19 @@ impl Genet {
     /// Enable programmed queue 0 on both engines. Refuses Idle and a second
     /// enable. Does not publish a network service.
     pub fn enable_queue0(&mut self) -> Result<(), Error> {
-        let enable = QueueEnable::new(0).map_err(Error::Enable)?;
+        self.enable_named_ring(0)
+    }
+
+    /// Enable the programmed descriptor ring. Refuses unless it is ring 16.
+    pub fn enable_desc_ring(&mut self) -> Result<(), Error> {
+        self.enable_named_ring(DESC_RING)
+    }
+
+    fn enable_named_ring(&mut self, queue: u8) -> Result<(), Error> {
+        if self.queue != queue {
+            return Err(Error::Enable(QueueEnableError::UnsupportedQueue));
+        }
+        let enable = QueueEnable::new(queue).map_err(Error::Enable)?;
         self.phase = self.phase.enable().map_err(Error::Enable)?;
         for block in [registers::RDMA, registers::TDMA] {
             self.regs.write32(
@@ -253,6 +292,11 @@ impl Genet {
         Ok(())
     }
 
+    fn ring_regs(&self, block: u32) -> usize {
+        (block + dma_registers::RING_BASE + u32::from(self.queue) * dma_registers::RING_BYTES)
+            as usize
+    }
+
     /// One bounded TX on queue 0. Refuses unless Enabled and BMSR is up.
     /// Does not claim RX or publish a network service.
     pub fn submit_one_tx(&mut self) -> Result<TxReport, Error> {
@@ -263,7 +307,7 @@ impl Genet {
         if self.tx_cpu == 0 || self.tx_len < genet::MIN_FRAME_BYTES {
             return Ok(TxReport::NotEnabled);
         }
-        let ring = (registers::TDMA + dma_registers::RING_BASE) as usize;
+        let ring = self.ring_regs(registers::TDMA);
         if !TxReport::cons_is_idle(self.regs.read32(ring + dma_registers::CONS_INDEX as usize)) {
             return Ok(TxReport::ImplausibleCons);
         }
@@ -314,7 +358,7 @@ impl Genet {
         if self.rx_cpu == 0 || self.rx_len == 0 {
             return Ok(RxReport::NotEnabled);
         }
-        let ring = (registers::RDMA + dma_registers::RING_BASE) as usize;
+        let ring = self.ring_regs(registers::RDMA);
         if !TxReport::cons_is_idle(self.regs.read32(ring + dma_registers::CONS_INDEX as usize)) {
             return Ok(RxReport::ImplausibleCons);
         }

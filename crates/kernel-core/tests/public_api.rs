@@ -196,6 +196,10 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         kernel_core::genet::UmacReport::Programmed.to_string(),
         "genet: umac init (frame, not a nic)"
     );
+    assert_eq!(
+        kernel_core::genet::DescRingReport::Programmed.to_string(),
+        "genet: desc ring programmed (16, not a nic)"
+    );
 }
 
 #[test]
