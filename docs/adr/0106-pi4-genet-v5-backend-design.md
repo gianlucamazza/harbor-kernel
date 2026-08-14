@@ -70,16 +70,18 @@ the decoded revision. After a successful revision it also prints one
 `PhyIdentify` line (`genet: phy=… (id, not a nic)` or a bounded refusal).
 After a successful identify it also prints one `LinkReport` line
 (`genet: link=up|down (bmsr, not a nic)`).
-A Pi 4B (`src=0b1dc0b9`) printed
+A Pi 4B (`src=34b3d132`) printed
 `genet: rev=6.0 patch=0x0 (mmio, not a nic)`,
 `genet: phy=0x600d84a2 (id, not a nic)`,
 `genet: link=down (bmsr, not a nic)`,
-`genet: queue0 programmed (rings, not a nic)`, and
-`genet: queue0 enabled (dma, not a nic)`; encoded 6/7 are the v5
+`genet: queue0 programmed (rings, not a nic)`,
+`genet: queue0 enabled (dma, not a nic)`, and
+`genet: tx unavailable (link down)`; encoded 6/7 are the v5
 descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX is
 attempted only when BMSR is up; a down link refuses before the doorbell.
-That TX is unpaid on silicon. The network vocabulary stays vacant.
+That refuse path is paid on silicon; TX-complete is not. The network
+vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
