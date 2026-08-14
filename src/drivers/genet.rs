@@ -1,4 +1,4 @@
-//! BCM2711 GENET v5 control-plane and unpublished queue-0 program.
+//! BCM2711 GENET v5 control-plane, unpublished queue-0 program, and PHY bring-up.
 //!
 //! The verified FDT binding supplies the translated MMIO window and DMA
 //! apertures. Packet ownership, ring arithmetic, and MDIO words stay in
@@ -6,8 +6,8 @@
 //! controller. Network-service publication is a later BSP composition step.
 
 use kernel_core::genet::{
-    self, Descriptor, DescriptorError, MdioError, MdioTxn, Revision, RevisionError, RingProgram,
-    RingProgramError, dma_registers, mdio, registers,
+    self, Descriptor, DescriptorError, MdioError, MdioTxn, PhyError, PhyLink, Revision,
+    RevisionError, RingProgram, RingProgramError, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -31,6 +31,7 @@ pub enum Error {
     Ring(RingProgramError),
     Descriptor(DescriptorError),
     Mdio(MdioError),
+    Phy(PhyError),
 }
 
 /// A probed and reset GENET v5 controller.
@@ -209,6 +210,44 @@ impl Genet {
         let hi = self.mdio_read(mdio::PHYIDR1)?;
         let lo = self.mdio_read(mdio::PHYIDR2)?;
         genet::classify_phy_id(hi, lo).map_err(Error::Mdio)
+    }
+
+    /// Identify the DT PHY, issue a bounded BMCR reset, and classify BMSR.
+    ///
+    /// Does not enable DMA and does not publish a network service.
+    pub fn init_phy(&self) -> Result<PhyLink, Error> {
+        if !self.binding.phy_mode_rgmii_rxid {
+            return Err(Error::Phy(PhyError::ModeNotRgmiiRxid));
+        }
+        let hi = self.mdio_read(mdio::PHYIDR1)?;
+        let lo = self.mdio_read(mdio::PHYIDR2)?;
+        let identified = PhyLink::identify(hi, lo, true).map_err(Error::Phy)?;
+        self.mdio_write(phy::BMCR, PhyLink::reset_command())?;
+        if !poll::until(RESET_SPIN_LIMIT, || {
+            self.mdio_read(phy::BMCR)
+                .ok()
+                .is_some_and(|bmcr| PhyLink::reset_cleared(bmcr).is_ok())
+        }) {
+            return Err(Error::Timeout);
+        }
+        let bmsr = self.mdio_read(phy::BMSR)?;
+        identified.with_bmsr(bmsr).require_up().map_err(Error::Phy)
+    }
+
+    fn mdio_write(&self, reg: u8, data: u16) -> Result<(), Error> {
+        let phy_addr = u8::try_from(self.binding.phy_addr)
+            .map_err(|_| Error::Mdio(MdioError::PhyOutOfRange))?;
+        let txn = MdioTxn::new(phy_addr, reg, Some(data)).map_err(Error::Mdio)?;
+        self.regs.write32(
+            registers::UMAC_MDIO_CMD as usize,
+            txn.encode().map_err(Error::Mdio)?,
+        );
+        if !poll::until(RESET_SPIN_LIMIT, || {
+            self.regs.read32(registers::UMAC_MDIO_CMD as usize) & mdio::START_BUSY == 0
+        }) {
+            return Err(Error::Timeout);
+        }
+        Ok(())
     }
 
     fn write_ring(&self, program: RingProgram) {
