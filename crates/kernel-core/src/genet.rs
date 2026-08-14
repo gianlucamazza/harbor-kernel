@@ -15,6 +15,8 @@ pub const DESCRIPTOR_BYTES: u64 = 12;
 pub const TOTAL_DESCRIPTORS: u16 = 256;
 /// Minimum Ethernet payload the first TX slice writes (no FCS).
 pub const MIN_FRAME_BYTES: u32 = 60;
+/// Locally-administered station address used as the probe frame SA.
+pub const STATION_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 /// Maximum standard Ethernet frame accepted by the first bounded slice.
 pub const MAX_FRAME_BYTES: u32 = 1536;
 /// GENET v5 DMA burst value required by BCM2711 platform data.
@@ -56,6 +58,9 @@ pub mod registers {
     /// UniMAC `CMD_SPEED_*` occupy bits 3:2 (`unimac.h`).
     pub const UMAC_CMD_SPEED_SHIFT: u32 = 2;
     pub const UMAC_CMD_SPEED_MASK: u32 = 0x3 << 2;
+    pub const UMAC_MAC0: u32 = UMAC + 0x0c;
+    pub const UMAC_MAC1: u32 = UMAC + 0x10;
+    pub const UMAC_MAX_FRAME_LEN: u32 = UMAC + 0x14;
     pub const UMAC_TX_FLUSH: u32 = UMAC + 0x334;
     pub const UMAC_MDIO_CMD: u32 = MDIO;
 }
@@ -168,6 +173,16 @@ pub const fn rgmii_oob_mode(current: u32) -> u32 {
 /// Same as [`rgmii_oob_mode`], with `RGMII_LINK` for an Enabled+Up path.
 pub const fn rgmii_oob_with_link(current: u32) -> u32 {
     rgmii_oob_mode(current) | registers::RGMII_LINK
+}
+
+/// `UMAC_MAC0` word: first four station-address bytes, big-endian on the wire.
+pub const fn umac_mac0(addr: [u8; 6]) -> u32 {
+    (addr[0] as u32) << 24 | (addr[1] as u32) << 16 | (addr[2] as u32) << 8 | addr[3] as u32
+}
+
+/// `UMAC_MAC1` word: last two station-address bytes.
+pub const fn umac_mac1(addr: [u8; 6]) -> u32 {
+    (addr[4] as u32) << 8 | addr[5] as u32
 }
 
 /// GENET v5 register layout shared by the RDMA and TDMA blocks.
@@ -1177,6 +1192,20 @@ impl Display for RgmiiReport {
     }
 }
 
+/// Boot report for UniMAC max-frame and station address. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UmacReport {
+    Programmed,
+}
+
+impl Display for UmacReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            UmacReport::Programmed => f.write_str("genet: umac init (frame, not a nic)"),
+        }
+    }
+}
+
 /// Boot report for one bounded TX. Not a NIC and not an RX claim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TxReport {
@@ -2071,6 +2100,21 @@ mod tests {
         assert_eq!(
             RgmiiReport::ModeNotRgmiiRxid.to_string(),
             "genet: rgmii unavailable (not rgmii-rxid)"
+        );
+    }
+
+    #[test]
+    fn umac_init_encodes_station_and_max_frame() {
+        assert_eq!(registers::UMAC_MAC0, 0x80c);
+        assert_eq!(registers::UMAC_MAC1, 0x810);
+        assert_eq!(registers::UMAC_MAX_FRAME_LEN, 0x814);
+        assert_eq!(umac_mac0(STATION_ADDR), 0x0200_0000);
+        assert_eq!(umac_mac1(STATION_ADDR), 0x0001);
+        assert_eq!(STATION_ADDR[0] & 0x02, 0x02);
+        assert_eq!(MAX_FRAME_BYTES, 1536);
+        assert_eq!(
+            UmacReport::Programmed.to_string(),
+            "genet: umac init (frame, not a nic)"
         );
     }
 
