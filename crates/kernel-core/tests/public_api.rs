@@ -190,6 +190,11 @@ fn the_genet_tx_report_is_reachable_from_outside() {
     );
     assert_eq!(TxReport::from_poll(0, 0), TxReport::Timeout);
     assert_eq!(TxReport::from_poll(1, 0), TxReport::StillOwned);
+    assert_eq!(TxReport::from_tx_cons(1, 60), TxReport::Complete(60));
+    assert_eq!(
+        TxReport::with_tx_append_crc(0) & kernel_core::genet::DMA_TX_APPEND_CRC,
+        kernel_core::genet::DMA_TX_APPEND_CRC
+    );
     assert_eq!(
         kernel_core::genet::rgmii_port_ctrl(),
         kernel_core::genet::registers::PORT_MODE_EXT_GPHY

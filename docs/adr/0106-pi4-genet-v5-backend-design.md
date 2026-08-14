@@ -83,10 +83,11 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=8b896ceb`,
-`20260814-232303.log` boot 6) printed `desc ring programmed (16)` /
-`enabled` and still `tx/rx unavailable (timeout)` after a first
-`link=down` snapshot; the laptop received 0 frames. That is not
+on silicon. A cable-up product boot (`src=fa00d083`,
+`20260814-232303.log` boot 7) printed `tx unavailable (still owned)`
+(CONS posted, Device still OWNs) and `rx unavailable (timeout)` after
+a first `link=down` snapshot; the laptop received 0 frames. GENET TX
+does not write back OWN; Linux reclaims on CONS. That is not
 TX-complete. The network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
@@ -96,7 +97,9 @@ selects `Genet::probe`, `identify_phy`, `classify_link`,
 `configure_queue0`, `enable_queue0` (after the frame pool exists),
 `submit_one_tx`, `submit_one_rx`, and `recover`. Enable writes
 `RING_CFG`+`CTRL` only after Programmed. `submit_one_tx` programs UniMAC speed from clause-22 autoneg
-(`CMD_SPEED_*` bits 3:2), ORs `RGMII_LINK` on the OOB word, and ORs
+(`CMD_SPEED_*` bits 3:2), ORs `RGMII_LINK` on the OOB word, ORs
+`DMA_TX_APPEND_CRC` on the TX descriptor, completes on CONS posted
+(not OWN writeback), and ORs
 `TX_EN` only on Enabled+Up;
 `submit_one_rx` ORs `RX_EN` after the same speed word; unknown
 autoneg is a refusal, not a silent 10 Mbps. After Enabled the product
