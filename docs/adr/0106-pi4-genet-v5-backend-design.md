@@ -59,7 +59,9 @@ QEMU `raspi4b` deletes the GENET node from a loaded Pi 4 DTB (it logs the
 compatible as disabled, then omits `/scb/ethernet`); the guest report is
 therefore `unavailable (Missing)`, which is what that blob contains. The
 unmodified fixture still extracts on the host. A real Pi firmware DTB keeps
-the node enabled.
+the node enabled: stamp 2026-08-14, transcript `20260814-140651.log`
+(`src=1aa3e894`) prints `genet: binding ok base=0xfd580000 len=0x10000
+phy=rgmii-rxid (fdt, not probed)` and leaves the network vocabulary vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, and applies the
