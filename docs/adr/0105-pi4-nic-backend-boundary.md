@@ -17,16 +17,16 @@ or claim that a driver exists.
 A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
 provenance, SMP, and durable-media baseline. The product prints a `genet:`
 FDT report and, when that binding matches the compiled window, runs
-`Genet::probe`. Silicon stamp `20260814-232303.log` boot 3 (`src=3ee58791`, PowerOn)
+`Genet::probe`. Silicon stamp `20260814-232303.log` boot 4 (`src=d53194dc`, PowerOn)
 has the FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot
 `link=down`, `queue0 programmed`, `queue0 enabled`,
+`genet: rgmii oob (ext-gphy, not a nic)`,
 `genet: tx unavailable (timeout)`,
 `genet: rx unavailable (timeout)`,
-`genet: reset recovered (idle, not a nic)`, and `VACANT`. The UniMAC
-speed slice did not print `unknown speed` and did not complete; the
-attached laptop Apple NIC received 0 frames. Those are not completed
-TX/RX and not this ADR's NIC gate. No TX/RX completion or Pi
-absent-device result was produced.
+`genet: reset recovered (idle, not a nic)`, and `VACANT`. RGMII OOB
+ran; the attached laptop Apple NIC received 0 frames. Those are not
+completed TX/RX and not this ADR's NIC gate. No TX/RX completion or
+Pi absent-device result was produced.
 
 ## Context
 

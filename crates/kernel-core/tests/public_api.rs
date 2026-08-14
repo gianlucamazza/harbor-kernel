@@ -188,6 +188,14 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         kernel_core::genet::RgmiiReport::Programmed.to_string(),
         "genet: rgmii oob (ext-gphy, not a nic)"
     );
+    assert_eq!(
+        kernel_core::genet::umac_mac0(kernel_core::genet::STATION_ADDR),
+        0x0200_0000
+    );
+    assert_eq!(
+        kernel_core::genet::UmacReport::Programmed.to_string(),
+        "genet: umac init (frame, not a nic)"
+    );
 }
 
 #[test]

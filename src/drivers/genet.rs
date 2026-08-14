@@ -8,7 +8,7 @@
 use kernel_core::genet::{
     self, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn, PhyError, PhyLink,
     QueueEnable, QueueEnableError, ResetReport, Revision, RevisionError, RgmiiReport, RingProgram,
-    RingProgramError, RxReport, TxReport, dma_registers, mdio, phy, registers,
+    RingProgramError, RxReport, TxReport, UmacReport, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -400,6 +400,23 @@ impl Genet {
         RgmiiReport::Programmed
     }
 
+    /// Write UniMAC max-frame and the probe station address. Not a NIC.
+    pub fn program_umac_init(&self) -> UmacReport {
+        self.regs.write32(
+            registers::UMAC_MAX_FRAME_LEN as usize,
+            genet::MAX_FRAME_BYTES,
+        );
+        self.regs.write32(
+            registers::UMAC_MAC0 as usize,
+            genet::umac_mac0(genet::STATION_ADDR),
+        );
+        self.regs.write32(
+            registers::UMAC_MAC1 as usize,
+            genet::umac_mac1(genet::STATION_ADDR),
+        );
+        UmacReport::Programmed
+    }
+
     /// OR `RGMII_LINK` after Enabled+Up. Does not change port mode.
     fn assert_rgmii_link(&self) {
         let current = self.regs.read32(registers::EXT_RGMII_OOB_CTRL as usize);
@@ -553,7 +570,7 @@ impl Genet {
     }
 }
 
-/// Locally-administered broadcast probe: dest ff:ff:ff:ff:ff:ff, src 02:00:00:00:00:01, ethertype 0x88b5.
+/// Broadcast probe: dest ff:ff:ff:ff:ff:ff, src [`STATION_ADDR`], ethertype 0x88b5.
 fn fill_minimum_frame(cpu: usize, len: u32) {
     let n = core::cmp::min(len as usize, genet::MIN_FRAME_BYTES as usize);
     // SAFETY: `cpu` is the identity-mapped TX frame stored by configure_queue0.
@@ -562,8 +579,8 @@ fn fill_minimum_frame(cpu: usize, len: u32) {
     if n >= 6 {
         buf[..6].fill(0xff);
     }
-    if n >= 7 {
-        buf[6] = 0x02;
+    if n >= 12 {
+        buf[6..12].copy_from_slice(&genet::STATION_ADDR);
     }
     if n >= 14 {
         buf[12] = 0x88;

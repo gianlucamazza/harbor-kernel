@@ -7,7 +7,7 @@
     feature = "board-rpi4",
     expect(
         dead_code,
-        reason = "GENET leftover dataplane compiled; probe/identify/link/queue0/rgmii selected"
+        reason = "GENET leftover dataplane compiled; probe/identify/link/queue0/rgmii/umac selected"
     )
 )]
 #[cfg_attr(
