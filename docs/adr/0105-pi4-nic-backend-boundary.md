@@ -20,8 +20,11 @@ FDT report and, when that binding matches the compiled window, runs
 `Genet::probe`. Silicon stamp `20260814-174803.log` boot 4 (`src=0b1dc0b9`) has the
 FDT line, `rev=6.0`, `phy=0x600d84a2`, `link=down`,
 `queue0 programmed`, `genet: queue0 enabled (dma, not a nic)`, and
-`VACANT`. Enabling the programmed rings is not this ADR's NIC gate.
-No TX/RX, service reset/recovery, or absent-device result was produced.
+`VACANT`. Enabling the programmed rings is not this ADR's NIC gate. After
+Enabled the product may attempt one bounded TX; a down BMSR refuses
+before the doorbell (`tx unavailable (link down)`). That is not a
+completed TX and not this gate. No RX, service reset/recovery, or
+absent-device result was produced.
 
 ## Context
 

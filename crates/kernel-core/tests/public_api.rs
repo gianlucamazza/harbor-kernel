@@ -136,6 +136,39 @@ fn capability_rights_do_not_imply_each_other() {
 }
 
 #[test]
+fn the_genet_tx_report_is_reachable_from_outside() {
+    use kernel_core::genet::{DmaPhase, LinkState, TxReport};
+
+    assert_eq!(
+        TxReport::refuse(DmaPhase::Enabled, LinkState::Down),
+        Some(TxReport::LinkDown)
+    );
+    assert_eq!(TxReport::refuse(DmaPhase::Enabled, LinkState::Up), None);
+    assert_eq!(
+        TxReport::refuse(DmaPhase::Programmed, LinkState::Up),
+        Some(TxReport::NotEnabled)
+    );
+    assert_eq!(
+        TxReport::LinkDown.to_string(),
+        "genet: tx unavailable (link down)"
+    );
+    assert_eq!(
+        TxReport::Complete(60).to_string(),
+        "genet: tx complete len=60 (one frame, not a nic)"
+    );
+    let word = kernel_core::genet::DescriptorStatus {
+        length: 60,
+        ownership: kernel_core::genet::Ownership::Driver,
+        start: true,
+        end: true,
+        wrap: true,
+    }
+    .encode()
+    .unwrap();
+    assert_eq!(TxReport::from_status(word), TxReport::Complete(60));
+}
+
+#[test]
 fn the_genet_queue0_report_and_dma_map_are_reachable_from_outside() {
     use kernel_core::genet::{DmaWindow, DmaWindows, Queue0Report};
 
