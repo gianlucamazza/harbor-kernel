@@ -195,7 +195,10 @@ an error. `drivers::pm` has no write function to reach for by mistake.
 
 1. Partition 1: FAT32, bootable flag optional.
 2. Files: see `docs/boot-chain.md`.
-3. Deploy: `make blobs && make deploy SD_MOUNT=/path/to/boot`.
+3. Deploy the **product** image (no oracle, store injected):
+   `make blobs && make deploy SD_MOUNT=/path/to/boot`.
+   The lab/oracle image is `make deploy-oracle` — `make deploy` used to
+   flash that one while printing "product image".
 4. **Durable store partition (ADR-0066)**: a 1 MiB MBR partition of type
    `0x7f`, created once with `scripts/host/durable-partition.sh /dev/sdX`.
    The kernel discovers it from sector 0 by type — no fixed LBA anywhere —

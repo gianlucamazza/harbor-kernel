@@ -11,7 +11,7 @@
 #   make boot-check      PRODUCT QEMU oracle (full demo fleet)
 #   make product-boot-check / oracle-census   PRODUCT composition minimum + MAX_TASKS ratchet
 #   make x86-elf / x86-boot-check / qemu-x86   LAB (ADR-0071)
-#   make deploy / serial / blobs               PRODUCT board ops
+#   make deploy / deploy-oracle / serial / blobs   PRODUCT board / lab-oracle flash
 #   make clean
 #
 # Product ARCH/BOARD allowlist (ADR-0015): refusal, not multi-select.
@@ -32,6 +32,7 @@ PROFILE     ?= release
 CARGO_OUT   := target/$(TARGET)/$(PROFILE)
 ELF         := $(CARGO_OUT)/harbor-kernel
 IMG         := $(CARGO_OUT)/kernel8.img
+PRODUCT_IMG := $(CARGO_OUT)/kernel8-product.img
 
 # H3 L0 lab (ADR-0071) — freestanding ELF for QEMU -kernel + PVH note.
 X86_TARGET  := x86_64-unknown-none
@@ -84,8 +85,9 @@ ifeq ($(strip $(HOST_TARGET)),)
 $(error could not determine the host triple from 'rustc -vV' — is rustc on PATH?)
 endif
 
-# Optional cargo features for img/deploy (e.g. FEATURES=bringup).
-# Default images stay featureless so QEMU boot-check and production match.
+# Optional extra cargo features for `img` / `deploy-oracle` (e.g. FEATURES=bringup).
+# Default `make img` is Cargo.toml's default: board-rpi4 + oracle. The product
+# image (no oracle, store injected) is `make product-builds` / `make deploy`.
 FEATURES    ?=
 
 CARGO_FLAGS := --target $(TARGET)
@@ -100,7 +102,7 @@ endif
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
 	boot-check panic-check hw-check mutation-freshness x86-elf x86-boot-check doc-claims layering fmt fmt-check \
-	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy \
+	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy deploy-oracle \
 	restore-rpios serial clean agents vocabulary-sync
 
 all: img
@@ -112,15 +114,16 @@ debug:
 elf:
 	cargo build $(CARGO_FLAGS)
 
-# FEATURES stamp: empty is the product image. Every image is headless since
-# ADR-0094 retired the panel; the stamp stays because `bringup` and
-# `panic-probe` are still opt-in, and a deploy that silently shipped one of
-# those would be the same surprise the glass build used to be.
+# FEATURES stamp: empty means Cargo defaults (board-rpi4 + oracle). That is
+# the lab/oracle image `make boot-check` boots. The product image is
+# `make product-builds`. The stamp stays because `bringup` and `panic-probe`
+# are still opt-in, and flashing one of those by accident is the same
+# surprise the glass build used to be.
 img: elf
 	$(OBJCOPY) -O binary $(ELF) $(IMG)
 	@echo "built $(IMG)"
 	@if [ -z "$(strip $(FEATURES))" ]; then \
-	  echo "  FEATURES=(none)  — product image"; \
+	  echo "  FEATURES=(none)  — default cargo image (oracle)"; \
 	else \
 	  echo "  FEATURES=$(FEATURES)"; \
 	fi
@@ -444,12 +447,14 @@ qemu-x86: x86-elf
 blobs:
 	./scripts/host/fetch-blobs.sh
 
-deploy: img
-	@if [ -z "$(strip $(FEATURES))" ]; then \
-	  echo "deploy: FEATURES=(none) — product image."; \
-	else \
-	  echo "deploy: FEATURES=$(FEATURES)"; \
-	fi
+# Product flash: no oracle, store injected. Same blob `product-boot-check` runs.
+deploy: product-builds
+	@echo "deploy: product image (no oracle, store injected)"
+	./scripts/host/deploy-sd.sh "$(SD_MOUNT)" "$(PRODUCT_IMG)"
+
+# Lab flash: Cargo defaults (oracle fleet). For hw-check against boot-oracle.
+deploy-oracle: img
+	@echo "deploy-oracle: default cargo image (oracle)"
 	./scripts/host/deploy-sd.sh "$(SD_MOUNT)" "$(IMG)"
 
 # Same mount-point guard as deploy; needs a prior backup under .sd-backup/.

@@ -152,9 +152,11 @@ On a Pi 4B (FAT boot partition + 3.3 V USB-serial):
 
 ```bash
 make blobs
-make deploy SD_MOUNT=/run/media/$USER/boot
+make deploy SD_MOUNT=/run/media/$USER/boot   # product: no oracle, store injected
 make serial SERIAL_DEV=/dev/ttyUSB0
 ```
+
+`make deploy-oracle` flashes the default cargo image (demo fleet) for lab stamps.
 
 [`docs/hardware.md`](docs/hardware.md). UART remains the primary console.
 

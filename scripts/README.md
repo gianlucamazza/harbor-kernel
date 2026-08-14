@@ -28,4 +28,4 @@ stay in one place ([`Makefile`](../Makefile)).
 | `make boot-check` / `product-boot-check` | `boot/` (product) |
 | `make x86-boot-check` / `x86-elf` | `boot/qemu-x86-boot-check.sh` (lab) |
 | `make agents` | `agent/pack-store.py` |
-| `make deploy` / `serial` / `blobs` | `host/` |
+| `make deploy` / `deploy-oracle` / `serial` / `blobs` | `host/` |
