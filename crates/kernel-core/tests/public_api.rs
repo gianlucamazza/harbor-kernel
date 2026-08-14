@@ -136,6 +136,20 @@ fn capability_rights_do_not_imply_each_other() {
 }
 
 #[test]
+fn the_genet_link_report_is_reachable_from_outside() {
+    use kernel_core::genet::{LinkReport, phy};
+
+    assert_eq!(
+        LinkReport::from_bmsr(0).to_string(),
+        "genet: link=down (bmsr, not a nic)"
+    );
+    assert_eq!(
+        LinkReport::from_bmsr(phy::BMSR_LINK).to_string(),
+        "genet: link=up (bmsr, not a nic)"
+    );
+}
+
+#[test]
 fn the_genet_phy_identify_report_is_reachable_from_outside() {
     use kernel_core::genet::PhyIdentify;
 

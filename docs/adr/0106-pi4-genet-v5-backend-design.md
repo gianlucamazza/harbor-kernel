@@ -68,6 +68,9 @@ The compiled BSP now maps that 64 KiB window (`GENET_BASE` in
 product calls `Genet::probe` (mask, stop DMA, UniMAC reset) and prints
 the decoded revision. After a successful revision it also prints one
 `PhyIdentify` line (`genet: phy=… (id, not a nic)` or a bounded refusal).
+After a successful identify it also prints one `LinkReport` line
+(`genet: link=up|down (bmsr, not a nic)`). That line is host-tested
+and not yet silicon-stamped.
 A Pi 4B (`src=58b7448c`) printed
 `genet: rev=6.0 patch=0x0 (mmio, not a nic)` and
 `genet: phy=0x600d84a2 (id, not a nic)`; encoded 6/7 are the v5
@@ -78,7 +81,7 @@ A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
 bounded UniMAC reset sequence, and can identify the DT PHY. `board-rpi4`
-selects `Genet::probe` and `identify_phy` only. It does not publish a
+selects `Genet::probe`, `identify_phy`, and `classify_link` only. It does not publish a
 network service and does not change this ADR's proposed status.
 
 The companion `kernel_core::genet` model now also encodes and decodes the
