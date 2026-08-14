@@ -414,35 +414,44 @@ fn map_dtb_and_discover(uart: &mut Pl011, core1: bool) -> u64 {
     timer::physical_count()
 }
 
-/// Read-only SYS_REV_CTRL after the FDT binding matches the compiled window.
+/// Bring up GENET through the existing driver when the FDT binding matches
+/// the compiled window. Always prints one probe line (ADR-0072: fail-open).
 ///
-/// Does not call `Genet::probe` (that resets the block), does not enable DMA,
-/// and does not bind the network vocabulary.
+/// Uses `Genet::probe` (mask, stop DMA, UniMAC reset). Does not program
+/// queues, enable DMA, or bind the network vocabulary.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
-    use crate::arch::probe;
     use crate::bsp::board::memmap;
-    use kernel_core::genet::{self, classify_mmio_probe, matches_compiled_window};
+    use crate::drivers::genet::{Error, Genet};
+    use kernel_core::genet::{MmioProbe, RevisionError, mmio_probe_intent};
 
-    let kernel_core::genet_fdt::Report::Binding(binding) = report else {
-        return;
-    };
-    let matches = matches_compiled_window(
-        binding.mmio_base,
-        binding.mmio_len,
-        memmap::GENET_BASE as u64,
-        memmap::GENET_REG_BYTES as u64,
-    );
-    let raw = if matches {
-        // SAFETY: `GENET_BASE` is in `DEVICE_REGIONS` and mapped Device.
-        // `try_read32` turns an external abort into `Err`.
-        unsafe {
-            probe::try_read32(memmap::GENET_BASE + genet::registers::SYS_REV_CTRL as usize).ok()
+    let line = match report {
+        kernel_core::genet_fdt::Report::Unavailable(_) => MmioProbe::NoBinding,
+        kernel_core::genet_fdt::Report::Binding(binding) => {
+            match mmio_probe_intent(
+                Some((binding.mmio_base, binding.mmio_len)),
+                memmap::GENET_BASE as u64,
+                memmap::GENET_REG_BYTES as u64,
+            ) {
+                Err(outcome) => outcome,
+                Ok(()) => {
+                    // SAFETY: the compiled window is in DEVICE_REGIONS and
+                    // mapped Device; extract already validated this Binding.
+                    match unsafe { Genet::probe(binding) } {
+                        Ok(controller) => MmioProbe::Revision(controller.revision()),
+                        Err(Error::NotPresent) => MmioProbe::NotPresent,
+                        Err(Error::Revision(RevisionError::Unsupported(major))) => {
+                            MmioProbe::Unsupported(major)
+                        }
+                        Err(Error::Timeout) => MmioProbe::Timeout,
+                        Err(Error::InvalidBinding) => MmioProbe::InvalidBinding,
+                        Err(_) => MmioProbe::InvalidBinding,
+                    }
+                }
+            }
         }
-    } else {
-        None
     };
-    println!(uart, "{}", classify_mmio_probe(matches, raw));
+    println!(uart, "{line}");
 }
 
 /// What the kernel map was built from, and when it went live.

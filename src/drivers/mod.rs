@@ -4,10 +4,17 @@
 
 #[cfg(target_arch = "aarch64")]
 #[cfg_attr(
-    any(feature = "board-rpi4", feature = "board-qemu-virt"),
+    feature = "board-rpi4",
     expect(
         dead_code,
-        reason = "GENET control plane is compiled but not bound to a board yet"
+        reason = "GENET dataplane compiled; only Genet::probe is selected"
+    )
+)]
+#[cfg_attr(
+    feature = "board-qemu-virt",
+    expect(
+        dead_code,
+        reason = "GENET control plane is compiled but qemu-virt has no GENET"
     )
 )]
 pub mod genet;

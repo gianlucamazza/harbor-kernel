@@ -47,6 +47,10 @@ assert_product_boot() {
 	# reporter never ran. A network service bind is still a failure elsewhere.
 	grep -qaE 'genet: (binding ok |unavailable \()' "${log}" ||
 		fail "GENET FDT report missing (expected binding ok or unavailable)"
+	# Second fact: compiled-window bring-up. Always a line on board-rpi4.
+	# QEMU has no GENET node / no DTB → `probe unavailable (no binding)`.
+	grep -qaE 'genet: (rev=|probe (unavailable|skipped) )' "${log}" ||
+		fail "GENET MMIO probe line missing (expected rev= or probe unavailable/skipped)"
 	grep -qaE 'boot: mmu=[0-9]+ ms discover=[0-9]+ ms ready=[0-9]+ ms' "${log}" ||
 		fail "boot timing line missing"
 

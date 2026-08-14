@@ -64,10 +64,10 @@ the node enabled: stamp 2026-08-14, transcript `20260814-140651.log`
 phy=rgmii-rxid (fdt, not probed)` and leaves the network vocabulary vacant.
 
 The compiled BSP now maps that 64 KiB window (`GENET_BASE` in
-`board-rpi4` `DEVICE_REGIONS`) and, only when the FDT binding matches it,
-reads `SYS_REV_CTRL` through `try_read32`. The kernel does not map a
-discovered PA (ADR-0072). The read is not `Genet::probe` (no reset, no DMA
-enable) and does not bind the network vocabulary.
+`board-rpi4` `DEVICE_REGIONS`). When the FDT binding matches it, the
+product calls `Genet::probe` (mask, stop DMA, UniMAC reset) and prints
+the decoded revision. The kernel does not map a discovered PA (ADR-0072).
+Queues stay disabled and the network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, and applies the

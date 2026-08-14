@@ -141,13 +141,16 @@ impl Revision {
     }
 }
 
-/// Read-only SYS_REV_CTRL classification. Not a device reset and not a NIC.
+/// Outcome of the compiled-window GENET bring-up. Not a NIC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MmioProbe {
+    NoBinding,
     OutsideWindow,
     NotPresent,
-    Revision(Revision),
     Unsupported(u8),
+    Timeout,
+    InvalidBinding,
+    Revision(Revision),
 }
 
 /// Compare an FDT-translated register window to the compiled BSP claim.
@@ -163,35 +166,42 @@ pub const fn matches_compiled_window(
     mmio_base == compiled_base && mmio_len == compiled_len
 }
 
-/// Classify a recoverable SYS_REV_CTRL read against the compiled window.
-pub const fn classify_mmio_probe(window_matches: bool, raw: Option<u32>) -> MmioProbe {
-    if !window_matches {
-        return MmioProbe::OutsideWindow;
-    }
-    match raw {
-        None => MmioProbe::NotPresent,
-        Some(word) => match Revision::decode(word) {
-            Ok(revision) => MmioProbe::Revision(revision),
-            Err(RevisionError::Unsupported(major)) => MmioProbe::Unsupported(major),
-        },
+/// Decide whether the compiled window may be probed.
+///
+/// `Ok(())` means the binding matches and the caller must run `Genet::probe`.
+/// `Err` is the boot line: do not invent a register word.
+pub const fn mmio_probe_intent(
+    binding: Option<(u64, u64)>,
+    compiled_base: u64,
+    compiled_len: u64,
+) -> Result<(), MmioProbe> {
+    match binding {
+        None => Err(MmioProbe::NoBinding),
+        Some((base, len)) if !matches_compiled_window(base, len, compiled_base, compiled_len) => {
+            Err(MmioProbe::OutsideWindow)
+        }
+        Some(_) => Ok(()),
     }
 }
 
 impl Display for MmioProbe {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            MmioProbe::NoBinding => f.write_str("genet: probe unavailable (no binding)"),
             MmioProbe::OutsideWindow => {
                 f.write_str("genet: probe skipped (binding outside compiled window)")
             }
             MmioProbe::NotPresent => f.write_str("genet: probe unavailable (NotPresent)"),
+            MmioProbe::Unsupported(major) => {
+                write!(f, "genet: probe unavailable (Unsupported({major}))")
+            }
+            MmioProbe::Timeout => f.write_str("genet: probe unavailable (Timeout)"),
+            MmioProbe::InvalidBinding => f.write_str("genet: probe unavailable (InvalidBinding)"),
             MmioProbe::Revision(revision) => write!(
                 f,
                 "genet: rev={}.{} patch={:#x} (mmio, not a nic)",
                 revision.major, revision.minor, revision.patch
             ),
-            MmioProbe::Unsupported(major) => {
-                write!(f, "genet: probe unavailable (Unsupported({major}))")
-            }
         }
     }
 }
@@ -1013,21 +1023,32 @@ mod tests {
             REGISTER_BYTES
         ));
         assert_eq!(
-            classify_mmio_probe(false, Some(5 << 24)),
-            MmioProbe::OutsideWindow
+            mmio_probe_intent(None, 0xfd58_0000, REGISTER_BYTES),
+            Err(MmioProbe::NoBinding)
         );
-        assert_eq!(classify_mmio_probe(true, None), MmioProbe::NotPresent);
         assert_eq!(
-            classify_mmio_probe(true, Some(4 << 24)),
-            MmioProbe::Unsupported(4)
+            mmio_probe_intent(
+                Some((0xfe00_0000, REGISTER_BYTES)),
+                0xfd58_0000,
+                REGISTER_BYTES
+            ),
+            Err(MmioProbe::OutsideWindow)
+        );
+        assert_eq!(
+            mmio_probe_intent(
+                Some((0xfd58_0000, REGISTER_BYTES)),
+                0xfd58_0000,
+                REGISTER_BYTES
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            MmioProbe::NoBinding.to_string(),
+            "genet: probe unavailable (no binding)"
         );
         let raw = 5 << 24 | 3 << 16 | 0x2711;
         assert_eq!(
-            classify_mmio_probe(true, Some(raw)),
-            MmioProbe::Revision(Revision::decode(raw).unwrap())
-        );
-        assert_eq!(
-            classify_mmio_probe(true, Some(raw)).to_string(),
+            MmioProbe::Revision(Revision::decode(raw).unwrap()).to_string(),
             "genet: rev=5.3 patch=0x2711 (mmio, not a nic)"
         );
     }
