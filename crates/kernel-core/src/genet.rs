@@ -1148,6 +1148,41 @@ impl Display for RxReport {
     }
 }
 
+/// Boot report for one bounded reset/recovery. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResetReport {
+    Recovered,
+    NotEnabled,
+    Timeout,
+}
+
+impl ResetReport {
+    /// Refuse unless there is programmed or enabled DMA to recover.
+    pub const fn refuse(phase: DmaPhase) -> Option<Self> {
+        match phase {
+            DmaPhase::Enabled | DmaPhase::Programmed => None,
+            DmaPhase::Idle => Some(Self::NotEnabled),
+        }
+    }
+
+    pub const fn from_phase(phase: DmaPhase) -> Self {
+        match phase {
+            DmaPhase::Idle => Self::Recovered,
+            _ => Self::NotEnabled,
+        }
+    }
+}
+
+impl Display for ResetReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ResetReport::Recovered => f.write_str("genet: reset recovered (idle, not a nic)"),
+            ResetReport::NotEnabled => f.write_str("genet: reset unavailable (not enabled)"),
+            ResetReport::Timeout => f.write_str("genet: reset unavailable (timeout)"),
+        }
+    }
+}
+
 /// Why a queue-0 DMA enable word was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QueueEnableError {
@@ -1871,5 +1906,39 @@ mod tests {
         assert_eq!(RxReport::from_status(still_owned), RxReport::Timeout);
         assert_eq!(RxReport::from_status(0), RxReport::Timeout);
         assert_eq!(registers::UMAC_CMD_RX_EN, 2);
+    }
+
+    #[test]
+    fn reset_report_recovers_enabled_to_idle() {
+        assert_eq!(
+            ResetReport::refuse(DmaPhase::Idle),
+            Some(ResetReport::NotEnabled)
+        );
+        assert_eq!(ResetReport::refuse(DmaPhase::Programmed), None);
+        assert_eq!(ResetReport::refuse(DmaPhase::Enabled), None);
+        assert_eq!(
+            ResetReport::from_phase(DmaPhase::Enabled.reset()),
+            ResetReport::Recovered
+        );
+        assert_eq!(
+            ResetReport::from_phase(DmaPhase::Programmed.reset()),
+            ResetReport::Recovered
+        );
+        assert_eq!(
+            ResetReport::from_phase(DmaPhase::Enabled),
+            ResetReport::NotEnabled
+        );
+        assert_eq!(
+            ResetReport::Recovered.to_string(),
+            "genet: reset recovered (idle, not a nic)"
+        );
+        assert_eq!(
+            ResetReport::Timeout.to_string(),
+            "genet: reset unavailable (timeout)"
+        );
+        assert_eq!(
+            ResetReport::NotEnabled.to_string(),
+            "genet: reset unavailable (not enabled)"
+        );
     }
 }

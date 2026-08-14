@@ -495,7 +495,7 @@ static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
 /// need two identity-mapped frames inside the FDT DMA windows. Enable
 /// writes RING_CFG+CTRL only after Programmed. One bounded TX and one
 /// bounded RX follow Enabled; a down BMSR refuses before the doorbell
-/// or RX arm.
+/// or RX arm. A bounded recover then returns the controller to Idle.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_queue0(uart: &mut Pl011) {
     use crate::drivers::genet::Error;
@@ -537,9 +537,18 @@ fn report_genet_queue0(uart: &mut Pl011) {
         } else {
             None
         };
-        Some((programmed, enabled, tx, rx))
+        let recovered = if matches!(enabled, Some(Queue0Report::Enabled)) {
+            Some(match controller.recover() {
+                Ok(report) => report,
+                Err(Error::Timeout) => kernel_core::genet::ResetReport::Timeout,
+                Err(_) => kernel_core::genet::ResetReport::NotEnabled,
+            })
+        } else {
+            None
+        };
+        Some((programmed, enabled, tx, rx, recovered))
     });
-    if let Some((programmed, enabled, tx, rx)) = lines {
+    if let Some((programmed, enabled, tx, rx, recovered)) = lines {
         println!(uart, "{programmed}");
         if let Some(enabled) = enabled {
             println!(uart, "{enabled}");
@@ -549,6 +558,9 @@ fn report_genet_queue0(uart: &mut Pl011) {
         }
         if let Some(rx) = rx {
             println!(uart, "{rx}");
+        }
+        if let Some(recovered) = recovered {
+            println!(uart, "{recovered}");
         }
     }
 }
