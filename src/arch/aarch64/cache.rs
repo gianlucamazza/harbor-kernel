@@ -188,10 +188,14 @@ pub unsafe fn clean_dcache_poc(va: usize, len: usize) {
 
 /// Invalidate data cache lines by VA to the point of coherency.
 ///
+/// Required after a non-coherent observer (DMA engine, other core with
+/// caches off) writes Normal memory the CPU will read. This is an ISA
+/// operation, not a board feature: gating it on `qemu-virt` hid the same
+/// obligation the Pi GENET path has (ADR-0106).
+///
 /// # Safety
 /// `va..va+len` must be mapped Normal memory whose dirty lines are owned by a
 /// device or another observer; invalidation discards local dirty state.
-#[cfg(feature = "board-qemu-virt")]
 pub unsafe fn invalidate_dcache_poc(va: usize, len: usize) {
     if len == 0 {
         return;

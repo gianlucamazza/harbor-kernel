@@ -69,8 +69,11 @@ descriptor RAM) and `MdioTxn` for a clause-22 read/write with busy/fail and
 absent PHY-ID refusal. `PhyLink` classifies BMCR reset and BMSR link against
 the binding's `rgmii-rxid` fact; it does not invent RGMII delay tables. This
 remains a host contract. The AArch64 driver can write the queue-0 program,
-read the DT PHY, and run a bounded `init_phy`; it still does not enable DMA,
-select `board-rpi4`, or publish a network service.
+read the DT PHY, and run a bounded `init_phy`. `QueueEnable` / `DmaPhase`
+make enable a sequenced word (program, then `RING_CFG` + `CTRL`) rather
+than a stray bit; cache invalidate-to-PoC is an AArch64 operation, not a
+`qemu-virt` feature. The driver still does not select `board-rpi4` or
+publish a network service.
 
 Revision decoding and the v5 RDMA/TDMA offsets — descriptor RAM, then 17
 rings, then the common control block — are also part of the pure contract,
