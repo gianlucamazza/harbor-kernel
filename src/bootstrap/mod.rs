@@ -423,8 +423,9 @@ fn map_dtb_and_discover(uart: &mut Pl011, core1: bool) -> u64 {
 ///
 /// Uses `Genet::probe` (mask, stop DMA, UniMAC reset), then
 /// `Genet::identify_phy` (PHYIDR only), then `Genet::classify_link`
-/// (BMSR only). Does not reset the PHY, require link-up, program
-/// queues, enable DMA, or bind the network vocabulary.
+/// (BMSR only). Queue-0 program/enable run later, after frames exist.
+/// Does not reset the PHY, require link-up, submit TX/RX, or bind
+/// the network vocabulary.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
     use crate::bsp::board::memmap;
@@ -488,15 +489,35 @@ fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
 static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
     crate::sync::Mutex::new(None);
 
-/// Program queue 0 after the frame pool exists. DMA stays disabled.
+/// Program, then enable, queue 0 after the frame pool exists.
 ///
 /// Probe runs at discover time, before frames; the programmed descriptors
-/// need two identity-mapped frames inside the FDT DMA windows.
+/// need two identity-mapped frames inside the FDT DMA windows. Enable
+/// writes RING_CFG+CTRL only after Programmed. No TX/RX completion.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_queue0(uart: &mut Pl011) {
-    let line = HELD_GENET.with(|held| held.as_mut().map(program_held_queue0));
-    if let Some(line) = line {
-        println!(uart, "{line}");
+    use crate::drivers::genet::Error;
+    use kernel_core::genet::Queue0Report;
+
+    let lines = HELD_GENET.with(|held| {
+        let controller = held.as_mut()?;
+        let programmed = program_held_queue0(controller);
+        let enabled = if matches!(programmed, Queue0Report::Programmed) {
+            Some(match controller.enable_queue0() {
+                Ok(()) => Queue0Report::Enabled,
+                Err(Error::Enable(error)) => Queue0Report::Enable(error),
+                Err(_) => Queue0Report::Enable(kernel_core::genet::QueueEnableError::NotProgrammed),
+            })
+        } else {
+            None
+        };
+        Some((programmed, enabled))
+    });
+    if let Some((programmed, enabled)) = lines {
+        println!(uart, "{programmed}");
+        if let Some(enabled) = enabled {
+            println!(uart, "{enabled}");
+        }
     }
 }
 

@@ -1030,6 +1030,7 @@ impl Display for LinkReport {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Queue0Report {
     Programmed,
+    Enabled,
     OutsideDma,
     NoFrames,
     Descriptor(DescriptorError),
@@ -1041,10 +1042,17 @@ impl Display for Queue0Report {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Queue0Report::Programmed => f.write_str("genet: queue0 programmed (rings, not a nic)"),
+            Queue0Report::Enabled => f.write_str("genet: queue0 enabled (dma, not a nic)"),
             Queue0Report::OutsideDma => f.write_str("genet: queue0 unavailable (outside dma)"),
             Queue0Report::NoFrames => f.write_str("genet: queue0 unavailable (no frames)"),
             Queue0Report::Descriptor(_) => f.write_str("genet: queue0 unavailable (descriptor)"),
             Queue0Report::Ring(_) => f.write_str("genet: queue0 unavailable (ring)"),
+            Queue0Report::Enable(QueueEnableError::NotProgrammed) => {
+                f.write_str("genet: queue0 unavailable (not programmed)")
+            }
+            Queue0Report::Enable(QueueEnableError::AlreadyEnabled) => {
+                f.write_str("genet: queue0 unavailable (already enabled)")
+            }
             Queue0Report::Enable(_) => f.write_str("genet: queue0 unavailable (phase)"),
         }
     }

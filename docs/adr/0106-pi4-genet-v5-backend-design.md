@@ -82,9 +82,10 @@ A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
 bounded UniMAC reset sequence, and can identify the DT PHY. `board-rpi4`
-selects `Genet::probe`, `identify_phy`, `classify_link`, and
-`configure_queue0` (after the frame pool exists). DMA stays disabled.
-It does not publish a
+selects `Genet::probe`, `identify_phy`, `classify_link`,
+`configure_queue0`, and `enable_queue0` (after the frame pool exists).
+Enable writes `RING_CFG`+`CTRL` only after Programmed and does not
+submit a frame. It does not publish a
 network service and does not change this ADR's proposed status.
 
 The companion `kernel_core::genet` model now also encodes and decodes the
