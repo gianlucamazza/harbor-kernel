@@ -1256,6 +1256,8 @@ pub enum TxReport {
     LinkDown,
     NotEnabled,
     Timeout,
+    MdioTimeout,
+    StillOwned,
     ImplausibleCons,
     UnknownSpeed,
 }
@@ -1289,6 +1291,18 @@ impl TxReport {
     pub const fn cons_has_posted(word: u32) -> bool {
         word & 0xffff >= 1
     }
+
+    /// Classify a finished poll. CONS not posted is timeout; CONS posted
+    /// without Driver OWN is still-owned. Does not invent a completed frame.
+    pub const fn from_poll(cons: u32, status: u32) -> Self {
+        if !Self::cons_has_posted(cons) {
+            return Self::Timeout;
+        }
+        match Self::from_status(status) {
+            Self::Complete(len) => Self::Complete(len),
+            _ => Self::StillOwned,
+        }
+    }
 }
 
 impl Display for TxReport {
@@ -1300,6 +1314,8 @@ impl Display for TxReport {
             TxReport::LinkDown => f.write_str("genet: tx unavailable (link down)"),
             TxReport::NotEnabled => f.write_str("genet: tx unavailable (not enabled)"),
             TxReport::Timeout => f.write_str("genet: tx unavailable (timeout)"),
+            TxReport::MdioTimeout => f.write_str("genet: tx unavailable (mdio timeout)"),
+            TxReport::StillOwned => f.write_str("genet: tx unavailable (still owned)"),
             TxReport::ImplausibleCons => f.write_str("genet: tx unavailable (implausible cons)"),
             TxReport::UnknownSpeed => f.write_str("genet: tx unavailable (unknown speed)"),
         }
@@ -1313,6 +1329,8 @@ pub enum RxReport {
     LinkDown,
     NotEnabled,
     Timeout,
+    MdioTimeout,
+    StillOwned,
     ImplausibleCons,
     UnknownSpeed,
 }
@@ -1336,6 +1354,16 @@ impl RxReport {
             Err(_) => Self::Timeout,
         }
     }
+
+    pub const fn from_poll(cons: u32, status: u32) -> Self {
+        if !TxReport::cons_has_posted(cons) {
+            return Self::Timeout;
+        }
+        match Self::from_status(status) {
+            Self::Complete(len) => Self::Complete(len),
+            _ => Self::StillOwned,
+        }
+    }
 }
 
 impl Display for RxReport {
@@ -1347,6 +1375,8 @@ impl Display for RxReport {
             RxReport::LinkDown => f.write_str("genet: rx unavailable (link down)"),
             RxReport::NotEnabled => f.write_str("genet: rx unavailable (not enabled)"),
             RxReport::Timeout => f.write_str("genet: rx unavailable (timeout)"),
+            RxReport::MdioTimeout => f.write_str("genet: rx unavailable (mdio timeout)"),
+            RxReport::StillOwned => f.write_str("genet: rx unavailable (still owned)"),
             RxReport::ImplausibleCons => f.write_str("genet: rx unavailable (implausible cons)"),
             RxReport::UnknownSpeed => f.write_str("genet: rx unavailable (unknown speed)"),
         }
@@ -2070,6 +2100,20 @@ mod tests {
         .unwrap();
         assert_eq!(TxReport::from_status(still_owned), TxReport::Timeout);
         assert_eq!(TxReport::from_status(0), TxReport::Timeout);
+        assert_eq!(TxReport::from_poll(0, still_owned), TxReport::Timeout);
+        assert_eq!(TxReport::from_poll(1, still_owned), TxReport::StillOwned);
+        assert_eq!(
+            TxReport::from_poll(1, done),
+            TxReport::Complete(MIN_FRAME_BYTES as u16)
+        );
+        assert_eq!(
+            TxReport::MdioTimeout.to_string(),
+            "genet: tx unavailable (mdio timeout)"
+        );
+        assert_eq!(
+            TxReport::StillOwned.to_string(),
+            "genet: tx unavailable (still owned)"
+        );
         assert!(TxReport::cons_is_idle(0));
         assert!(TxReport::cons_is_idle(0x0001_0000));
         assert!(!TxReport::cons_is_idle(1));
