@@ -951,6 +951,41 @@ impl Display for PhyIdentify {
     }
 }
 
+/// Boot report for a BMSR link snapshot. Not a NIC and not a service bind.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkReport {
+    Classified(LinkState),
+    Unavailable(MdioError),
+    Timeout,
+}
+
+impl LinkReport {
+    pub const fn from_bmsr(bmsr: u16) -> Self {
+        Self::Classified(PhyLink::classify_bmsr(bmsr))
+    }
+}
+
+impl Display for LinkReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            LinkReport::Classified(LinkState::Up) => {
+                f.write_str("genet: link=up (bmsr, not a nic)")
+            }
+            LinkReport::Classified(LinkState::Down) => {
+                f.write_str("genet: link=down (bmsr, not a nic)")
+            }
+            LinkReport::Unavailable(MdioError::Busy) => {
+                f.write_str("genet: link unavailable (busy)")
+            }
+            LinkReport::Unavailable(MdioError::ReadFail) => {
+                f.write_str("genet: link unavailable (read fail)")
+            }
+            LinkReport::Unavailable(_) => f.write_str("genet: link unavailable (mdio)"),
+            LinkReport::Timeout => f.write_str("genet: link unavailable (timeout)"),
+        }
+    }
+}
+
 /// Why a queue-0 DMA enable word was refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QueueEnableError {
@@ -1478,6 +1513,18 @@ mod tests {
         );
         assert_eq!(PhyLink::classify_bmsr(0), LinkState::Down);
         assert_eq!(PhyLink::classify_bmsr(phy::BMSR_LINK), LinkState::Up);
+        assert_eq!(
+            LinkReport::from_bmsr(0).to_string(),
+            "genet: link=down (bmsr, not a nic)"
+        );
+        assert_eq!(
+            LinkReport::from_bmsr(phy::BMSR_LINK).to_string(),
+            "genet: link=up (bmsr, not a nic)"
+        );
+        assert_eq!(
+            LinkReport::Timeout.to_string(),
+            "genet: link unavailable (timeout)"
+        );
         assert_eq!(
             link.with_bmsr(phy::BMSR_LINK).require_up().unwrap().state,
             LinkState::Up

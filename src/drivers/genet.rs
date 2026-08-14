@@ -6,7 +6,7 @@
 //! controller. Network-service publication is a later BSP composition step.
 
 use kernel_core::genet::{
-    self, Descriptor, DescriptorError, DmaPhase, MdioError, MdioTxn, PhyError, PhyLink,
+    self, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn, PhyError, PhyLink,
     QueueEnable, QueueEnableError, Revision, RevisionError, RingProgram, RingProgramError,
     dma_registers, mdio, phy, registers,
 };
@@ -254,6 +254,13 @@ impl Genet {
         let hi = self.mdio_read(mdio::PHYIDR1)?;
         let lo = self.mdio_read(mdio::PHYIDR2)?;
         PhyLink::identify(hi, lo, true).map_err(Error::Phy)
+    }
+
+    /// BMSR snapshot only. Does not reset the PHY, require link-up,
+    /// enable DMA, or publish a network service.
+    pub fn classify_link(&self) -> Result<LinkState, Error> {
+        let bmsr = self.mdio_read(phy::BMSR)?;
+        Ok(PhyLink::classify_bmsr(bmsr))
     }
 
     /// Identify the DT PHY, issue a bounded BMCR reset, and classify BMSR.
