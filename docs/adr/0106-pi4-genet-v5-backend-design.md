@@ -94,10 +94,11 @@ bounded UniMAC reset sequence, and can identify the DT PHY. `board-rpi4`
 selects `Genet::probe`, `identify_phy`, `classify_link`,
 `configure_queue0`, `enable_queue0` (after the frame pool exists),
 `submit_one_tx`, `submit_one_rx`, and `recover`. Enable writes
-`RING_CFG`+`CTRL` only after Programmed. `submit_one_tx` ORs UniMAC
-`TX_EN` and rings `PROD_INDEX` only on Enabled+Up; `submit_one_rx` ORs
-`RX_EN` and posts the RDMA buffer only on Enabled+Up; `recover` refuses
-Idle and otherwise stops DMA, UniMAC-resets, and returns to Idle. It
+`RING_CFG`+`CTRL` only after Programmed. `submit_one_tx` programs UniMAC speed from clause-22 autoneg
+(`CMD_SPEED_*` bits 3:2) and ORs `TX_EN` only on Enabled+Up;
+`submit_one_rx` ORs `RX_EN` after the same speed word; unknown
+autoneg is a refusal, not a silent 10 Mbps. `recover` refuses Idle
+and otherwise stops DMA, UniMAC-resets, and returns to Idle. It
 does not publish a
 network service and does not change this ADR's proposed status.
 

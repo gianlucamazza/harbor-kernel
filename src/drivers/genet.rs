@@ -267,6 +267,9 @@ impl Genet {
         if !TxReport::cons_is_idle(self.regs.read32(ring + dma_registers::CONS_INDEX as usize)) {
             return Ok(TxReport::ImplausibleCons);
         }
+        if let Err(report) = self.program_umac_speed() {
+            return Ok(report);
+        }
         fill_minimum_frame(self.tx_cpu, genet::MIN_FRAME_BYTES);
         // SAFETY: configure_queue0 stored an identity-mapped TX frame.
         unsafe {
@@ -314,6 +317,12 @@ impl Genet {
         if !TxReport::cons_is_idle(self.regs.read32(ring + dma_registers::CONS_INDEX as usize)) {
             return Ok(RxReport::ImplausibleCons);
         }
+        match self.program_umac_speed() {
+            Ok(()) => {}
+            Err(TxReport::LinkDown) => return Ok(RxReport::LinkDown),
+            Err(TxReport::UnknownSpeed) => return Ok(RxReport::UnknownSpeed),
+            Err(_) => return Ok(RxReport::NotEnabled),
+        }
         // SAFETY: configure_queue0 stored an identity-mapped RX frame.
         unsafe {
             cache::invalidate_dcache_poc(self.rx_cpu, self.rx_len as usize);
@@ -348,6 +357,29 @@ impl Genet {
         Ok(RxReport::from_status(
             self.regs.read32(registers::RDMA as usize),
         ))
+    }
+
+    /// Write UniMAC speed from clause-22 autoneg. Does not enable TX/RX.
+    fn program_umac_speed(&self) -> Result<(), TxReport> {
+        let bmsr = self.mdio_read(phy::BMSR).map_err(|_| TxReport::Timeout)?;
+        let lpa = self.mdio_read(phy::LPA).map_err(|_| TxReport::Timeout)?;
+        let ctrl1000 = self
+            .mdio_read(phy::CTRL1000)
+            .map_err(|_| TxReport::Timeout)?;
+        let stat1000 = self
+            .mdio_read(phy::STAT1000)
+            .map_err(|_| TxReport::Timeout)?;
+        let speed = match genet::classify_aneg_speed(bmsr, lpa, ctrl1000, stat1000) {
+            Ok(speed) => speed,
+            Err(genet::SpeedError::LinkDown) => return Err(TxReport::LinkDown),
+            Err(genet::SpeedError::Unknown) => return Err(TxReport::UnknownSpeed),
+        };
+        let cmd = self.regs.read32(registers::UMAC_CMD as usize);
+        self.regs.write32(
+            registers::UMAC_CMD as usize,
+            genet::umac_cmd_with_speed(cmd, speed),
+        );
+        Ok(())
     }
 
     /// Stop DMA, UniMAC-reset, and return to Idle. Refuses Idle.
