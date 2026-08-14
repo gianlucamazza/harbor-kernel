@@ -126,15 +126,14 @@ pub enum RevisionError {
 impl Revision {
     pub const fn decode(raw: u32) -> Result<Self, RevisionError> {
         let encoded = ((raw >> 24) & 0x0f) as u8;
-        // BCM2711 reports the v5-compatible core as 5; later Broadcom
-        // revisions 6/7 use the same v5 descriptor contract in upstream's
-        // version normalization, but this binding accepts only v5.
-        let major = if encoded == 5 { 5 } else { encoded };
-        if major != GENET_V5_MAJOR {
-            return Err(RevisionError::Unsupported(major));
+        // v5 descriptor contract: encoded 5, and Broadcom's later 6/7
+        // (same rings/status words). This Pi 4B reported 6
+        // (`.serial-log/20260814-140651.log`, `src=92c889f4`).
+        if encoded < GENET_V5_MAJOR || encoded > 7 {
+            return Err(RevisionError::Unsupported(encoded));
         }
         Ok(Self {
-            major,
+            major: encoded,
             minor: ((raw >> 16) & 0x0f) as u8,
             patch: (raw & 0xffff) as u16,
         })
@@ -1005,6 +1004,14 @@ mod tests {
         assert_eq!(
             Revision::decode(4 << 24),
             Err(RevisionError::Unsupported(4))
+        );
+        let six = Revision::decode(6 << 24 | 1 << 16).unwrap();
+        assert_eq!(six.major, 6);
+        assert_eq!(six.minor, 1);
+        assert!(Revision::decode(7 << 24).is_ok());
+        assert_eq!(
+            Revision::decode(8 << 24),
+            Err(RevisionError::Unsupported(8))
         );
     }
 
