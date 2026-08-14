@@ -1900,15 +1900,18 @@ saying the code was right; printing the comparison itself is what found it.
 
 The product image (`--no-default-features --features board-rpi4`, store injected)
 booted on a Raspberry Pi 4 Model B Rev 1.5 over a CP2104 UART at 115200 8N1.
-The current capture is `.serial-log/20260814-140651.log`; `make hw-check
-TRANSCRIPT=.serial-log/20260814-140651.log` reports clean. It records
-`src=1aa3e894`, `genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid
-(fdt, not probed)`, `loader: store n=5 image`, `authority: bound console`,
-`blob: put ok` / `blob: got`, wire bytes `N` and `S`, and
+The current capture is `.serial-log/20260814-140651.log` (two product boots);
+`make hw-check` judges the last. Boot 2 (`src=92c889f4`) prints
+`genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)`,
+`genet: probe unavailable (Unsupported(6))`, `loader: store n=5 image`,
+`authority: bound console`, `blob: put ok` / `blob: got`, and
 `invariants: … slots=4/9`. Network stays `authority: network vocabulary VACANT`.
+`SYS_REV_CTRL` was read; this BCM2711 encodes major 6. Encoded 6/7 are
+GENET v5 (Linux remaps them to logical 5); encoded 5 is v4. The decoder
+that refused 6 is a model error, not a board error.
 
-The earlier product capture `20260814-113438.log` (`src=dcc997cc`) paid
-ADR-0102/0103 and the slot watermark and predates the `genet:` line.
+Boot 1 in the same file (`src=1aa3e894`) has the FDT line only. The earlier
+product capture `20260814-113438.log` (`src=dcc997cc`) paid ADR-0102/0103.
 
 This is product composition evidence, not a NIC claim. ADR-0105/0106 remain
 proposed.

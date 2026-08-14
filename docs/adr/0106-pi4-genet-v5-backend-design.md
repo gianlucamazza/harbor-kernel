@@ -66,8 +66,11 @@ phy=rgmii-rxid (fdt, not probed)` and leaves the network vocabulary vacant.
 The compiled BSP now maps that 64 KiB window (`GENET_BASE` in
 `board-rpi4` `DEVICE_REGIONS`). When the FDT binding matches it, the
 product calls `Genet::probe` (mask, stop DMA, UniMAC reset) and prints
-the decoded revision. The kernel does not map a discovered PA (ADR-0072).
-Queues stay disabled and the network vocabulary stays vacant.
+the decoded revision. A Pi 4B (`src=92c889f4`) reported encoded major 6
+from `SYS_REV_CTRL`; encoded 6/7 are the v5 descriptor family (Linux
+remaps 6/7 → logical 5 and 5 → 4). The kernel does
+not map a discovered PA (ADR-0072). Queues stay disabled and the network
+vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, and applies the
