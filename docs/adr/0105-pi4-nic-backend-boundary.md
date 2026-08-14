@@ -14,6 +14,11 @@ related: [0104, 0100, 0101, 0102, 0106]
 network backend on Raspberry Pi 4B. It deliberately does not select a device
 or claim that a driver exists.
 
+A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
+provenance, SMP, and durable-media baseline. It does not satisfy this ADR's
+NIC gate: no GENET probe, link, TX/RX, reset/recovery, or absent-device result
+was produced.
+
 ## Context
 
 ADR-0104 selects QEMU `virt` plus modern virtio-net as the first reproducible
