@@ -136,6 +136,28 @@ fn capability_rights_do_not_imply_each_other() {
 }
 
 #[test]
+fn the_genet_phy_identify_report_is_reachable_from_outside() {
+    use kernel_core::genet::PhyIdentify;
+
+    assert_eq!(
+        PhyIdentify::from_identify(0x0362, 0x5e60, true).to_string(),
+        "genet: phy=0x03625e60 (id, not a nic)"
+    );
+    assert_eq!(
+        PhyIdentify::from_identify(0, 0, true).to_string(),
+        "genet: phy unavailable (absent id)"
+    );
+    assert_eq!(
+        PhyIdentify::from_identify(0xffff, 0xffff, true).to_string(),
+        "genet: phy unavailable (stuck-high id)"
+    );
+    assert_eq!(
+        PhyIdentify::from_identify(0x0362, 0x5e60, false).to_string(),
+        "genet: phy unavailable (mode)"
+    );
+}
+
+#[test]
 fn the_genet_mmio_probe_classifier_is_reachable_from_outside() {
     use kernel_core::genet::{MmioProbe, REGISTER_BYTES, mmio_probe_intent};
 

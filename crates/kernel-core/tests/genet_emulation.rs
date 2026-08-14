@@ -108,11 +108,11 @@ fn deterministic_phy_bring_up_and_absent_id() {
 
     assert_eq!(
         PhyLink::identify(0, 0, true),
-        Err(PhyError::Id(MdioError::InvalidPhyId))
+        Err(PhyError::Id(MdioError::AbsentPhyId))
     );
     assert_eq!(
         PhyLink::identify(0xffff, 0xffff, true),
-        Err(PhyError::Id(MdioError::InvalidPhyId))
+        Err(PhyError::Id(MdioError::StuckHighPhyId))
     );
 
     let enable = QueueEnable::new(0).unwrap();

@@ -245,6 +245,17 @@ impl Genet {
         genet::classify_phy_id(hi, lo).map_err(Error::Mdio)
     }
 
+    /// Clause-22 PHY identify only. Does not reset the PHY, classify BMSR,
+    /// enable DMA, or publish a network service.
+    pub fn identify_phy(&self) -> Result<PhyLink, Error> {
+        if !self.binding.phy_mode_rgmii_rxid {
+            return Err(Error::Phy(PhyError::ModeNotRgmiiRxid));
+        }
+        let hi = self.mdio_read(mdio::PHYIDR1)?;
+        let lo = self.mdio_read(mdio::PHYIDR2)?;
+        PhyLink::identify(hi, lo, true).map_err(Error::Phy)
+    }
+
     /// Identify the DT PHY, issue a bounded BMCR reset, and classify BMSR.
     ///
     /// Does not enable DMA and does not publish a network service.
