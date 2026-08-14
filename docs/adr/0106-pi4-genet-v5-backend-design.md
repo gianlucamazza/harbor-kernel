@@ -70,12 +70,13 @@ the decoded revision. After a successful revision it also prints one
 `PhyIdentify` line (`genet: phy=… (id, not a nic)` or a bounded refusal).
 After a successful identify it also prints one `LinkReport` line
 (`genet: link=up|down (bmsr, not a nic)`).
-A Pi 4B (`src=ee650e06`) printed
+A Pi 4B (`src=f7404550`) printed
 `genet: rev=6.0 patch=0x0 (mmio, not a nic)`,
-`genet: phy=0x600d84a2 (id, not a nic)`, and
-`genet: link=down (bmsr, not a nic)`; encoded 6/7 are the v5
+`genet: phy=0x600d84a2 (id, not a nic)`,
+`genet: link=down (bmsr, not a nic)`, and
+`genet: queue0 programmed (rings, not a nic)`; encoded 6/7 are the v5
 descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
-not map a discovered PA (ADR-0072). Queues stay disabled and the network
+not map a discovered PA (ADR-0072). DMA stays disabled and the network
 vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
