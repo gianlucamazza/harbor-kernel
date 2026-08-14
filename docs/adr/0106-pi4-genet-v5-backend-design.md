@@ -78,19 +78,20 @@ A Pi 4B (`src=34b3d132`) printed
 `genet: queue0 enabled (dma, not a nic)`, and
 `genet: tx unavailable (link down)`; encoded 6/7 are the v5
 descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
-not map a discovered PA (ADR-0072). After Enabled, one bounded TX is
-attempted only when BMSR is up; a down link refuses before the doorbell.
-That refuse path is paid on silicon; TX-complete is not. The network
-vocabulary stays vacant.
+not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
+bounded RX are attempted only when BMSR is up; a down link refuses before
+the doorbell or RX arm. The TX refuse path is paid on silicon; TX-complete
+and RX are not. The network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
 bounded UniMAC reset sequence, and can identify the DT PHY. `board-rpi4`
 selects `Genet::probe`, `identify_phy`, `classify_link`,
-`configure_queue0`, `enable_queue0` (after the frame pool exists), and
-`submit_one_tx`. Enable writes `RING_CFG`+`CTRL` only after Programmed.
-`submit_one_tx` ORs UniMAC `TX_EN` and rings `PROD_INDEX` only on
-Enabled+Up. It does not publish a
+`configure_queue0`, `enable_queue0` (after the frame pool exists),
+`submit_one_tx`, and `submit_one_rx`. Enable writes `RING_CFG`+`CTRL`
+only after Programmed. `submit_one_tx` ORs UniMAC `TX_EN` and rings
+`PROD_INDEX` only on Enabled+Up; `submit_one_rx` ORs `RX_EN` and posts
+the RDMA buffer only on Enabled+Up. It does not publish a
 network service and does not change this ADR's proposed status.
 
 The companion `kernel_core::genet` model now also encodes and decodes the

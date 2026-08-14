@@ -1,4 +1,4 @@
-//! BCM2711 GENET v5 control-plane, unpublished queue-0 program, PHY bring-up, and one bounded TX.
+//! BCM2711 GENET v5 control-plane, unpublished queue-0 program, PHY bring-up, and one bounded TX/RX.
 //!
 //! The verified FDT binding supplies the translated MMIO window and DMA
 //! apertures. Packet ownership, ring arithmetic, and MDIO words stay in
@@ -8,7 +8,7 @@
 use kernel_core::genet::{
     self, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn, PhyError, PhyLink,
     QueueEnable, QueueEnableError, Revision, RevisionError, RingProgram, RingProgramError,
-    TxReport, dma_registers, mdio, phy, registers,
+    RxReport, TxReport, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -44,6 +44,9 @@ pub struct Genet {
     tx_cpu: usize,
     tx_dma: u64,
     tx_len: u32,
+    rx_cpu: usize,
+    rx_dma: u64,
+    rx_len: u32,
 }
 
 impl Genet {
@@ -81,6 +84,9 @@ impl Genet {
             tx_cpu: 0,
             tx_dma: 0,
             tx_len: 0,
+            rx_cpu: 0,
+            rx_dma: 0,
+            rx_len: 0,
         };
         controller.reset()?;
         Ok(controller)
@@ -133,6 +139,9 @@ impl Genet {
         self.tx_cpu = 0;
         self.tx_dma = 0;
         self.tx_len = 0;
+        self.rx_cpu = 0;
+        self.rx_dma = 0;
+        self.rx_len = 0;
         Ok(())
     }
 
@@ -213,6 +222,9 @@ impl Genet {
         self.tx_cpu = tx_cpu;
         self.tx_dma = tx.address;
         self.tx_len = tx.length;
+        self.rx_cpu = rx_cpu;
+        self.rx_dma = rx.address;
+        self.rx_len = rx.length;
         // Descriptor RAM is Device MMIO. Packet buffers are Normal; clean TX
         // so the engine sees CPU stores, invalidate RX so stale lines cannot
         // shadow a later device write (ADR-0106).
@@ -277,6 +289,47 @@ impl Genet {
         }
         let status = self.regs.read32(registers::TDMA as usize);
         Ok(TxReport::from_status(status))
+    }
+
+    /// One bounded RX on queue 0. Refuses unless Enabled and BMSR is up.
+    /// Does not claim TX completion or publish a network service.
+    pub fn submit_one_rx(&mut self) -> Result<RxReport, Error> {
+        let link = self.classify_link()?;
+        if let Some(refused) = RxReport::refuse(self.phase, link) {
+            return Ok(refused);
+        }
+        if self.rx_cpu == 0 || self.rx_len == 0 {
+            return Ok(RxReport::NotEnabled);
+        }
+        // SAFETY: configure_queue0 stored an identity-mapped RX frame.
+        unsafe {
+            cache::invalidate_dcache_poc(self.rx_cpu, self.rx_len as usize);
+        }
+        let descriptor = Descriptor {
+            address: self.rx_dma,
+            length: self.rx_len,
+            status: 0,
+        };
+        self.write_descriptor(registers::RDMA, 0, descriptor, true)?;
+        let cmd = self.regs.read32(registers::UMAC_CMD as usize);
+        self.regs.write32(
+            registers::UMAC_CMD as usize,
+            cmd | registers::UMAC_CMD_RX_EN,
+        );
+        let ring = (registers::RDMA + dma_registers::RING_BASE) as usize;
+        self.regs
+            .write32(ring + dma_registers::PROD_INDEX as usize, 1);
+        if !poll::until(RESET_SPIN_LIMIT, || {
+            self.regs.read32(ring + dma_registers::CONS_INDEX as usize) & 0xffff >= 1
+        }) {
+            return Ok(RxReport::Timeout);
+        }
+        // SAFETY: the device wrote the posted buffer; drop stale lines.
+        unsafe {
+            cache::invalidate_dcache_poc(self.rx_cpu, self.rx_len as usize);
+        }
+        let status = self.regs.read32(registers::RDMA as usize);
+        Ok(RxReport::from_status(status))
     }
 
     /// Clause-22 MDIO read of `reg` on the DT PHY address.
