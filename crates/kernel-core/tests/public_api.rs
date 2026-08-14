@@ -180,6 +180,14 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         TxReport::UnknownSpeed.to_string(),
         "genet: tx unavailable (unknown speed)"
     );
+    assert_eq!(
+        kernel_core::genet::rgmii_port_ctrl(),
+        kernel_core::genet::registers::PORT_MODE_EXT_GPHY
+    );
+    assert_eq!(
+        kernel_core::genet::RgmiiReport::Programmed.to_string(),
+        "genet: rgmii oob (ext-gphy, not a nic)"
+    );
 }
 
 #[test]

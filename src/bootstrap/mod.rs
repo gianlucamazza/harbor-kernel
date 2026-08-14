@@ -493,8 +493,9 @@ static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
 ///
 /// Probe runs at discover time, before frames; the programmed descriptors
 /// need two identity-mapped frames inside the FDT DMA windows. Enable
-/// writes RING_CFG+CTRL only after Programmed. One bounded TX and one
-/// bounded RX follow Enabled; a down BMSR refuses before the doorbell
+/// writes RING_CFG+CTRL only after Programmed. RGMII OOB (ext-gphy,
+/// no MAC delay) is programmed after Enabled. One bounded TX and one
+/// bounded RX follow; a down BMSR refuses before the doorbell
 /// or RX arm. A bounded recover then returns the controller to Idle.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_queue0(uart: &mut Pl011) {
@@ -510,6 +511,11 @@ fn report_genet_queue0(uart: &mut Pl011) {
                 Err(Error::Enable(error)) => Queue0Report::Enable(error),
                 Err(_) => Queue0Report::Enable(kernel_core::genet::QueueEnableError::NotProgrammed),
             })
+        } else {
+            None
+        };
+        let rgmii = if matches!(enabled, Some(Queue0Report::Enabled)) {
+            Some(controller.program_rgmii_oob())
         } else {
             None
         };
@@ -546,12 +552,15 @@ fn report_genet_queue0(uart: &mut Pl011) {
         } else {
             None
         };
-        Some((programmed, enabled, tx, rx, recovered))
+        Some((programmed, enabled, rgmii, tx, rx, recovered))
     });
-    if let Some((programmed, enabled, tx, rx, recovered)) = lines {
+    if let Some((programmed, enabled, rgmii, tx, rx, recovered)) = lines {
         println!(uart, "{programmed}");
         if let Some(enabled) = enabled {
             println!(uart, "{enabled}");
+        }
+        if let Some(rgmii) = rgmii {
+            println!(uart, "{rgmii}");
         }
         if let Some(tx) = tx {
             println!(uart, "{tx}");
