@@ -51,7 +51,16 @@ The first host-only slice now lives in `kernel_core::genet_fdt`. It extracts
 the exact compatible GENET node, applies the ordered parent-bus mapping,
 preserves the inherited interrupt-parent and two interrupt specifiers,
 resolves the MDIO PHY phandle, and constrains DMA addresses from
-`dma-ranges`. A separate AArch64 control-plane slice in
+`dma-ranges`. The product boot prints that extract as a `genet:` line
+(`boot_report`): `binding ok … (fdt, not probed)` or `unavailable (…)`.
+The line is not a `discover:` fact (ADR-0072/0073 keep `/soc` out of that
+inventory), does not write MMIO, and does not bind the network vocabulary.
+QEMU `raspi4b` deletes the GENET node from a loaded Pi 4 DTB (it logs the
+compatible as disabled, then omits `/scb/ethernet`); the guest report is
+therefore `unavailable (Missing)`, which is what that blob contains. The
+unmodified fixture still extracts on the host. A real Pi firmware DTB keeps
+the node enabled.
+A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, and applies the
 bounded UniMAC reset sequence. It is compiled into the BSP driver surface but

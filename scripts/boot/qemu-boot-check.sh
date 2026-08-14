@@ -352,12 +352,20 @@ on_timer_missed() {
 # Boot 1 on fresh media: the durable window exists and has never been
 # written, so the ADR-0066 line must read from=Fresh boot=1.
 DURABLE_MEDIA_EXPECT=fresh assert_boot_oracle
+# QEMU deletes the GENET node from the guest DTB (it logs
+# "brcm,bcm2711-genet-v5 has been disabled!" and omits `/scb/ethernet`).
+# The unmodified fixture still extracts on the host; the guest must report
+# that absence, not invent a binding.
+grep -qa 'genet: unavailable (Missing)' "${log}" ||
+	fail "QEMU-mutated fixture DTB did not report GENET missing"
 ticks_first="$(grep -ac 'ticks=' "${log}")"
 
 # Boot 2: DTB-less power cycle (degraded discover: unknown (no dtb) + durable).
 # DRAM is gone; only the card can carry the counter across.
 run_boot "${SECONDS_TO_RUN}" oracle_boot_done -drive "if=sd,format=raw,file=${sd_img}"
 DURABLE_MEDIA_EXPECT=previous assert_boot_oracle
+grep -qa 'genet: unavailable (no dtb)' "${log}" ||
+	fail "DTB-less boot did not report GENET unavailable (no dtb)"
 grep -qaE 'durable-media: boot=2 from=Previous part=0x7f slot=(A|B) seq=1' "${log}" ||
 	fail "the second boot did not read the first boot's committed state (ADR-0066)"
 ticks_second="$(grep -ac 'ticks=' "${log}")"

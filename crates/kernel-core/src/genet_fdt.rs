@@ -4,6 +4,12 @@
 //! extraction in [`crate::fdt`].  It translates only the GENET node's parent
 //! bus, resolves its MDIO PHY, and returns a bounded binding contract.  No
 //! address, interrupt, or PHY number is compiled into the backend.
+//!
+//! [`boot_report`] is the printable product line: FDT extract only, never an
+//! MMIO probe, never a service bind. An unmapped blob is reported as absent
+//! even if a slice is supplied.
+
+use core::fmt::{self, Display, Formatter};
 
 use crate::genet::{DmaWindow, DmaWindows};
 
@@ -50,6 +56,61 @@ pub struct Binding {
     pub dma: DmaWindows,
     pub phy_addr: u32,
     pub phy_mode_rgmii_rxid: bool,
+}
+
+/// Boot line for the GENET FDT binding. Not a device probe and not a
+/// `discover:` fact (ADR-0072's closed inventory still excludes `/soc`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Report {
+    Binding(Binding),
+    Unavailable(Unavailable),
+}
+
+/// Why the GENET binding is not printable as present.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unavailable {
+    NoDtb,
+    Extract(Error),
+}
+
+/// Classify the boot-time GENET FDT report.
+///
+/// `dtb_mapped` is the MMU fact from the caller. A false flag is `NoDtb`
+/// even when `bytes` is `Some`: an unmapped firmware blob must not be read.
+pub fn boot_report(dtb_mapped: bool, bytes: Option<&[u8]>) -> Report {
+    if !dtb_mapped {
+        return Report::Unavailable(Unavailable::NoDtb);
+    }
+    match bytes {
+        None => Report::Unavailable(Unavailable::NoDtb),
+        Some(data) => match extract(data) {
+            Ok(binding) => Report::Binding(binding),
+            Err(error) => Report::Unavailable(Unavailable::Extract(error)),
+        },
+    }
+}
+
+impl Display for Report {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Report::Binding(binding) => {
+                let phy = if binding.phy_mode_rgmii_rxid {
+                    "rgmii-rxid"
+                } else {
+                    "other"
+                };
+                write!(
+                    f,
+                    "genet: binding ok base={:#x} len={:#x} phy={phy} (fdt, not probed)",
+                    binding.mmio_base, binding.mmio_len
+                )
+            }
+            Report::Unavailable(Unavailable::NoDtb) => f.write_str("genet: unavailable (no dtb)"),
+            Report::Unavailable(Unavailable::Extract(error)) => {
+                write!(f, "genet: unavailable ({error:?})")
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -480,5 +541,48 @@ mod tests {
         let pos = bad.windows(needle.len()).position(|x| x == needle).unwrap();
         bad[pos] = b'x';
         assert_eq!(extract(&bad), Err(Error::Incompatible));
+    }
+
+    #[test]
+    fn boot_report_reads_mapped_fixture() {
+        let report = boot_report(true, Some(PI4));
+        assert!(matches!(report, Report::Binding(_)));
+        assert_eq!(
+            report.to_string(),
+            "genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)"
+        );
+    }
+
+    #[test]
+    fn boot_report_ignores_bytes_when_unmapped() {
+        let report = boot_report(false, Some(PI4));
+        assert_eq!(report, Report::Unavailable(Unavailable::NoDtb));
+        assert_eq!(report.to_string(), "genet: unavailable (no dtb)");
+    }
+
+    #[test]
+    fn boot_report_mapped_without_slice_is_absent() {
+        let report = boot_report(true, None);
+        assert_eq!(report, Report::Unavailable(Unavailable::NoDtb));
+    }
+
+    #[test]
+    fn boot_report_extract_refusal_is_unavailable() {
+        let report = boot_report(true, Some(&[]));
+        assert_eq!(
+            report,
+            Report::Unavailable(Unavailable::Extract(Error::Truncated))
+        );
+        assert_eq!(report.to_string(), "genet: unavailable (Truncated)");
+    }
+
+    #[test]
+    fn boot_report_missing_node_matches_qemu_guest_dtb() {
+        // QEMU raspi4b deletes `/scb/ethernet` after loading the fixture.
+        // The guest line is this Display, not `binding ok`.
+        assert_eq!(
+            Report::Unavailable(Unavailable::Extract(Error::Missing)).to_string(),
+            "genet: unavailable (Missing)"
+        );
     }
 }

@@ -191,7 +191,7 @@ llvm-objcopy -O binary "${OUT}/harbor-kernel" "${OUT}/kernel8.img"
 # M8 product gate: the product image must create the beacon agent and the
 # console server. Format strings are split (`loader: {} loaded…` + name
 # `"beacon"`), so assert the pieces that actually land in .rodata.
-for marker in "console-server: up" "beacon" "loader: "; do
+for marker in "console-server: up" "beacon" "loader: " "genet: "; do
 	grep -qaF -- "${marker}" "${OUT}/kernel8-product.img" || {
 		echo "product-builds: FAIL — product image lacks '${marker}'" >&2
 		echo "  M8 requires a non-empty product path (console server + beacon)." >&2

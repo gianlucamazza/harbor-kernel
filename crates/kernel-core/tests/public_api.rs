@@ -136,6 +136,26 @@ fn capability_rights_do_not_imply_each_other() {
 }
 
 #[test]
+fn the_genet_fdt_boot_report_is_reachable_from_outside() {
+    // What `bootstrap` prints after `discover:` (ADR-0106 report-only):
+    // classify the mapped blob, never probe MMIO. An unmapped fixture must
+    // stay `NoDtb` even when bytes are supplied.
+    use kernel_core::genet_fdt::{Report, Unavailable, boot_report};
+
+    const PI4: &[u8] = include_bytes!("fixtures/bcm2711-rpi-4-b.dtb");
+    assert_eq!(
+        boot_report(false, Some(PI4)),
+        Report::Unavailable(Unavailable::NoDtb)
+    );
+    let report = boot_report(true, Some(PI4));
+    assert!(matches!(report, Report::Binding(_)));
+    assert_eq!(
+        report.to_string(),
+        "genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)"
+    );
+}
+
+#[test]
 fn the_platform_self_check_surface_is_reachable_from_outside() {
     // What `bootstrap` runs at every boot (ADR-0065): recognise the part,
     // decode the fields the refusals compare, against the values the Pi 4B's

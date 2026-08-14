@@ -67,6 +67,11 @@ assert_boot_oracle() {
 	# silence would mean the probe panicked or never ran.
 	grep -qaE 'rng200: (ok |unavailable \()' "${log}" ||
 		fail "RNG200 probe line missing (expected ok or unavailable)"
+	# GENET FDT report: shape only. Boot 1's fixture is mutated by QEMU
+	# (GENET node removed) so the guest prints `unavailable (Missing)`;
+	# boot 2 is DTB-less. Silence means the reporter never ran. Not a NIC.
+	grep -qaE 'genet: (binding ok |unavailable \()' "${log}" ||
+		fail "GENET FDT report missing (expected binding ok or unavailable)"
 	grep -qa 'fully reclaimed' "${log}" ||
 		fail "the allocator did not return freed memory"
 	# Bring-up cost on the board's own clock. Shape only: an emulator starved by
