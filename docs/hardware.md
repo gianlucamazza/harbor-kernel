@@ -6,7 +6,7 @@
 | -------------------- | --------------------------------------------- |
 | Board                | Raspberry Pi 4 Model B                        |
 | SoC                  | BCM2711                                       |
-| Cores                | 4× Cortex-A72 (only core 0 active through M1) |
+| Cores                | 4× Cortex-A72 (product dual-current: CPU 0+1; cores 2–3 not scheduled) |
 | Arch                 | AArch64, EL1 after bootstrap                  |
 | Peripheral MMIO base | `0xFE00_0000`                                 |
 
@@ -30,6 +30,9 @@ retained EL1 ownership, 32 slot IRQ bindings, deterministic peer RX payload
 delivery, the service reset/recovery boundary, and absent-device refusal. The
 QEMU-only built-in edge-gateway capability path is not a Pi4 hardware claim;
 the separate Pi4 backend evidence gate is [ADR-0105](adr/0105-pi4-nic-backend-boundary.md).
+The default `board-rpi4` product prints a `genet:` FDT report and leaves
+`authority: network vocabulary VACANT`. That line is extract-only (no MMIO)
+and is not a Pi 4 NIC claim.
 
 ## Serial console
 

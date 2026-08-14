@@ -1908,6 +1908,10 @@ wire bytes `N` and `S`, and `invariants: … slots=4/9`. Network stays
 `authority: network vocabulary VACANT`. This pays ADR-0102 and ADR-0103 on
 silicon and updates the ADR-0098 watermark for the five-agent composition.
 
+This capture predates the `genet:` FDT report. `make hw-check` against it
+fails until a new product boot prints `genet: binding ok … (fdt, not probed)`
+or `genet: unavailable (…)`. That recapture is still not a NIC claim.
+
 This is product composition evidence, not a NIC claim. ADR-0105/0106 remain
 proposed.
 
