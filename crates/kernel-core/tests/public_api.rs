@@ -172,6 +172,14 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         TxReport::ImplausibleCons.to_string(),
         "genet: tx unavailable (implausible cons)"
     );
+    assert_eq!(
+        kernel_core::genet::umac_speed_bits(kernel_core::genet::LinkSpeed::Thousand),
+        2 << 2
+    );
+    assert_eq!(
+        TxReport::UnknownSpeed.to_string(),
+        "genet: tx unavailable (unknown speed)"
+    );
 }
 
 #[test]

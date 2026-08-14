@@ -43,6 +43,9 @@ pub mod registers {
     pub const UMAC_CMD: u32 = UMAC + 0x08;
     pub const UMAC_CMD_TX_EN: u32 = 1 << 0;
     pub const UMAC_CMD_RX_EN: u32 = 1 << 1;
+    /// UniMAC `CMD_SPEED_*` occupy bits 3:2 (`unimac.h`).
+    pub const UMAC_CMD_SPEED_SHIFT: u32 = 2;
+    pub const UMAC_CMD_SPEED_MASK: u32 = 0x3 << 2;
     pub const UMAC_TX_FLUSH: u32 = UMAC + 0x334;
     pub const UMAC_MDIO_CMD: u32 = MDIO;
 }
@@ -71,6 +74,71 @@ pub mod phy {
     pub const BMCR_ANRESTART: u16 = 1 << 9;
     pub const BMSR_LINK: u16 = 1 << 2;
     pub const BMSR_ANEG_DONE: u16 = 1 << 5;
+    pub const LPA: u8 = 5;
+    pub const CTRL1000: u8 = 9;
+    pub const STAT1000: u8 = 10;
+    /// IEEE 802.3 clause-22 ANLPAR 10 Mb/s half|full.
+    pub const LPA_10: u16 = (1 << 5) | (1 << 6);
+    /// IEEE 802.3 clause-22 ANLPAR 100 Mb/s half|full.
+    pub const LPA_100: u16 = (1 << 7) | (1 << 8);
+    /// Local 1000BASE-T advertise (CTRL1000 bits 8..=9).
+    pub const CTRL1000_1000: u16 = (1 << 8) | (1 << 9);
+    /// Link-partner 1000BASE-T (STAT1000 bits 10..=11).
+    pub const STAT1000_1000: u16 = (1 << 10) | (1 << 11);
+}
+
+/// Resolved copper speed after autoneg. Unknown encodings are a refusal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkSpeed {
+    Ten,
+    Hundred,
+    Thousand,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpeedError {
+    LinkDown,
+    Unknown,
+}
+
+/// Highest common clause-22 speed. Does not invent RGMII delay.
+pub const fn classify_aneg_speed(
+    bmsr: u16,
+    lpa: u16,
+    ctrl1000: u16,
+    stat1000: u16,
+) -> Result<LinkSpeed, SpeedError> {
+    if bmsr & phy::BMSR_LINK == 0 {
+        return Err(SpeedError::LinkDown);
+    }
+    if bmsr & phy::BMSR_ANEG_DONE == 0 {
+        return Err(SpeedError::Unknown);
+    }
+    if stat1000 & phy::STAT1000_1000 != 0 && ctrl1000 & phy::CTRL1000_1000 != 0 {
+        return Ok(LinkSpeed::Thousand);
+    }
+    if lpa & phy::LPA_100 != 0 {
+        return Ok(LinkSpeed::Hundred);
+    }
+    if lpa & phy::LPA_10 != 0 {
+        return Ok(LinkSpeed::Ten);
+    }
+    Err(SpeedError::Unknown)
+}
+
+/// `CMD_SPEED_*` field for [`registers::UMAC_CMD`] (shift 2, width 2).
+pub const fn umac_speed_bits(speed: LinkSpeed) -> u32 {
+    let code = match speed {
+        LinkSpeed::Ten => 0,
+        LinkSpeed::Hundred => 1,
+        LinkSpeed::Thousand => 2,
+    };
+    code << registers::UMAC_CMD_SPEED_SHIFT
+}
+
+/// Replace only the speed field; TX/RX enable bits are preserved.
+pub const fn umac_cmd_with_speed(cmd: u32, speed: LinkSpeed) -> u32 {
+    (cmd & !registers::UMAC_CMD_SPEED_MASK) | umac_speed_bits(speed)
 }
 
 /// GENET v5 register layout shared by the RDMA and TDMA blocks.
@@ -1070,6 +1138,7 @@ pub enum TxReport {
     NotEnabled,
     Timeout,
     ImplausibleCons,
+    UnknownSpeed,
 }
 
 impl TxReport {
@@ -1113,6 +1182,7 @@ impl Display for TxReport {
             TxReport::NotEnabled => f.write_str("genet: tx unavailable (not enabled)"),
             TxReport::Timeout => f.write_str("genet: tx unavailable (timeout)"),
             TxReport::ImplausibleCons => f.write_str("genet: tx unavailable (implausible cons)"),
+            TxReport::UnknownSpeed => f.write_str("genet: tx unavailable (unknown speed)"),
         }
     }
 }
@@ -1125,6 +1195,7 @@ pub enum RxReport {
     NotEnabled,
     Timeout,
     ImplausibleCons,
+    UnknownSpeed,
 }
 
 impl RxReport {
@@ -1158,6 +1229,7 @@ impl Display for RxReport {
             RxReport::NotEnabled => f.write_str("genet: rx unavailable (not enabled)"),
             RxReport::Timeout => f.write_str("genet: rx unavailable (timeout)"),
             RxReport::ImplausibleCons => f.write_str("genet: rx unavailable (implausible cons)"),
+            RxReport::UnknownSpeed => f.write_str("genet: rx unavailable (unknown speed)"),
         }
     }
 }
@@ -1876,6 +1948,51 @@ mod tests {
         );
         assert_eq!(registers::UMAC_CMD_TX_EN, 1);
         assert_eq!(MIN_FRAME_BYTES, 60);
+    }
+
+    #[test]
+    fn umac_speed_is_clause22_and_preserves_enable_bits() {
+        assert_eq!(umac_speed_bits(LinkSpeed::Ten), 0);
+        assert_eq!(umac_speed_bits(LinkSpeed::Hundred), 1 << 2);
+        assert_eq!(umac_speed_bits(LinkSpeed::Thousand), 2 << 2);
+        let enabled = registers::UMAC_CMD_TX_EN | registers::UMAC_CMD_RX_EN;
+        assert_eq!(
+            umac_cmd_with_speed(enabled, LinkSpeed::Thousand) & enabled,
+            enabled
+        );
+        assert_eq!(
+            umac_cmd_with_speed(
+                enabled | umac_speed_bits(LinkSpeed::Ten),
+                LinkSpeed::Thousand
+            ) & registers::UMAC_CMD_SPEED_MASK,
+            umac_speed_bits(LinkSpeed::Thousand)
+        );
+        let up = phy::BMSR_LINK | phy::BMSR_ANEG_DONE;
+        assert_eq!(
+            classify_aneg_speed(up, 0, phy::CTRL1000_1000, phy::STAT1000_1000),
+            Ok(LinkSpeed::Thousand)
+        );
+        assert_eq!(
+            classify_aneg_speed(up, phy::LPA_100, 0, 0),
+            Ok(LinkSpeed::Hundred)
+        );
+        assert_eq!(
+            classify_aneg_speed(up, phy::LPA_10, 0, 0),
+            Ok(LinkSpeed::Ten)
+        );
+        assert_eq!(
+            classify_aneg_speed(phy::BMSR_LINK, 0, 0, 0),
+            Err(SpeedError::Unknown)
+        );
+        assert_eq!(
+            classify_aneg_speed(0, phy::LPA_100, 0, 0),
+            Err(SpeedError::LinkDown)
+        );
+        assert_eq!(
+            TxReport::UnknownSpeed.to_string(),
+            "genet: tx unavailable (unknown speed)"
+        );
+        assert_eq!(registers::UMAC_CMD_SPEED_MASK, 0xc);
     }
 
     #[test]
