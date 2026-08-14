@@ -158,10 +158,11 @@ pub const fn rgmii_port_ctrl() -> u32 {
 
 /// Enable the RGMII block for `rgmii-rxid` without claiming link.
 ///
-/// Clears `OOB_DISABLE` and `ID_MODE_DIS` (PHY owns the RX delay) and sets
-/// `RGMII_MODE_EN`. Does not set `RGMII_LINK`.
+/// Clears `OOB_DISABLE`, `ID_MODE_DIS` (PHY owns the RX delay), and any
+/// leftover `RGMII_LINK`. Sets `RGMII_MODE_EN`. Link is [`rgmii_oob_with_link`].
 pub const fn rgmii_oob_mode(current: u32) -> u32 {
-    (current & !registers::OOB_DISABLE & !registers::ID_MODE_DIS) | registers::RGMII_MODE_EN
+    (current & !registers::OOB_DISABLE & !registers::ID_MODE_DIS & !registers::RGMII_LINK)
+        | registers::RGMII_MODE_EN
 }
 
 /// Same as [`rgmii_oob_mode`], with `RGMII_LINK` for an Enabled+Up path.
@@ -2051,7 +2052,8 @@ mod tests {
         assert_eq!(registers::OOB_DISABLE, 1 << 5);
         assert_eq!(registers::RGMII_MODE_EN, 1 << 6);
         assert_eq!(registers::ID_MODE_DIS, 1 << 16);
-        let leftover = registers::OOB_DISABLE | registers::ID_MODE_DIS | 0x1;
+        let leftover =
+            registers::OOB_DISABLE | registers::ID_MODE_DIS | registers::RGMII_LINK | 0x1;
         let mode = rgmii_oob_mode(leftover);
         assert_eq!(mode & registers::OOB_DISABLE, 0);
         assert_eq!(mode & registers::ID_MODE_DIS, 0);
