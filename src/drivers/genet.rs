@@ -8,8 +8,8 @@
 use kernel_core::genet::{
     self, DESC_RING, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn,
     PhyError, PhyLink, QueueEnable, QueueEnableError, ResetReport, Revision, RevisionError,
-    RgmiiReport, RingProgram, RingProgramError, RxReport, TxReport, UmacReport, dma_registers,
-    mdio, phy, registers,
+    RgmiiReport, RingProgram, RingProgramError, RxReport, TxReport, UmacMibReport, UmacReport,
+    dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -311,10 +311,11 @@ impl Genet {
         if !TxReport::cons_is_idle(self.regs.read32(ring + dma_registers::CONS_INDEX as usize)) {
             return Ok(TxReport::ImplausibleCons);
         }
-        if let Err(report) = self.program_umac_speed() {
+        if let Err(report) = self.program_umac_datapath() {
             return Ok(report);
         }
         self.assert_rgmii_link();
+        self.pulse_tx_flush();
         fill_minimum_frame(self.tx_cpu, genet::MIN_FRAME_BYTES);
         // SAFETY: configure_queue0 stored an identity-mapped TX frame.
         unsafe {
@@ -326,11 +327,6 @@ impl Genet {
             status: 0,
         };
         self.write_descriptor(registers::TDMA, 0, descriptor, true)?;
-        let cmd = self.regs.read32(registers::UMAC_CMD as usize);
-        self.regs.write32(
-            registers::UMAC_CMD as usize,
-            cmd | registers::UMAC_CMD_TX_EN,
-        );
         self.regs
             .write32(ring + dma_registers::PROD_INDEX as usize, 1);
         if !poll::until(RESET_SPIN_LIMIT, || {
@@ -361,7 +357,7 @@ impl Genet {
         if !TxReport::cons_is_idle(self.regs.read32(ring + dma_registers::CONS_INDEX as usize)) {
             return Ok(RxReport::ImplausibleCons);
         }
-        match self.program_umac_speed() {
+        match self.program_umac_datapath() {
             Ok(()) => {}
             Err(TxReport::LinkDown) => return Ok(RxReport::LinkDown),
             Err(TxReport::UnknownSpeed) => return Ok(RxReport::UnknownSpeed),
@@ -408,8 +404,8 @@ impl Genet {
         ))
     }
 
-    /// Write UniMAC speed from clause-22 autoneg. Does not enable TX/RX.
-    fn program_umac_speed(&self) -> Result<(), TxReport> {
+    /// Write UniMAC speed and datapath enable bits before the doorbell.
+    fn program_umac_datapath(&self) -> Result<(), TxReport> {
         let bmsr = self
             .mdio_read(phy::BMSR)
             .map_err(|_| TxReport::MdioTimeout)?;
@@ -430,9 +426,22 @@ impl Genet {
         let cmd = self.regs.read32(registers::UMAC_CMD as usize);
         self.regs.write32(
             registers::UMAC_CMD as usize,
-            genet::umac_cmd_with_speed(cmd, speed),
+            genet::umac_cmd_datapath(cmd, speed),
         );
         Ok(())
+    }
+
+    /// Pulse `UMAC_TX_FLUSH`. The register has no completion bit.
+    fn pulse_tx_flush(&self) {
+        self.regs.write32(registers::UMAC_TX_FLUSH as usize, 1);
+        let _ = self.regs.read32(registers::UMAC_TX_FLUSH as usize);
+        self.regs.write32(registers::UMAC_TX_FLUSH as usize, 0);
+        let _ = self.regs.read32(registers::UMAC_TX_FLUSH as usize);
+    }
+
+    /// UniMAC TX good-packet counter. Not a wire claim.
+    pub fn read_umac_tx_pkts(&self) -> UmacMibReport {
+        UmacMibReport::TxPkts(self.regs.read32(registers::UMAC_TX_PKTS as usize))
     }
 
     /// Program `SYS_PORT_CTRL` and the RGMII OOB block for `rgmii-rxid`.
@@ -465,6 +474,7 @@ impl Genet {
             registers::UMAC_MAC1 as usize,
             genet::umac_mac1(genet::STATION_ADDR),
         );
+        self.pulse_tx_flush();
         UmacReport::Programmed
     }
 
@@ -614,7 +624,7 @@ impl Genet {
             .words(genet::Ownership::Device, true, true, wrap)
             .map_err(Error::Descriptor)?;
         let length_status = if block == registers::TDMA {
-            TxReport::with_tx_append_crc(words.length_status)
+            TxReport::tx_desc_status(words.length_status)
         } else {
             words.length_status
         };

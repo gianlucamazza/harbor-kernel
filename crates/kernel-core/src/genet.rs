@@ -31,6 +31,9 @@ pub const DMA_SOP: u32 = 0x2000;
 pub const DMA_WRAP: u32 = 0x1000;
 /// TX descriptor: UniMAC appends FCS. Linux `DMA_TX_APPEND_CRC`.
 pub const DMA_TX_APPEND_CRC: u32 = 0x0040;
+/// TX descriptor queue tag. v5 `qtag_mask` is `0x3f` at shift 7.
+pub const DMA_TX_QTAG_SHIFT: u32 = 7;
+pub const DMA_TX_QTAG_MASK: u32 = 0x3f;
 pub const GENET_V5_MAJOR: u8 = 5;
 
 /// GENET register offsets used by the first bounded model.
@@ -62,9 +65,14 @@ pub mod registers {
     /// UniMAC `CMD_SPEED_*` occupy bits 3:2 (`unimac.h`).
     pub const UMAC_CMD_SPEED_SHIFT: u32 = 2;
     pub const UMAC_CMD_SPEED_MASK: u32 = 0x3 << 2;
+    pub const UMAC_CMD_PAD_EN: u32 = 1 << 5;
+    pub const UMAC_CMD_CRC_FWD: u32 = 1 << 6;
+    pub const UMAC_CMD_NO_LEN_CHK: u32 = 1 << 24;
     pub const UMAC_MAC0: u32 = UMAC + 0x0c;
     pub const UMAC_MAC1: u32 = UMAC + 0x10;
     pub const UMAC_MAX_FRAME_LEN: u32 = UMAC + 0x14;
+    /// UniMAC TX good-packet counter (`bcmgenet.h` TSV `pkts` at 0x4a8).
+    pub const UMAC_TX_PKTS: u32 = UMAC + 0x4a8;
     pub const UMAC_TX_FLUSH: u32 = UMAC + 0x334;
     pub const UMAC_MDIO_CMD: u32 = MDIO;
 }
@@ -158,6 +166,19 @@ pub const fn umac_speed_bits(speed: LinkSpeed) -> u32 {
 /// Replace only the speed field; TX/RX enable bits are preserved.
 pub const fn umac_cmd_with_speed(cmd: u32, speed: LinkSpeed) -> u32 {
     (cmd & !registers::UMAC_CMD_SPEED_MASK) | umac_speed_bits(speed)
+}
+
+/// Speed plus the UniMAC datapath bits Linux sets at link-up.
+///
+/// `TX_EN` and `RX_EN` together, `PAD_EN`, `CRC_FWD`, and `NO_LEN_CHK`.
+/// Does not set `PROMISC`.
+pub const fn umac_cmd_datapath(cmd: u32, speed: LinkSpeed) -> u32 {
+    umac_cmd_with_speed(cmd, speed)
+        | registers::UMAC_CMD_TX_EN
+        | registers::UMAC_CMD_RX_EN
+        | registers::UMAC_CMD_PAD_EN
+        | registers::UMAC_CMD_CRC_FWD
+        | registers::UMAC_CMD_NO_LEN_CHK
 }
 
 /// `SYS_PORT_CTRL` for the Pi 4 external BCM54213 on RGMII.
@@ -1215,6 +1236,22 @@ impl Display for UmacReport {
     }
 }
 
+/// Boot report for the UniMAC TX good-packet counter. Not a wire claim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UmacMibReport {
+    TxPkts(u32),
+}
+
+impl Display for UmacMibReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            UmacMibReport::TxPkts(n) => {
+                write!(f, "genet: umac tx pkts={n} (mib, not a nic)")
+            }
+        }
+    }
+}
+
 /// Boot report for the descriptor-based ring (Linux `DESC_INDEX` = 16). Not a NIC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescRingReport {
@@ -1318,6 +1355,11 @@ impl TxReport {
 
     pub const fn with_tx_append_crc(word: u32) -> u32 {
         word | DMA_TX_APPEND_CRC
+    }
+
+    /// TX BD status: append CRC and the v5 queue tag. Not a completion claim.
+    pub const fn tx_desc_status(word: u32) -> u32 {
+        Self::with_tx_append_crc(word) | (DMA_TX_QTAG_MASK << DMA_TX_QTAG_SHIFT)
     }
 }
 
@@ -2143,6 +2185,23 @@ mod tests {
             DMA_TX_APPEND_CRC
         );
         assert_eq!(DMA_TX_APPEND_CRC, 0x0040);
+        assert_eq!(DMA_TX_QTAG_MASK << DMA_TX_QTAG_SHIFT, 0x3f << 7);
+        assert_eq!(
+            TxReport::tx_desc_status(0)
+                & (DMA_TX_APPEND_CRC | (DMA_TX_QTAG_MASK << DMA_TX_QTAG_SHIFT)),
+            DMA_TX_APPEND_CRC | (DMA_TX_QTAG_MASK << DMA_TX_QTAG_SHIFT)
+        );
+        assert_eq!(registers::UMAC_CMD_PAD_EN, 1 << 5);
+        assert_eq!(registers::UMAC_CMD_NO_LEN_CHK, 1 << 24);
+        let path = umac_cmd_datapath(0, LinkSpeed::Thousand);
+        assert_ne!(path & registers::UMAC_CMD_TX_EN, 0);
+        assert_ne!(path & registers::UMAC_CMD_RX_EN, 0);
+        assert_ne!(path & registers::UMAC_CMD_PAD_EN, 0);
+        assert_eq!(registers::UMAC_TX_PKTS, 0xca8);
+        assert_eq!(
+            UmacMibReport::TxPkts(0).to_string(),
+            "genet: umac tx pkts=0 (mib, not a nic)"
+        );
         assert!(TxReport::cons_is_idle(0));
         assert!(TxReport::cons_is_idle(0x0001_0000));
         assert!(!TxReport::cons_is_idle(1));

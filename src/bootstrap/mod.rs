@@ -539,6 +539,11 @@ fn report_genet_queue0(uart: &mut Pl011) {
         } else {
             None
         };
+        let mib = if tx.is_some() {
+            Some(controller.read_umac_tx_pkts())
+        } else {
+            None
+        };
         let rx = if matches!(enabled, Some(DescRingReport::Enabled)) {
             Some(match controller.submit_one_rx() {
                 Ok(report) => report,
@@ -560,9 +565,9 @@ fn report_genet_queue0(uart: &mut Pl011) {
         } else {
             None
         };
-        Some((programmed, enabled, rgmii, umac, tx, rx, recovered))
+        Some((programmed, enabled, rgmii, umac, tx, mib, rx, recovered))
     });
-    if let Some((programmed, enabled, rgmii, umac, tx, rx, recovered)) = lines {
+    if let Some((programmed, enabled, rgmii, umac, tx, mib, rx, recovered)) = lines {
         println!(uart, "{programmed}");
         if let Some(enabled) = enabled {
             println!(uart, "{enabled}");
@@ -575,6 +580,9 @@ fn report_genet_queue0(uart: &mut Pl011) {
         }
         if let Some(tx) = tx {
             println!(uart, "{tx}");
+        }
+        if let Some(mib) = mib {
+            println!(uart, "{mib}");
         }
         if let Some(rx) = rx {
             println!(uart, "{rx}");
