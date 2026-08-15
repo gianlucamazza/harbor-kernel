@@ -98,7 +98,7 @@ Next: **Pi4 backend evidence for the completed P3 edge-gateway target** — the
 transport and split-queue lifecycle, packet service, directional EL0 ownership,
 deterministic peer RX, and service reset/recovery are integrated and gated by
 `make qemu-virtio-check`. The Pi 4 product prints a `genet:` FDT report, probes, classifies
-link, programs and enables the descriptor ring (16), programs RGMII OOB for `rgmii-rxid`, programs UniMAC max-frame and station address, and may attempt one bounded TX, one bounded RX, and one recover
+link, programs and enables the descriptor ring (16), programs RGMII OOB for `rgmii-rxid`, programs UniMAC max-frame, station address, and datapath (`TX_EN`/`RX_EN`/pad), and may attempt one bounded TX, one bounded RX, and one recover
 (refused before the doorbell or RX arm when BMSR is down; recover
 returns Idle); it leaves the
 network vocabulary vacant; that is not a NIC. Board-specific

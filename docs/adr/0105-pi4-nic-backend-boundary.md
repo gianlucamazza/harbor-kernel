@@ -17,17 +17,18 @@ or claim that a driver exists.
 A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
 provenance, SMP, and durable-media baseline. The product prints a `genet:`
 FDT report and, when that binding matches the compiled window, runs
-`Genet::probe`. Silicon stamp `20260814-232303.log` boot 8 (`src=19b6438d`, PowerOn)
-has the FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot
-`link=down`, `desc ring programmed (16)`, `desc ring enabled`,
+`Genet::probe`. Silicon stamp `20260815-092435.log` (`src=19b6438d`, PowerOn) has the
+FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot `link=down`,
+`desc ring programmed (16)`, `desc ring enabled`,
 `genet: rgmii oob (ext-gphy, not a nic)`,
 `genet: umac init (frame, not a nic)`,
 `genet: tx complete len=60 (one frame, not a nic)`,
 `genet: rx unavailable (timeout)`,
-`genet: reset recovered (idle, not a nic)`, and `VACANT`. CONS posted
-on TX; the attached laptop Apple NIC received 0 frames (no `0x88b5`).
-Serial complete is not this ADR's one-TX gate. No wire RX or Pi
-absent-device result was produced.
+`genet: reset recovered (idle, not a nic)`, and `VACANT`. A raw pcap
+on the Apple NIC across that boot (`.serial-log/20260815-103422-apple-nic.pcap`)
+contains no `0x88b5` and no source `02:00:00:00:00:01`. Serial CONS
+complete is not this ADR's one-TX gate. No wire RX or Pi absent-device
+result was produced.
 
 ## Context
 

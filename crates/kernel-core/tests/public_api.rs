@@ -195,6 +195,11 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         TxReport::with_tx_append_crc(0) & kernel_core::genet::DMA_TX_APPEND_CRC,
         kernel_core::genet::DMA_TX_APPEND_CRC
     );
+    assert_eq!(TxReport::tx_desc_status(0) & (0x3f << 7), 0x3f << 7);
+    assert_eq!(
+        kernel_core::genet::UmacMibReport::TxPkts(0).to_string(),
+        "genet: umac tx pkts=0 (mib, not a nic)"
+    );
     assert_eq!(
         kernel_core::genet::rgmii_port_ctrl(),
         kernel_core::genet::registers::PORT_MODE_EXT_GPHY
