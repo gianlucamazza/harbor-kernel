@@ -17,17 +17,17 @@ or claim that a driver exists.
 A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
 provenance, SMP, and durable-media baseline. The product prints a `genet:`
 FDT report and, when that binding matches the compiled window, runs
-`Genet::probe`. Silicon stamp `20260814-232303.log` boot 7 (`src=fa00d083`, PowerOn)
+`Genet::probe`. Silicon stamp `20260814-232303.log` boot 8 (`src=19b6438d`, PowerOn)
 has the FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot
 `link=down`, `desc ring programmed (16)`, `desc ring enabled`,
 `genet: rgmii oob (ext-gphy, not a nic)`,
 `genet: umac init (frame, not a nic)`,
-`genet: tx unavailable (still owned)`,
+`genet: tx complete len=60 (one frame, not a nic)`,
 `genet: rx unavailable (timeout)`,
 `genet: reset recovered (idle, not a nic)`, and `VACANT`. CONS posted
-on TX; Device still OWNs the descriptor; the attached laptop Apple NIC
-received 0 frames. Those are not completed TX/RX and not this ADR's
-NIC gate. No TX/RX completion or Pi absent-device result was produced.
+on TX; the attached laptop Apple NIC received 0 frames (no `0x88b5`).
+Serial complete is not this ADR's one-TX gate. No wire RX or Pi
+absent-device result was produced.
 
 ## Context
 
