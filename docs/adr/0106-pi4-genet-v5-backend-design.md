@@ -83,12 +83,11 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=fa00d083`,
-`20260814-232303.log` boot 7) printed `tx unavailable (still owned)`
-(CONS posted, Device still OWNs) and `rx unavailable (timeout)` after
-a first `link=down` snapshot; the laptop received 0 frames. GENET TX
-does not write back OWN; Linux reclaims on CONS. That is not
-TX-complete. The network vocabulary stays vacant.
+on silicon. A cable-up product boot (`src=19b6438d`,
+`20260814-232303.log` boot 8) printed `tx complete len=60 (one frame,
+not a nic)` (CONS posted) and `rx unavailable (timeout)` after a first
+`link=down` snapshot; the laptop received 0 frames. Serial complete is
+CONS, not a wire frame. The network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
