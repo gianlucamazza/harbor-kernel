@@ -538,6 +538,11 @@ fn report_genet_queue0(uart: &mut Pl011) {
         } else {
             None
         };
+        let rbuf = if matches!(enabled, Some(Queue0Report::Enabled)) {
+            Some(controller.program_rbuf_64b())
+        } else {
+            None
+        };
         let tx = if matches!(enabled, Some(Queue0Report::Enabled)) {
             Some(match controller.submit_one_tx() {
                 Ok(report) => report,
@@ -577,10 +582,11 @@ fn report_genet_queue0(uart: &mut Pl011) {
             None
         };
         Some((
-            programmed, enabled, rgmii, umac, tbuf, tbuf_size, tx, mib, rx, recovered,
+            programmed, enabled, rgmii, umac, tbuf, tbuf_size, rbuf, tx, mib, rx, recovered,
         ))
     });
-    if let Some((programmed, enabled, rgmii, umac, tbuf, tbuf_size, tx, mib, rx, recovered)) = lines
+    if let Some((programmed, enabled, rgmii, umac, tbuf, tbuf_size, rbuf, tx, mib, rx, recovered)) =
+        lines
     {
         println!(uart, "{programmed}");
         if let Some(enabled) = enabled {
@@ -597,6 +603,9 @@ fn report_genet_queue0(uart: &mut Pl011) {
         }
         if let Some(tbuf_size) = tbuf_size {
             println!(uart, "{tbuf_size}");
+        }
+        if let Some(rbuf) = rbuf {
+            println!(uart, "{rbuf}");
         }
         if let Some(tx) = tx {
             println!(uart, "{tx}");
