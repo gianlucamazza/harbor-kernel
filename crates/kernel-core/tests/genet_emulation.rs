@@ -117,6 +117,7 @@ fn deterministic_phy_bring_up_and_absent_id() {
 
     let enable = QueueEnable::new(0).unwrap();
     assert_eq!(enable.ring_cfg(), 1);
+    assert_eq!(enable.tdma_ring_cfg(), 0x1f);
     assert_eq!(enable.ctrl(), dma_registers::DMA_ENABLE | (1 << 1));
     assert_eq!(
         DmaPhase::Idle.enable(),

@@ -83,14 +83,14 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=f0bae772`,
-`20260816-052739.log`) printed `queue0 programmed` / `enabled`,
-`tbuf tsb`, `tbuf size`, `rbuf 64b`, `tx complete len=124`, and
-`umac tsv packed=0 linux=0 pok=0` after a first `link=down` snapshot.
-The Apple NIC pcap has no `0x88b5`. CONS posted the 124-byte TSB+probe
-after `RBUF_CTRL` 64B+align; neither the packed trap nor Linux
-`tx_pkts`/`pok` counted a send. Serial complete is not a wire frame.
-The network vocabulary stays vacant.
+on silicon. A cable-up product boot (`src=5bf281a0`,
+`20260816-052739.log`) printed `queue0 programmed`, `tdma arb`,
+`queue0 enabled`, `tbuf tsb`, `tbuf size`, `rbuf 64b`,
+`tx complete len=124`, and `umac tsv packed=0 linux=0 pok=0` after a
+first `link=down` snapshot. The Apple NIC pcap has no `0x88b5`. CONS
+posted the 124-byte TSB+probe after TDMA `ARB_CTRL=DMA_ARBITER_WRR`;
+neither the packed trap nor Linux `tx_pkts`/`pok` counted a send.
+Serial complete is not a wire frame. The network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
@@ -99,7 +99,9 @@ selects `Genet::probe`, `identify_phy`, `classify_link`,
 `configure_queue0`, `enable_queue0` (after the frame pool exists),
 `submit_one_tx`, `submit_one_rx`, and `recover`. After Programmed the product writes TDMA `ARB_CTRL=DMA_ARBITER_WRR`
 (Linux `init_tx_queues`) and prints one `ArbiterReport` line. Enable writes
-`RING_CFG`+`CTRL` only after Programmed. `submit_one_tx` writes UniMAC datapath (`CMD_SPEED_*`, `TX_EN`,
+`RING_CFG`+`CTRL` only after Programmed; TDMA `RING_CFG` is Linux v5
+`V5_TX_RING_CFG` (`0x1f`, rings 0–4) and RDMA stays `1 << queue`. The
+product prints one `RingCfgReport` line after enable. `submit_one_tx` writes UniMAC datapath (`CMD_SPEED_*`, `TX_EN`,
 `RX_EN`, `PAD_EN`, `CRC_FWD`, `NO_LEN_CHK`), ORs `RGMII_LINK`,
 then doorbells a TX BD with `APPEND_CRC` and the
 v5 `QTAG`. `UMAC_TX_FLUSH` is pulsed at UniMAC init, not on each xmit. Complete is CONS posted (not OWN writeback). After CONS

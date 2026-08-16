@@ -16,8 +16,12 @@ pub const TOTAL_DESCRIPTORS: u16 = 256;
 /// Linux `DESC_INDEX`: the descriptor-based ring, not a priority queue.
 pub const DESC_RING: u8 = 16;
 /// Linux v5 default TX ring (`bcmgenet_init_tx_queues`: ring 0, BDs 0..127).
-/// `DMA_RING_CFG` on that path is `0x1f` (rings 0–4), not bit 16.
+/// `DMA_RING_CFG` on that path is [`V5_TX_RING_CFG`] (rings 0–4), not bit 16.
 pub const DEFAULT_TX_RING: u8 = 0;
+/// Linux v5 `hw_params.tx_queues`. Priority rings 1–4 sit beside queue 0.
+pub const V5_TX_QUEUES: u8 = 4;
+/// Linux `init_tx_queues`: `(1 << (tx_queues + 1)) - 1` with `tx_queues = 4`.
+pub const V5_TX_RING_CFG: u32 = (1u32 << (V5_TX_QUEUES as u32 + 1)) - 1;
 /// Minimum Ethernet payload the first TX slice writes (no FCS).
 pub const MIN_FRAME_BYTES: u32 = 60;
 /// Linux `sizeof(struct status_64)`: TBUF strips this prefix before UniMAC.
@@ -1412,6 +1416,20 @@ impl Display for ArbiterReport {
     }
 }
 
+/// Boot report for Linux v5 TDMA `DMA_RING_CFG`. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RingCfgReport {
+    Programmed,
+}
+
+impl Display for RingCfgReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RingCfgReport::Programmed => f.write_str("genet: ring cfg (0-4, not a nic)"),
+        }
+    }
+}
+
 /// Boot report for the descriptor-based ring (Linux `DESC_INDEX` = 16). Not a NIC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescRingReport {
@@ -1646,11 +1664,12 @@ pub enum QueueEnableError {
 
 /// v5 common-block words that turn on queue 0 after the rings are programmed.
 ///
-/// `RING_CFG` names the ring; `CTRL` then sets both `DMA_EN` and that ring's
-/// buffer-enable bit. Hardware completions live at [`dma_registers::CONS_INDEX`];
-/// software producer/consumer updates live at [`dma_registers::PROD_INDEX`]
-/// for both engines — the merged v4+ map aliases RDMA_PROD onto CONS and
-/// RDMA_CONS onto PROD.
+/// `RING_CFG` names the ring on RDMA; TDMA uses [`QueueEnable::tdma_ring_cfg`]
+/// so v5 default TX matches Linux `0x1f`. `CTRL` then sets both `DMA_EN` and
+/// that ring's buffer-enable bit. Hardware completions live at
+/// [`dma_registers::CONS_INDEX`]; software producer/consumer updates live at
+/// [`dma_registers::PROD_INDEX`] for both engines — the merged v4+ map aliases
+/// RDMA_PROD onto CONS and RDMA_CONS onto PROD.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QueueEnable {
     pub queue: u8,
@@ -1666,6 +1685,15 @@ impl QueueEnable {
 
     pub const fn ring_cfg(self) -> u32 {
         1 << self.queue
+    }
+
+    /// Linux `init_tx_queues` writes this mask to TDMA `DMA_RING_CFG`.
+    pub const fn tdma_ring_cfg(self) -> u32 {
+        if self.queue == DEFAULT_TX_RING {
+            V5_TX_RING_CFG
+        } else {
+            1 << self.queue
+        }
     }
 
     pub const fn ctrl(self) -> u32 {
@@ -2237,7 +2265,13 @@ mod tests {
     fn queue_enable_is_queue0_and_keeps_index_polarity() {
         let enable = QueueEnable::new(DEFAULT_TX_RING).unwrap();
         assert_eq!(DEFAULT_TX_RING, 0);
+        assert_eq!(V5_TX_QUEUES, 4);
+        const {
+            assert!(V5_TX_RING_CFG == 0x1f);
+        }
         assert_eq!(enable.ring_cfg(), 1);
+        assert_eq!(enable.tdma_ring_cfg(), V5_TX_RING_CFG);
+        assert_ne!(enable.tdma_ring_cfg(), enable.ring_cfg());
         assert_ne!(enable.ring_cfg(), 1 << DESC_RING);
         assert_eq!(
             enable.ctrl(),
@@ -2248,6 +2282,7 @@ mod tests {
         assert_eq!(QueueEnable::new(1), Err(QueueEnableError::UnsupportedQueue));
         let desc = QueueEnable::new(DESC_RING).unwrap();
         assert_eq!(desc.ring_cfg(), 1 << 16);
+        assert_eq!(desc.tdma_ring_cfg(), 1 << 16);
         assert_eq!(
             desc.ctrl(),
             dma_registers::DMA_ENABLE | (1 << (dma_registers::RING_BUF_EN_SHIFT + 16))
@@ -2438,6 +2473,11 @@ mod tests {
         assert_eq!(
             ArbiterReport::Wrr.to_string(),
             "genet: tdma arb (wrr, not a nic)"
+        );
+        assert_eq!(V5_TX_RING_CFG, 0x1f);
+        assert_eq!(
+            RingCfgReport::Programmed.to_string(),
+            "genet: ring cfg (0-4, not a nic)"
         );
         assert_eq!(tdma_flow_period(0), 0);
         assert_eq!(tdma_flow_period(DESC_RING), MAX_FRAME_BYTES << 16);
