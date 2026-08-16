@@ -86,6 +86,11 @@ pub mod registers {
     pub const RBUF_CTRL: u32 = RBUF;
     pub const RBUF_64B_EN: u32 = 1 << 0;
     pub const RBUF_ALIGN_2B: u32 = 1 << 1;
+    /// Linux `RBUF_CHK_CTRL`. Offset from the RBUF block.
+    pub const RBUF_CHK_CTRL: u32 = RBUF + 0x14;
+    pub const RBUF_RXCHK_EN: u32 = 1 << 0;
+    pub const RBUF_SKIP_FCS: u32 = 1 << 4;
+    pub const RBUF_L3_PARSE_DIS: u32 = 1 << 5;
     /// Linux `RBUF_TBUF_SIZE_CTRL`. v3+ `init_umac` writes `1`.
     pub const RBUF_TBUF_SIZE_CTRL: u32 = RBUF + 0xb4;
     pub const RBUF_TBUF_SIZE: u32 = 1;
@@ -425,6 +430,16 @@ pub const fn tbuf_with_tsb(current: u32) -> u32 {
 /// Linux `init_umac` ORs `RBUF_ALIGN_2B | RBUF_64B_EN` onto `RBUF_CTRL`.
 pub const fn rbuf_ctrl_with_64b_align(current: u32) -> u32 {
     current | registers::RBUF_ALIGN_2B | registers::RBUF_64B_EN
+}
+
+/// Linux `init_umac` RX checksum word. `CRC_FWD` sets `RBUF_SKIP_FCS`.
+pub const fn rbuf_chk_ctrl(current: u32, crc_fwd: bool) -> u32 {
+    let enabled = current | registers::RBUF_RXCHK_EN | registers::RBUF_L3_PARSE_DIS;
+    if crc_fwd {
+        enabled | registers::RBUF_SKIP_FCS
+    } else {
+        enabled & !registers::RBUF_SKIP_FCS
+    }
 }
 
 /// Write a zero TSB then the broadcast probe (dest ff:ff, SA station, 0x88b5).
@@ -1578,6 +1593,20 @@ impl Display for RbufReport {
     }
 }
 
+/// Boot report for Linux `RBUF_CHK_CTRL`. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RbufChkReport {
+    Programmed,
+}
+
+impl Display for RbufChkReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RbufChkReport::Programmed => f.write_str("genet: rbuf chk (rx, not a nic)"),
+        }
+    }
+}
+
 /// Boot report for TDMA `ARB_CTRL`. Not a NIC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArbiterReport {
@@ -1665,6 +1694,7 @@ pub struct GenetBoot {
     pub tbuf: Option<TbufReport>,
     pub tbuf_size: Option<TbufSizeReport>,
     pub rbuf: Option<RbufReport>,
+    pub rbuf_chk: Option<RbufChkReport>,
     pub tx: Option<TxReport>,
     pub mib: Option<UmacMibReport>,
     pub rx: Option<RxReport>,
@@ -1686,6 +1716,7 @@ impl GenetBoot {
             tbuf: None,
             tbuf_size: None,
             rbuf: None,
+            rbuf_chk: None,
             tx: None,
             mib: None,
             rx: None,
@@ -1726,6 +1757,9 @@ impl GenetBoot {
             emit(line);
         }
         if let Some(line) = self.rbuf.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.rbuf_chk.as_ref() {
             emit(line);
         }
         if let Some(line) = self.tx.as_ref() {
@@ -2864,6 +2898,20 @@ mod tests {
         assert_eq!(
             RbufReport::Programmed.to_string(),
             "genet: rbuf 64b (align, not a nic)"
+        );
+        assert_eq!(registers::RBUF_CHK_CTRL, 0x314);
+        assert_eq!(
+            rbuf_chk_ctrl(0, true),
+            registers::RBUF_RXCHK_EN | registers::RBUF_L3_PARSE_DIS | registers::RBUF_SKIP_FCS
+        );
+        assert_eq!(rbuf_chk_ctrl(0, true), 0x31);
+        assert_eq!(
+            rbuf_chk_ctrl(registers::RBUF_SKIP_FCS, false),
+            registers::RBUF_RXCHK_EN | registers::RBUF_L3_PARSE_DIS
+        );
+        assert_eq!(
+            RbufChkReport::Programmed.to_string(),
+            "genet: rbuf chk (rx, not a nic)"
         );
         assert_eq!(dma_registers::DMA_ARBITER_WRR, 1);
         assert_eq!(

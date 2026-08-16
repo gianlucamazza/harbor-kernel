@@ -41,8 +41,10 @@ silicon. The product now writes WRR priority words
 (`DMA_PRIORITY_0/1/2` = `WrrPriority::V5`) and prints `tdma prio`;
 that is unpaid on silicon. The product now writes a bounded BMCR
 reset after identify and prints `phy init`; that is unpaid on
-silicon. Serial CONS retire is not this ADR's one-TX gate. No wire
-RX or Pi absent-device result was produced.
+silicon. The product now writes `RBUF_CHK_CTRL` (`0x31`, `CRC_FWD`
+skip) and prints `rbuf chk`; that is unpaid on silicon. Serial CONS
+retire is not this ADR's one-TX gate. No wire RX or Pi absent-device
+result was produced.
 
 ## Context
 

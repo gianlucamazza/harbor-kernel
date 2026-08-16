@@ -118,6 +118,8 @@ it prints a UniMAC TSV window (`0x49c` packed trap, Linux `0x4a8`
 TBUF is programmed with `TBUF_64B_EN` and the probe carries a 64-byte
 TSB prefix (`TX_DMA_BYTES=124`). `RBUF_TBUF_SIZE_CTRL` is written `1`
 (Linux v3+ `init_umac`). `RBUF_CTRL` gets `RBUF_ALIGN_2B | RBUF_64B_EN`.
+`RBUF_CHK_CTRL` gets `RXCHK_EN | L3_PARSE_DIS | SKIP_FCS` (`CRC_FWD`
+is on) and prints one `RbufChkReport` line.
 Leftover `SYS_TBUF_FLUSH` is released. `UMAC_MIB_CTRL`
 is pulsed then cleared so a zero TSV is not a stuck reset. Enabled+Up only;
 `submit_one_rx` ORs `RX_EN` after the same speed word; unknown
@@ -162,7 +164,7 @@ Not a NIC claim. Next on the roadmap is the first row.
 | Program rings 1–4 | 32 BDs each after Q0's 128 | Product writes TDMA ring words; silicon unpaid |
 | WRR priority words | `DMA_PRIORITY_0/1/2` weights | Product writes `WrrPriority::V5`; silicon unpaid |
 | `init_phy` on the boot path | PHY setup before first xmit | Product writes BMCR reset after identify; silicon unpaid |
-| `RBUF_CHK_CTRL` | RX checksum control | Unwritten |
+| `RBUF_CHK_CTRL` | RX checksum control | Product writes `0x31`; silicon unpaid |
 | More than one TX BD | Linux posts the frame BDs it has | One BD |
 | `TX_EN` settle | Datapath then transmit | Immediate doorbell |
 
