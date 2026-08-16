@@ -83,13 +83,14 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=1349668e`,
+on silicon. A cable-up product boot (`src=aa416a90`,
 `20260816-052739.log`) printed `queue0 programmed` / `enabled`,
 `tbuf tsb`, `tx complete len=124`, and
 `umac tsv packed=0 linux=0 pok=0` after a first `link=down` snapshot.
-The Apple NIC pcap has no `0x88b5`. CONS posted the 124-byte TSB+probe;
-neither the packed trap nor Linux `tx_pkts`/`pok` counted a send.
-Serial complete is not a wire frame. The network vocabulary stays vacant.
+The Apple NIC pcap has no `0x88b5`. CONS posted the 124-byte TSB+probe
+without a pre-doorbell flush; neither the packed trap nor Linux
+`tx_pkts`/`pok` counted a send. Serial complete is not a wire frame.
+The network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
@@ -105,7 +106,8 @@ it prints a UniMAC TSV window (`0x49c` packed trap, Linux `0x4a8`
 `tx_pkts`, `0x4ec` `pok`). Ring 16 TDMA `FLOW_PERIOD` carries
 `MAX_FRAME << 16` (Linux does this for every ring except 0).
 TBUF is programmed with `TBUF_64B_EN` and the probe carries a 64-byte
-TSB prefix (`TX_DMA_BYTES=124`). Leftover `SYS_TBUF_FLUSH` is released. `UMAC_MIB_CTRL`
+TSB prefix (`TX_DMA_BYTES=124`). `RBUF_TBUF_SIZE_CTRL` is written `1`
+(Linux v3+ `init_umac`). Leftover `SYS_TBUF_FLUSH` is released. `UMAC_MIB_CTRL`
 is pulsed then cleared so a zero TSV is not a stuck reset. Enabled+Up only;
 `submit_one_rx` ORs `RX_EN` after the same speed word; unknown
 autoneg is a refusal, not a silent 10 Mbps. After Enabled the product

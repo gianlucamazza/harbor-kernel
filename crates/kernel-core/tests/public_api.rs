@@ -213,6 +213,11 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         kernel_core::genet::TbufReport::Tsb.to_string(),
         "genet: tbuf tsb (64b, not a nic)"
     );
+    assert_eq!(kernel_core::genet::registers::RBUF_TBUF_SIZE_CTRL, 0x3b4);
+    assert_eq!(
+        kernel_core::genet::TbufSizeReport::Programmed.to_string(),
+        "genet: tbuf size (rbuf, not a nic)"
+    );
     assert_eq!(kernel_core::genet::TX_DMA_BYTES, 124);
     const {
         assert!(!kernel_core::genet::TX_FLUSH_BEFORE_DOORBELL);
