@@ -1384,6 +1384,33 @@ pub enum LinkMoment {
     Submit,
 }
 
+/// Boot report for the clause-22 BMCR reset on the bring-up path. Not a NIC.
+///
+/// Reset success is not a link-up. The probe BMSR after this write is a
+/// separate [`LinkReport`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhyInitReport {
+    Reset,
+    Timeout,
+    Unavailable(PhyError),
+}
+
+impl Display for PhyInitReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            PhyInitReport::Reset => f.write_str("genet: phy init (bmcr, not a nic)"),
+            PhyInitReport::Timeout => f.write_str("genet: phy init unavailable (timeout)"),
+            PhyInitReport::Unavailable(PhyError::ModeNotRgmiiRxid) => {
+                f.write_str("genet: phy init unavailable (mode)")
+            }
+            PhyInitReport::Unavailable(PhyError::ResetPending) => {
+                f.write_str("genet: phy init unavailable (reset pending)")
+            }
+            PhyInitReport::Unavailable(_) => f.write_str("genet: phy init unavailable (phy)"),
+        }
+    }
+}
+
 /// Boot report for a BMSR link snapshot. Not a NIC and not a service bind.
 ///
 /// The product line is the [`LinkMoment::Probe`] sample. Submit re-reads
@@ -2520,6 +2547,15 @@ mod tests {
             LinkReport::Timeout.to_string(),
             "genet: link unavailable (timeout)"
         );
+        assert_eq!(
+            PhyInitReport::Reset.to_string(),
+            "genet: phy init (bmcr, not a nic)"
+        );
+        assert_eq!(
+            PhyInitReport::Timeout.to_string(),
+            "genet: phy init unavailable (timeout)"
+        );
+        assert!(!PhyInitReport::Reset.to_string().contains("link=up"));
         assert_eq!(
             link.with_bmsr(phy::BMSR_LINK).require_up().unwrap().state,
             LinkState::Up

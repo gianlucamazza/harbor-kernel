@@ -68,8 +68,10 @@ The compiled BSP now maps that 64 KiB window (`GENET_BASE` in
 product calls `Genet::probe` (mask, stop DMA, UniMAC reset) and prints
 the decoded revision. After a successful revision it also prints one
 `PhyIdentify` line (`genet: phy=… (id, not a nic)` or a bounded refusal).
-After a successful identify it also prints one `LinkReport` line
-(`genet: link=up|down (bmsr, not a nic)`).
+After a successful identify it writes a bounded BMCR reset and prints
+one `PhyInitReport` line (`genet: phy init (bmcr, not a nic)`), then
+one `LinkReport` line (`genet: link=up|down (bmsr, not a nic)`) from
+the post-reset probe sample.
 A Pi 4B (`src=30603cba`) printed
 `genet: rev=6.0 patch=0x0 (mmio, not a nic)`,
 `genet: phy=0x600d84a2 (id, not a nic)`,
@@ -159,7 +161,7 @@ Not a NIC claim. Next on the roadmap is the first row.
 | `RING_BUF_EN` mask `0x1f` | `init_tx_queues` writes the same mask to `DMA_CTRL` `RING_BUF_EN` | Paid (HW) negative (`src=656be102`) |
 | Program rings 1–4 | 32 BDs each after Q0's 128 | Product writes TDMA ring words; silicon unpaid |
 | WRR priority words | `DMA_PRIORITY_0/1/2` weights | Product writes `WrrPriority::V5`; silicon unpaid |
-| `init_phy` on the boot path | PHY setup before first xmit | Identify + two BMSR samples (`LinkMoment`) |
+| `init_phy` on the boot path | PHY setup before first xmit | Product writes BMCR reset after identify; silicon unpaid |
 | `RBUF_CHK_CTRL` | RX checksum control | Unwritten |
 | More than one TX BD | Linux posts the frame BDs it has | One BD |
 | `TX_EN` settle | Datapath then transmit | Immediate doorbell |
