@@ -15,6 +15,9 @@ pub const DESCRIPTOR_BYTES: u64 = 12;
 pub const TOTAL_DESCRIPTORS: u16 = 256;
 /// Linux `DESC_INDEX`: the descriptor-based ring, not a priority queue.
 pub const DESC_RING: u8 = 16;
+/// Linux v5 default TX ring (`bcmgenet_init_tx_queues`: ring 0, BDs 0..127).
+/// `DMA_RING_CFG` on that path is `0x1f` (rings 0–4), not bit 16.
+pub const DEFAULT_TX_RING: u8 = 0;
 /// Minimum Ethernet payload the first TX slice writes (no FCS).
 pub const MIN_FRAME_BYTES: u32 = 60;
 /// Locally-administered station address used as the probe frame SA.
@@ -2152,8 +2155,10 @@ mod tests {
 
     #[test]
     fn queue_enable_is_queue0_and_keeps_index_polarity() {
-        let enable = QueueEnable::new(0).unwrap();
+        let enable = QueueEnable::new(DEFAULT_TX_RING).unwrap();
+        assert_eq!(DEFAULT_TX_RING, 0);
         assert_eq!(enable.ring_cfg(), 1);
+        assert_ne!(enable.ring_cfg(), 1 << DESC_RING);
         assert_eq!(
             enable.ctrl(),
             dma_registers::DMA_ENABLE | (1 << dma_registers::RING_BUF_EN_SHIFT)

@@ -6,10 +6,10 @@
 //! controller. Network-service publication is a later BSP composition step.
 
 use kernel_core::genet::{
-    self, DESC_RING, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn,
-    PhyError, PhyLink, QueueEnable, QueueEnableError, ResetReport, Revision, RevisionError,
-    RgmiiReport, RingProgram, RingProgramError, RxReport, TbufReport, TxReport, UmacMibReport,
-    UmacReport, dma_registers, mdio, phy, registers,
+    self, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError,
+    MdioTxn, PhyError, PhyLink, QueueEnable, QueueEnableError, ResetReport, Revision,
+    RevisionError, RgmiiReport, RingProgram, RingProgramError, RxReport, TbufReport, TxReport,
+    UmacMibReport, UmacReport, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -185,7 +185,7 @@ impl Genet {
         tx_cpu: usize,
         rx_cpu: usize,
     ) -> Result<(), Error> {
-        self.configure_named_ring(0, tx, rx, tx_cpu, rx_cpu)
+        self.configure_named_ring(DEFAULT_TX_RING, tx, rx, tx_cpu, rx_cpu)
     }
 
     /// Program the descriptor-based ring (16) on both engines. Not a NIC.
@@ -267,7 +267,7 @@ impl Genet {
     /// Enable programmed queue 0 on both engines. Refuses Idle and a second
     /// enable. Does not publish a network service.
     pub fn enable_queue0(&mut self) -> Result<(), Error> {
-        self.enable_named_ring(0)
+        self.enable_named_ring(DEFAULT_TX_RING)
     }
 
     /// Enable the programmed descriptor ring. Refuses unless it is ring 16.

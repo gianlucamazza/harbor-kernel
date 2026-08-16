@@ -83,12 +83,12 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=a7891eb1`,
-`20260816-052739.log`, same image as `20260815-092435.log` boot 2)
-printed `tx complete len=60` and `umac tx pkts=0` after a first
-`link=down` snapshot. The Apple NIC pcap has no `0x88b5`. CONS posted;
-the UniMAC TSV did not count a send. Serial complete is not a wire
-frame. The network vocabulary stays vacant.
+on silicon. A cable-up product boot (`src=b853980b`,
+`20260816-052739.log`) printed `tbuf raw`, `tx complete len=60`, and
+`umac tsv packed=0 linux=0 pok=0` after a first `link=down` snapshot.
+The Apple NIC pcap has no `0x88b5`. CONS posted; neither the packed
+trap nor Linux `tx_pkts`/`pok` counted a send. Serial complete is not
+a wire frame. The network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
@@ -113,9 +113,9 @@ also writes `SYS_PORT_CTRL=EXT_GPHY` and `EXT_RGMII_OOB_CTRL`
 `rgmii-rxid`) and prints one `RgmiiReport` line, then writes
 `UMAC_MAX_FRAME_LEN` and station `UMAC_MAC0`/`UMAC_MAC1` and prints
 one `UmacReport` line, then one `TbufReport` (`tbuf raw`) after
-clearing `TBUF_64B_EN`. The product programs Linux `DESC_INDEX`
-(ring 16) for the bounded TX/RX doorbells and prints one
-`DescRingReport` line. `recover` refuses Idle
+clearing `TBUF_64B_EN`. The product programs Linux v5 default TX
+ring 0 (`DEFAULT_TX_RING`) for the bounded TX/RX doorbells and prints
+one `Queue0Report` line. `recover` refuses Idle
 and otherwise stops DMA, UniMAC-resets, and returns to Idle. It
 does not publish a
 network service and does not change this ADR's proposed status.
