@@ -493,7 +493,8 @@ static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
 ///
 /// Probe runs at discover time, before frames; the programmed descriptors
 /// need two identity-mapped frames inside the FDT DMA windows. Enable
-/// writes RING_CFG+CTRL only after Programmed. RGMII OOB (ext-gphy,
+/// writes RING_CFG+CTRL only after Programmed; TDMA RING_CFG is Linux
+/// v5 `0x1f` (rings 0–4). RGMII OOB (ext-gphy,
 /// no MAC delay) and UniMAC max-frame/station address are programmed
 /// after Enabled. TBUF is in 64-byte TSB mode; the probe carries that prefix.
 /// One bounded TX and one
@@ -520,6 +521,11 @@ fn report_genet_queue0(uart: &mut Pl011) {
                 Err(Error::Enable(error)) => Queue0Report::Enable(error),
                 Err(_) => Queue0Report::Enable(kernel_core::genet::QueueEnableError::NotProgrammed),
             })
+        } else {
+            None
+        };
+        let ring_cfg = if matches!(enabled, Some(Queue0Report::Enabled)) {
+            Some(kernel_core::genet::RingCfgReport::Programmed)
         } else {
             None
         };
@@ -587,13 +593,15 @@ fn report_genet_queue0(uart: &mut Pl011) {
             None
         };
         Some((
-            programmed, arb, enabled, rgmii, umac, tbuf, tbuf_size, rbuf, tx, mib, rx, recovered,
+            programmed, arb, enabled, ring_cfg, rgmii, umac, tbuf, tbuf_size, rbuf, tx, mib, rx,
+            recovered,
         ))
     });
     if let Some((
         programmed,
         arb,
         enabled,
+        ring_cfg,
         rgmii,
         umac,
         tbuf,
@@ -611,6 +619,9 @@ fn report_genet_queue0(uart: &mut Pl011) {
         }
         if let Some(enabled) = enabled {
             println!(uart, "{enabled}");
+        }
+        if let Some(ring_cfg) = ring_cfg {
+            println!(uart, "{ring_cfg}");
         }
         if let Some(rgmii) = rgmii {
             println!(uart, "{rgmii}");

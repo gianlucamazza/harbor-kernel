@@ -231,6 +231,11 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         kernel_core::genet::ArbiterReport::Wrr.to_string(),
         "genet: tdma arb (wrr, not a nic)"
     );
+    assert_eq!(kernel_core::genet::V5_TX_RING_CFG, 0x1f);
+    assert_eq!(
+        kernel_core::genet::RingCfgReport::Programmed.to_string(),
+        "genet: ring cfg (0-4, not a nic)"
+    );
     assert_eq!(kernel_core::genet::TX_DMA_BYTES, 124);
     const {
         assert!(!kernel_core::genet::TX_FLUSH_BEFORE_DOORBELL);
@@ -249,6 +254,12 @@ fn the_genet_tx_report_is_reachable_from_outside() {
             .unwrap()
             .ring_cfg(),
         1
+    );
+    assert_eq!(
+        kernel_core::genet::QueueEnable::new(kernel_core::genet::DEFAULT_TX_RING)
+            .unwrap()
+            .tdma_ring_cfg(),
+        0x1f
     );
     assert_eq!(
         kernel_core::genet::tdma_flow_period(kernel_core::genet::DEFAULT_TX_RING),

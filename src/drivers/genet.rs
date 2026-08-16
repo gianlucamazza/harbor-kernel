@@ -292,10 +292,13 @@ impl Genet {
         let enable = QueueEnable::new(queue).map_err(Error::Enable)?;
         self.phase = self.phase.enable().map_err(Error::Enable)?;
         for block in [registers::RDMA, registers::TDMA] {
-            self.regs.write32(
-                (block + dma_registers::RING_CFG) as usize,
-                enable.ring_cfg(),
-            );
+            let cfg = if block == registers::TDMA {
+                enable.tdma_ring_cfg()
+            } else {
+                enable.ring_cfg()
+            };
+            self.regs
+                .write32((block + dma_registers::RING_CFG) as usize, cfg);
             self.regs
                 .write32((block + dma_registers::CTRL) as usize, enable.ctrl());
         }
