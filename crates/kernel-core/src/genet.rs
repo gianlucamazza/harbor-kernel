@@ -68,6 +68,8 @@ pub mod registers {
     pub const INTRL2_CPU_CLEAR: u32 = 0x08;
     pub const INTRL2_CPU_MASK_SET: u32 = 0x10;
     pub const RBUF_CTRL: u32 = RBUF;
+    pub const RBUF_64B_EN: u32 = 1 << 0;
+    pub const RBUF_ALIGN_2B: u32 = 1 << 1;
     /// Linux `RBUF_TBUF_SIZE_CTRL`. v3+ `init_umac` writes `1`.
     pub const RBUF_TBUF_SIZE_CTRL: u32 = RBUF + 0xb4;
     pub const RBUF_TBUF_SIZE: u32 = 1;
@@ -279,6 +281,11 @@ pub const fn tbuf_raw_frame(current: u32) -> u32 {
 /// Set `TBUF_64B_EN`. Linux `init_umac` does this and prepends a TSB.
 pub const fn tbuf_with_tsb(current: u32) -> u32 {
     current | registers::TBUF_64B_EN
+}
+
+/// Linux `init_umac` ORs `RBUF_ALIGN_2B | RBUF_64B_EN` onto `RBUF_CTRL`.
+pub const fn rbuf_ctrl_with_64b_align(current: u32) -> u32 {
+    current | registers::RBUF_ALIGN_2B | registers::RBUF_64B_EN
 }
 
 /// Write a zero TSB then the broadcast probe (dest ff:ff, SA station, 0x88b5).
@@ -1374,6 +1381,20 @@ impl Display for TbufSizeReport {
     }
 }
 
+/// Boot report for Linux `RBUF_CTRL` 64-byte + 2-byte align. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RbufReport {
+    Programmed,
+}
+
+impl Display for RbufReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RbufReport::Programmed => f.write_str("genet: rbuf 64b (align, not a nic)"),
+        }
+    }
+}
+
 /// Boot report for the descriptor-based ring (Linux `DESC_INDEX` = 16). Not a NIC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescRingReport {
@@ -2388,6 +2409,13 @@ mod tests {
         assert_eq!(
             TbufSizeReport::Programmed.to_string(),
             "genet: tbuf size (rbuf, not a nic)"
+        );
+        assert_eq!(registers::RBUF_64B_EN, 1);
+        assert_eq!(registers::RBUF_ALIGN_2B, 2);
+        assert_eq!(rbuf_ctrl_with_64b_align(0), 3);
+        assert_eq!(
+            RbufReport::Programmed.to_string(),
+            "genet: rbuf 64b (align, not a nic)"
         );
         assert_eq!(tdma_flow_period(0), 0);
         assert_eq!(tdma_flow_period(DESC_RING), MAX_FRAME_BYTES << 16);
