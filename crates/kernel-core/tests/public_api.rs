@@ -153,8 +153,8 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         "genet: tx unavailable (link down)"
     );
     assert_eq!(
-        TxReport::Complete(60).to_string(),
-        "genet: tx complete len=60 (one frame, not a nic)"
+        TxReport::ConsPosted(60).to_string(),
+        "genet: tx cons len=60 (dma, not a nic)"
     );
     let word = kernel_core::genet::DescriptorStatus {
         length: 60,
@@ -165,7 +165,7 @@ fn the_genet_tx_report_is_reachable_from_outside() {
     }
     .encode()
     .unwrap();
-    assert_eq!(TxReport::from_status(word), TxReport::Complete(60));
+    assert_eq!(TxReport::from_status(word), TxReport::ConsPosted(60));
     assert!(TxReport::cons_is_idle(0));
     assert!(!TxReport::cons_is_idle(0xffff));
     assert_eq!(
@@ -190,7 +190,7 @@ fn the_genet_tx_report_is_reachable_from_outside() {
     );
     assert_eq!(TxReport::from_poll(0, 0), TxReport::Timeout);
     assert_eq!(TxReport::from_poll(1, 0), TxReport::StillOwned);
-    assert_eq!(TxReport::from_tx_cons(1, 60), TxReport::Complete(60));
+    assert_eq!(TxReport::from_tx_cons(1, 60), TxReport::ConsPosted(60));
     assert_eq!(
         TxReport::with_tx_append_crc(0) & kernel_core::genet::DMA_TX_APPEND_CRC,
         kernel_core::genet::DMA_TX_APPEND_CRC
@@ -232,10 +232,30 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         "genet: tdma arb (wrr, not a nic)"
     );
     assert_eq!(kernel_core::genet::V5_TX_RING_CFG, 0x1f);
+    assert_eq!(kernel_core::genet::TxRingSet::V5.tdma_ring_cfg(), 0x1f);
+    assert_eq!(kernel_core::genet::TxRingSet::V5.rdma_ring_cfg(), 1);
+    assert_eq!(
+        kernel_core::genet::TxRingSet::V5.ctrl() & !kernel_core::genet::dma_registers::DMA_ENABLE,
+        1 << kernel_core::genet::dma_registers::RING_BUF_EN_SHIFT
+    );
+    assert_eq!(
+        kernel_core::genet::LinkMoment::Probe,
+        kernel_core::genet::LinkMoment::Probe
+    );
+    assert_ne!(
+        kernel_core::genet::LinkMoment::Probe,
+        kernel_core::genet::LinkMoment::Submit
+    );
     assert_eq!(
         kernel_core::genet::RingCfgReport::Programmed.to_string(),
         "genet: ring cfg (0-4, not a nic)"
     );
+    let mut boot =
+        kernel_core::genet::GenetBoot::after_program(kernel_core::genet::Queue0Report::Programmed);
+    boot.ring_cfg = Some(kernel_core::genet::RingCfgReport::Programmed);
+    let mut n = 0;
+    boot.each_line(|_| n += 1);
+    assert_eq!(n, 2);
     assert_eq!(kernel_core::genet::TX_DMA_BYTES, 124);
     const {
         assert!(!kernel_core::genet::TX_FLUSH_BEFORE_DOORBELL);

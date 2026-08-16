@@ -17,11 +17,12 @@ or claim that a driver exists.
 A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
 provenance, SMP, and durable-media baseline. The product prints a `genet:`
 FDT report and, when that binding matches the compiled window, runs
-`Genet::probe`. Silicon stamp `20260816-052739.log` (`src=5bf281a0`, PowerOn) has the
+`Genet::probe`. Silicon stamp `20260816-052739.log` (`src=807c9f52`, PowerOn) has the
 FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot `link=down`,
 `queue0 programmed`,
 `genet: tdma arb (wrr, not a nic)`,
 `queue0 enabled`,
+`genet: ring cfg (0-4, not a nic)`,
 `genet: rgmii oob (ext-gphy, not a nic)`,
 `genet: umac init (frame, not a nic)`,
 `genet: tbuf tsb (64b, not a nic)`,
@@ -31,14 +32,14 @@ FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot `link=down`,
 `genet: umac tsv packed=0 linux=0 pok=0 (mib, not a nic)`,
 `genet: rx unavailable (timeout)`,
 `genet: reset recovered (idle, not a nic)`, and `VACANT`. CONS posted
-the 124-byte TSB+probe after TDMA `ARB_CTRL=DMA_ARBITER_WRR`;
+the 124-byte TSB+probe after TDMA `RING_CFG=0x1f`;
 packed `0x49c`, Linux `0x4a8`, and `pok` `0x4ec` are all zero. The
-Apple NIC pcap has no `0x88b5`. The product now writes Linux
-`DMA_RING_CFG=0x1f` (`V5_TX_RING_CFG`, rings 0–4) on TDMA at enable
-and prints `ring cfg`; that is unpaid on silicon. A later host slice
-writes Linux `DMA_CTRL` `RING_BUF_EN` mask `0x1f`; that is unpaid.
-Serial CONS complete is not this ADR's one-TX gate. No wire RX or Pi
-absent-device result was produced.
+Apple NIC pcap has no `0x88b5`. The live product names CONS retire
+`tx cons`, not `tx complete`. A later host slice writes Linux
+`DMA_CTRL` `RING_BUF_EN` mask `0x1f` (`TxRingSet` already holds the
+mask; `ctrl` still enables the doorbell bit only); that is unpaid on
+silicon. Serial CONS retire is not this ADR's one-TX gate. No wire RX
+or Pi absent-device result was produced.
 
 ## Context
 

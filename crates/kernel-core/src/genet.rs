@@ -238,6 +238,51 @@ pub const fn queue_supported(queue: u8) -> bool {
     queue == 0 || queue == DESC_RING
 }
 
+/// Linux v5 TX ring set versus the doorbell queue.
+///
+/// `mask` is TDMA `DMA_RING_CFG` (`0x1f` = rings 0–4 together). `doorbell`
+/// is the ring that receives the probe BD. `CTRL` `RING_BUF_EN` stays that
+/// one bit until the unpaid leftover writes Linux's matching `0x1f` mask.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TxRingSet {
+    pub mask: u32,
+    pub doorbell: u8,
+}
+
+impl TxRingSet {
+    pub const V5: Self = Self {
+        mask: V5_TX_RING_CFG,
+        doorbell: DEFAULT_TX_RING,
+    };
+
+    pub const fn new(doorbell: u8) -> Result<Self, QueueEnableError> {
+        if doorbell == DEFAULT_TX_RING {
+            Ok(Self::V5)
+        } else if doorbell == DESC_RING {
+            Ok(Self {
+                mask: 1 << DESC_RING,
+                doorbell: DESC_RING,
+            })
+        } else {
+            Err(QueueEnableError::UnsupportedQueue)
+        }
+    }
+
+    pub const fn tdma_ring_cfg(self) -> u32 {
+        self.mask
+    }
+
+    pub const fn rdma_ring_cfg(self) -> u32 {
+        1 << self.doorbell
+    }
+
+    /// `DMA_EN` plus the doorbell ring's `RING_BUF_EN` bit. Not Linux `0x1f`.
+    pub const fn ctrl(self) -> u32 {
+        dma_registers::DMA_ENABLE
+            | (1 << (dma_registers::RING_BUF_EN_SHIFT + self.doorbell as u32))
+    }
+}
+
 /// `UMAC_MAC0` word: first four station-address bytes, big-endian on the wire.
 pub const fn umac_mac0(addr: [u8; 6]) -> u32 {
     (addr[0] as u32) << 24 | (addr[1] as u32) << 16 | (addr[2] as u32) << 8 | addr[3] as u32
@@ -1238,7 +1283,17 @@ impl Display for PhyIdentify {
     }
 }
 
+/// When a BMSR sample was taken. Probe and submit are different reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkMoment {
+    Probe,
+    Submit,
+}
+
 /// Boot report for a BMSR link snapshot. Not a NIC and not a service bind.
+///
+/// The product line is the [`LinkMoment::Probe`] sample. Submit re-reads
+/// BMSR before the doorbell and does not reprint this line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LinkReport {
     Classified(LinkState),
@@ -1430,6 +1485,86 @@ impl Display for RingCfgReport {
     }
 }
 
+/// Ordered unpublished bring-up lines. Bootstrap only prints.
+///
+/// `ring_cfg` is filled by the enable write, not synthesized later.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GenetBoot {
+    pub programmed: Queue0Report,
+    pub arb: Option<ArbiterReport>,
+    pub enabled: Option<Queue0Report>,
+    pub ring_cfg: Option<RingCfgReport>,
+    pub rgmii: Option<RgmiiReport>,
+    pub umac: Option<UmacReport>,
+    pub tbuf: Option<TbufReport>,
+    pub tbuf_size: Option<TbufSizeReport>,
+    pub rbuf: Option<RbufReport>,
+    pub tx: Option<TxReport>,
+    pub mib: Option<UmacMibReport>,
+    pub rx: Option<RxReport>,
+    pub recovered: Option<ResetReport>,
+}
+
+impl GenetBoot {
+    pub const fn after_program(programmed: Queue0Report) -> Self {
+        Self {
+            programmed,
+            arb: None,
+            enabled: None,
+            ring_cfg: None,
+            rgmii: None,
+            umac: None,
+            tbuf: None,
+            tbuf_size: None,
+            rbuf: None,
+            tx: None,
+            mib: None,
+            rx: None,
+            recovered: None,
+        }
+    }
+
+    pub fn each_line(&self, mut emit: impl FnMut(&dyn Display)) {
+        emit(&self.programmed);
+        if let Some(line) = self.arb.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.enabled.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.ring_cfg.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.rgmii.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.umac.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.tbuf.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.tbuf_size.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.rbuf.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.tx.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.mib.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.rx.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.recovered.as_ref() {
+            emit(line);
+        }
+    }
+}
+
 /// Boot report for the descriptor-based ring (Linux `DESC_INDEX` = 16). Not a NIC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescRingReport {
@@ -1467,9 +1602,12 @@ impl Display for DescRingReport {
 }
 
 /// Boot report for one bounded TX. Not a NIC and not an RX claim.
+///
+/// [`TxReport::ConsPosted`] is DMA CONS retire. It is not a UniMAC send
+/// and not a frame on the wire.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TxReport {
-    Complete(u16),
+    ConsPosted(u16),
     LinkDown,
     NotEnabled,
     Timeout,
@@ -1492,7 +1630,7 @@ impl TxReport {
     pub const fn from_status(word: u32) -> Self {
         match DescriptorStatus::decode(word) {
             Ok(status) => match status.ownership {
-                Ownership::Driver => Self::Complete(status.length),
+                Ownership::Driver => Self::ConsPosted(status.length),
                 Ownership::Device => Self::Timeout,
             },
             Err(_) => Self::Timeout,
@@ -1516,16 +1654,16 @@ impl TxReport {
             return Self::Timeout;
         }
         match Self::from_status(status) {
-            Self::Complete(len) => Self::Complete(len),
+            Self::ConsPosted(len) => Self::ConsPosted(len),
             _ => Self::StillOwned,
         }
     }
 
-    /// GENET TX completes on CONS. Silicon does not write back OWN on TX
-    /// (`src=fa00d083` printed still-owned with CONS posted).
+    /// GENET TX retires on CONS. Silicon does not write back OWN on TX
+    /// (`src=fa00d083` printed still-owned with CONS posted). Not a send.
     pub const fn from_tx_cons(cons: u32, length: u16) -> Self {
         if Self::cons_has_posted(cons) {
-            Self::Complete(length)
+            Self::ConsPosted(length)
         } else {
             Self::Timeout
         }
@@ -1544,8 +1682,8 @@ impl TxReport {
 impl Display for TxReport {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            TxReport::Complete(len) => {
-                write!(f, "genet: tx complete len={len} (one frame, not a nic)")
+            TxReport::ConsPosted(len) => {
+                write!(f, "genet: tx cons len={len} (dma, not a nic)")
             }
             TxReport::LinkDown => f.write_str("genet: tx unavailable (link down)"),
             TxReport::NotEnabled => f.write_str("genet: tx unavailable (not enabled)"),
@@ -1662,42 +1800,38 @@ pub enum QueueEnableError {
     AlreadyEnabled,
 }
 
-/// v5 common-block words that turn on queue 0 after the rings are programmed.
+/// v5 common-block words that turn on a programmed ring set after program.
 ///
-/// `RING_CFG` names the ring on RDMA; TDMA uses [`QueueEnable::tdma_ring_cfg`]
-/// so v5 default TX matches Linux `0x1f`. `CTRL` then sets both `DMA_EN` and
-/// that ring's buffer-enable bit. Hardware completions live at
+/// TDMA `RING_CFG` is [`TxRingSet::tdma_ring_cfg`] (v5 default `0x1f`).
+/// RDMA `RING_CFG` is [`TxRingSet::rdma_ring_cfg`] (doorbell bit only).
+/// `CTRL` is [`TxRingSet::ctrl`]: `DMA_EN` plus the doorbell `RING_BUF_EN`
+/// bit, not Linux's `0x1f` mask. Hardware completions live at
 /// [`dma_registers::CONS_INDEX`]; software producer/consumer updates live at
 /// [`dma_registers::PROD_INDEX`] for both engines — the merged v4+ map aliases
 /// RDMA_PROD onto CONS and RDMA_CONS onto PROD.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QueueEnable {
-    pub queue: u8,
+    pub set: TxRingSet,
 }
 
 impl QueueEnable {
     pub const fn new(queue: u8) -> Result<Self, QueueEnableError> {
-        if !queue_supported(queue) {
-            return Err(QueueEnableError::UnsupportedQueue);
+        match TxRingSet::new(queue) {
+            Ok(set) => Ok(Self { set }),
+            Err(error) => Err(error),
         }
-        Ok(Self { queue })
     }
 
     pub const fn ring_cfg(self) -> u32 {
-        1 << self.queue
+        self.set.rdma_ring_cfg()
     }
 
-    /// Linux `init_tx_queues` writes this mask to TDMA `DMA_RING_CFG`.
     pub const fn tdma_ring_cfg(self) -> u32 {
-        if self.queue == DEFAULT_TX_RING {
-            V5_TX_RING_CFG
-        } else {
-            1 << self.queue
-        }
+        self.set.tdma_ring_cfg()
     }
 
     pub const fn ctrl(self) -> u32 {
-        dma_registers::DMA_ENABLE | (1 << (dma_registers::RING_BUF_EN_SHIFT + self.queue as u32))
+        self.set.ctrl()
     }
 
     pub const fn hardware_index(self) -> u32 {
@@ -2269,6 +2403,18 @@ mod tests {
         const {
             assert!(V5_TX_RING_CFG == 0x1f);
         }
+        assert_eq!(TxRingSet::V5.doorbell, DEFAULT_TX_RING);
+        assert_eq!(TxRingSet::V5.tdma_ring_cfg(), V5_TX_RING_CFG);
+        assert_eq!(TxRingSet::V5.rdma_ring_cfg(), 1);
+        assert_eq!(
+            TxRingSet::V5.ctrl() & !dma_registers::DMA_ENABLE,
+            1 << dma_registers::RING_BUF_EN_SHIFT
+        );
+        assert_ne!(
+            TxRingSet::V5.ctrl() >> dma_registers::RING_BUF_EN_SHIFT,
+            V5_TX_RING_CFG
+        );
+        assert_eq!(enable.set, TxRingSet::V5);
         assert_eq!(enable.ring_cfg(), 1);
         assert_eq!(enable.tdma_ring_cfg(), V5_TX_RING_CFG);
         assert_ne!(enable.tdma_ring_cfg(), enable.ring_cfg());
@@ -2328,8 +2474,8 @@ mod tests {
             "genet: tx unavailable (timeout)"
         );
         assert_eq!(
-            TxReport::Complete(MIN_FRAME_BYTES as u16).to_string(),
-            "genet: tx complete len=60 (one frame, not a nic)"
+            TxReport::ConsPosted(MIN_FRAME_BYTES as u16).to_string(),
+            "genet: tx cons len=60 (dma, not a nic)"
         );
         let done = DescriptorStatus {
             length: MIN_FRAME_BYTES as u16,
@@ -2342,7 +2488,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             TxReport::from_status(done),
-            TxReport::Complete(MIN_FRAME_BYTES as u16)
+            TxReport::ConsPosted(MIN_FRAME_BYTES as u16)
         );
         let still_owned = DescriptorStatus {
             length: MIN_FRAME_BYTES as u16,
@@ -2359,7 +2505,7 @@ mod tests {
         assert_eq!(TxReport::from_poll(1, still_owned), TxReport::StillOwned);
         assert_eq!(
             TxReport::from_poll(1, done),
-            TxReport::Complete(MIN_FRAME_BYTES as u16)
+            TxReport::ConsPosted(MIN_FRAME_BYTES as u16)
         );
         assert_eq!(
             TxReport::MdioTimeout.to_string(),
@@ -2371,7 +2517,7 @@ mod tests {
         );
         assert_eq!(
             TxReport::from_tx_cons(1, MIN_FRAME_BYTES as u16),
-            TxReport::Complete(MIN_FRAME_BYTES as u16)
+            TxReport::ConsPosted(MIN_FRAME_BYTES as u16)
         );
         assert_eq!(
             TxReport::from_tx_cons(0, MIN_FRAME_BYTES as u16),

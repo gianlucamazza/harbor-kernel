@@ -472,6 +472,7 @@ fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
             };
             println!(uart, "{phy}");
             if matches!(phy, PhyIdentify::Identity(_)) {
+                // Probe sample only. Submit re-reads BMSR and does not reprint.
                 let link = match controller.classify_link() {
                     Ok(state) => LinkReport::Classified(state),
                     Err(Error::Timeout) => LinkReport::Timeout,
@@ -489,168 +490,20 @@ fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
 static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
     crate::sync::Mutex::new(None);
 
-/// Program, then enable, Linux v5 default TX ring 0 after the frame pool exists.
+/// Program, then run the unpublished GENET bring-up after the frame pool exists.
 ///
 /// Probe runs at discover time, before frames; the programmed descriptors
-/// need two identity-mapped frames inside the FDT DMA windows. Enable
-/// writes RING_CFG+CTRL only after Programmed; TDMA RING_CFG is Linux
-/// v5 `0x1f` (rings 0–4). RGMII OOB (ext-gphy,
-/// no MAC delay) and UniMAC max-frame/station address are programmed
-/// after Enabled. TBUF is in 64-byte TSB mode; the probe carries that prefix.
-/// One bounded TX and one
-/// bounded RX follow; a down BMSR refuses before the doorbell
-/// or RX arm. After CONS the product prints a UniMAC TSV window
-/// (packed 0x49c, Linux 0x4a8, pok 0x4ec). A bounded recover then
-/// returns the controller to Idle.
+/// need two identity-mapped frames inside the FDT DMA windows. The driver
+/// owns the sequence (`GenetBoot`); this function only prints.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_queue0(uart: &mut Pl011) {
-    use crate::drivers::genet::Error;
-    use kernel_core::genet::Queue0Report;
-
-    let lines = HELD_GENET.with(|held| {
+    HELD_GENET.with(|held| {
         let controller = held.as_mut()?;
         let programmed = program_held_queue0(controller);
-        let arb = if matches!(programmed, Queue0Report::Programmed) {
-            Some(controller.program_tdma_wrr())
-        } else {
-            None
-        };
-        let enabled = if matches!(programmed, Queue0Report::Programmed) {
-            Some(match controller.enable_queue0() {
-                Ok(()) => Queue0Report::Enabled,
-                Err(Error::Enable(error)) => Queue0Report::Enable(error),
-                Err(_) => Queue0Report::Enable(kernel_core::genet::QueueEnableError::NotProgrammed),
-            })
-        } else {
-            None
-        };
-        let ring_cfg = if matches!(enabled, Some(Queue0Report::Enabled)) {
-            Some(kernel_core::genet::RingCfgReport::Programmed)
-        } else {
-            None
-        };
-        let rgmii = if matches!(enabled, Some(Queue0Report::Enabled)) {
-            Some(controller.program_rgmii_oob())
-        } else {
-            None
-        };
-        let umac = if matches!(enabled, Some(Queue0Report::Enabled)) {
-            Some(controller.program_umac_init())
-        } else {
-            None
-        };
-        let tbuf = if matches!(enabled, Some(Queue0Report::Enabled)) {
-            Some(controller.program_tbuf_tsb())
-        } else {
-            None
-        };
-        let tbuf_size = if matches!(enabled, Some(Queue0Report::Enabled)) {
-            Some(controller.program_rbuf_tbuf_size())
-        } else {
-            None
-        };
-        let rbuf = if matches!(enabled, Some(Queue0Report::Enabled)) {
-            Some(controller.program_rbuf_64b())
-        } else {
-            None
-        };
-        let tx = if matches!(enabled, Some(Queue0Report::Enabled)) {
-            Some(match controller.submit_one_tx() {
-                Ok(report) => report,
-                Err(Error::Timeout) => kernel_core::genet::TxReport::Timeout,
-                Err(Error::Phy(kernel_core::genet::PhyError::LinkDown)) => {
-                    kernel_core::genet::TxReport::LinkDown
-                }
-                Err(_) => kernel_core::genet::TxReport::NotEnabled,
-            })
-        } else {
-            None
-        };
-        let mib = if tx.is_some() {
-            Some(controller.read_umac_tsv())
-        } else {
-            None
-        };
-        let rx = if matches!(enabled, Some(Queue0Report::Enabled)) {
-            Some(match controller.submit_one_rx() {
-                Ok(report) => report,
-                Err(Error::Timeout) => kernel_core::genet::RxReport::Timeout,
-                Err(Error::Phy(kernel_core::genet::PhyError::LinkDown)) => {
-                    kernel_core::genet::RxReport::LinkDown
-                }
-                Err(_) => kernel_core::genet::RxReport::NotEnabled,
-            })
-        } else {
-            None
-        };
-        let recovered = if matches!(enabled, Some(Queue0Report::Enabled)) {
-            Some(match controller.recover() {
-                Ok(report) => report,
-                Err(Error::Timeout) => kernel_core::genet::ResetReport::Timeout,
-                Err(_) => kernel_core::genet::ResetReport::NotEnabled,
-            })
-        } else {
-            None
-        };
-        Some((
-            programmed, arb, enabled, ring_cfg, rgmii, umac, tbuf, tbuf_size, rbuf, tx, mib, rx,
-            recovered,
-        ))
+        let boot = controller.boot_after_program(programmed);
+        boot.each_line(|line| println!(uart, "{line}"));
+        Some(())
     });
-    if let Some((
-        programmed,
-        arb,
-        enabled,
-        ring_cfg,
-        rgmii,
-        umac,
-        tbuf,
-        tbuf_size,
-        rbuf,
-        tx,
-        mib,
-        rx,
-        recovered,
-    )) = lines
-    {
-        println!(uart, "{programmed}");
-        if let Some(arb) = arb {
-            println!(uart, "{arb}");
-        }
-        if let Some(enabled) = enabled {
-            println!(uart, "{enabled}");
-        }
-        if let Some(ring_cfg) = ring_cfg {
-            println!(uart, "{ring_cfg}");
-        }
-        if let Some(rgmii) = rgmii {
-            println!(uart, "{rgmii}");
-        }
-        if let Some(umac) = umac {
-            println!(uart, "{umac}");
-        }
-        if let Some(tbuf) = tbuf {
-            println!(uart, "{tbuf}");
-        }
-        if let Some(tbuf_size) = tbuf_size {
-            println!(uart, "{tbuf_size}");
-        }
-        if let Some(rbuf) = rbuf {
-            println!(uart, "{rbuf}");
-        }
-        if let Some(tx) = tx {
-            println!(uart, "{tx}");
-        }
-        if let Some(mib) = mib {
-            println!(uart, "{mib}");
-        }
-        if let Some(rx) = rx {
-            println!(uart, "{rx}");
-        }
-        if let Some(recovered) = recovered {
-            println!(uart, "{recovered}");
-        }
-    }
 }
 
 #[cfg(feature = "board-rpi4")]
