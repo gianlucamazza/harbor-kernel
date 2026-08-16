@@ -83,12 +83,12 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=df9a0d80`,
+on silicon. A cable-up product boot (`src=f0bae772`,
 `20260816-052739.log`) printed `queue0 programmed` / `enabled`,
-`tbuf tsb`, `tbuf size`, `tx complete len=124`, and
+`tbuf tsb`, `tbuf size`, `rbuf 64b`, `tx complete len=124`, and
 `umac tsv packed=0 linux=0 pok=0` after a first `link=down` snapshot.
 The Apple NIC pcap has no `0x88b5`. CONS posted the 124-byte TSB+probe
-after `RBUF_TBUF_SIZE_CTRL=1`; neither the packed trap nor Linux
+after `RBUF_CTRL` 64B+align; neither the packed trap nor Linux
 `tx_pkts`/`pok` counted a send. Serial complete is not a wire frame.
 The network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
@@ -97,7 +97,8 @@ revision probe, masks interrupts, stops both DMA engines, applies the
 bounded UniMAC reset sequence, and can identify the DT PHY. `board-rpi4`
 selects `Genet::probe`, `identify_phy`, `classify_link`,
 `configure_queue0`, `enable_queue0` (after the frame pool exists),
-`submit_one_tx`, `submit_one_rx`, and `recover`. Enable writes
+`submit_one_tx`, `submit_one_rx`, and `recover`. After Programmed the product writes TDMA `ARB_CTRL=DMA_ARBITER_WRR`
+(Linux `init_tx_queues`) and prints one `ArbiterReport` line. Enable writes
 `RING_CFG`+`CTRL` only after Programmed. `submit_one_tx` writes UniMAC datapath (`CMD_SPEED_*`, `TX_EN`,
 `RX_EN`, `PAD_EN`, `CRC_FWD`, `NO_LEN_CHK`), ORs `RGMII_LINK`,
 then doorbells a TX BD with `APPEND_CRC` and the

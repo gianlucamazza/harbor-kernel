@@ -226,6 +226,11 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         kernel_core::genet::RbufReport::Programmed.to_string(),
         "genet: rbuf 64b (align, not a nic)"
     );
+    assert_eq!(kernel_core::genet::dma_registers::DMA_ARBITER_WRR, 1);
+    assert_eq!(
+        kernel_core::genet::ArbiterReport::Wrr.to_string(),
+        "genet: tdma arb (wrr, not a nic)"
+    );
     assert_eq!(kernel_core::genet::TX_DMA_BYTES, 124);
     const {
         assert!(!kernel_core::genet::TX_FLUSH_BEFORE_DOORBELL);

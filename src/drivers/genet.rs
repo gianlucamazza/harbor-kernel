@@ -6,10 +6,11 @@
 //! controller. Network-service publication is a later BSP composition step.
 
 use kernel_core::genet::{
-    self, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError,
-    MdioTxn, PhyError, PhyLink, QueueEnable, QueueEnableError, RbufReport, ResetReport, Revision,
-    RevisionError, RgmiiReport, RingProgram, RingProgramError, RxReport, TbufReport,
-    TbufSizeReport, TxReport, UmacMibReport, UmacReport, dma_registers, mdio, phy, registers,
+    self, ArbiterReport, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase,
+    LinkState, MdioError, MdioTxn, PhyError, PhyLink, QueueEnable, QueueEnableError, RbufReport,
+    ResetReport, Revision, RevisionError, RgmiiReport, RingProgram, RingProgramError, RxReport,
+    TbufReport, TbufSizeReport, TxReport, UmacMibReport, UmacReport, dma_registers, mdio, phy,
+    registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -262,6 +263,15 @@ impl Genet {
             cache::invalidate_dcache_poc(rx_cpu, rx.length as usize);
         }
         Ok(())
+    }
+
+    /// Linux `init_tx_queues` writes `DMA_ARBITER_WRR` before enable.
+    pub fn program_tdma_wrr(&self) -> ArbiterReport {
+        self.regs.write32(
+            (registers::TDMA + dma_registers::ARB_CTRL) as usize,
+            dma_registers::DMA_ARBITER_WRR,
+        );
+        ArbiterReport::Wrr
     }
 
     /// Enable programmed queue 0 on both engines. Refuses Idle and a second

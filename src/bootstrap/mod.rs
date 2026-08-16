@@ -509,6 +509,11 @@ fn report_genet_queue0(uart: &mut Pl011) {
     let lines = HELD_GENET.with(|held| {
         let controller = held.as_mut()?;
         let programmed = program_held_queue0(controller);
+        let arb = if matches!(programmed, Queue0Report::Programmed) {
+            Some(controller.program_tdma_wrr())
+        } else {
+            None
+        };
         let enabled = if matches!(programmed, Queue0Report::Programmed) {
             Some(match controller.enable_queue0() {
                 Ok(()) => Queue0Report::Enabled,
@@ -582,13 +587,28 @@ fn report_genet_queue0(uart: &mut Pl011) {
             None
         };
         Some((
-            programmed, enabled, rgmii, umac, tbuf, tbuf_size, rbuf, tx, mib, rx, recovered,
+            programmed, arb, enabled, rgmii, umac, tbuf, tbuf_size, rbuf, tx, mib, rx, recovered,
         ))
     });
-    if let Some((programmed, enabled, rgmii, umac, tbuf, tbuf_size, rbuf, tx, mib, rx, recovered)) =
-        lines
+    if let Some((
+        programmed,
+        arb,
+        enabled,
+        rgmii,
+        umac,
+        tbuf,
+        tbuf_size,
+        rbuf,
+        tx,
+        mib,
+        rx,
+        recovered,
+    )) = lines
     {
         println!(uart, "{programmed}");
+        if let Some(arb) = arb {
+            println!(uart, "{arb}");
+        }
         if let Some(enabled) = enabled {
             println!(uart, "{enabled}");
         }
