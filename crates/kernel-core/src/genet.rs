@@ -2345,7 +2345,7 @@ mod tests {
         assert_eq!(tbuf_with_tsb(0x2), 0x2 | registers::TBUF_64B_EN);
         assert_eq!(TSB_BYTES, 64);
         assert_eq!(TX_DMA_BYTES, 124);
-        assert!(!TX_FLUSH_BEFORE_DOORBELL);
+        const { assert!(!TX_FLUSH_BEFORE_DOORBELL) };
         let mut probe = [0x5au8; TX_DMA_BYTES as usize];
         write_tsb_probe(&mut probe);
         assert!(probe[..TSB_BYTES as usize].iter().all(|&b| b == 0));
