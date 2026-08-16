@@ -240,9 +240,9 @@ pub const fn queue_supported(queue: u8) -> bool {
 
 /// Linux v5 TX ring set versus the doorbell queue.
 ///
-/// `mask` is TDMA `DMA_RING_CFG` (`0x1f` = rings 0–4 together). `doorbell`
-/// is the ring that receives the probe BD. `CTRL` `RING_BUF_EN` stays that
-/// one bit until the unpaid leftover writes Linux's matching `0x1f` mask.
+/// `mask` is TDMA `DMA_RING_CFG` and TDMA `RING_BUF_EN` (`0x1f` = rings
+/// 0–4 together). `doorbell` is the ring that receives the probe BD.
+/// RDMA `CTRL` stays the doorbell bit (Linux `rx_queues = 0`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TxRingSet {
     pub mask: u32,
@@ -276,10 +276,19 @@ impl TxRingSet {
         1 << self.doorbell
     }
 
-    /// `DMA_EN` plus the doorbell ring's `RING_BUF_EN` bit. Not Linux `0x1f`.
+    /// TDMA `DMA_CTRL`: `DMA_EN` plus Linux `RING_BUF_EN` mask `0x1f`.
+    pub const fn tdma_ctrl(self) -> u32 {
+        dma_registers::DMA_ENABLE | (self.mask << dma_registers::RING_BUF_EN_SHIFT)
+    }
+
+    /// RDMA `DMA_CTRL`: `DMA_EN` plus the doorbell bit only.
+    pub const fn rdma_ctrl(self) -> u32 {
+        dma_registers::DMA_ENABLE | (1 << (dma_registers::RING_BUF_EN_SHIFT + self.doorbell as u32))
+    }
+
+    /// TDMA enable word. Linux writes `RING_BUF_EN` then ORs `DMA_EN`.
     pub const fn ctrl(self) -> u32 {
-        dma_registers::DMA_ENABLE
-            | (1 << (dma_registers::RING_BUF_EN_SHIFT + self.doorbell as u32))
+        self.tdma_ctrl()
     }
 }
 
@@ -1485,6 +1494,20 @@ impl Display for RingCfgReport {
     }
 }
 
+/// Boot report for Linux v5 TDMA `RING_BUF_EN`. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RingBufReport {
+    Programmed,
+}
+
+impl Display for RingBufReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            RingBufReport::Programmed => f.write_str("genet: ring buf (0-4, not a nic)"),
+        }
+    }
+}
+
 /// Ordered unpublished bring-up lines. Bootstrap only prints.
 ///
 /// `ring_cfg` is filled by the enable write, not synthesized later.
@@ -1494,6 +1517,7 @@ pub struct GenetBoot {
     pub arb: Option<ArbiterReport>,
     pub enabled: Option<Queue0Report>,
     pub ring_cfg: Option<RingCfgReport>,
+    pub ring_buf: Option<RingBufReport>,
     pub rgmii: Option<RgmiiReport>,
     pub umac: Option<UmacReport>,
     pub tbuf: Option<TbufReport>,
@@ -1512,6 +1536,7 @@ impl GenetBoot {
             arb: None,
             enabled: None,
             ring_cfg: None,
+            ring_buf: None,
             rgmii: None,
             umac: None,
             tbuf: None,
@@ -1533,6 +1558,9 @@ impl GenetBoot {
             emit(line);
         }
         if let Some(line) = self.ring_cfg.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.ring_buf.as_ref() {
             emit(line);
         }
         if let Some(line) = self.rgmii.as_ref() {
@@ -1804,8 +1832,9 @@ pub enum QueueEnableError {
 ///
 /// TDMA `RING_CFG` is [`TxRingSet::tdma_ring_cfg`] (v5 default `0x1f`).
 /// RDMA `RING_CFG` is [`TxRingSet::rdma_ring_cfg`] (doorbell bit only).
-/// `CTRL` is [`TxRingSet::ctrl`]: `DMA_EN` plus the doorbell `RING_BUF_EN`
-/// bit, not Linux's `0x1f` mask. Hardware completions live at
+/// TDMA `CTRL` is [`TxRingSet::tdma_ctrl`] (`DMA_EN` plus `RING_BUF_EN`
+/// mask `0x1f`). RDMA `CTRL` is [`TxRingSet::rdma_ctrl`] (doorbell bit).
+/// Hardware completions live at
 /// [`dma_registers::CONS_INDEX`]; software producer/consumer updates live at
 /// [`dma_registers::PROD_INDEX`] for both engines — the merged v4+ map aliases
 /// RDMA_PROD onto CONS and RDMA_CONS onto PROD.
@@ -2407,12 +2436,16 @@ mod tests {
         assert_eq!(TxRingSet::V5.tdma_ring_cfg(), V5_TX_RING_CFG);
         assert_eq!(TxRingSet::V5.rdma_ring_cfg(), 1);
         assert_eq!(
-            TxRingSet::V5.ctrl() & !dma_registers::DMA_ENABLE,
-            1 << dma_registers::RING_BUF_EN_SHIFT
+            TxRingSet::V5.tdma_ctrl() & !dma_registers::DMA_ENABLE,
+            V5_TX_RING_CFG << dma_registers::RING_BUF_EN_SHIFT
         );
-        assert_ne!(
-            TxRingSet::V5.ctrl() >> dma_registers::RING_BUF_EN_SHIFT,
+        assert_eq!(
+            TxRingSet::V5.tdma_ctrl() >> dma_registers::RING_BUF_EN_SHIFT,
             V5_TX_RING_CFG
+        );
+        assert_eq!(
+            TxRingSet::V5.rdma_ctrl() & !dma_registers::DMA_ENABLE,
+            1 << dma_registers::RING_BUF_EN_SHIFT
         );
         assert_eq!(enable.set, TxRingSet::V5);
         assert_eq!(enable.ring_cfg(), 1);
@@ -2421,7 +2454,7 @@ mod tests {
         assert_ne!(enable.ring_cfg(), 1 << DESC_RING);
         assert_eq!(
             enable.ctrl(),
-            dma_registers::DMA_ENABLE | (1 << dma_registers::RING_BUF_EN_SHIFT)
+            dma_registers::DMA_ENABLE | (V5_TX_RING_CFG << dma_registers::RING_BUF_EN_SHIFT)
         );
         assert_eq!(enable.hardware_index(), dma_registers::CONS_INDEX);
         assert_eq!(enable.software_index(), dma_registers::PROD_INDEX);
@@ -2624,6 +2657,10 @@ mod tests {
         assert_eq!(
             RingCfgReport::Programmed.to_string(),
             "genet: ring cfg (0-4, not a nic)"
+        );
+        assert_eq!(
+            RingBufReport::Programmed.to_string(),
+            "genet: ring buf (0-4, not a nic)"
         );
         assert_eq!(tdma_flow_period(0), 0);
         assert_eq!(tdma_flow_period(DESC_RING), MAX_FRAME_BYTES << 16);
