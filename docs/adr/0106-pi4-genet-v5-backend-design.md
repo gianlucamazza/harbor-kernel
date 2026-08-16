@@ -85,8 +85,8 @@ bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
 on silicon. Silicon evidence lives in
 [verification.md](../verification.md) (current stamp
-`20260816-052739.log`, `src=d1cfbca5`: `tx cons len=124`). CONS
-retire is not a UniMAC send and not a wire frame. The network
+`20260816-052739.log`, `src=656be102`: `ring buf`, `tx cons len=124`).
+CONS retire is not a UniMAC send and not a wire frame. The network
 vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
@@ -95,7 +95,8 @@ bounded UniMAC reset sequence, and can identify the DT PHY. `board-rpi4`
 selects `Genet::probe`, `identify_phy`, `classify_link`,
 `configure_queue0`, `enable_queue0` (after the frame pool exists),
 `boot_after_program` (`GenetBoot`),
-`submit_one_tx`, `submit_one_rx`, and `recover`. After Programmed the product writes TDMA `ARB_CTRL=DMA_ARBITER_WRR`
+`submit_one_tx`, `submit_one_rx`, and `recover`. After Programmed the product writes TDMA rings 1–4 (32 BDs from 128)
+and prints one `Rings14Report` line, then TDMA `ARB_CTRL=DMA_ARBITER_WRR`
 (Linux `init_tx_queues`) and prints one `ArbiterReport` line. Enable writes
 `RING_CFG`+`CTRL` only after Programmed; TDMA `RING_CFG` is
 `TxRingSet` mask `V5_TX_RING_CFG` (`0x1f`, rings 0–4) and RDMA stays
@@ -153,8 +154,8 @@ Not a NIC claim. Next on the roadmap is the first row.
 
 | Leftover | Linux fact | Harbor today |
 | --- | --- | --- |
-| `RING_BUF_EN` mask `0x1f` | `init_tx_queues` writes the same mask to `DMA_CTRL` `RING_BUF_EN` | Product writes it on TDMA; silicon unpaid |
-| Program rings 1–4 | 32 BDs each after Q0's 128 | Only doorbell ring 0 is programmed |
+| `RING_BUF_EN` mask `0x1f` | `init_tx_queues` writes the same mask to `DMA_CTRL` `RING_BUF_EN` | Paid (HW) negative (`src=656be102`) |
+| Program rings 1–4 | 32 BDs each after Q0's 128 | Product writes TDMA ring words; silicon unpaid |
 | WRR priority words | `DMA_PRIORITY_0/1/2` weights | Arbiter is WRR; priorities unpaid |
 | `init_phy` on the boot path | PHY setup before first xmit | Identify + two BMSR samples (`LinkMoment`) |
 | `RBUF_CHK_CTRL` | RX checksum control | Unwritten |

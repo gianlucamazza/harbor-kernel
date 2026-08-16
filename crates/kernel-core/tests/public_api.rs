@@ -248,6 +248,12 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         kernel_core::genet::RingBufReport::Programmed.to_string(),
         "genet: ring buf (0-4, not a nic)"
     );
+    assert_eq!(kernel_core::genet::V5_Q0_TX_BD_CNT, 128);
+    assert_eq!(kernel_core::genet::v5_priority_tx_first(1), Some(128));
+    assert_eq!(
+        kernel_core::genet::Rings14Report::Programmed.to_string(),
+        "genet: rings 1-4 (tdma, not a nic)"
+    );
     assert_eq!(
         kernel_core::genet::LinkMoment::Probe,
         kernel_core::genet::LinkMoment::Probe
