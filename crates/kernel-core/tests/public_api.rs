@@ -228,8 +228,24 @@ fn the_genet_tx_report_is_reachable_from_outside() {
     );
     assert_eq!(kernel_core::genet::dma_registers::DMA_ARBITER_WRR, 1);
     assert_eq!(
+        kernel_core::genet::dma_registers::DMA_PRIORITY_0,
+        kernel_core::genet::dma_registers::ARB_CTRL + 4
+    );
+    assert_eq!(
+        kernel_core::genet::dma_registers::DMA_PRIORITY_2
+            - kernel_core::genet::dma_registers::DMA_PRIORITY_0,
+        8
+    );
+    assert_eq!(
         kernel_core::genet::ArbiterReport::Wrr.to_string(),
         "genet: tdma arb (wrr, not a nic)"
+    );
+    assert_eq!(kernel_core::genet::WrrPriority::V5.word0, 0x0042_1081);
+    assert_eq!(kernel_core::genet::WrrPriority::V5.word1, 0);
+    assert_eq!(kernel_core::genet::WrrPriority::V5.word2, 0);
+    assert_eq!(
+        kernel_core::genet::PriorityReport::Programmed.to_string(),
+        "genet: tdma prio (wrr, not a nic)"
     );
     assert_eq!(kernel_core::genet::V5_TX_RING_CFG, 0x1f);
     assert_eq!(kernel_core::genet::TxRingSet::V5.tdma_ring_cfg(), 0x1f);

@@ -97,7 +97,9 @@ selects `Genet::probe`, `identify_phy`, `classify_link`,
 `boot_after_program` (`GenetBoot`),
 `submit_one_tx`, `submit_one_rx`, and `recover`. After Programmed the product writes TDMA rings 1–4 (32 BDs from 128)
 and prints one `Rings14Report` line, then TDMA `ARB_CTRL=DMA_ARBITER_WRR`
-(Linux `init_tx_queues`) and prints one `ArbiterReport` line. Enable writes
+(Linux `init_tx_queues`) and prints one `ArbiterReport` line, then
+`DMA_PRIORITY_0/1/2` (`WrrPriority::V5`) and prints one `PriorityReport`
+line. Enable writes
 `RING_CFG`+`CTRL` only after Programmed; TDMA `RING_CFG` is
 `TxRingSet` mask `V5_TX_RING_CFG` (`0x1f`, rings 0–4) and RDMA stays
 the doorbell bit. `RingCfgReport` comes from that write.
@@ -156,7 +158,7 @@ Not a NIC claim. Next on the roadmap is the first row.
 | --- | --- | --- |
 | `RING_BUF_EN` mask `0x1f` | `init_tx_queues` writes the same mask to `DMA_CTRL` `RING_BUF_EN` | Paid (HW) negative (`src=656be102`) |
 | Program rings 1–4 | 32 BDs each after Q0's 128 | Product writes TDMA ring words; silicon unpaid |
-| WRR priority words | `DMA_PRIORITY_0/1/2` weights | Arbiter is WRR; priorities unpaid |
+| WRR priority words | `DMA_PRIORITY_0/1/2` weights | Product writes `WrrPriority::V5`; silicon unpaid |
 | `init_phy` on the boot path | PHY setup before first xmit | Identify + two BMSR samples (`LinkMoment`) |
 | `RBUF_CHK_CTRL` | RX checksum control | Unwritten |
 | More than one TX BD | Linux posts the frame BDs it has | One BD |

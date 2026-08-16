@@ -37,9 +37,10 @@ the 124-byte TSB+probe after TDMA `RING_BUF_EN=0x1f`;
 packed `0x49c`, Linux `0x4a8`, and `pok` `0x4ec` are all zero. The
 Apple NIC pcap has no `0x88b5`. The product now programs TDMA rings
 1–4 (32 BDs from 128) and prints `rings 1-4`; that is unpaid on
-silicon. A later host slice writes WRR priority words; that is
-unpaid. Serial CONS retire is not this ADR's one-TX gate. No wire
-RX or Pi absent-device result was produced.
+silicon. The product now writes WRR priority words
+(`DMA_PRIORITY_0/1/2` = `WrrPriority::V5`) and prints `tdma prio`;
+that is unpaid on silicon. Serial CONS retire is not this ADR's
+one-TX gate. No wire RX or Pi absent-device result was produced.
 
 ## Context
 
