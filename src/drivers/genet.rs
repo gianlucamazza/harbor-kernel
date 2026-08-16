@@ -304,7 +304,7 @@ impl Genet {
         if let Some(refused) = TxReport::refuse(self.phase, link) {
             return Ok(refused);
         }
-        if self.tx_cpu == 0 || self.tx_len < genet::MIN_FRAME_BYTES {
+        if self.tx_cpu == 0 || self.tx_len < genet::TX_DMA_BYTES {
             return Ok(TxReport::NotEnabled);
         }
         let ring = self.ring_regs(registers::TDMA);
@@ -316,14 +316,14 @@ impl Genet {
         }
         self.assert_rgmii_link();
         self.pulse_tx_flush();
-        fill_minimum_frame(self.tx_cpu, genet::MIN_FRAME_BYTES);
+        fill_tsb_probe(self.tx_cpu, genet::TX_DMA_BYTES);
         // SAFETY: configure_queue0 stored an identity-mapped TX frame.
         unsafe {
-            cache::clean_dcache_poc(self.tx_cpu, genet::MIN_FRAME_BYTES as usize);
+            cache::clean_dcache_poc(self.tx_cpu, genet::TX_DMA_BYTES as usize);
         }
         let descriptor = Descriptor {
             address: self.tx_dma,
-            length: genet::MIN_FRAME_BYTES,
+            length: genet::TX_DMA_BYTES,
             status: 0,
         };
         self.write_descriptor(registers::TDMA, 0, descriptor, true)?;
@@ -334,12 +334,12 @@ impl Genet {
         }) {
             return Ok(TxReport::from_tx_cons(
                 self.regs.read32(ring + dma_registers::CONS_INDEX as usize),
-                genet::MIN_FRAME_BYTES as u16,
+                genet::TX_DMA_BYTES as u16,
             ));
         }
         Ok(TxReport::from_tx_cons(
             self.regs.read32(ring + dma_registers::CONS_INDEX as usize),
-            genet::MIN_FRAME_BYTES as u16,
+            genet::TX_DMA_BYTES as u16,
         ))
     }
 
@@ -448,16 +448,14 @@ impl Genet {
         }
     }
 
-    /// Clear leftover TBUF 64-byte status-block mode. The probe frame is raw.
-    pub fn program_tbuf_raw(&self) -> TbufReport {
+    /// Enable TBUF 64-byte status-block mode. The probe frame carries a TSB.
+    pub fn program_tbuf_tsb(&self) -> TbufReport {
         let current = self.regs.read32(registers::TBUF_CTRL as usize);
-        self.regs.write32(
-            registers::TBUF_CTRL as usize,
-            genet::tbuf_raw_frame(current),
-        );
+        self.regs
+            .write32(registers::TBUF_CTRL as usize, genet::tbuf_with_tsb(current));
         self.regs
             .write32(registers::SYS_TBUF_FLUSH_CTRL as usize, 0);
-        TbufReport::Raw
+        TbufReport::Tsb
     }
 
     /// Pulse then release UniMAC MIB reset so a later TSV read is not stuck at 0.
@@ -664,20 +662,10 @@ impl Genet {
     }
 }
 
-/// Broadcast probe: dest ff:ff:ff:ff:ff:ff, src [`STATION_ADDR`], ethertype 0x88b5.
-fn fill_minimum_frame(cpu: usize, len: u32) {
-    let n = core::cmp::min(len as usize, genet::MIN_FRAME_BYTES as usize);
+/// TSB prefix plus broadcast probe: dest ff:ff, src [`STATION_ADDR`], 0x88b5.
+fn fill_tsb_probe(cpu: usize, len: u32) {
+    let n = core::cmp::min(len as usize, genet::TX_DMA_BYTES as usize);
     // SAFETY: `cpu` is the identity-mapped TX frame stored by configure_queue0.
     let buf = unsafe { core::slice::from_raw_parts_mut(cpu as *mut u8, n) };
-    buf.fill(0);
-    if n >= 6 {
-        buf[..6].fill(0xff);
-    }
-    if n >= 12 {
-        buf[6..12].copy_from_slice(&genet::STATION_ADDR);
-    }
-    if n >= 14 {
-        buf[12] = 0x88;
-        buf[13] = 0xb5;
-    }
+    genet::write_tsb_probe(buf);
 }

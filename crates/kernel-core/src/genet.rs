@@ -20,6 +20,10 @@ pub const DESC_RING: u8 = 16;
 pub const DEFAULT_TX_RING: u8 = 0;
 /// Minimum Ethernet payload the first TX slice writes (no FCS).
 pub const MIN_FRAME_BYTES: u32 = 60;
+/// Linux `sizeof(struct status_64)`: TBUF strips this prefix before UniMAC.
+pub const TSB_BYTES: u32 = 64;
+/// DMA length posted when TBUF 64-byte mode is on: TSB plus the probe frame.
+pub const TX_DMA_BYTES: u32 = TSB_BYTES + MIN_FRAME_BYTES;
 /// Locally-administered station address used as the probe frame SA.
 pub const STATION_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 /// Maximum standard Ethernet frame accepted by the first bounded slice.
@@ -265,6 +269,23 @@ pub const fn umac_mib_reset_bits() -> u32 {
 /// Clear `TBUF_64B_EN`. The probe frame has no 64-byte TSB prefix.
 pub const fn tbuf_raw_frame(current: u32) -> u32 {
     current & !registers::TBUF_64B_EN
+}
+
+/// Set `TBUF_64B_EN`. Linux `init_umac` does this and prepends a TSB.
+pub const fn tbuf_with_tsb(current: u32) -> u32 {
+    current | registers::TBUF_64B_EN
+}
+
+/// Write a zero TSB then the broadcast probe (dest ff:ff, SA station, 0x88b5).
+pub fn write_tsb_probe(buf: &mut [u8]) {
+    buf.fill(0);
+    let start = TSB_BYTES as usize;
+    if buf.len() >= start + 14 {
+        buf[start..start + 6].fill(0xff);
+        buf[start + 6..start + 12].copy_from_slice(&STATION_ADDR);
+        buf[start + 12] = 0x88;
+        buf[start + 13] = 0xb5;
+    }
 }
 
 /// Linux sets `ENET_MAX_MTU << 16` on TDMA `FLOW_PERIOD` when the ring is not 0.
@@ -1322,12 +1343,14 @@ impl Display for UmacMibReport {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TbufReport {
     Raw,
+    Tsb,
 }
 
 impl Display for TbufReport {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             TbufReport::Raw => f.write_str("genet: tbuf raw (no 64b, not a nic)"),
+            TbufReport::Tsb => f.write_str("genet: tbuf tsb (64b, not a nic)"),
         }
     }
 }
@@ -2316,6 +2339,30 @@ mod tests {
         assert_eq!(registers::SYS_TBUF_FLUSH_CTRL, 0x0c);
         assert_eq!(tbuf_raw_frame(registers::TBUF_64B_EN), 0);
         assert_eq!(tbuf_raw_frame(0x2 | registers::TBUF_64B_EN), 0x2);
+        assert_eq!(tbuf_with_tsb(0), registers::TBUF_64B_EN);
+        assert_eq!(tbuf_with_tsb(0x2), 0x2 | registers::TBUF_64B_EN);
+        assert_eq!(TSB_BYTES, 64);
+        assert_eq!(TX_DMA_BYTES, 124);
+        let mut probe = [0x5au8; TX_DMA_BYTES as usize];
+        write_tsb_probe(&mut probe);
+        assert!(probe[..TSB_BYTES as usize].iter().all(|&b| b == 0));
+        assert!(
+            probe[TSB_BYTES as usize..TSB_BYTES as usize + 6]
+                .iter()
+                .all(|&b| b == 0xff)
+        );
+        assert_eq!(
+            &probe[TSB_BYTES as usize + 6..TSB_BYTES as usize + 12],
+            &STATION_ADDR
+        );
+        assert_eq!(
+            &probe[TSB_BYTES as usize + 12..TSB_BYTES as usize + 14],
+            &[0x88, 0xb5]
+        );
+        assert_eq!(
+            TbufReport::Tsb.to_string(),
+            "genet: tbuf tsb (64b, not a nic)"
+        );
         assert_eq!(tdma_flow_period(0), 0);
         assert_eq!(tdma_flow_period(DESC_RING), MAX_FRAME_BYTES << 16);
         assert_eq!(
