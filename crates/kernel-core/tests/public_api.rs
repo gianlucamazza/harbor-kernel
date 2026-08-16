@@ -214,6 +214,7 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         "genet: tbuf tsb (64b, not a nic)"
     );
     assert_eq!(kernel_core::genet::TX_DMA_BYTES, 124);
+    assert!(!kernel_core::genet::TX_FLUSH_BEFORE_DOORBELL);
     assert_eq!(
         kernel_core::genet::tbuf_with_tsb(0),
         kernel_core::genet::registers::TBUF_64B_EN

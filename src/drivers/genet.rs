@@ -315,7 +315,6 @@ impl Genet {
             return Ok(report);
         }
         self.assert_rgmii_link();
-        self.pulse_tx_flush();
         fill_tsb_probe(self.tx_cpu, genet::TX_DMA_BYTES);
         // SAFETY: configure_queue0 stored an identity-mapped TX frame.
         unsafe {
@@ -431,7 +430,7 @@ impl Genet {
         Ok(())
     }
 
-    /// Pulse `UMAC_TX_FLUSH`. The register has no completion bit.
+    /// Pulse `UMAC_TX_FLUSH` at UniMAC init. Linux does not flush on every xmit.
     fn pulse_tx_flush(&self) {
         self.regs.write32(registers::UMAC_TX_FLUSH as usize, 1);
         let _ = self.regs.read32(registers::UMAC_TX_FLUSH as usize);
