@@ -210,6 +210,15 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         "genet: tbuf raw (no 64b, not a nic)"
     );
     assert_eq!(
+        kernel_core::genet::TbufReport::Tsb.to_string(),
+        "genet: tbuf tsb (64b, not a nic)"
+    );
+    assert_eq!(kernel_core::genet::TX_DMA_BYTES, 124);
+    assert_eq!(
+        kernel_core::genet::tbuf_with_tsb(0),
+        kernel_core::genet::registers::TBUF_64B_EN
+    );
+    assert_eq!(
         kernel_core::genet::umac_tx_pkts_linux(),
         kernel_core::genet::registers::UMAC_TX_PKTS
     );

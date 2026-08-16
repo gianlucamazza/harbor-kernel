@@ -495,7 +495,7 @@ static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
 /// need two identity-mapped frames inside the FDT DMA windows. Enable
 /// writes RING_CFG+CTRL only after Programmed. RGMII OOB (ext-gphy,
 /// no MAC delay) and UniMAC max-frame/station address are programmed
-/// after Enabled. TBUF is left in raw-frame mode (no 64-byte TSB).
+/// after Enabled. TBUF is in 64-byte TSB mode; the probe carries that prefix.
 /// One bounded TX and one
 /// bounded RX follow; a down BMSR refuses before the doorbell
 /// or RX arm. After CONS the product prints a UniMAC TSV window
@@ -529,7 +529,7 @@ fn report_genet_queue0(uart: &mut Pl011) {
             None
         };
         let tbuf = if matches!(enabled, Some(Queue0Report::Enabled)) {
-            Some(controller.program_tbuf_raw())
+            Some(controller.program_tbuf_tsb())
         } else {
             None
         };

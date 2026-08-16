@@ -83,12 +83,14 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=b853980b`,
-`20260816-052739.log`) printed `tbuf raw`, `tx complete len=60`, and
+on silicon. A cable-up product boot (`src=89ced3d0`,
+`20260816-052739.log`) printed `queue0 programmed` / `enabled`,
+`tbuf raw`, `tx complete len=60`, and
 `umac tsv packed=0 linux=0 pok=0` after a first `link=down` snapshot.
-The Apple NIC pcap has no `0x88b5`. CONS posted; neither the packed
-trap nor Linux `tx_pkts`/`pok` counted a send. Serial complete is not
-a wire frame. The network vocabulary stays vacant.
+The Apple NIC pcap has no `0x88b5`. CONS posted on ring 0 the same way
+it did on ring 16; neither the packed trap nor Linux `tx_pkts`/`pok`
+counted a send. Serial complete is not a wire frame. The network
+vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
@@ -103,8 +105,8 @@ v5 `QTAG`. Complete is CONS posted (not OWN writeback). After CONS
 it prints a UniMAC TSV window (`0x49c` packed trap, Linux `0x4a8`
 `tx_pkts`, `0x4ec` `pok`). Ring 16 TDMA `FLOW_PERIOD` carries
 `MAX_FRAME << 16` (Linux does this for every ring except 0).
-TBUF is programmed raw (`TBUF_64B_EN` clear; no 64-byte TSB on the
-probe frame) and leftover `SYS_TBUF_FLUSH` is released. `UMAC_MIB_CTRL`
+TBUF is programmed with `TBUF_64B_EN` and the probe carries a 64-byte
+TSB prefix (`TX_DMA_BYTES=124`). Leftover `SYS_TBUF_FLUSH` is released. `UMAC_MIB_CTRL`
 is pulsed then cleared so a zero TSV is not a stuck reset. Enabled+Up only;
 `submit_one_rx` ORs `RX_EN` after the same speed word; unknown
 autoneg is a refusal, not a silent 10 Mbps. After Enabled the product
@@ -112,8 +114,8 @@ also writes `SYS_PORT_CTRL=EXT_GPHY` and `EXT_RGMII_OOB_CTRL`
 (`RGMII_MODE_EN`, `OOB_DISABLE` clear, `ID_MODE_DIS` clear for
 `rgmii-rxid`) and prints one `RgmiiReport` line, then writes
 `UMAC_MAX_FRAME_LEN` and station `UMAC_MAC0`/`UMAC_MAC1` and prints
-one `UmacReport` line, then one `TbufReport` (`tbuf raw`) after
-clearing `TBUF_64B_EN`. The product programs Linux v5 default TX
+one `UmacReport` line, then one `TbufReport` (`tbuf tsb`) after
+setting `TBUF_64B_EN`. The product programs Linux v5 default TX
 ring 0 (`DEFAULT_TX_RING`) for the bounded TX/RX doorbells and prints
 one `Queue0Report` line. `recover` refuses Idle
 and otherwise stops DMA, UniMAC-resets, and returns to Idle. It
