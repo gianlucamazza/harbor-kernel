@@ -26,6 +26,14 @@ pub const V5_TX_BDS_PER_Q: u16 = 32;
 pub const V5_Q0_TX_BD_CNT: u16 = TOTAL_DESCRIPTORS - V5_TX_QUEUES as u16 * V5_TX_BDS_PER_Q;
 /// Linux `init_tx_queues`: `(1 << (tx_queues + 1)) - 1` with `tx_queues = 4`.
 pub const V5_TX_RING_CFG: u32 = (1u32 << (V5_TX_QUEUES as u32 + 1)) - 1;
+/// Linux `GENET_Q0_WEIGHT`. WRR weight for TX ring 0.
+pub const GENET_Q0_WEIGHT: u32 = 1;
+/// Linux `GENET_Q1_WEIGHT`. WRR weight for TX rings 1–4.
+pub const GENET_Q1_WEIGHT: u32 = 4;
+/// Linux `DMA_RING_BUF_PRIORITY_SHIFT`. Five bits per ring in a priority word.
+pub const DMA_RING_BUF_PRIORITY_SHIFT: u32 = 5;
+/// Linux `DMA_RING_BUF_PRIORITY_MASK`.
+pub const DMA_RING_BUF_PRIORITY_MASK: u32 = 0x1f;
 /// Minimum Ethernet payload the first TX slice writes (no FCS).
 pub const MIN_FRAME_BYTES: u32 = 60;
 /// Linux `sizeof(struct status_64)`: TBUF strips this prefix before UniMAC.
@@ -258,6 +266,59 @@ pub const fn v5_priority_tx_first(queue: u8) -> Option<u16> {
     Some(V5_Q0_TX_BD_CNT + (queue as u16 - 1) * V5_TX_BDS_PER_Q)
 }
 
+/// Linux `DMA_PRIO_REG_INDEX(q)`: `((q) / 6)`.
+pub const fn dma_prio_reg_index(queue: u8) -> usize {
+    queue as usize / 6
+}
+
+/// Linux `DMA_PRIO_REG_SHIFT(q)`: `((q) % 6) * DMA_RING_BUF_PRIORITY_SHIFT`.
+pub const fn dma_prio_reg_shift(queue: u8) -> u32 {
+    (queue as u32 % 6) * DMA_RING_BUF_PRIORITY_SHIFT
+}
+
+/// Linux `init_tx_queues` weight: Q0 is [`GENET_Q0_WEIGHT`], else Q1.
+pub const fn dma_prio_weight(queue: u8) -> u32 {
+    if queue == 0 {
+        GENET_Q0_WEIGHT
+    } else {
+        GENET_Q1_WEIGHT
+    }
+}
+
+/// Linux `init_tx_queues` `DMA_PRIORITY_0/1/2` words.
+///
+/// v5 rings 0–4 pack into word 0 (`0x00421081`); words 1 and 2 stay 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WrrPriority {
+    pub word0: u32,
+    pub word1: u32,
+    pub word2: u32,
+}
+
+impl WrrPriority {
+    pub const V5: Self = Self::for_tx_queues(V5_TX_QUEUES);
+
+    /// Pack rings `0..=tx_queues` the way Linux `init_tx_queues` does.
+    pub const fn for_tx_queues(tx_queues: u8) -> Self {
+        let mut words = [0u32; 3];
+        let mut i = 0u8;
+        while i <= tx_queues {
+            let idx = dma_prio_reg_index(i);
+            words[idx] |= dma_prio_weight(i) << dma_prio_reg_shift(i);
+            i += 1;
+        }
+        Self {
+            word0: words[0],
+            word1: words[1],
+            word2: words[2],
+        }
+    }
+
+    pub const fn words(self) -> [u32; 3] {
+        [self.word0, self.word1, self.word2]
+    }
+}
+
 /// Linux v5 TX ring set versus the doorbell queue.
 ///
 /// `mask` is TDMA `DMA_RING_CFG` and TDMA `RING_BUF_EN` (`0x1f` = rings
@@ -406,6 +467,10 @@ pub mod dma_registers {
     pub const DMA_ARBITER_RR: u32 = 0;
     pub const DMA_ARBITER_WRR: u32 = 1;
     pub const DMA_ARBITER_SP: u32 = 2;
+    /// v3+ `bcmgenet_dma_regs_v3plus`: `DMA_PRIORITY_0/1/2`.
+    pub const DMA_PRIORITY_0: u32 = COMMON_BASE + 0x30;
+    pub const DMA_PRIORITY_1: u32 = COMMON_BASE + 0x34;
+    pub const DMA_PRIORITY_2: u32 = COMMON_BASE + 0x38;
     pub const RING_CFG: u32 = COMMON_BASE;
     pub const RING0: u32 = RING_BASE;
     pub const DMA_ENABLE: u32 = 1 << 0;
@@ -1500,6 +1565,20 @@ impl Display for ArbiterReport {
     }
 }
 
+/// Boot report for TDMA `DMA_PRIORITY_0/1/2`. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PriorityReport {
+    Programmed,
+}
+
+impl Display for PriorityReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            PriorityReport::Programmed => f.write_str("genet: tdma prio (wrr, not a nic)"),
+        }
+    }
+}
+
 /// Boot report for Linux v5 TDMA `DMA_RING_CFG`. Not a NIC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RingCfgReport {
@@ -1550,6 +1629,7 @@ pub struct GenetBoot {
     pub programmed: Queue0Report,
     pub rings14: Option<Rings14Report>,
     pub arb: Option<ArbiterReport>,
+    pub prio: Option<PriorityReport>,
     pub enabled: Option<Queue0Report>,
     pub ring_cfg: Option<RingCfgReport>,
     pub ring_buf: Option<RingBufReport>,
@@ -1570,6 +1650,7 @@ impl GenetBoot {
             programmed,
             rings14: None,
             arb: None,
+            prio: None,
             enabled: None,
             ring_cfg: None,
             ring_buf: None,
@@ -1591,6 +1672,9 @@ impl GenetBoot {
             emit(line);
         }
         if let Some(line) = self.arb.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.prio.as_ref() {
             emit(line);
         }
         if let Some(line) = self.enabled.as_ref() {
@@ -2480,6 +2564,48 @@ mod tests {
     }
 
     #[test]
+    fn wrr_priority_words_match_linux_v5() {
+        assert_eq!(GENET_Q0_WEIGHT, 1);
+        assert_eq!(GENET_Q1_WEIGHT, 4);
+        assert_eq!(DMA_RING_BUF_PRIORITY_SHIFT, 5);
+        assert_eq!(DMA_RING_BUF_PRIORITY_MASK, 0x1f);
+        assert_eq!(dma_prio_reg_index(0), 0);
+        assert_eq!(dma_prio_reg_index(5), 0);
+        assert_eq!(dma_prio_reg_index(6), 1);
+        assert_eq!(dma_prio_reg_shift(0), 0);
+        assert_eq!(dma_prio_reg_shift(1), 5);
+        assert_eq!(dma_prio_reg_shift(4), 20);
+        assert_eq!(dma_prio_weight(0), GENET_Q0_WEIGHT);
+        assert_eq!(dma_prio_weight(1), GENET_Q1_WEIGHT);
+        assert_eq!(dma_prio_weight(4), GENET_Q1_WEIGHT);
+        let expected0 = GENET_Q0_WEIGHT
+            | GENET_Q1_WEIGHT << 5
+            | GENET_Q1_WEIGHT << 10
+            | GENET_Q1_WEIGHT << 15
+            | GENET_Q1_WEIGHT << 20;
+        assert_eq!(expected0, 0x0042_1081);
+        assert_eq!(WrrPriority::V5, WrrPriority::for_tx_queues(V5_TX_QUEUES));
+        assert_eq!(WrrPriority::V5.words(), [0x0042_1081, 0, 0]);
+        assert_eq!(
+            WrrPriority::for_tx_queues(0).words(),
+            [GENET_Q0_WEIGHT, 0, 0]
+        );
+        assert_eq!(dma_registers::DMA_PRIORITY_0, dma_registers::ARB_CTRL + 4);
+        assert_eq!(
+            dma_registers::DMA_PRIORITY_1,
+            dma_registers::DMA_PRIORITY_0 + 4
+        );
+        assert_eq!(
+            dma_registers::DMA_PRIORITY_2,
+            dma_registers::DMA_PRIORITY_1 + 4
+        );
+        assert_eq!(
+            PriorityReport::Programmed.to_string(),
+            "genet: tdma prio (wrr, not a nic)"
+        );
+    }
+
+    #[test]
     fn queue_enable_is_queue0_and_keeps_index_polarity() {
         let enable = QueueEnable::new(DEFAULT_TX_RING).unwrap();
         assert_eq!(DEFAULT_TX_RING, 0);
@@ -2707,6 +2833,13 @@ mod tests {
         assert_eq!(
             ArbiterReport::Wrr.to_string(),
             "genet: tdma arb (wrr, not a nic)"
+        );
+        assert_eq!(WrrPriority::V5.word0, 0x0042_1081);
+        assert_eq!(WrrPriority::V5.word1, 0);
+        assert_eq!(WrrPriority::V5.word2, 0);
+        assert_eq!(
+            PriorityReport::Programmed.to_string(),
+            "genet: tdma prio (wrr, not a nic)"
         );
         assert_eq!(V5_TX_RING_CFG, 0x1f);
         assert_eq!(

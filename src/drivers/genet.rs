@@ -7,11 +7,11 @@
 
 use kernel_core::genet::{
     self, ArbiterReport, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase,
-    GenetBoot, LinkState, MdioError, MdioTxn, PhyError, PhyLink, Queue0Report, QueueEnable,
-    QueueEnableError, RbufReport, ResetReport, Revision, RevisionError, RgmiiReport, RingBufReport,
-    RingCfgReport, RingProgram, RingProgramError, Rings14Report, RxReport, TbufReport,
-    TbufSizeReport, TxReport, TxRingSet, UmacMibReport, UmacReport, dma_registers, mdio, phy,
-    registers,
+    GenetBoot, LinkState, MdioError, MdioTxn, PhyError, PhyLink, PriorityReport, Queue0Report,
+    QueueEnable, QueueEnableError, RbufReport, ResetReport, Revision, RevisionError, RgmiiReport,
+    RingBufReport, RingCfgReport, RingProgram, RingProgramError, Rings14Report, RxReport,
+    TbufReport, TbufSizeReport, TxReport, TxRingSet, UmacMibReport, UmacReport, WrrPriority,
+    dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -295,6 +295,24 @@ impl Genet {
         ArbiterReport::Wrr
     }
 
+    /// Linux `init_tx_queues` writes `DMA_PRIORITY_0/1/2` after the rings.
+    pub fn program_tdma_priority(&self) -> PriorityReport {
+        let words = WrrPriority::V5.words();
+        self.regs.write32(
+            (registers::TDMA + dma_registers::DMA_PRIORITY_0) as usize,
+            words[0],
+        );
+        self.regs.write32(
+            (registers::TDMA + dma_registers::DMA_PRIORITY_1) as usize,
+            words[1],
+        );
+        self.regs.write32(
+            (registers::TDMA + dma_registers::DMA_PRIORITY_2) as usize,
+            words[2],
+        );
+        PriorityReport::Programmed
+    }
+
     /// Enable programmed queue 0 on both engines. Reports come from the
     /// `RING_CFG` and TDMA `RING_BUF_EN` words just written. Refuses Idle
     /// and a second enable. Does not publish a network service.
@@ -341,6 +359,7 @@ impl Genet {
         }
         boot.rings14 = Some(self.program_priority_tx_rings());
         boot.arb = Some(self.program_tdma_wrr());
+        boot.prio = Some(self.program_tdma_priority());
         match self.enable_queue0() {
             Ok((cfg, buf)) => {
                 boot.enabled = Some(Queue0Report::Enabled);
