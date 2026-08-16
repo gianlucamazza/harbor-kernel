@@ -68,6 +68,9 @@ pub mod registers {
     pub const INTRL2_CPU_CLEAR: u32 = 0x08;
     pub const INTRL2_CPU_MASK_SET: u32 = 0x10;
     pub const RBUF_CTRL: u32 = RBUF;
+    /// Linux `RBUF_TBUF_SIZE_CTRL`. v3+ `init_umac` writes `1`.
+    pub const RBUF_TBUF_SIZE_CTRL: u32 = RBUF + 0xb4;
+    pub const RBUF_TBUF_SIZE: u32 = 1;
     pub const UMAC_CMD: u32 = UMAC + 0x08;
     pub const UMAC_CMD_TX_EN: u32 = 1 << 0;
     pub const UMAC_CMD_RX_EN: u32 = 1 << 1;
@@ -1357,6 +1360,20 @@ impl Display for TbufReport {
     }
 }
 
+/// Boot report for Linux v3+ `RBUF_TBUF_SIZE_CTRL`. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TbufSizeReport {
+    Programmed,
+}
+
+impl Display for TbufSizeReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            TbufSizeReport::Programmed => f.write_str("genet: tbuf size (rbuf, not a nic)"),
+        }
+    }
+}
+
 /// Boot report for the descriptor-based ring (Linux `DESC_INDEX` = 16). Not a NIC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescRingReport {
@@ -2365,6 +2382,12 @@ mod tests {
         assert_eq!(
             TbufReport::Tsb.to_string(),
             "genet: tbuf tsb (64b, not a nic)"
+        );
+        assert_eq!(registers::RBUF_TBUF_SIZE_CTRL, 0x3b4);
+        assert_eq!(registers::RBUF_TBUF_SIZE, 1);
+        assert_eq!(
+            TbufSizeReport::Programmed.to_string(),
+            "genet: tbuf size (rbuf, not a nic)"
         );
         assert_eq!(tdma_flow_period(0), 0);
         assert_eq!(tdma_flow_period(DESC_RING), MAX_FRAME_BYTES << 16);

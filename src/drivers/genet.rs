@@ -8,8 +8,8 @@
 use kernel_core::genet::{
     self, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError,
     MdioTxn, PhyError, PhyLink, QueueEnable, QueueEnableError, ResetReport, Revision,
-    RevisionError, RgmiiReport, RingProgram, RingProgramError, RxReport, TbufReport, TxReport,
-    UmacMibReport, UmacReport, dma_registers, mdio, phy, registers,
+    RevisionError, RgmiiReport, RingProgram, RingProgramError, RxReport, TbufReport,
+    TbufSizeReport, TxReport, UmacMibReport, UmacReport, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -455,6 +455,15 @@ impl Genet {
         self.regs
             .write32(registers::SYS_TBUF_FLUSH_CTRL as usize, 0);
         TbufReport::Tsb
+    }
+
+    /// Linux v3+ `init_umac` writes `1` here. Not a NIC.
+    pub fn program_rbuf_tbuf_size(&self) -> TbufSizeReport {
+        self.regs.write32(
+            registers::RBUF_TBUF_SIZE_CTRL as usize,
+            registers::RBUF_TBUF_SIZE,
+        );
+        TbufSizeReport::Programmed
     }
 
     /// Pulse then release UniMAC MIB reset so a later TSV read is not stuck at 0.
