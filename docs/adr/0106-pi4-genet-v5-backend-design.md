@@ -83,14 +83,13 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=89ced3d0`,
+on silicon. A cable-up product boot (`src=1349668e`,
 `20260816-052739.log`) printed `queue0 programmed` / `enabled`,
-`tbuf raw`, `tx complete len=60`, and
+`tbuf tsb`, `tx complete len=124`, and
 `umac tsv packed=0 linux=0 pok=0` after a first `link=down` snapshot.
-The Apple NIC pcap has no `0x88b5`. CONS posted on ring 0 the same way
-it did on ring 16; neither the packed trap nor Linux `tx_pkts`/`pok`
-counted a send. Serial complete is not a wire frame. The network
-vocabulary stays vacant.
+The Apple NIC pcap has no `0x88b5`. CONS posted the 124-byte TSB+probe;
+neither the packed trap nor Linux `tx_pkts`/`pok` counted a send.
+Serial complete is not a wire frame. The network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
@@ -100,8 +99,8 @@ selects `Genet::probe`, `identify_phy`, `classify_link`,
 `submit_one_tx`, `submit_one_rx`, and `recover`. Enable writes
 `RING_CFG`+`CTRL` only after Programmed. `submit_one_tx` writes UniMAC datapath (`CMD_SPEED_*`, `TX_EN`,
 `RX_EN`, `PAD_EN`, `CRC_FWD`, `NO_LEN_CHK`), ORs `RGMII_LINK`,
-pulses `TX_FLUSH`, then doorbells a TX BD with `APPEND_CRC` and the
-v5 `QTAG`. Complete is CONS posted (not OWN writeback). After CONS
+then doorbells a TX BD with `APPEND_CRC` and the
+v5 `QTAG`. `UMAC_TX_FLUSH` is pulsed at UniMAC init, not on each xmit. Complete is CONS posted (not OWN writeback). After CONS
 it prints a UniMAC TSV window (`0x49c` packed trap, Linux `0x4a8`
 `tx_pkts`, `0x4ec` `pok`). Ring 16 TDMA `FLOW_PERIOD` carries
 `MAX_FRAME << 16` (Linux does this for every ring except 0).

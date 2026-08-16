@@ -24,6 +24,8 @@ pub const MIN_FRAME_BYTES: u32 = 60;
 pub const TSB_BYTES: u32 = 64;
 /// DMA length posted when TBUF 64-byte mode is on: TSB plus the probe frame.
 pub const TX_DMA_BYTES: u32 = TSB_BYTES + MIN_FRAME_BYTES;
+/// Linux `bcmgenet_xmit` does not pulse `UMAC_TX_FLUSH`. Flush stays an init step.
+pub const TX_FLUSH_BEFORE_DOORBELL: bool = false;
 /// Locally-administered station address used as the probe frame SA.
 pub const STATION_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 /// Maximum standard Ethernet frame accepted by the first bounded slice.
@@ -2343,6 +2345,7 @@ mod tests {
         assert_eq!(tbuf_with_tsb(0x2), 0x2 | registers::TBUF_64B_EN);
         assert_eq!(TSB_BYTES, 64);
         assert_eq!(TX_DMA_BYTES, 124);
+        const { assert!(!TX_FLUSH_BEFORE_DOORBELL) };
         let mut probe = [0x5au8; TX_DMA_BYTES as usize];
         write_tsb_probe(&mut probe);
         assert!(probe[..TSB_BYTES as usize].iter().all(|&b| b == 0));

@@ -17,21 +17,21 @@ or claim that a driver exists.
 A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
 provenance, SMP, and durable-media baseline. The product prints a `genet:`
 FDT report and, when that binding matches the compiled window, runs
-`Genet::probe`. Silicon stamp `20260816-052739.log` (`src=89ced3d0`, PowerOn) has the
+`Genet::probe`. Silicon stamp `20260816-052739.log` (`src=1349668e`, PowerOn) has the
 FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot `link=down`,
 `queue0 programmed`, `queue0 enabled`,
 `genet: rgmii oob (ext-gphy, not a nic)`,
 `genet: umac init (frame, not a nic)`,
-`genet: tbuf raw (no 64b, not a nic)`,
-`genet: tx complete len=60 (one frame, not a nic)`,
+`genet: tbuf tsb (64b, not a nic)`,
+`genet: tx complete len=124 (one frame, not a nic)`,
 `genet: umac tsv packed=0 linux=0 pok=0 (mib, not a nic)`,
 `genet: rx unavailable (timeout)`,
 `genet: reset recovered (idle, not a nic)`, and `VACANT`. CONS posted
-on Linux v5 default TX ring 0 the same way it did on ring 16;
+the 124-byte TSB+probe on ring 0;
 packed `0x49c`, Linux `0x4a8`, and `pok` `0x4ec` are all zero. The
-Apple NIC pcap has no `0x88b5`. A later host slice enables `TBUF_64B_EN`
-and prepends a 64-byte TSB on ring 0; that is unpaid on silicon.
-Serial CONS complete is not this ADR's
+Apple NIC pcap has no `0x88b5`. A later host slice stops pulsing
+`UMAC_TX_FLUSH` immediately before the doorbell; that is unpaid on
+silicon. Serial CONS complete is not this ADR's
 one-TX gate. No wire RX or Pi absent-device result was produced.
 
 ## Context
