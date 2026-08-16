@@ -8,10 +8,10 @@
 use kernel_core::genet::{
     self, ArbiterReport, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase,
     GenetBoot, LinkState, MdioError, MdioTxn, PhyError, PhyInitReport, PhyLink, PriorityReport,
-    Queue0Report, QueueEnable, QueueEnableError, RbufReport, ResetReport, Revision, RevisionError,
-    RgmiiReport, RingBufReport, RingCfgReport, RingProgram, RingProgramError, Rings14Report,
-    RxReport, TbufReport, TbufSizeReport, TxReport, TxRingSet, UmacMibReport, UmacReport,
-    WrrPriority, dma_registers, mdio, phy, registers,
+    Queue0Report, QueueEnable, QueueEnableError, RbufChkReport, RbufReport, ResetReport, Revision,
+    RevisionError, RgmiiReport, RingBufReport, RingCfgReport, RingProgram, RingProgramError,
+    Rings14Report, RxReport, TbufReport, TbufSizeReport, TxReport, TxRingSet, UmacMibReport,
+    UmacReport, WrrPriority, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -380,6 +380,7 @@ impl Genet {
         boot.tbuf = Some(self.program_tbuf_tsb());
         boot.tbuf_size = Some(self.program_rbuf_tbuf_size());
         boot.rbuf = Some(self.program_rbuf_64b());
+        boot.rbuf_chk = Some(self.program_rbuf_chk());
         boot.tx = Some(match self.submit_one_tx() {
             Ok(report) => report,
             Err(Error::Timeout) => TxReport::Timeout,
@@ -586,6 +587,16 @@ impl Genet {
             genet::rbuf_ctrl_with_64b_align(current),
         );
         RbufReport::Programmed
+    }
+
+    /// Linux `init_umac` writes `RBUF_CHK_CTRL`. Harbor datapath has `CRC_FWD`.
+    pub fn program_rbuf_chk(&self) -> RbufChkReport {
+        let current = self.regs.read32(registers::RBUF_CHK_CTRL as usize);
+        self.regs.write32(
+            registers::RBUF_CHK_CTRL as usize,
+            genet::rbuf_chk_ctrl(current, true),
+        );
+        RbufChkReport::Programmed
     }
 
     /// Pulse then release UniMAC MIB reset so a later TSV read is not stuck at 0.
