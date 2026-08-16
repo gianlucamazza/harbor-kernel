@@ -325,6 +325,9 @@ pub mod dma_registers {
     pub const STATUS: u32 = COMMON_BASE + 0x08;
     pub const SCB_BURST_SIZE: u32 = COMMON_BASE + 0x0c;
     pub const ARB_CTRL: u32 = COMMON_BASE + 0x2c;
+    pub const DMA_ARBITER_RR: u32 = 0;
+    pub const DMA_ARBITER_WRR: u32 = 1;
+    pub const DMA_ARBITER_SP: u32 = 2;
     pub const RING_CFG: u32 = COMMON_BASE;
     pub const RING0: u32 = RING_BASE;
     pub const DMA_ENABLE: u32 = 1 << 0;
@@ -1395,6 +1398,20 @@ impl Display for RbufReport {
     }
 }
 
+/// Boot report for TDMA `ARB_CTRL`. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArbiterReport {
+    Wrr,
+}
+
+impl Display for ArbiterReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ArbiterReport::Wrr => f.write_str("genet: tdma arb (wrr, not a nic)"),
+        }
+    }
+}
+
 /// Boot report for the descriptor-based ring (Linux `DESC_INDEX` = 16). Not a NIC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescRingReport {
@@ -2416,6 +2433,11 @@ mod tests {
         assert_eq!(
             RbufReport::Programmed.to_string(),
             "genet: rbuf 64b (align, not a nic)"
+        );
+        assert_eq!(dma_registers::DMA_ARBITER_WRR, 1);
+        assert_eq!(
+            ArbiterReport::Wrr.to_string(),
+            "genet: tdma arb (wrr, not a nic)"
         );
         assert_eq!(tdma_flow_period(0), 0);
         assert_eq!(tdma_flow_period(DESC_RING), MAX_FRAME_BYTES << 16);
