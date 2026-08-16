@@ -20,6 +20,10 @@ pub const DESC_RING: u8 = 16;
 pub const DEFAULT_TX_RING: u8 = 0;
 /// Linux v5 `hw_params.tx_queues`. Priority rings 1–4 sit beside queue 0.
 pub const V5_TX_QUEUES: u8 = 4;
+/// Linux v5 `tx_bds_per_q`. Each priority TX ring has this many BDs.
+pub const V5_TX_BDS_PER_Q: u16 = 32;
+/// Linux `GENET_Q0_TX_BD_CNT`: 256 − 4 × 32 = 128.
+pub const V5_Q0_TX_BD_CNT: u16 = TOTAL_DESCRIPTORS - V5_TX_QUEUES as u16 * V5_TX_BDS_PER_Q;
 /// Linux `init_tx_queues`: `(1 << (tx_queues + 1)) - 1` with `tx_queues = 4`.
 pub const V5_TX_RING_CFG: u32 = (1u32 << (V5_TX_QUEUES as u32 + 1)) - 1;
 /// Minimum Ethernet payload the first TX slice writes (no FCS).
@@ -233,9 +237,25 @@ pub const fn rgmii_oob_with_link(current: u32) -> u32 {
     rgmii_oob_mode(current) | registers::RGMII_LINK
 }
 
-/// Queue 0 (priority) or [`DESC_RING`] (descriptor-based). Other indices refuse.
+/// Queue 0 (doorbell) or [`DESC_RING`]. Enable/doorbell refuse 1–4.
 pub const fn queue_supported(queue: u8) -> bool {
     queue == 0 || queue == DESC_RING
+}
+
+/// TDMA rings 1–4 may be programmed. RDMA and doorbell stay 0 / 16.
+pub const fn ring_programmable(block: u32, queue: u8) -> bool {
+    if queue == 0 || queue == DESC_RING {
+        return true;
+    }
+    block == registers::TDMA && queue >= 1 && queue <= V5_TX_QUEUES
+}
+
+/// Linux `init_tx_queues` first BD index for priority ring `queue` (1–4).
+pub const fn v5_priority_tx_first(queue: u8) -> Option<u16> {
+    if queue < 1 || queue > V5_TX_QUEUES {
+        return None;
+    }
+    Some(V5_Q0_TX_BD_CNT + (queue as u16 - 1) * V5_TX_BDS_PER_Q)
 }
 
 /// Linux v5 TX ring set versus the doorbell queue.
@@ -1032,7 +1052,7 @@ impl RingProgram {
         if block != registers::RDMA && block != registers::TDMA {
             return Err(RingProgramError::InvalidBlock);
         }
-        if !queue_supported(queue) {
+        if !ring_programmable(block, queue) {
             return Err(RingProgramError::UnsupportedQueue);
         }
         if count == 0 {
@@ -1508,12 +1528,27 @@ impl Display for RingBufReport {
     }
 }
 
+/// Boot report for Linux v5 TDMA priority rings 1–4. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rings14Report {
+    Programmed,
+}
+
+impl Display for Rings14Report {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Rings14Report::Programmed => f.write_str("genet: rings 1-4 (tdma, not a nic)"),
+        }
+    }
+}
+
 /// Ordered unpublished bring-up lines. Bootstrap only prints.
 ///
 /// `ring_cfg` is filled by the enable write, not synthesized later.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GenetBoot {
     pub programmed: Queue0Report,
+    pub rings14: Option<Rings14Report>,
     pub arb: Option<ArbiterReport>,
     pub enabled: Option<Queue0Report>,
     pub ring_cfg: Option<RingCfgReport>,
@@ -1533,6 +1568,7 @@ impl GenetBoot {
     pub const fn after_program(programmed: Queue0Report) -> Self {
         Self {
             programmed,
+            rings14: None,
             arb: None,
             enabled: None,
             ring_cfg: None,
@@ -1551,6 +1587,9 @@ impl GenetBoot {
 
     pub fn each_line(&self, mut emit: impl FnMut(&dyn Display)) {
         emit(&self.programmed);
+        if let Some(line) = self.rings14.as_ref() {
+            emit(line);
+        }
         if let Some(line) = self.arb.as_ref() {
             emit(line);
         }
@@ -2276,6 +2315,22 @@ mod tests {
             RingProgram::new(registers::RDMA, 1, 0, 1, 64),
             Err(RingProgramError::UnsupportedQueue)
         );
+        assert_eq!(v5_priority_tx_first(1), Some(V5_Q0_TX_BD_CNT));
+        assert_eq!(V5_Q0_TX_BD_CNT, 128);
+        assert_eq!(V5_TX_BDS_PER_Q, 32);
+        let p1 = RingProgram::new(
+            registers::TDMA,
+            1,
+            V5_Q0_TX_BD_CNT,
+            V5_TX_BDS_PER_Q,
+            MAX_FRAME_BYTES as u16,
+        )
+        .unwrap();
+        assert_eq!(p1.first, 128);
+        assert_eq!(p1.count, 32);
+        assert_eq!(p1.words().flow, MAX_FRAME_BYTES << 16);
+        assert_eq!(v5_priority_tx_first(4), Some(224));
+        assert_eq!(v5_priority_tx_first(0), None);
         let desc = RingProgram::new(registers::TDMA, DESC_RING, 0, 1, 128).unwrap();
         assert_eq!(
             desc.ring_register_base(),
@@ -2661,6 +2716,10 @@ mod tests {
         assert_eq!(
             RingBufReport::Programmed.to_string(),
             "genet: ring buf (0-4, not a nic)"
+        );
+        assert_eq!(
+            Rings14Report::Programmed.to_string(),
+            "genet: rings 1-4 (tdma, not a nic)"
         );
         assert_eq!(tdma_flow_period(0), 0);
         assert_eq!(tdma_flow_period(DESC_RING), MAX_FRAME_BYTES << 16);

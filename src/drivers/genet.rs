@@ -9,8 +9,9 @@ use kernel_core::genet::{
     self, ArbiterReport, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase,
     GenetBoot, LinkState, MdioError, MdioTxn, PhyError, PhyLink, Queue0Report, QueueEnable,
     QueueEnableError, RbufReport, ResetReport, Revision, RevisionError, RgmiiReport, RingBufReport,
-    RingCfgReport, RingProgram, RingProgramError, RxReport, TbufReport, TbufSizeReport, TxReport,
-    TxRingSet, UmacMibReport, UmacReport, dma_registers, mdio, phy, registers,
+    RingCfgReport, RingProgram, RingProgramError, Rings14Report, RxReport, TbufReport,
+    TbufSizeReport, TxReport, TxRingSet, UmacMibReport, UmacReport, dma_registers, mdio, phy,
+    registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -267,6 +268,24 @@ impl Genet {
         Ok(())
     }
 
+    /// Linux `init_tx_queues` programs TDMA rings 1–4 (32 BDs from 128).
+    /// Does not doorbell them. Not a NIC.
+    pub fn program_priority_tx_rings(&self) -> Rings14Report {
+        for queue in 1..=genet::V5_TX_QUEUES {
+            let first = genet::v5_priority_tx_first(queue).expect("1..=4");
+            let program = RingProgram::new(
+                registers::TDMA,
+                queue,
+                first,
+                genet::V5_TX_BDS_PER_Q,
+                genet::MAX_FRAME_BYTES as u16,
+            )
+            .expect("priority TX ring");
+            self.write_ring(program);
+        }
+        Rings14Report::Programmed
+    }
+
     /// Linux `init_tx_queues` writes `DMA_ARBITER_WRR` before enable.
     pub fn program_tdma_wrr(&self) -> ArbiterReport {
         self.regs.write32(
@@ -320,6 +339,7 @@ impl Genet {
         if !matches!(programmed, Queue0Report::Programmed) {
             return boot;
         }
+        boot.rings14 = Some(self.program_priority_tx_rings());
         boot.arb = Some(self.program_tdma_wrr());
         match self.enable_queue0() {
             Ok((cfg, buf)) => {
