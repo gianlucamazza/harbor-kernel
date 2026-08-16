@@ -213,6 +213,17 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         kernel_core::genet::umac_tx_pkts_linux(),
         kernel_core::genet::registers::UMAC_TX_PKTS
     );
+    assert_eq!(kernel_core::genet::DEFAULT_TX_RING, 0);
+    assert_eq!(
+        kernel_core::genet::QueueEnable::new(kernel_core::genet::DEFAULT_TX_RING)
+            .unwrap()
+            .ring_cfg(),
+        1
+    );
+    assert_eq!(
+        kernel_core::genet::tdma_flow_period(kernel_core::genet::DEFAULT_TX_RING),
+        0
+    );
     assert_eq!(
         kernel_core::genet::tdma_flow_period(kernel_core::genet::DESC_RING),
         kernel_core::genet::MAX_FRAME_BYTES << 16
