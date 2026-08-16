@@ -83,28 +83,28 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=5bf281a0`,
-`20260816-052739.log`) printed `queue0 programmed`, `tdma arb`,
-`queue0 enabled`, `tbuf tsb`, `tbuf size`, `rbuf 64b`,
-`tx complete len=124`, and `umac tsv packed=0 linux=0 pok=0` after a
-first `link=down` snapshot. The Apple NIC pcap has no `0x88b5`. CONS
-posted the 124-byte TSB+probe after TDMA `ARB_CTRL=DMA_ARBITER_WRR`;
-neither the packed trap nor Linux `tx_pkts`/`pok` counted a send.
-Serial complete is not a wire frame. The network vocabulary stays vacant.
+on silicon. Silicon evidence lives in
+[verification.md](../verification.md) (current stamp
+`20260816-052739.log`). CONS retire is not a UniMAC send and not a
+wire frame. The live product prints `tx cons` for that retire. The
+network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
 bounded UniMAC reset sequence, and can identify the DT PHY. `board-rpi4`
 selects `Genet::probe`, `identify_phy`, `classify_link`,
 `configure_queue0`, `enable_queue0` (after the frame pool exists),
+`boot_after_program` (`GenetBoot`),
 `submit_one_tx`, `submit_one_rx`, and `recover`. After Programmed the product writes TDMA `ARB_CTRL=DMA_ARBITER_WRR`
 (Linux `init_tx_queues`) and prints one `ArbiterReport` line. Enable writes
-`RING_CFG`+`CTRL` only after Programmed; TDMA `RING_CFG` is Linux v5
-`V5_TX_RING_CFG` (`0x1f`, rings 0–4) and RDMA stays `1 << queue`. The
-product prints one `RingCfgReport` line after enable. `submit_one_tx` writes UniMAC datapath (`CMD_SPEED_*`, `TX_EN`,
+`RING_CFG`+`CTRL` only after Programmed; TDMA `RING_CFG` is
+`TxRingSet` mask `V5_TX_RING_CFG` (`0x1f`, rings 0–4) and RDMA stays
+the doorbell bit. `RingCfgReport` comes from that write.
+`TxRingSet::ctrl` still enables only the doorbell `RING_BUF_EN` bit.
+`submit_one_tx` writes UniMAC datapath (`CMD_SPEED_*`, `TX_EN`,
 `RX_EN`, `PAD_EN`, `CRC_FWD`, `NO_LEN_CHK`), ORs `RGMII_LINK`,
 then doorbells a TX BD with `APPEND_CRC` and the
-v5 `QTAG`. `UMAC_TX_FLUSH` is pulsed at UniMAC init, not on each xmit. Complete is CONS posted (not OWN writeback). After CONS
+v5 `QTAG`. `UMAC_TX_FLUSH` is pulsed at UniMAC init, not on each xmit. TX prints CONS retire (`tx cons`), not a send. After CONS
 it prints a UniMAC TSV window (`0x49c` packed trap, Linux `0x4a8`
 `tx_pkts`, `0x4ec` `pok`). Ring 16 TDMA `FLOW_PERIOD` carries
 `MAX_FRAME << 16` (Linux does this for every ring except 0).
@@ -138,11 +138,26 @@ descriptor RAM) and `MdioTxn` for a clause-22 read/write with busy/fail and
 absent PHY-ID refusal. `PhyLink` classifies BMCR reset and BMSR link against
 the binding's `rgmii-rxid` fact; it does not invent RGMII delay tables. This
 remains a host contract. The AArch64 driver can write the queue-0 program,
-read the DT PHY, and run a bounded `init_phy`. `QueueEnable` / `DmaPhase`
+read the DT PHY, and run a bounded `init_phy`. `TxRingSet` separates
+the TDMA mask from the doorbell queue; `QueueEnable` / `DmaPhase`
 make enable a sequenced word (program, then `RING_CFG` + `CTRL`) rather
 than a stray bit; cache invalidate-to-PoC is an AArch64 operation, not a
 `qemu-virt` feature. The driver still does not select `board-rpi4` or
 publish a network service.
+
+### Unpaid silicon leftovers (one variable each)
+
+Not a NIC claim. Next on the roadmap is the first row.
+
+| Leftover | Linux fact | Harbor today |
+| --- | --- | --- |
+| `RING_BUF_EN` mask `0x1f` | `init_tx_queues` writes the same mask to `DMA_CTRL` `RING_BUF_EN` | `TxRingSet::ctrl` enables the doorbell bit only |
+| Program rings 1–4 | 32 BDs each after Q0's 128 | Only doorbell ring 0 is programmed |
+| WRR priority words | `DMA_PRIORITY_0/1/2` weights | Arbiter is WRR; priorities unpaid |
+| `init_phy` on the boot path | PHY setup before first xmit | Identify + two BMSR samples (`LinkMoment`) |
+| `RBUF_CHK_CTRL` | RX checksum control | Unwritten |
+| More than one TX BD | Linux posts the frame BDs it has | One BD |
+| `TX_EN` settle | Datapath then transmit | Immediate doorbell |
 
 Revision decoding and the v5 RDMA/TDMA offsets — descriptor RAM, then 17
 rings, then the common control block — are also part of the pure contract,

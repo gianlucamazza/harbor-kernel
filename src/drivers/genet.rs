@@ -7,10 +7,10 @@
 
 use kernel_core::genet::{
     self, ArbiterReport, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase,
-    LinkState, MdioError, MdioTxn, PhyError, PhyLink, QueueEnable, QueueEnableError, RbufReport,
-    ResetReport, Revision, RevisionError, RgmiiReport, RingProgram, RingProgramError, RxReport,
-    TbufReport, TbufSizeReport, TxReport, UmacMibReport, UmacReport, dma_registers, mdio, phy,
-    registers,
+    GenetBoot, LinkState, MdioError, MdioTxn, PhyError, PhyLink, Queue0Report, QueueEnable,
+    QueueEnableError, RbufReport, ResetReport, Revision, RevisionError, RgmiiReport, RingCfgReport,
+    RingProgram, RingProgramError, RxReport, TbufReport, TbufSizeReport, TxReport, TxRingSet,
+    UmacMibReport, UmacReport, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -171,8 +171,9 @@ impl Genet {
     }
 
     /// Queue-0 enable mask used by the first bounded TX/RX composition.
+    /// Doorbell `RING_BUF_EN` only; Linux `0x1f` is unpaid.
     pub const fn queue0_enable_mask() -> u32 {
-        QueueEnable { queue: 0 }.ctrl()
+        TxRingSet::V5.ctrl()
     }
 
     /// Program queue 0 on both DMA engines and publish one TX and one RX
@@ -274,35 +275,87 @@ impl Genet {
         ArbiterReport::Wrr
     }
 
-    /// Enable programmed queue 0 on both engines. Refuses Idle and a second
+    /// Enable programmed queue 0 on both engines. The returned report is
+    /// the TDMA `RING_CFG` word just written. Refuses Idle and a second
     /// enable. Does not publish a network service.
-    pub fn enable_queue0(&mut self) -> Result<(), Error> {
+    pub fn enable_queue0(&mut self) -> Result<RingCfgReport, Error> {
         self.enable_named_ring(DEFAULT_TX_RING)
     }
 
     /// Enable the programmed descriptor ring. Refuses unless it is ring 16.
-    pub fn enable_desc_ring(&mut self) -> Result<(), Error> {
+    pub fn enable_desc_ring(&mut self) -> Result<RingCfgReport, Error> {
         self.enable_named_ring(DESC_RING)
     }
 
-    fn enable_named_ring(&mut self, queue: u8) -> Result<(), Error> {
+    fn enable_named_ring(&mut self, queue: u8) -> Result<RingCfgReport, Error> {
         if self.queue != queue {
             return Err(Error::Enable(QueueEnableError::UnsupportedQueue));
         }
         let enable = QueueEnable::new(queue).map_err(Error::Enable)?;
         self.phase = self.phase.enable().map_err(Error::Enable)?;
+        self.regs.write32(
+            (registers::RDMA + dma_registers::RING_CFG) as usize,
+            enable.set.rdma_ring_cfg(),
+        );
+        self.regs.write32(
+            (registers::TDMA + dma_registers::RING_CFG) as usize,
+            enable.set.tdma_ring_cfg(),
+        );
         for block in [registers::RDMA, registers::TDMA] {
-            let cfg = if block == registers::TDMA {
-                enable.tdma_ring_cfg()
-            } else {
-                enable.ring_cfg()
-            };
             self.regs
-                .write32((block + dma_registers::RING_CFG) as usize, cfg);
-            self.regs
-                .write32((block + dma_registers::CTRL) as usize, enable.ctrl());
+                .write32((block + dma_registers::CTRL) as usize, enable.set.ctrl());
         }
-        Ok(())
+        Ok(RingCfgReport::Programmed)
+    }
+
+    /// Run the unpublished bring-up after the rings are programmed.
+    /// `ring_cfg` comes from the enable write. Not a NIC.
+    pub fn boot_after_program(&mut self, programmed: Queue0Report) -> GenetBoot {
+        let mut boot = GenetBoot::after_program(programmed);
+        if !matches!(programmed, Queue0Report::Programmed) {
+            return boot;
+        }
+        boot.arb = Some(self.program_tdma_wrr());
+        match self.enable_queue0() {
+            Ok(cfg) => {
+                boot.enabled = Some(Queue0Report::Enabled);
+                boot.ring_cfg = Some(cfg);
+            }
+            Err(Error::Enable(error)) => {
+                boot.enabled = Some(Queue0Report::Enable(error));
+                return boot;
+            }
+            Err(_) => {
+                boot.enabled = Some(Queue0Report::Enable(QueueEnableError::NotProgrammed));
+                return boot;
+            }
+        }
+        boot.rgmii = Some(self.program_rgmii_oob());
+        boot.umac = Some(self.program_umac_init());
+        boot.tbuf = Some(self.program_tbuf_tsb());
+        boot.tbuf_size = Some(self.program_rbuf_tbuf_size());
+        boot.rbuf = Some(self.program_rbuf_64b());
+        boot.tx = Some(match self.submit_one_tx() {
+            Ok(report) => report,
+            Err(Error::Timeout) => TxReport::Timeout,
+            Err(Error::Phy(PhyError::LinkDown)) => TxReport::LinkDown,
+            Err(_) => TxReport::NotEnabled,
+        });
+        if boot.tx.is_some() {
+            boot.mib = Some(self.read_umac_tsv());
+        }
+        boot.rx = Some(match self.submit_one_rx() {
+            Ok(report) => report,
+            Err(Error::Timeout) => RxReport::Timeout,
+            Err(Error::Phy(PhyError::LinkDown)) => RxReport::LinkDown,
+            Err(_) => RxReport::NotEnabled,
+        });
+        boot.recovered = Some(match self.recover() {
+            Ok(report) => report,
+            Err(Error::Timeout) => ResetReport::Timeout,
+            Err(_) => ResetReport::NotEnabled,
+        });
+        boot
     }
 
     fn ring_regs(&self, block: u32) -> usize {
@@ -310,8 +363,9 @@ impl Genet {
             as usize
     }
 
-    /// One bounded TX on queue 0. Refuses unless Enabled and BMSR is up.
-    /// Does not claim RX or publish a network service.
+    /// One bounded TX on queue 0. Refuses unless Enabled and BMSR is up
+    /// at [`kernel_core::genet::LinkMoment::Submit`]. Does not claim RX
+    /// or publish a network service.
     pub fn submit_one_tx(&mut self) -> Result<TxReport, Error> {
         let link = self.classify_link()?;
         if let Some(refused) = TxReport::refuse(self.phase, link) {
