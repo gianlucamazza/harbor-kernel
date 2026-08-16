@@ -39,8 +39,10 @@ Apple NIC pcap has no `0x88b5`. The product now programs TDMA rings
 1–4 (32 BDs from 128) and prints `rings 1-4`; that is unpaid on
 silicon. The product now writes WRR priority words
 (`DMA_PRIORITY_0/1/2` = `WrrPriority::V5`) and prints `tdma prio`;
-that is unpaid on silicon. Serial CONS retire is not this ADR's
-one-TX gate. No wire RX or Pi absent-device result was produced.
+that is unpaid on silicon. The product now writes a bounded BMCR
+reset after identify and prints `phy init`; that is unpaid on
+silicon. Serial CONS retire is not this ADR's one-TX gate. No wire
+RX or Pi absent-device result was produced.
 
 ## Context
 

@@ -271,6 +271,14 @@ fn the_genet_tx_report_is_reachable_from_outside() {
         "genet: rings 1-4 (tdma, not a nic)"
     );
     assert_eq!(
+        kernel_core::genet::PhyInitReport::Reset.to_string(),
+        "genet: phy init (bmcr, not a nic)"
+    );
+    assert_eq!(
+        kernel_core::genet::PhyLink::reset_command(),
+        kernel_core::genet::phy::BMCR_RESET
+    );
+    assert_eq!(
         kernel_core::genet::LinkMoment::Probe,
         kernel_core::genet::LinkMoment::Probe
     );

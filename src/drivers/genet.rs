@@ -7,11 +7,11 @@
 
 use kernel_core::genet::{
     self, ArbiterReport, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase,
-    GenetBoot, LinkState, MdioError, MdioTxn, PhyError, PhyLink, PriorityReport, Queue0Report,
-    QueueEnable, QueueEnableError, RbufReport, ResetReport, Revision, RevisionError, RgmiiReport,
-    RingBufReport, RingCfgReport, RingProgram, RingProgramError, Rings14Report, RxReport,
-    TbufReport, TbufSizeReport, TxReport, TxRingSet, UmacMibReport, UmacReport, WrrPriority,
-    dma_registers, mdio, phy, registers,
+    GenetBoot, LinkState, MdioError, MdioTxn, PhyError, PhyInitReport, PhyLink, PriorityReport,
+    Queue0Report, QueueEnable, QueueEnableError, RbufReport, ResetReport, Revision, RevisionError,
+    RgmiiReport, RingBufReport, RingCfgReport, RingProgram, RingProgramError, Rings14Report,
+    RxReport, TbufReport, TbufSizeReport, TxReport, TxRingSet, UmacMibReport, UmacReport,
+    WrrPriority, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -696,16 +696,12 @@ impl Genet {
         Ok(PhyLink::classify_bmsr(bmsr))
     }
 
-    /// Identify the DT PHY, issue a bounded BMCR reset, and classify BMSR.
-    ///
-    /// Does not enable DMA and does not publish a network service.
-    pub fn init_phy(&self) -> Result<PhyLink, Error> {
+    /// Bounded BMCR reset. Does not classify BMSR, require link-up, enable
+    /// DMA, or publish a network service.
+    pub fn reset_phy(&self) -> Result<PhyInitReport, Error> {
         if !self.binding.phy_mode_rgmii_rxid {
             return Err(Error::Phy(PhyError::ModeNotRgmiiRxid));
         }
-        let hi = self.mdio_read(mdio::PHYIDR1)?;
-        let lo = self.mdio_read(mdio::PHYIDR2)?;
-        let identified = PhyLink::identify(hi, lo, true).map_err(Error::Phy)?;
         self.mdio_write(phy::BMCR, PhyLink::reset_command())?;
         if !poll::until(RESET_SPIN_LIMIT, || {
             self.mdio_read(phy::BMCR)
@@ -714,6 +710,15 @@ impl Genet {
         }) {
             return Err(Error::Timeout);
         }
+        Ok(PhyInitReport::Reset)
+    }
+
+    /// Identify the DT PHY, issue a bounded BMCR reset, and classify BMSR.
+    ///
+    /// Does not enable DMA and does not publish a network service.
+    pub fn init_phy(&self) -> Result<PhyLink, Error> {
+        let identified = self.identify_phy()?;
+        self.reset_phy()?;
         let bmsr = self.mdio_read(phy::BMSR)?;
         identified.with_bmsr(bmsr).require_up().map_err(Error::Phy)
     }
