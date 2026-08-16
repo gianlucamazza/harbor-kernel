@@ -197,8 +197,25 @@ fn the_genet_tx_report_is_reachable_from_outside() {
     );
     assert_eq!(TxReport::tx_desc_status(0) & (0x3f << 7), 0x3f << 7);
     assert_eq!(
-        kernel_core::genet::UmacMibReport::TxPkts(0).to_string(),
-        "genet: umac tx pkts=0 (mib, not a nic)"
+        kernel_core::genet::UmacMibReport {
+            packed: 0,
+            linux: 0,
+            pok: 0
+        }
+        .to_string(),
+        "genet: umac tsv packed=0 linux=0 pok=0 (mib, not a nic)"
+    );
+    assert_eq!(
+        kernel_core::genet::TbufReport::Raw.to_string(),
+        "genet: tbuf raw (no 64b, not a nic)"
+    );
+    assert_eq!(
+        kernel_core::genet::umac_tx_pkts_linux(),
+        kernel_core::genet::registers::UMAC_TX_PKTS
+    );
+    assert_eq!(
+        kernel_core::genet::tdma_flow_period(kernel_core::genet::DESC_RING),
+        kernel_core::genet::MAX_FRAME_BYTES << 16
     );
     assert_eq!(
         kernel_core::genet::rgmii_port_ctrl(),

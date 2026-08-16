@@ -495,9 +495,12 @@ static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
 /// need two identity-mapped frames inside the FDT DMA windows. Enable
 /// writes RING_CFG+CTRL only after Programmed. RGMII OOB (ext-gphy,
 /// no MAC delay) and UniMAC max-frame/station address are programmed
-/// after Enabled. One bounded TX and one
+/// after Enabled. TBUF is left in raw-frame mode (no 64-byte TSB).
+/// One bounded TX and one
 /// bounded RX follow; a down BMSR refuses before the doorbell
-/// or RX arm. A bounded recover then returns the controller to Idle.
+/// or RX arm. After CONS the product prints a UniMAC TSV window
+/// (packed 0x49c, Linux 0x4a8, pok 0x4ec). A bounded recover then
+/// returns the controller to Idle.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_queue0(uart: &mut Pl011) {
     use crate::drivers::genet::Error;
@@ -527,6 +530,11 @@ fn report_genet_queue0(uart: &mut Pl011) {
         } else {
             None
         };
+        let tbuf = if matches!(enabled, Some(DescRingReport::Enabled)) {
+            Some(controller.program_tbuf_raw())
+        } else {
+            None
+        };
         let tx = if matches!(enabled, Some(DescRingReport::Enabled)) {
             Some(match controller.submit_one_tx() {
                 Ok(report) => report,
@@ -540,7 +548,7 @@ fn report_genet_queue0(uart: &mut Pl011) {
             None
         };
         let mib = if tx.is_some() {
-            Some(controller.read_umac_tx_pkts())
+            Some(controller.read_umac_tsv())
         } else {
             None
         };
@@ -565,9 +573,11 @@ fn report_genet_queue0(uart: &mut Pl011) {
         } else {
             None
         };
-        Some((programmed, enabled, rgmii, umac, tx, mib, rx, recovered))
+        Some((
+            programmed, enabled, rgmii, umac, tbuf, tx, mib, rx, recovered,
+        ))
     });
-    if let Some((programmed, enabled, rgmii, umac, tx, mib, rx, recovered)) = lines {
+    if let Some((programmed, enabled, rgmii, umac, tbuf, tx, mib, rx, recovered)) = lines {
         println!(uart, "{programmed}");
         if let Some(enabled) = enabled {
             println!(uart, "{enabled}");
@@ -577,6 +587,9 @@ fn report_genet_queue0(uart: &mut Pl011) {
         }
         if let Some(umac) = umac {
             println!(uart, "{umac}");
+        }
+        if let Some(tbuf) = tbuf {
+            println!(uart, "{tbuf}");
         }
         if let Some(tx) = tx {
             println!(uart, "{tx}");
