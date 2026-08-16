@@ -8,8 +8,8 @@
 use kernel_core::genet::{
     self, DESC_RING, Descriptor, DescriptorError, DmaPhase, LinkState, MdioError, MdioTxn,
     PhyError, PhyLink, QueueEnable, QueueEnableError, ResetReport, Revision, RevisionError,
-    RgmiiReport, RingProgram, RingProgramError, RxReport, TxReport, UmacMibReport, UmacReport,
-    dma_registers, mdio, phy, registers,
+    RgmiiReport, RingProgram, RingProgramError, RxReport, TbufReport, TxReport, UmacMibReport,
+    UmacReport, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -439,9 +439,36 @@ impl Genet {
         let _ = self.regs.read32(registers::UMAC_TX_FLUSH as usize);
     }
 
-    /// UniMAC TX good-packet counter. Not a wire claim.
-    pub fn read_umac_tx_pkts(&self) -> UmacMibReport {
-        UmacMibReport::TxPkts(self.regs.read32(registers::UMAC_TX_PKTS as usize))
+    /// UniMAC TX TSV candidates. Not a wire claim.
+    pub fn read_umac_tsv(&self) -> UmacMibReport {
+        UmacMibReport {
+            packed: self.regs.read32(registers::UMAC_TX_PKTS_PACKED as usize),
+            linux: self.regs.read32(registers::UMAC_TX_PKTS as usize),
+            pok: self.regs.read32(registers::UMAC_TX_POK as usize),
+        }
+    }
+
+    /// Clear leftover TBUF 64-byte status-block mode. The probe frame is raw.
+    pub fn program_tbuf_raw(&self) -> TbufReport {
+        let current = self.regs.read32(registers::TBUF_CTRL as usize);
+        self.regs.write32(
+            registers::TBUF_CTRL as usize,
+            genet::tbuf_raw_frame(current),
+        );
+        self.regs
+            .write32(registers::SYS_TBUF_FLUSH_CTRL as usize, 0);
+        TbufReport::Raw
+    }
+
+    /// Pulse then release UniMAC MIB reset so a later TSV read is not stuck at 0.
+    fn release_umac_mib(&self) {
+        self.regs.write32(
+            registers::UMAC_MIB_CTRL as usize,
+            genet::umac_mib_reset_bits(),
+        );
+        let _ = self.regs.read32(registers::UMAC_MIB_CTRL as usize);
+        self.regs.write32(registers::UMAC_MIB_CTRL as usize, 0);
+        let _ = self.regs.read32(registers::UMAC_MIB_CTRL as usize);
     }
 
     /// Program `SYS_PORT_CTRL` and the RGMII OOB block for `rgmii-rxid`.
@@ -474,6 +501,7 @@ impl Genet {
             registers::UMAC_MAC1 as usize,
             genet::umac_mac1(genet::STATION_ADDR),
         );
+        self.release_umac_mib();
         self.pulse_tx_flush();
         UmacReport::Programmed
     }

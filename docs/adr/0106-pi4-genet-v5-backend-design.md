@@ -83,12 +83,12 @@ descriptor family (Linux remaps 6/7 → logical 5 and 5 → 4). The kernel does
 not map a discovered PA (ADR-0072). After Enabled, one bounded TX and one
 bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
-on silicon. A cable-up product boot (`src=19b6438d`,
-`20260815-092435.log`) printed `tx complete len=60 (one frame, not a
-nic)` (CONS posted) and `rx unavailable (timeout)` after a first
-`link=down` snapshot. A raw pcap on the laptop Apple NIC across that
-PowerOn has no `0x88b5` and no source `02:00:00:00:00:01`. Serial
-complete is CONS, not a wire frame. The network vocabulary stays vacant.
+on silicon. A cable-up product boot (`src=a7891eb1`,
+`20260816-052739.log`, same image as `20260815-092435.log` boot 2)
+printed `tx complete len=60` and `umac tx pkts=0` after a first
+`link=down` snapshot. The Apple NIC pcap has no `0x88b5`. CONS posted;
+the UniMAC TSV did not count a send. Serial complete is not a wire
+frame. The network vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
@@ -100,14 +100,20 @@ selects `Genet::probe`, `identify_phy`, `classify_link`,
 `RX_EN`, `PAD_EN`, `CRC_FWD`, `NO_LEN_CHK`), ORs `RGMII_LINK`,
 pulses `TX_FLUSH`, then doorbells a TX BD with `APPEND_CRC` and the
 v5 `QTAG`. Complete is CONS posted (not OWN writeback). After CONS
-it prints the UniMAC TX good-packet MIB. Enabled+Up only;
+it prints a UniMAC TSV window (`0x49c` packed trap, Linux `0x4a8`
+`tx_pkts`, `0x4ec` `pok`). Ring 16 TDMA `FLOW_PERIOD` carries
+`MAX_FRAME << 16` (Linux does this for every ring except 0).
+TBUF is programmed raw (`TBUF_64B_EN` clear; no 64-byte TSB on the
+probe frame) and leftover `SYS_TBUF_FLUSH` is released. `UMAC_MIB_CTRL`
+is pulsed then cleared so a zero TSV is not a stuck reset. Enabled+Up only;
 `submit_one_rx` ORs `RX_EN` after the same speed word; unknown
 autoneg is a refusal, not a silent 10 Mbps. After Enabled the product
 also writes `SYS_PORT_CTRL=EXT_GPHY` and `EXT_RGMII_OOB_CTRL`
 (`RGMII_MODE_EN`, `OOB_DISABLE` clear, `ID_MODE_DIS` clear for
 `rgmii-rxid`) and prints one `RgmiiReport` line, then writes
 `UMAC_MAX_FRAME_LEN` and station `UMAC_MAC0`/`UMAC_MAC1` and prints
-one `UmacReport` line. The product programs Linux `DESC_INDEX`
+one `UmacReport` line, then one `TbufReport` (`tbuf raw`) after
+clearing `TBUF_64B_EN`. The product programs Linux `DESC_INDEX`
 (ring 16) for the bounded TX/RX doorbells and prints one
 `DescRingReport` line. `recover` refuses Idle
 and otherwise stops DMA, UniMAC-resets, and returns to Idle. It

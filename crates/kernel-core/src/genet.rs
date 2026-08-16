@@ -71,10 +71,25 @@ pub mod registers {
     pub const UMAC_MAC0: u32 = UMAC + 0x0c;
     pub const UMAC_MAC1: u32 = UMAC + 0x10;
     pub const UMAC_MAX_FRAME_LEN: u32 = UMAC + 0x14;
-    /// UniMAC TX good-packet counter (`bcmgenet.h` TSV `pkts` at 0x4a8).
+    /// UniMAC RSV/TSV base (`bcmgenet.h` `UMAC_MIB_START`).
+    pub const UMAC_MIB_START: u32 = UMAC + 0x400;
+    /// Packed-struct trap for `tx.pkts` if the 0xC RX/TX hole is forgotten.
+    pub const UMAC_TX_PKTS_PACKED: u32 = UMAC + 0x49c;
+    /// Linux `tx_pkts` (`bcmgenet.h` comment 0x4a8, plus `BCMGENET_STAT_OFFSET`).
     pub const UMAC_TX_PKTS: u32 = UMAC + 0x4a8;
+    /// Linux `tx_good_pkts` (`pok`).
+    pub const UMAC_TX_POK: u32 = UMAC + 0x4ec;
+    pub const UMAC_MIB_CTRL: u32 = UMAC + 0x580;
+    pub const MIB_RESET_RX: u32 = 1 << 0;
+    pub const MIB_RESET_RUNT: u32 = 1 << 1;
+    pub const MIB_RESET_TX: u32 = 1 << 2;
     pub const UMAC_TX_FLUSH: u32 = UMAC + 0x334;
     pub const UMAC_MDIO_CMD: u32 = MDIO;
+    /// v2+ TBUF block (`bcmgenet_hw_params.tbuf_offset`).
+    pub const TBUF: u32 = 0x0600;
+    pub const TBUF_CTRL: u32 = TBUF;
+    pub const TBUF_64B_EN: u32 = 1 << 0;
+    pub const SYS_TBUF_FLUSH_CTRL: u32 = 0x0c;
 }
 
 /// Clause-22 MDIO command word at [`registers::UMAC_MDIO_CMD`].
@@ -213,6 +228,45 @@ pub const fn umac_mac0(addr: [u8; 6]) -> u32 {
 /// `UMAC_MAC1` word: last two station-address bytes.
 pub const fn umac_mac1(addr: [u8; 6]) -> u32 {
     (addr[4] as u32) << 8 | addr[5] as u32
+}
+
+/// Linux `BCMGENET_STAT_OFFSET`: hardware hole after the RX MIB block.
+pub const UMAC_MIB_GAP: u32 = 0x0c;
+/// UniMAC RSV words Linux walks from `UMAC_MIB_START` before the gap.
+pub const UMAC_RX_MIB_WORDS: u32 = 29;
+/// TX size-histogram words before `tx_pkts`.
+pub const UMAC_TX_SIZE_HIST_WORDS: u32 = 10;
+/// Index of `pok` after the TX size histogram (`pkts` is 0).
+pub const UMAC_TX_POK_INDEX: u32 = 17;
+
+/// Packed C-struct offset of `tx.pkts` (no 0xC hole). Not what Linux reads.
+pub const fn umac_tx_pkts_packed() -> u32 {
+    registers::UMAC_MIB_START + UMAC_RX_MIB_WORDS * 4 + UMAC_TX_SIZE_HIST_WORDS * 4
+}
+
+/// Linux `bcmgenet_update_mib_counters` offset of `tx_pkts`.
+pub const fn umac_tx_pkts_linux() -> u32 {
+    registers::UMAC_MIB_START + UMAC_RX_MIB_WORDS * 4 + UMAC_MIB_GAP + UMAC_TX_SIZE_HIST_WORDS * 4
+}
+
+/// Linux `tx_good_pkts` (`pok`) after the 0xC hole.
+pub const fn umac_tx_pok() -> u32 {
+    umac_tx_pkts_linux() + UMAC_TX_POK_INDEX * 4
+}
+
+/// Pulse word for `UMAC_MIB_CTRL` before releasing the counters.
+pub const fn umac_mib_reset_bits() -> u32 {
+    registers::MIB_RESET_RX | registers::MIB_RESET_TX | registers::MIB_RESET_RUNT
+}
+
+/// Clear `TBUF_64B_EN`. The probe frame has no 64-byte TSB prefix.
+pub const fn tbuf_raw_frame(current: u32) -> u32 {
+    current & !registers::TBUF_64B_EN
+}
+
+/// Linux sets `ENET_MAX_MTU << 16` on TDMA `FLOW_PERIOD` when the ring is not 0.
+pub const fn tdma_flow_period(queue: u8) -> u32 {
+    if queue == 0 { 0 } else { MAX_FRAME_BYTES << 16 }
 }
 
 /// GENET v5 register layout shared by the RDMA and TDMA blocks.
@@ -938,7 +992,11 @@ impl RingProgram {
             end: self.end_words(),
             end_hi: 0,
             mbuf_done: 1,
-            flow: 0,
+            flow: if self.block == registers::TDMA {
+                tdma_flow_period(self.queue)
+            } else {
+                0
+            },
             read_ptr: start,
             write_ptr: start,
         }
@@ -1236,18 +1294,37 @@ impl Display for UmacReport {
     }
 }
 
-/// Boot report for the UniMAC TX good-packet counter. Not a wire claim.
+/// Boot report for UniMAC TX TSV candidates. Not a wire claim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UmacMibReport {
-    TxPkts(u32),
+pub struct UmacMibReport {
+    /// Packed-struct trap at 0x49c (no 0xC RX/TX hole).
+    pub packed: u32,
+    /// Linux `tx_pkts` at 0x4a8.
+    pub linux: u32,
+    /// Linux `tx_good_pkts` (`pok`) at 0x4ec.
+    pub pok: u32,
 }
 
 impl Display for UmacMibReport {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "genet: umac tsv packed={} linux={} pok={} (mib, not a nic)",
+            self.packed, self.linux, self.pok
+        )
+    }
+}
+
+/// Boot report for TBUF 64-byte status-block policy. Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TbufReport {
+    Raw,
+}
+
+impl Display for TbufReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            UmacMibReport::TxPkts(n) => {
-                write!(f, "genet: umac tx pkts={n} (mib, not a nic)")
-            }
+            TbufReport::Raw => f.write_str("genet: tbuf raw (no 64b, not a nic)"),
         }
     }
 }
@@ -2199,8 +2276,13 @@ mod tests {
         assert_ne!(path & registers::UMAC_CMD_PAD_EN, 0);
         assert_eq!(registers::UMAC_TX_PKTS, 0xca8);
         assert_eq!(
-            UmacMibReport::TxPkts(0).to_string(),
-            "genet: umac tx pkts=0 (mib, not a nic)"
+            UmacMibReport {
+                packed: 0,
+                linux: 0,
+                pok: 0
+            }
+            .to_string(),
+            "genet: umac tsv packed=0 linux=0 pok=0 (mib, not a nic)"
         );
         assert!(TxReport::cons_is_idle(0));
         assert!(TxReport::cons_is_idle(0x0001_0000));
@@ -2214,6 +2296,41 @@ mod tests {
         );
         assert_eq!(registers::UMAC_CMD_TX_EN, 1);
         assert_eq!(MIN_FRAME_BYTES, 60);
+    }
+
+    #[test]
+    fn umac_tsv_keeps_the_linux_hole_and_tbuf_stays_raw() {
+        assert_eq!(umac_tx_pkts_linux(), registers::UMAC_TX_PKTS);
+        assert_eq!(umac_tx_pkts_packed(), registers::UMAC_TX_PKTS_PACKED);
+        assert_eq!(umac_tx_pok(), registers::UMAC_TX_POK);
+        assert_eq!(registers::UMAC_TX_PKTS_PACKED, 0xc9c);
+        assert_eq!(registers::UMAC_TX_POK, 0xcec);
+        assert_ne!(umac_tx_pkts_packed(), umac_tx_pkts_linux());
+        assert_eq!(umac_mib_reset_bits() & registers::MIB_RESET_TX, 1 << 2);
+        assert_eq!(registers::TBUF_CTRL, 0x0600);
+        assert_eq!(registers::SYS_TBUF_FLUSH_CTRL, 0x0c);
+        assert_eq!(tbuf_raw_frame(registers::TBUF_64B_EN), 0);
+        assert_eq!(tbuf_raw_frame(0x2 | registers::TBUF_64B_EN), 0x2);
+        assert_eq!(tdma_flow_period(0), 0);
+        assert_eq!(tdma_flow_period(DESC_RING), MAX_FRAME_BYTES << 16);
+        assert_eq!(
+            RingProgram::new(registers::TDMA, DESC_RING, 0, 1, 128)
+                .unwrap()
+                .words()
+                .flow,
+            MAX_FRAME_BYTES << 16
+        );
+        assert_eq!(
+            RingProgram::new(registers::RDMA, DESC_RING, 0, 1, 128)
+                .unwrap()
+                .words()
+                .flow,
+            0
+        );
+        assert_eq!(
+            TbufReport::Raw.to_string(),
+            "genet: tbuf raw (no 64b, not a nic)"
+        );
     }
 
     #[test]
