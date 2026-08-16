@@ -85,9 +85,9 @@ bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
 on silicon. Silicon evidence lives in
 [verification.md](../verification.md) (current stamp
-`20260816-052739.log`). CONS retire is not a UniMAC send and not a
-wire frame. The live product prints `tx cons` for that retire. The
-network vocabulary stays vacant.
+`20260816-052739.log`, `src=d1cfbca5`: `tx cons len=124`). CONS
+retire is not a UniMAC send and not a wire frame. The network
+vocabulary stays vacant.
 A separate AArch64 control-plane slice in
 `src/drivers/genet.rs` now validates that binding, performs a recoverable
 revision probe, masks interrupts, stops both DMA engines, applies the
@@ -100,7 +100,9 @@ selects `Genet::probe`, `identify_phy`, `classify_link`,
 `RING_CFG`+`CTRL` only after Programmed; TDMA `RING_CFG` is
 `TxRingSet` mask `V5_TX_RING_CFG` (`0x1f`, rings 0–4) and RDMA stays
 the doorbell bit. `RingCfgReport` comes from that write.
-`TxRingSet::ctrl` still enables only the doorbell `RING_BUF_EN` bit.
+`TxRingSet::tdma_ctrl` writes Linux `RING_BUF_EN` mask `0x1f`;
+`rdma_ctrl` stays the doorbell bit. The product prints one
+`RingBufReport` line from that write.
 `submit_one_tx` writes UniMAC datapath (`CMD_SPEED_*`, `TX_EN`,
 `RX_EN`, `PAD_EN`, `CRC_FWD`, `NO_LEN_CHK`), ORs `RGMII_LINK`,
 then doorbells a TX BD with `APPEND_CRC` and the
@@ -151,7 +153,7 @@ Not a NIC claim. Next on the roadmap is the first row.
 
 | Leftover | Linux fact | Harbor today |
 | --- | --- | --- |
-| `RING_BUF_EN` mask `0x1f` | `init_tx_queues` writes the same mask to `DMA_CTRL` `RING_BUF_EN` | `TxRingSet::ctrl` enables the doorbell bit only |
+| `RING_BUF_EN` mask `0x1f` | `init_tx_queues` writes the same mask to `DMA_CTRL` `RING_BUF_EN` | Product writes it on TDMA; silicon unpaid |
 | Program rings 1–4 | 32 BDs each after Q0's 128 | Only doorbell ring 0 is programmed |
 | WRR priority words | `DMA_PRIORITY_0/1/2` weights | Arbiter is WRR; priorities unpaid |
 | `init_phy` on the boot path | PHY setup before first xmit | Identify + two BMSR samples (`LinkMoment`) |

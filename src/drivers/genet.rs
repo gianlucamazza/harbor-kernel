@@ -8,9 +8,9 @@
 use kernel_core::genet::{
     self, ArbiterReport, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase,
     GenetBoot, LinkState, MdioError, MdioTxn, PhyError, PhyLink, Queue0Report, QueueEnable,
-    QueueEnableError, RbufReport, ResetReport, Revision, RevisionError, RgmiiReport, RingCfgReport,
-    RingProgram, RingProgramError, RxReport, TbufReport, TbufSizeReport, TxReport, TxRingSet,
-    UmacMibReport, UmacReport, dma_registers, mdio, phy, registers,
+    QueueEnableError, RbufReport, ResetReport, Revision, RevisionError, RgmiiReport, RingBufReport,
+    RingCfgReport, RingProgram, RingProgramError, RxReport, TbufReport, TbufSizeReport, TxReport,
+    TxRingSet, UmacMibReport, UmacReport, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -20,8 +20,6 @@ use crate::arch::probe;
 use kernel_core::poll;
 
 const RESET_SPIN_LIMIT: u32 = 1_000_000;
-const DMA_ENABLE_MASK: u32 = dma_registers::DMA_ENABLE | (1 << dma_registers::RING_BUF_EN_SHIFT);
-const DMA_DISABLED: u32 = DMA_ENABLE_MASK;
 const CMD_SW_RESET: u32 = 1 << 13;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,11 +151,14 @@ impl Genet {
     fn stop_dma(&self, base: u32) -> Result<(), Error> {
         let ctrl = (base + genet::dma_registers::CTRL) as usize;
         let status = (base + genet::dma_registers::STATUS) as usize;
+        let mask = if base == genet::registers::TDMA {
+            TxRingSet::V5.tdma_ctrl()
+        } else {
+            TxRingSet::V5.rdma_ctrl()
+        };
         let current = self.regs.read32(ctrl);
-        self.regs.write32(ctrl, current & !DMA_ENABLE_MASK);
-        if !poll::until(RESET_SPIN_LIMIT, || {
-            self.regs.read32(status) & DMA_DISABLED == DMA_DISABLED
-        }) {
+        self.regs.write32(ctrl, current & !mask);
+        if !poll::until(RESET_SPIN_LIMIT, || self.regs.read32(status) & mask == mask) {
             return Err(Error::Timeout);
         }
         Ok(())
@@ -171,9 +172,9 @@ impl Genet {
     }
 
     /// Queue-0 enable mask used by the first bounded TX/RX composition.
-    /// Doorbell `RING_BUF_EN` only; Linux `0x1f` is unpaid.
+    /// TDMA `RING_BUF_EN` is Linux `0x1f`.
     pub const fn queue0_enable_mask() -> u32 {
-        TxRingSet::V5.ctrl()
+        TxRingSet::V5.tdma_ctrl()
     }
 
     /// Program queue 0 on both DMA engines and publish one TX and one RX
@@ -275,19 +276,19 @@ impl Genet {
         ArbiterReport::Wrr
     }
 
-    /// Enable programmed queue 0 on both engines. The returned report is
-    /// the TDMA `RING_CFG` word just written. Refuses Idle and a second
-    /// enable. Does not publish a network service.
-    pub fn enable_queue0(&mut self) -> Result<RingCfgReport, Error> {
+    /// Enable programmed queue 0 on both engines. Reports come from the
+    /// `RING_CFG` and TDMA `RING_BUF_EN` words just written. Refuses Idle
+    /// and a second enable. Does not publish a network service.
+    pub fn enable_queue0(&mut self) -> Result<(RingCfgReport, RingBufReport), Error> {
         self.enable_named_ring(DEFAULT_TX_RING)
     }
 
     /// Enable the programmed descriptor ring. Refuses unless it is ring 16.
-    pub fn enable_desc_ring(&mut self) -> Result<RingCfgReport, Error> {
+    pub fn enable_desc_ring(&mut self) -> Result<(RingCfgReport, RingBufReport), Error> {
         self.enable_named_ring(DESC_RING)
     }
 
-    fn enable_named_ring(&mut self, queue: u8) -> Result<RingCfgReport, Error> {
+    fn enable_named_ring(&mut self, queue: u8) -> Result<(RingCfgReport, RingBufReport), Error> {
         if self.queue != queue {
             return Err(Error::Enable(QueueEnableError::UnsupportedQueue));
         }
@@ -301,11 +302,15 @@ impl Genet {
             (registers::TDMA + dma_registers::RING_CFG) as usize,
             enable.set.tdma_ring_cfg(),
         );
-        for block in [registers::RDMA, registers::TDMA] {
-            self.regs
-                .write32((block + dma_registers::CTRL) as usize, enable.set.ctrl());
-        }
-        Ok(RingCfgReport::Programmed)
+        self.regs.write32(
+            (registers::RDMA + dma_registers::CTRL) as usize,
+            enable.set.rdma_ctrl(),
+        );
+        self.regs.write32(
+            (registers::TDMA + dma_registers::CTRL) as usize,
+            enable.set.tdma_ctrl(),
+        );
+        Ok((RingCfgReport::Programmed, RingBufReport::Programmed))
     }
 
     /// Run the unpublished bring-up after the rings are programmed.
@@ -317,9 +322,10 @@ impl Genet {
         }
         boot.arb = Some(self.program_tdma_wrr());
         match self.enable_queue0() {
-            Ok(cfg) => {
+            Ok((cfg, buf)) => {
                 boot.enabled = Some(Queue0Report::Enabled);
                 boot.ring_cfg = Some(cfg);
+                boot.ring_buf = Some(buf);
             }
             Err(Error::Enable(error)) => {
                 boot.enabled = Some(Queue0Report::Enable(error));

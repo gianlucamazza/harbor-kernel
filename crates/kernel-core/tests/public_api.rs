@@ -235,8 +235,18 @@ fn the_genet_tx_report_is_reachable_from_outside() {
     assert_eq!(kernel_core::genet::TxRingSet::V5.tdma_ring_cfg(), 0x1f);
     assert_eq!(kernel_core::genet::TxRingSet::V5.rdma_ring_cfg(), 1);
     assert_eq!(
-        kernel_core::genet::TxRingSet::V5.ctrl() & !kernel_core::genet::dma_registers::DMA_ENABLE,
+        kernel_core::genet::TxRingSet::V5.tdma_ctrl()
+            & !kernel_core::genet::dma_registers::DMA_ENABLE,
+        kernel_core::genet::V5_TX_RING_CFG << kernel_core::genet::dma_registers::RING_BUF_EN_SHIFT
+    );
+    assert_eq!(
+        kernel_core::genet::TxRingSet::V5.rdma_ctrl()
+            & !kernel_core::genet::dma_registers::DMA_ENABLE,
         1 << kernel_core::genet::dma_registers::RING_BUF_EN_SHIFT
+    );
+    assert_eq!(
+        kernel_core::genet::RingBufReport::Programmed.to_string(),
+        "genet: ring buf (0-4, not a nic)"
     );
     assert_eq!(
         kernel_core::genet::LinkMoment::Probe,
