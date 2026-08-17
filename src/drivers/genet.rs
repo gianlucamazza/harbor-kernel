@@ -165,6 +165,14 @@ impl Genet {
         self.regs
             .write32(genet::registers::UMAC_CMD as usize, CMD_SW_RESET);
         settle(RESET_SETTLE_US);
+        // …and then take the MAC back out of it. Linux leaves the bit asserted
+        // and `umac_enable_set` guards on it; on BCM2711 it does not
+        // self-clear, and the 11:15 state dump read `cmd=0x1002067` — reset
+        // still held, with the whole datapath written over the top. A quiescent
+        // controller is one that is out of reset with nothing enabled, not one
+        // that is held.
+        self.regs.write32(genet::registers::UMAC_CMD as usize, 0);
+        settle(RESET_SETTLE_US);
         self.phase = self.phase.reset();
         self.tx_cpu = 0;
         self.tx_dma = 0;

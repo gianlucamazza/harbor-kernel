@@ -113,6 +113,10 @@ pub mod registers {
     pub const RBUF_TBUF_SIZE_CTRL: u32 = RBUF + 0xb4;
     pub const RBUF_TBUF_SIZE: u32 = 1;
     pub const UMAC_CMD: u32 = UMAC + 0x08;
+    /// UniMAC software reset (`unimac.h` `CMD_SW_RESET`). While it is set the
+    /// MAC is held and `umac_enable_set` refuses to write this register at
+    /// all (`bcmgenet.c:2540-2545`).
+    pub const UMAC_CMD_SW_RESET: u32 = 1 << 13;
     pub const UMAC_CMD_TX_EN: u32 = 1 << 0;
     pub const UMAC_CMD_RX_EN: u32 = 1 << 1;
     /// UniMAC `CMD_SPEED_*` occupy bits 3:2 (`unimac.h`).
@@ -248,12 +252,24 @@ pub const fn umac_cmd_with_speed(cmd: u32, speed: LinkSpeed) -> u32 {
     (cmd & !registers::UMAC_CMD_SPEED_MASK) | umac_speed_bits(speed)
 }
 
+/// Clear [`registers::UMAC_CMD_SW_RESET`], leaving every other bit alone.
+///
+/// `reset_umac` asserts that bit and stops; nothing in the driver clears it,
+/// and on BCM2711 it does **not** self-clear — the 2026-08-17 11:15 state dump
+/// read `cmd=0x1002067` almost 300 ms after the reset, with `TX_EN`, `RX_EN`,
+/// `PAD_EN`, `CRC_FWD` and `NO_LEN_CHK` all set *and* bit 13 still high. A MAC
+/// in software reset with the datapath enables written over it is exactly the
+/// shape of "TDMA retires the descriptor and UniMAC counts nothing".
+pub const fn umac_cmd_out_of_reset(cmd: u32) -> u32 {
+    cmd & !registers::UMAC_CMD_SW_RESET
+}
+
 /// Speed plus the UniMAC datapath bits Linux sets at link-up.
 ///
 /// `TX_EN` and `RX_EN` together, `PAD_EN`, `CRC_FWD`, and `NO_LEN_CHK`.
 /// Does not set `PROMISC`.
 pub const fn umac_cmd_datapath(cmd: u32, speed: LinkSpeed) -> u32 {
-    umac_cmd_with_speed(cmd, speed)
+    umac_cmd_out_of_reset(umac_cmd_with_speed(cmd, speed))
         | registers::UMAC_CMD_TX_EN
         | registers::UMAC_CMD_RX_EN
         | registers::UMAC_CMD_PAD_EN
@@ -2289,6 +2305,28 @@ mod tests {
         windows: [DMA, DMA, DMA, DMA],
         count: 1,
     };
+
+    #[test]
+    fn the_datapath_word_takes_unimac_out_of_software_reset() {
+        // Read back from silicon on 2026-08-17 11:15: TX_EN, RX_EN, PAD_EN,
+        // CRC_FWD, NO_LEN_CHK and CMD_SW_RESET all set at once. Enables
+        // written over a MAC that is still held say nothing.
+        let observed = 0x0100_2067;
+        assert_ne!(observed & registers::UMAC_CMD_SW_RESET, 0);
+        assert_eq!(umac_cmd_out_of_reset(observed), 0x0100_0067);
+
+        let word = umac_cmd_datapath(observed, LinkSpeed::Thousand);
+        assert_eq!(word & registers::UMAC_CMD_SW_RESET, 0);
+        assert_ne!(word & registers::UMAC_CMD_TX_EN, 0);
+        assert_ne!(word & registers::UMAC_CMD_RX_EN, 0);
+        assert_eq!(
+            word & registers::UMAC_CMD_SPEED_MASK,
+            umac_speed_bits(LinkSpeed::Thousand)
+        );
+        // Clearing the reset bit must not disturb anything else.
+        assert_eq!(umac_cmd_out_of_reset(0), 0);
+        assert_eq!(umac_cmd_out_of_reset(u32::MAX), u32::MAX & !(1 << 13));
+    }
 
     #[test]
     fn the_umac_reset_latch_is_a_sys_register_not_the_rbuf_one() {
