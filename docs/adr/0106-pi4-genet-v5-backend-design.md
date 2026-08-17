@@ -1,8 +1,9 @@
 ---
 id: 0106
 title: Pi 4 BCM2711 GENET v5 backend design
-status: proposed
+status: accepted
 date: 2026-08-13
+accepted: 2026-08-17
 related: [0072, 0073, 0104, 0105]
 ---
 
@@ -10,10 +11,23 @@ related: [0072, 0073, 0104, 0105]
 
 ## Status
 
-**Proposed.** This is the board-specific design required by ADR-0105. It
-selects the actual Pi 4B Ethernet device from the boot description and defines
-the EL1-only backend boundary. It does not claim implementation, emulation, or
-hardware evidence.
+**Accepted 2026-08-17** by the project owner, together with
+[ADR-0105](0105-pi4-nic-backend-boundary.md). This is the board-specific design
+that ADR-0105 requires: it selects the Pi 4B Ethernet device from the boot
+description and defines the EL1-only backend boundary. Immutable under the ADR
+lifecycle: change only via a successor ADR.
+
+The design is now implemented and carries hardware evidence — probe, PHY
+identify and BMSR classify, the Linux v5 init order with UniMAC taken out of
+software reset, a bounded TX confirmed by UniMAC's own counter and by an
+`0x88b5` frame on the wire, a bounded RX, recovery, and an absent-device
+refusal. The road there, including the two defects that mattered and the
+twenty-five single registers that did not, is recorded boot by boot in
+[verification](../verification.md#hardware-evidence-pi-4-genet-v5-bring-up-2026-08-14--2026-08-17).
+
+Acceptance covers the **backend**, not its publication: the network vocabulary
+on `raspi4b` is still vacant, and binding it is the BSP composition step
+ADR-0105 names.
 
 ## Evidence basis
 

@@ -124,8 +124,8 @@ the code that follows.
 | [0102](0102-product-binds-a-name.md)                         | The product binds a name — an agent finds the service                                        | accepted   |
 | [0103](0103-p2-el0-durable-endpoint.md)                      | P2 durable storage endpoint for EL0 agents                                                   | accepted   |
 | [0104](0104-p3-edge-network-composition.md)                  | P3 edge-gateway composition over virtio-net                                                  | accepted   |
-| [0105](0105-pi4-nic-backend-boundary.md)                     | Pi 4 NIC backend boundary and evidence gate                                                  | proposed   |
-| [0106](0106-pi4-genet-v5-backend-design.md)                  | Pi 4 BCM2711 GENET v5 backend design                                                         | proposed   |
+| [0105](0105-pi4-nic-backend-boundary.md)                     | Pi 4 NIC backend boundary and evidence gate                                                  | accepted   |
+| [0106](0106-pi4-genet-v5-backend-design.md)                  | Pi 4 BCM2711 GENET v5 backend design                                                         | accepted   |
 | [0107](0107-genet-sequence-first-bring-up.md)                | GENET bring-up moves from one-variable slices to sequence-first                              | proposed   |
 | [0108](0108-boot-path-link-acquisition.md)                   | Link acquisition in the boot path                                                            | proposed   |
 

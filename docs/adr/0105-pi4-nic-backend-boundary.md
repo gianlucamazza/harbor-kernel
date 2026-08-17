@@ -1,8 +1,9 @@
 ---
 id: 0105
 title: Pi 4 NIC backend boundary and evidence gate
-status: proposed
+status: accepted
 date: 2026-08-13
+accepted: 2026-08-17
 related: [0104, 0100, 0101, 0102, 0106]
 ---
 
@@ -10,12 +11,19 @@ related: [0104, 0100, 0101, 0102, 0106]
 
 ## Status
 
-**Proposed — and the evidence gate below is met.** This ADR records the work
-required before Harbor can claim a network backend on Raspberry Pi 4B. It
-deliberately does not select a device or claim that a driver exists. What has
-changed since it was written is that the capture it asks for now exists;
-whether that capture is enough to accept this ADR is the owner's judgement,
-and until it is taken nothing here is claimed.
+**Accepted 2026-08-17** by the project owner, on the evidence below. This ADR
+records the work required before Harbor can claim a network backend on
+Raspberry Pi 4B; the capture it asks for now exists, and the boundary it
+draws is in force. Immutable under the ADR lifecycle: change only via a
+successor ADR.
+
+**What acceptance does and does not settle.** `raspi4b` has a NIC backend and
+its hardware evidence. It does **not** publish one: the backend still sits
+below the EL1 network service, the product still prints
+`authority: network vocabulary VACANT`, and binding it to the network
+vocabulary is the later BSP composition step this ADR names. P3 is therefore
+not `done (HW)` on the strength of this acceptance — what is paid is the
+backend and its evidence, not the composition.
 
 Capture `20260817-105728.log`, product image, `make hw-check` clean:
 

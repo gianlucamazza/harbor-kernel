@@ -106,10 +106,13 @@ asks for, on silicon: probe, link state, a bounded TX confirmed by UniMAC's own
 counter and by an `0x88b5` frame on the wire, a bounded RX, reset/recovery, and
 an absent-device refusal. The boots are recorded one per row in
 [verification](docs/verification.md#hardware-evidence-pi-4-genet-v5-bring-up-2026-08-14--2026-08-17).
-**It is still not a NIC claim**: ADR-0105 and the design
-[ADR-0106](docs/adr/0106-pi4-genet-v5-backend-design.md) remain `proposed`
-until the owner accepts that evidence, so the product keeps printing
-`authority: network vocabulary VACANT` and P3 stays `done (QEMU)`.
+ADR-0105 and the design
+[ADR-0106](docs/adr/0106-pi4-genet-v5-backend-design.md) were **accepted on
+that evidence** (2026-08-17). What is paid is the **backend**, not its
+publication: the product still prints `authority: network vocabulary VACANT` on
+`raspi4b`, binding the backend to the network vocabulary is the BSP composition
+step ADR-0105 always named as later, and P3 stays `done (QEMU)` until it
+happens.
 K5-H stays held: measured
 peak is 8 of 57 slots on QEMU (9 on a Pi 4B that runs the five-agent store).
 
