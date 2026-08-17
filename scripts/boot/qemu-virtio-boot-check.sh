@@ -75,8 +75,22 @@ set -e
 # Before the assertions, not after: a starved run reaches none of them, and
 # reporting that as a virtio failure is reporting the host as if it were code.
 cpu_budget_verdict "qemu-virtio-check" || exit $?
+# 3 means the peer never reached QEMU's socket: the experiment did not run, so
+# there is nothing to judge (ADR-0087's distinction, applied to the harness
+# rather than to the CPU). 1 means it connected and the write failed, which is
+# a real red. Seen the day this gate entered CI: the guest booted fine —
+# modern probe ok, service up, TX accepted and completed — and only the peer
+# could not connect. Calling that a virtio failure would report the runner as
+# if it were the driver.
+if [[ ${peer_result} -eq 3 ]]; then
+    echo "qemu-virtio-check: INDETERMINATE — the deterministic peer never reached QEMU" >&2
+    echo "  The RX half was not exercised, so it was not judged. The guest's own" >&2
+    echo "  output is below; the transport assertions it does cover are not run." >&2
+    tail -40 "${modern_log}" >&2
+    exit 3
+fi
 if [[ ${peer_result} -ne 0 ]]; then
-    echo "qemu-virtio-check: deterministic peer could not inject RX" >&2
+    echo "qemu-virtio-check: deterministic peer connected and could not inject RX" >&2
     cat "${modern_log}" >&2
     exit 1
 fi
