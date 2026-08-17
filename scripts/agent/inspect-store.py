@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""List agents in a Harbor external store (ADR-0027) — host compose/audit aid (P6 light)."""
+"""List agents in a Harbor external store (ADR-0027) — host compose/audit aid (P6).
+
+Reads either a packed blob (`target/agents.bin`) or the store as it sits inside
+a shipped kernel image (`--elf … --image …`). The second form is the one that
+audits an artifact rather than an intention: the bytes on the card, resolved
+through the same window arithmetic the injector used to put them there.
+"""
 from __future__ import annotations
 
 import argparse
@@ -51,12 +57,41 @@ def _vocabularies() -> tuple[dict[int, str], dict[int, str]]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("path", type=Path, nargs="?", default=Path("target/agents.bin"))
+    ap.add_argument(
+        "--image",
+        type=Path,
+        help="raw kernel8*.img to read the store out of, instead of a packed blob",
+    )
+    ap.add_argument(
+        "--elf",
+        type=Path,
+        help="the linked ELF that image was built from; resolves the store window",
+    )
     args = ap.parse_args()
-    if not args.path.is_file():
-        print(f"inspect-agent-store: missing {args.path}", file=sys.stderr)
-        return 1
+    if (args.image is None) != (args.elf is None):
+        print(
+            "inspect-agent-store: --image and --elf go together — the window is "
+            "resolved from the ELF's symbols, and guessing it in an image is how "
+            "an audit reports a composition that was never shipped",
+            file=sys.stderr,
+        )
+        return 2
     held_names, window_names = _vocabularies()
-    raw = args.path.read_bytes()
+    if args.image is not None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from store_window import read_store
+
+        for path in (args.elf, args.image):
+            if not path.is_file():
+                print(f"inspect-agent-store: missing {path}", file=sys.stderr)
+                return 1
+        raw = read_store(args.elf, args.image)
+        print(f"source={args.image} (store window resolved from {args.elf})")
+    else:
+        if not args.path.is_file():
+            print(f"inspect-agent-store: missing {args.path}", file=sys.stderr)
+            return 1
+        raw = args.path.read_bytes()
     if len(raw) < 16 or raw[:4] != MAGIC:
         print("inspect-agent-store: bad magic or too short", file=sys.stderr)
         return 1

@@ -101,7 +101,7 @@ endif
 .PHONY: all debug img elf check test miri bringup-builds \
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
-	boot-check panic-check hw-check mutation-freshness mutation-scope layers-table x86-elf x86-boot-check doc-claims layering fmt fmt-check \
+	boot-check panic-check hw-check hw-store-audit mutation-freshness mutation-scope layers-table x86-elf x86-boot-check doc-claims layering fmt fmt-check \
 	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy deploy-absent-nic deploy-oracle \
 	restore-rpios serial clean agents vocabulary-sync
 
@@ -351,6 +351,16 @@ layers-table:
 # is a gate nobody runs on the day it matters.
 #
 #   make hw-check TRANSCRIPT=.serial-log/20260810-160227.log
+# P6's audit half, on hardware: read the store back out of the image that was
+# shipped and compare it with what the board said it loaded. Needs a transcript
+# and the product image beside this tree — it refuses a pair that never met.
+hw-store-audit:
+	@if [ -z "$(TRANSCRIPT)" ]; then \
+	  echo "usage: make hw-store-audit TRANSCRIPT=.serial-log/<capture>.log" >&2; \
+	  exit 2; \
+	fi
+	./scripts/check/hw-store-audit.sh "$(TRANSCRIPT)"
+
 hw-check:
 	@if [ -z "$(strip $(TRANSCRIPT))" ]; then \
 	  echo "hw-check: TRANSCRIPT=<serial-capture log> is required" >&2; \

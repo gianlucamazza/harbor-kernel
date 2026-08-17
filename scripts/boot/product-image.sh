@@ -53,6 +53,14 @@ product_elf="${OUT}/harbor-kernel"
 # The image, not the ELF: the ELF carries debug info that `objcopy -O binary`
 # drops, so comparing ELFs would report a difference nobody flashes.
 llvm-objcopy -O binary "${product_elf}" "${OUT}/kernel8-product.img"
+# Keep the ELF that made this image, under a name only this image's build
+# writes. `${OUT}/harbor-kernel` is a shared path that every `cargo build` in
+# the tree overwrites — oracle, bringup, debug — and cargo hardlinks it from
+# its cache, so its mtime does not even say which one won. Anything that later
+# wants to resolve a symbol *in this image* (the store window, a disassembly)
+# needs the symbols from this build, and this is the only moment the pair is
+# known to correspond.
+cp "${product_elf}" "${OUT}/kernel8-product.elf"
 # ADR-0029: inject the multi-agent composition into `.agent_store` so product
 # boots the store on QEMU and Pi without a fixed-PA loader device.
 python3 scripts/agent/pack-store.py -o target/agents.bin
