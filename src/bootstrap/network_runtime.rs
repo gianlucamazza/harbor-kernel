@@ -496,16 +496,15 @@ fn pool_address(pages: &[PacketPage; PACKET_PAGE_COUNT], slot: u8) -> u64 {
 }
 
 fn allocate_packets() -> Option<[PacketPage; PACKET_PAGE_COUNT]> {
-    let mut pages = [None; PACKET_PAGE_COUNT];
+    let mut pages: [Option<PacketPage>; PACKET_PAGE_COUNT] = [None; PACKET_PAGE_COUNT];
     for page in &mut pages {
-        *page = mm::frames::alloc().map(|(id, pa)| PacketPage { id, pa });
-        if page.is_none() {
+        let Some(packet) = mm::frames::alloc().map(|(id, pa)| PacketPage { id, pa }) else {
             for allocated in pages.into_iter().flatten() {
                 let _ = mm::frames::free(allocated.id);
             }
             return None;
-        }
-        let packet = page.expect("packet page allocated");
+        };
+        *page = Some(packet);
         // SAFETY: the frame was just allocated and is identity-mapped Normal
         // memory; both 2 KiB packet halves must not expose a prior owner.
         unsafe {
@@ -513,22 +512,26 @@ fn allocate_packets() -> Option<[PacketPage; PACKET_PAGE_COUNT]> {
             cache::clean_dcache_poc(packet.pa, RING_PAGE_BYTES);
         }
     }
-    Some(core::array::from_fn(|i| {
-        pages[i].expect("packet page allocated")
-    }))
+    // Exhaustion already returned above, so every slot is `Some`. Saying that
+    // with `?` rather than with `expect` keeps the exhaustion path a bounded
+    // refusal in shape as well as in fact (2026-08-17 review, F-14).
+    let mut allocated = [pages[0]?; PACKET_PAGE_COUNT];
+    for (slot, page) in pages.iter().enumerate() {
+        allocated[slot] = (*page)?;
+    }
+    Some(allocated)
 }
 
 fn allocate_dma_packets() -> Option<[PacketPage; DMA_PACKET_COUNT]> {
-    let mut pages = [None; DMA_PACKET_COUNT];
+    let mut pages: [Option<PacketPage>; DMA_PACKET_COUNT] = [None; DMA_PACKET_COUNT];
     for page in &mut pages {
-        *page = mm::frames::alloc().map(|(id, pa)| PacketPage { id, pa });
-        if page.is_none() {
+        let Some(packet) = mm::frames::alloc().map(|(id, pa)| PacketPage { id, pa }) else {
             for allocated in pages.into_iter().flatten() {
                 let _ = mm::frames::free(allocated.id);
             }
             return None;
-        }
-        let packet = page.expect("DMA packet page allocated");
+        };
+        *page = Some(packet);
         // SAFETY: the frame is exclusively owned by the EL1 transport and is
         // never mapped into an agent address space.
         unsafe {
@@ -536,9 +539,14 @@ fn allocate_dma_packets() -> Option<[PacketPage; DMA_PACKET_COUNT]> {
             cache::clean_dcache_poc(packet.pa, RING_PAGE_BYTES);
         }
     }
-    Some(core::array::from_fn(|i| {
-        pages[i].expect("DMA packet page allocated")
-    }))
+    // Exhaustion already returned above, so every slot is `Some`. Saying that
+    // with `?` rather than with `expect` keeps the exhaustion path a bounded
+    // refusal in shape as well as in fact (2026-08-17 review, F-14).
+    let mut allocated = [pages[0]?; DMA_PACKET_COUNT];
+    for (slot, page) in pages.iter().enumerate() {
+        allocated[slot] = (*page)?;
+    }
+    Some(allocated)
 }
 
 fn dma_address(pages: &[PacketPage; DMA_PACKET_COUNT], slot: usize) -> u64 {

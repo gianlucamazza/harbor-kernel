@@ -52,9 +52,14 @@ Assets worth defending, in order of load:
 3. **Agent isolation** — one EL0 context must not read/write another’s memory or session state (including across cores via per-CPU `CURRENT_EL0`).
 4. **Availability of the kernel** — a faulting agent must not take down EL1 (ADR-0018); hostile busy-loops are quantum-preempted at both ELs on scheduled cores.
 
-Non-assets (out of threat model until named otherwise): multi-user login, network
-stack, disk encryption, remote attestation, multi-tenant cloud isolation,
-automatic agent load-balancing across cores (agent+TLB steal residual).
+Non-assets (out of threat model until named otherwise): multi-user login,
+an IP stack and its protocol surface, disk encryption, remote attestation,
+multi-tenant cloud isolation, automatic agent load-balancing across cores
+(agent+TLB steal residual). **The EL1 packet service is not a non-asset**:
+P3 is `done (QEMU)` ([ADR-0104](docs/adr/0104-p3-edge-network-composition.md)),
+so frames reach a service that validates wire tokens and hands buffers to
+agents through directional capabilities. What Harbor does not have is anything
+above that: no sockets, no IP, no name resolution over the wire.
 **Dual-current SMP and IRQ preemption are in the TCB today** (not non-assets).
 Product composition can pin sticky `home_cpu` ([ADR-0088](docs/adr/0088-product-home-cpu.md));
 default remains CPU 0 when the field is absent. Residual load-balancing is
@@ -110,7 +115,7 @@ the machine with other agents under the same kernel, tries to:
 | Take a second waiter's place on an endpoint         | Yes — `Table::park` refuses (`Status::Busy`) and counts a state refusal. One endpoint, one waiter                                                                                                                                                                                                                                                                                                                                |
 | Feed an RX-owning agent hostile input from the wire | Yes, and it is _supposed_ to arrive — the agent is untrusted either way. What must hold is that the handover cannot leave the line armed with nothing to drain (`kernel_core::rxline`, host-tested)                                                                                                                                                                                                                              |
 | Attack via firmware / JTAG / SD swap                | Out of physical-lab model (operator is trusted)                                                                                                                                                                                                                                                                                                                                                                                  |
-| Remote network exploit                              | No network stack                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Remote network exploit                              | **Reduced, not absent.** There is no IP stack to attack, but an EL1 packet service exists on QEMU virtio-net ([ADR-0104](docs/adr/0104-p3-edge-network-composition.md)): a hostile frame reaches descriptor arithmetic, wire-token validation and bounded packet ownership, all host-tested, before any agent sees it. The Pi 4 has no NIC backend at all — `authority: network vocabulary VACANT` ([ADR-0105](docs/adr/0105-pi4-nic-backend-boundary.md))                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ---
 

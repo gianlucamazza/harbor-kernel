@@ -326,3 +326,51 @@ proprietà modello/driver (F-3), la frase di ADR-0049 sul «solo meccanismo»
 **R4 — Passata doc unica (F-9, F-10, F-12, F-16, F-15).** `SECURITY.md`,
 la cella da 4500 parole, la decisione sui transcript, gli stub x86 in
 ADR-0049, la potatura dei branch. Un pomeriggio, azzera la coda P2/P3.
+
+---
+
+## Postscript — remediation (stesso giorno)
+
+Eseguita il 2026-08-17, in ordine di leva.
+
+**Decisioni.** [ADR-0107](../adr/0107-genet-sequence-first-bring-up.md) (metodo:
+l'unità di esperimento diventa una claim di sequenza) e
+[ADR-0108](../adr/0108-boot-path-link-acquisition.md) (il boot path non resetta
+il PHY; un settle è bounded in millisecondi contro `CNTFRQ_EL0`), entrambe
+`proposed`. [ADR-0049](../adr/0049-deferred-residuals.md) emendata: la lista di
+mutation derivata è chiusa dal proprio trigger, e la frase «fuori dalle reti
+c'è solo meccanismo» è ritirata (F-11).
+
+**Gate (F-2, F-13).** `make mutation-scope` — lo scope vive in
+`docs/mutation-scope.toml` con tre stati (`in_scope` / `queued` / `exempt`),
+ogni modulo di `kernel-core` deve averne uno, e `run-mutants.sh` e
+`mutation-freshness.sh` derivano la lista da lì invece di tenerne due copie.
+Visto rosso su `genet`/`genet_fdt`. `genet` e `genet_fdt` entrano in scope:
+660 mutanti diventano 1515. `make layers-table` — ogni prerequisito di `check`
+deve avere una riga in §The layers con un «Blind to» non vuoto; visto rosso su
+`vocabulary-sync`, che mancava da sempre.
+
+**Codice (F-1, F-4, F-5, F-6, F-7, F-8).** Il reset del PHY esce dal boot path.
+La sequenza di init passa **prima** di `DMA_EN`, i settle diventano attese reali
+su `CNTFRQ_EL0`, `bcmgenet_hfb_clear` viene implementato (non era mai stato
+toccato), il BD di TX perde `DMA_OWN`/`DMA_WRAP`, il BD di RX torna
+address-only, l'anello 0 prende 128 BD in TX e 256 in RX, e `XON_XOFF_THRESH`
+smette di essere zero. Sei nuovi host test sull'aritmetica HFB. 598 host test.
+Silicio non pagato: ADR-0105/0106 restano `proposed`.
+
+**Doc (F-9, F-14).** `SECURITY.md` non dice più «No network stack»: la riga
+minacce e i non-assets distinguono l'assenza di uno stack IP dalla presenza di
+un servizio pacchetti EL1 host-testato.
+
+**Correzione a F-14.** Il finding sopravvaluta il difetto: i quattro `expect`
+di `network_runtime.rs` erano **irraggiungibili**, perché la guardia
+`if page.is_none() { return None }` li precede. Non erano un panic in attesa.
+Sono stati comunque rimossi — la via d'uscita per esaurimento è ora un rifiuto
+bounded nella forma oltre che nel fatto — ma la severità corretta era P3, non
+P2. Il finding resta sopra come record datato dell'audit; questa riga è la
+rettifica.
+
+**Non fatto in questa passata**: F-3 (divergenza modello/driver — va dopo che
+la sequenza funziona, non durante), F-10 (la cella da 4500 parole), F-12
+(decisione sui transcript), F-15 (potatura branch), F-16 (stub x86 in
+ADR-0049), e il piano di completamento oltre P3.

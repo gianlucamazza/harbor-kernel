@@ -174,14 +174,11 @@ pub fn busy_wait_ns(ns: u64) {
 }
 
 /// Spin until at least `us` microseconds have elapsed.
+///
+/// Live on every board since GENET's reset and flush settles started using it
+/// (ADR-0107): a settle is a wall-clock fact, and the GENET control plane is
+/// compiled on `qemu-virt` too even though that board has no such device.
 #[inline]
-#[cfg_attr(
-    feature = "board-qemu-virt",
-    expect(
-        dead_code,
-        reason = "QEMU virt has no polled board peripheral using this delay"
-    )
-)]
 pub fn busy_wait_us(us: u32) {
     // Route through `busy_wait_ns` so one counter path is always linked.
     busy_wait_ns(u64::from(us).saturating_mul(1_000));
