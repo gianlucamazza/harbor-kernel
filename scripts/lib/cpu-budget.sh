@@ -79,6 +79,15 @@ cpu_budget_start() {
 # a `timeout`: 7.11 cores on a host where QEMU was getting 0.81, and the number
 # was mostly `ffmpeg`. The `(host-wide fallback)` suffix on the printed line is
 # there so a reader can tell the two apart.
+#
+# **In CI the fallback is always what runs**, and no change here can fix it:
+# `.github/workflows/ci.yml` wraps `qemu-system-aarch64` in `docker run`, so the
+# emulator is a child of the container runtime and never appears in the process
+# tree this samples. Every CI budget line therefore carries the suffix, and the
+# guard there is a floor against a wholly idle runner rather than a measurement
+# of what the guest received. Issue #28 is the standing item for giving the boot
+# oracle guaranteed CPU; until it is paid, CI's numbers are weaker than a
+# workstation's and the printed suffix is what says so.
 cpu_budget_watch() {
 	local pid="$1" limit="$2" deadline watched_comm
 	deadline=$((CPU_BUDGET_STARTED + limit))
