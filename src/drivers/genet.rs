@@ -11,8 +11,7 @@ use kernel_core::genet::{
     PriorityReport, Queue0Report, QueueEnable, QueueEnableError, RbufChkReport, RbufReport,
     ResetReport, Revision, RevisionError, RgmiiReport, RingBufReport, RingCfgReport, RingProgram,
     RingProgramError, Rings14Report, RxReport, StateDump, TbufReport, TbufSizeReport, TxReport,
-    TxRingSet, UmacMibReport, UmacReport, UmacResetReport, WrrPriority, dma_registers, mdio, phy,
-    registers,
+    TxRingSet, UmacMibReport, UmacReport, WrrPriority, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -138,25 +137,34 @@ impl Genet {
         self.stop_dma(genet::registers::RDMA)?;
         self.stop_dma(genet::registers::TDMA)?;
 
-        // Linux `reset_umac`: zero the software-reset latch, wait 10 µs, then
-        // assert `CMD_SW_RESET` and wait 2 µs (`bcmgenet.c:2560-2571`).
+        // `bcmgenet_open`'s order: `bcmgenet_umac_reset` ("take MAC out of
+        // reset") and then `init_umac`, whose first act is `reset_umac`
+        // (`bcmgenet.c:3368-3370`).
         //
-        // The latch is `SYS_RBUF_FLUSH_CTRL` in the **SYS** block, not
-        // `RBUF_CTRL` in the RBUF block. Linux reaches both through one helper
-        // name (`bcmgenet_rbuf_ctrl_get/set`, `:127-140`) whose name does not
+        // Both work on `SYS_RBUF_FLUSH_CTRL` in the **SYS** block, not on
+        // `RBUF_CTRL` in the RBUF block. Linux reaches the two through one
+        // helper name (`bcmgenet_rbuf_ctrl_get/set`, `:127-140`) that does not
         // say `SYS`, and Harbor had been zeroing the wrong one — so the latch
         // that holds UniMAC in reset was never touched at all.
+        self.release_umac_reset();
+
+        // `reset_umac` (`:2560-2571`): zero the latch, wait 10 µs, assert
+        // `CMD_SW_RESET`, wait 2 µs — and **stop**. Linux does not wait for
+        // that bit to clear and never clears it by hand.
+        //
+        // Harbor polled for it to self-clear and treated a timeout as a failed
+        // probe. That poll used to pass while the MAC was held by the SYS
+        // latch and `UMAC_CMD` read back as zero; with the latch released it
+        // times out, which is the 2026-08-17 11:10 `probe unavailable
+        // (Timeout)` and is evidence *for* the diagnosis, not against it. The
+        // self-clearing contract was invented here; the state dump reports the
+        // bit instead of a poll asserting it.
         self.regs
             .write32(genet::registers::SYS_RBUF_FLUSH_CTRL as usize, 0);
         settle(FLUSH_SETTLE_US);
         self.regs
             .write32(genet::registers::UMAC_CMD as usize, CMD_SW_RESET);
         settle(RESET_SETTLE_US);
-        if !poll::until(RESET_SPIN_LIMIT, || {
-            self.regs.read32(genet::registers::UMAC_CMD as usize) & CMD_SW_RESET == 0
-        }) {
-            return Err(Error::Timeout);
-        }
         self.phase = self.phase.reset();
         self.tx_cpu = 0;
         self.tx_dma = 0;
@@ -399,7 +407,6 @@ impl Genet {
         // then `init_dma`'s flush prologue, then the rings, and `DMA_EN`
         // **last** (`bcmgenet.c:3351-3380`, `:3089-3180`). Harbor used to
         // enable DMA first and program UniMAC into a running engine.
-        boot.umac_released = Some(self.release_umac_reset());
         boot.umac = Some(self.program_umac_init());
         boot.tbuf = Some(self.program_tbuf_tsb());
         boot.tbuf_size = Some(self.program_rbuf_tbuf_size());
@@ -626,7 +633,7 @@ impl Genet {
     /// while that bit is set (`:2540-2545`), which is the exact shape of what
     /// silicon has shown for twenty-six boots: TDMA retires the descriptor and
     /// UniMAC counts nothing.
-    pub fn release_umac_reset(&self) -> UmacResetReport {
+    fn release_umac_reset(&self) {
         let flush = self.regs.read32(registers::SYS_RBUF_FLUSH_CTRL as usize);
         self.regs.write32(
             registers::SYS_RBUF_FLUSH_CTRL as usize,
@@ -638,7 +645,6 @@ impl Genet {
             flush & !registers::SYS_UMAC_SW_RESET,
         );
         settle(FLUSH_SETTLE_US);
-        UmacResetReport::Released
     }
 
     /// Read back what the controller holds. Writes nothing (ADR-0107 §4).

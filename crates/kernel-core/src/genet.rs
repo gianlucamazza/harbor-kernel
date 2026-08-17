@@ -1699,22 +1699,6 @@ impl Display for RbufReport {
     }
 }
 
-/// Boot report for `bcmgenet_umac_reset` — the pulse Linux comments as
-/// "take MAC out of reset" (`bcmgenet.c:3299-3311`, called at `:3368` before
-/// `init_umac`). Not a NIC.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UmacResetReport {
-    Released,
-}
-
-impl Display for UmacResetReport {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            UmacResetReport::Released => f.write_str("genet: umac released (sys rbuf, not a nic)"),
-        }
-    }
-}
-
 /// A read-only snapshot of what the controller actually holds after the boot
 /// sequence. Writes nothing; explains nothing on its own (ADR-0107 §4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1893,7 +1877,6 @@ pub struct GenetBoot {
     pub rbuf: Option<RbufReport>,
     pub rbuf_chk: Option<RbufChkReport>,
     pub hfb: Option<HfbReport>,
-    pub umac_released: Option<UmacResetReport>,
     pub tx: Option<TxReport>,
     pub mib: Option<UmacMibReport>,
     pub rx: Option<RxReport>,
@@ -1918,7 +1901,6 @@ impl GenetBoot {
             rbuf: None,
             rbuf_chk: None,
             hfb: None,
-            umac_released: None,
             tx: None,
             mib: None,
             rx: None,
@@ -1929,9 +1911,6 @@ impl GenetBoot {
 
     pub fn each_line(&self, mut emit: impl FnMut(&dyn Display)) {
         emit(&self.programmed);
-        if let Some(line) = self.umac_released.as_ref() {
-            emit(line);
-        }
         if let Some(line) = self.rings14.as_ref() {
             emit(line);
         }
