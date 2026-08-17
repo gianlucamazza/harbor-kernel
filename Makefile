@@ -101,7 +101,7 @@ endif
 .PHONY: all debug img elf check test miri bringup-builds \
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
-	boot-check panic-check hw-check hw-store-audit mutation-freshness mutation-scope layers-table x86-elf x86-boot-check doc-claims layering fmt fmt-check \
+	boot-check panic-check hw-check hw-store-audit hw-evidence mutation-freshness mutation-scope layers-table x86-elf x86-boot-check doc-claims layering fmt fmt-check \
 	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy deploy-absent-nic deploy-oracle \
 	restore-rpios serial clean agents vocabulary-sync
 
@@ -136,7 +136,7 @@ img: elf
 # `miri`/`shellcheck` fail loudly when their tool is absent rather than letting
 # the claim quietly become false (skip only with ALLOW_MIRI_SKIP=1 /
 # ALLOW_SHELLCHECK_SKIP=1, same shape as boot-check's ALLOW_BOOT_SKIP).
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri mutation-freshness mutation-scope layers-table doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence vocabulary-sync
+check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri hw-evidence mutation-freshness mutation-scope layers-table doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence vocabulary-sync
 	cargo clippy --target $(TARGET) -- -D warnings
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
@@ -342,6 +342,13 @@ mutation-scope:
 
 layers-table:
 	./scripts/check/layers-table.sh
+
+# Every hardware claim cites a record this repository holds (ADR-0109). The
+# capture stays in the ignored `.serial-log/`; what is tracked is the evidence
+# derived from it, heartbeat collapsed. Derive one with:
+#   ./scripts/host/hw-evidence.sh .serial-log/<capture>.log
+hw-evidence:
+	./scripts/check/hw-evidence.sh
 
 # Assert a Pi 4B serial transcript against the boot oracle.
 #

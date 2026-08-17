@@ -128,6 +128,7 @@ the code that follows.
 | [0106](0106-pi4-genet-v5-backend-design.md)                  | Pi 4 BCM2711 GENET v5 backend design                                                         | accepted   |
 | [0107](0107-genet-sequence-first-bring-up.md)                | GENET bring-up moves from one-variable slices to sequence-first                              | proposed   |
 | [0108](0108-boot-path-link-acquisition.md)                   | Link acquisition in the boot path                                                            | proposed   |
+| [0109](0109-hardware-evidence-is-tracked.md)                  | Hardware evidence is tracked; the capture that carried it is not                             | proposed   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

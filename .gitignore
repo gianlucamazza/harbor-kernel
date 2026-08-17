@@ -21,5 +21,14 @@
 /mutants.out/
 /mutants.out.old/
 
-# Serial transcripts (scripts/serial.sh); the ones worth keeping go in docs/
+# Serial transcripts (scripts/serial.sh) are working artifacts. The tracked
+# record derived from them lives in docs/evidence/ (ADR-0109).
 /.serial-log/
+
+# ...and it has to be un-ignored explicitly, because a global excludes file is
+# allowed to say `*.log` and this repository's records are `.log`. Found the
+# hard way: `git add -A` staged the two pcaps and silently skipped all 36
+# transcripts, which would have left CI red on every citation with the files
+# sitting right there on disk. A repository's own .gitignore wins over the
+# user's, so the negation belongs here rather than in anyone's home directory.
+!docs/evidence/*.log

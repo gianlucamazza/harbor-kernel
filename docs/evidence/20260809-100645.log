@@ -1,0 +1,159 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260809-100645.log
+# sha256:  924f3b05a93d0008e97f9b39849cd78b10e30e98abb0caafbdf3f5896dbaf53c
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260809-100645.log
+10:06:46.332782 ticks=19970
+        [... 2 heartbeat lines elided ...]
+10:06:47.333539 invariants: overwrites=0 abandoned=0 faults=1 blocked=1 frames_free=512
+10:07:13.032319 Harbor: hello
+10:07:13.032699 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+10:07:13.032939 build: headless (no SPI TFT, no bring-up gates)
+10:07:13.033124 DTB at 0x2eff1f00
+10:07:13.033338 MMU on  (W^X, guard page at 0x104000, 299008 B of table arena left)
+10:07:13.060762 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+10:07:13.062734 DTB mapped: 61440 bytes at 0x2eff1000
+10:07:13.063783 heap remaining = 67108864 bytes
+10:07:13.070391 frames: 512 free / 512  base=0x4115000  (2048 KiB pool)
+10:07:13.070805 aspace: prepare ok  held=14 (empty=1)  root=0x4115000
+10:07:13.071030 el0: SVC ok  imm=0
+10:07:13.071274 el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+10:07:13.071495 aspace: create/destroy ok  pool=512
+10:07:13.075811 asid: dual a=2 b=3 ok
+10:07:13.082974 aspace: dual create/destroy ok  pool=512
+10:07:13.145726 rng200: ok word=0x234b2b82
+10:07:13.146116 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+10:07:13.146373 irq: sealed with 2 handlers registered
+10:07:13.146583 IRQs enabled (timer + UART RX)
+10:07:13.146807 idle: WFI when no RX/tick work
+10:07:13.147025 heap: Box at 0x115010, Vec of 1024 sums to 523776
+10:07:13.175021 heap: 67100624 bytes free while held, 2 fragments
+10:07:13.175420 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+10:07:13.175684 unmap: page at 0x116000 fault-ready
+10:07:13.177093 unmap: remapped and freed
+10:07:13.177354 split: page at 0x200000 split 1, remapped
+10:07:13.177559 console-server: up
+10:07:13.177772 console: capability minted
+10:07:13.190672 loader: builtin
+10:07:13.191027 loader: beacon loaded text=1 stack=3
+10:07:13.191260 loader: mute loaded text=2 stack=3
+10:07:13.191459 sched: spawned task-a
+10:07:13.193502 sched: spawned task-b
+10:07:13.193894 sched: spawned el0-task
+10:07:13.194123 sched: spawned pl011-agent
+10:07:13.194325 sched: spawned rng-agent
+10:07:13.194516 sched: spawned agent-a
+10:07:13.194721 sched: spawned agent-b
+10:07:13.212706 ipc: spawned receiver
+10:07:13.213268 ipc: spawned sender
+10:07:13.213514 ipc: spawned forger
+10:07:13.213731 el0-ipc: spawned receiver
+10:07:13.213919 el0-ipc: spawned sender
+10:07:13.214121 irq-cap: minted timer cookie=1
+10:07:13.216306 sched: spawned irq-wait
+10:07:13.217478 sched: spawned el0-irq-refuse
+10:07:13.220758 name: resolved
+10:07:13.224454 name: missing
+10:07:13.227751 store: got
+10:07:13.240332 store: missing
+10:07:13.240684 ipc: transfer spawned
+10:07:13.240892 cascade: parent spawned
+10:07:13.241081 el0-resolve: spawned
+10:07:13.241267 ipc: timeout-recv spawned
+10:07:13.247251 el0-xfer: parent spawned
+10:07:13.250059 el0-xfer: refuse spawned
+10:07:13.250370 el0-xfer-peer: parent spawned
+10:07:13.250647 el0-xfer-peer: refuse spawned
+10:07:13.250846 xfer-peer: stale spawned
+10:07:13.257858 el0-timeout: spawned
+10:07:13.258225 density: thin n=3 bytes_each=8192
+10:07:13.258443 durable: reloaded
+10:07:13.258682 budget: workers spawned
+10:07:13.258868 ipc: revoke-held spawned
+10:07:13.259052 ipc: orphan spawned id=35
+10:07:13.259227 ipc: reaper spawned
+10:07:13.259412 sched: spawned supervisor
+10:07:13.259635 ipc: auto-reap receiver spawned
+10:07:13.259830 ipc: auto-reap sender spawned
+10:07:13.279710 arena: 1 splits, 71 tables free
+10:07:13.280074 loader: mute ran sends=0 refusals=2
+10:07:13.280278 task-a 0
+10:07:13.280454 task-b 0
+10:07:13.282582 el0-task: svc ping
+10:07:13.282919 el0-task: svc refuse imm=0x99
+10:07:13.283124 el0-task: resume pings=2
+10:07:13.283311 pl011-agent: FR read + svc ok
+10:07:13.283490 pl011-agent: rx own begin
+10:07:13.283688 rng-agent: map read ok
+10:07:13.302193 rng-agent: killed ok  pool=466 (was 466)
+10:07:13.303449 agent-b: svc ping
+10:07:13.305439 el0-ipc: try-recv empty without waiting empties=1
+10:07:13.305763 el0-ipc: sent slot=0 tag=7 a=42
+10:07:13.306006 el0-ipc: console denied, printed nothing
+10:07:13.306237 el0-ipc: refused slot=1 authority=4
+10:07:13.323866 el0-ipc: agent faulted esr=0x9200004f far=0x80000 faults=1
+10:07:13.324417 el0-ipc: creator alive after fault
+10:07:13.324699 irq-wait: arm cookie=1
+10:07:13.324924 el0-irq: refused refusals=1
+10:07:13.325144 ipc: transfer donor empty
+10:07:13.325336 resolve-grant: refused
+10:07:13.325517 el0-resolve: ok
+10:07:13.325731 el0-resolve: refused refusals=1
+10:07:13.325912 el0-xfer: refused refusals=1
+10:07:13.330815 el0-xfer-peer: spawned
+10:07:13.331339 el0-xfer-peer: refused refusals=1 detail=4
+10:07:13.331721 xfer-peer: band refused
+10:07:13.745683 ipc: held-revoke ok
+10:07:13.746228 ipc: release stale refused
+10:07:13.746488 H!H!loader: beacon ran sends=2 refusals=0
+10:07:13.746704 task-a 1
+10:07:13.746889 task-b 1
+10:07:13.747067 el0-task: console sends=2
+10:07:13.747253 el0-task: irq resume irqs=1
+10:07:13.747436 el0-task: ok  pool=436 (was 497)
+10:07:13.747641 pl011-agent: rx poll empty
+10:07:13.747809 agent-a: svc ping
+10:07:13.768137 ipc: sent tag=1 a=42
+10:07:13.768499 ipc: transfer ok
+10:07:13.768746 el0-xfer: ok
+10:07:13.768955 el0-xfer: parent got cap
+10:07:13.769147 el0-xfer-peer: donor emptied
+10:07:13.769341 irq-wait: woke drops=0 idle_signals=5
+10:07:13.769513 el0-irq: arm slot=0
+10:07:13.769696 xfer-peer: stale refused
+10:07:13.769867 ipc: timed-out cancelled
+10:07:13.934615 el0-timeout: cancelled
+10:07:14.154679 ticks=10
+10:07:14.155065 invariants: overwrites=0 abandoned=0 faults=1 blocked=4 frames_free=466
+10:07:14.155281 task-a 2
+10:07:14.155460 task-b 2
+10:07:14.155676 RXagents: concurrent ok  pool=466
+10:07:14.155868 ipc: got tag=1 a=42
+10:07:14.156061 ipc: refuse count=6 full=0 state=0
+10:07:14.156265 *el0-ipc: got payload via EL0 recvs=1
+10:07:14.156440 el0-xfer-peer: ok
+10:07:14.179912 el0-irq: woke wait_irqs=1
+10:07:14.181066 irq-device: woke wait_irqs=1
+10:07:14.181496 budget: rotated
+10:07:14.182246 ipc: cancel issued cancel_events=3
+10:07:14.182766 supervisor: reaped id=21 reap_events=1
+10:07:14.183108 task-a 3
+10:07:14.183414 task-b 3
+10:07:14.183758 sched: blocked=1 block_events=13
+10:07:14.184091 cascade: parent exit cascade_events=0
+10:07:14.199301 ipc: reaped cancelled
+10:07:14.199685 supervised: cancelled
+10:07:14.199915 ipc: auto-reaped cancelled
+10:07:14.200109 ecascade: cancelled
+10:07:14.200304 spl011-agent: rx own bytes=2
+10:07:14.200487 pl011-agent: rx own end
+10:07:14.200706 pl011-agent: killed ok  pool=512 (was 482)
+10:07:14.200887 supervisor: restarted id=2
+10:07:14.201066 supervised: cancelled
+10:07:15.139640 ticks=20
+        [... 44 heartbeat lines elided ...]
+10:07:37.147093 invariants: overwrites=0 abandoned=0 faults=1 blocked=1 frames_free=512
