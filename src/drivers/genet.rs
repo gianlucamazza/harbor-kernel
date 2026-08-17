@@ -32,6 +32,14 @@ const CMD_SW_RESET: u32 = 1 << 13;
 const FLUSH_SETTLE_US: u32 = 10;
 /// Linux's settle after asserting `CMD_SW_RESET` (`udelay(2)`).
 const RESET_SETTLE_US: u32 = 2;
+/// How long a bounded TSV read waits for UniMAC to finish with the frame.
+///
+/// The wire frame of 2026-08-17 11:21 arrived while the counters still read
+/// zero; 20 ms is far beyond any plausible MAC latency for a 60-byte frame and
+/// still short enough that a boot which never transmits is not slowed by
+/// anything a reader would notice.
+const TSV_SETTLE_US: u32 = 20_000;
+const TSV_STEP_US: u32 = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -452,7 +460,7 @@ impl Genet {
             Err(_) => TxReport::NotEnabled,
         });
         if boot.tx.is_some() {
-            boot.mib = Some(self.read_umac_tsv());
+            boot.mib = Some(self.settle_umac_tsv());
         }
         boot.rx = Some(match self.submit_one_rx() {
             Ok(report) => report,
@@ -738,6 +746,25 @@ impl Genet {
         let ctrl = self.regs.read32(registers::HFB_CTRL as usize);
         self.regs
             .write32(registers::HFB_CTRL as usize, ctrl | registers::HFB_EN);
+    }
+
+    /// Read the TSV after giving UniMAC a bounded window to move the frame.
+    ///
+    /// The 2026-08-17 11:21 boot put a `0x88b5` frame on the wire and still
+    /// printed `packed=0 linux=0 pok=0`, because the counters were sampled
+    /// microseconds after the doorbell. A MIB counter is not a doorbell
+    /// acknowledgement; it moves when the MAC has finished with the frame.
+    /// Bounded, and honest when the window expires: the last read is what gets
+    /// printed, zero or not.
+    pub fn settle_umac_tsv(&self) -> UmacMibReport {
+        let mut report = self.read_umac_tsv();
+        let mut waited = 0;
+        while waited < TSV_SETTLE_US && report.packed == 0 && report.linux == 0 && report.pok == 0 {
+            settle(TSV_STEP_US);
+            waited += TSV_STEP_US;
+            report = self.read_umac_tsv();
+        }
+        report
     }
 
     /// UniMAC TX TSV candidates. Not a wire claim.
