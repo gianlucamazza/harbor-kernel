@@ -101,7 +101,7 @@ endif
 .PHONY: all debug img elf check test miri bringup-builds \
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
-	boot-check panic-check hw-check hw-store-audit hw-evidence model-consumed mutation-freshness mutation-scope layers-table x86-elf x86-boot-check doc-claims layering fmt fmt-check \
+	boot-check panic-check hw-check hw-store-audit hw-evidence model-consumed mutation-freshness mutation-scope layers-table clippy-kernel clippy-host x86-elf x86-boot-check doc-claims layering fmt fmt-check \
 	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy deploy-absent-nic deploy-oracle \
 	restore-rpios serial clean agents vocabulary-sync
 
@@ -136,12 +136,34 @@ img: elf
 # `miri`/`shellcheck` fail loudly when their tool is absent rather than letting
 # the claim quietly become false (skip only with ALLOW_MIRI_SKIP=1 /
 # ALLOW_SHELLCHECK_SKIP=1, same shape as boot-check's ALLOW_BOOT_SKIP).
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri qemu-virtio-check hw-evidence model-consumed mutation-freshness mutation-scope layers-table doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence vocabulary-sync
+#
+# **The order below is load-bearing.** Make stops at the first failed
+# prerequisite, so everything after it does not run — and on 2026-08-18 that was
+# ten gates plus both clippy passes, invisible in CI for as long as
+# `mutation-freshness` had been red (which is deliberate, until #81 lands).
+# `xrefs`, `doc-claims`, `layering`, `vocabulary-sync` and the rest had not been
+# executed by CI in days while reporting nothing.
+#
+# So: source-only gates first (seconds, no build), then compile/lint/test, then
+# emulated boots, and the one gate that is *expected* to be red last. A gate
+# that hides other gates should be the last thing in the list.
+check: fmt-check shellcheck xrefs doc-claims doc-symbols roadmap-evidence vocabulary-sync layers-table hw-evidence mutation-scope model-consumed layering arch-board-free no-static-mut irq-scope test clippy-kernel clippy-host bringup-builds debug-builds board-guard product-builds no-simd no-early-exclusives miri boot-check panic-check product-boot-check oracle-census qemu-virtio-check mutation-freshness
+
+# Clippy is two *prerequisites* rather than two recipe lines, and the move is
+# the point. A recipe body runs only after every prerequisite has passed, so
+# while any one of them was red the two largest lint passes in this target never
+# executed at all — six errors in `genet.rs`'s tests survived weeks of CI that
+# way, discovered only when `mutation-freshness` was finally about to go green.
+# `layers-table` reads the body too now, but a body that cannot run is still a
+# body that cannot run.
+clippy-kernel:
 	cargo clippy --target $(TARGET) -- -D warnings
+
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
 # grew a clippy pass over test code and found an orphaned doc comment that no
 # local run could have seen.
+clippy-host:
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) --all-targets -- -D warnings
 
 # Every gate in this Makefile is a shell script, and two of them carry

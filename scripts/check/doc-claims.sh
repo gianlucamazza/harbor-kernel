@@ -29,7 +29,11 @@ fail() {
 makefile_gates="$(sed -n 's/^check:[[:space:]]*//p' Makefile)"
 [[ -n "${makefile_gates}" ]] || fail "no 'check:' target found in Makefile"
 
-readme_gates="$(sed -n 's/^make check *# *\(.*\), then clippy$/\1/p' README.md)"
+# The `, then clippy` suffix is gone: clippy became two named prerequisites on
+# 2026-08-18 rather than two recipe lines, because a recipe body does not run
+# while any prerequisite is red — which is how six clippy errors survived weeks
+# of CI. The list is now simply the prerequisites, in order.
+readme_gates="$(sed -n 's/^make check *# *\(.*\)$/\1/p' README.md)"
 [[ -n "${readme_gates}" ]] || fail "README has no 'make check' line in the expected form"
 
 if [[ "${makefile_gates}" != "${readme_gates}" ]]; then

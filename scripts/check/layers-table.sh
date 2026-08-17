@@ -22,6 +22,23 @@
 # the table is about layers of evidence, not about one target's contents. And
 # every row in the section carries a non-empty fourth column, because a layer
 # with no stated blind spot is a claim of omniscience.
+#
+# ## The blind spot this gate had itself
+#
+# Until 2026-08-18 it read only the `check:` *prerequisite line*. `make check`
+# also has a **recipe body**, and that body is where the two `cargo clippy`
+# passes live — the ones that lint the whole kernel and the whole host crate.
+# So the two largest layers in the target were invisible to the map of layers,
+# and had no row at all.
+#
+# It cost exactly what it was set up to cost. Six clippy errors sat in
+# `genet.rs`'s tests for weeks: `mutation-freshness` is a *prerequisite*, so
+# make failed before it ever reached the body, and no CI run had executed those
+# passes. A red prerequisite hides the whole recipe, and the gate that
+# enumerates prerequisites could not say so.
+#
+# The body is now read too, by the command it runs rather than by a target
+# name, since recipe lines have no names.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -37,6 +54,17 @@ note() {
 # `check:`'s prerequisites, from the Makefile itself rather than from a copy.
 mapfile -t gates < <(
 	sed -n 's/^check: //p' Makefile | tr ' ' '\n' | grep -v '^$'
+)
+
+# The recipe body of `check:`: every line after the `check:` line that begins
+# with a tab, up to the next target. These have no target names, so they are
+# identified by the command — `cargo clippy` is the only one today, twice.
+mapfile -t recipe < <(
+	awk '
+		/^check:/ { on = 1; next }
+		on && /^\t/ { sub(/^\t/, ""); print; next }
+		on && /^[^\t#]/ && NF { exit }
+	' Makefile | grep -oE '^cargo [a-z-]+' | sort -u
 )
 
 if [[ "${#gates[@]}" -lt 10 ]]; then
@@ -91,9 +119,23 @@ for gate in "${gates[@]}"; do
 		note "\`make ${gate}\` runs in 'make check' and has no row under '## The layers' in ${DOC}"
 done
 
+# Recipe-body commands are named in the Layer column as themselves, because
+# `make clippy` does not exist — the body is not a target.
+for cmd in "${recipe[@]}"; do
+	awk -F'|' -v needle="\`${cmd}\`" '
+		/^\| Layer +\| Runs/ { on = 1; next }
+		on && $0 !~ /^\|/ { on = 0 }
+		on && index($2, needle) { found = 1 }
+		END { exit(found ? 0 : 1) }
+	' <<<"${section}" ||
+		note "\`${cmd}\` runs in the body of 'make check' and has no row under '## The layers' in ${DOC}
+  The body is not a prerequisite, so a red prerequisite hides it entirely —
+  which is how six clippy errors survived weeks of CI (2026-08-17)."
+done
+
 if [[ "${violations}" -ne 0 ]]; then
 	echo "layers-table: ${violations} gate(s) missing from the map of blind spots" >&2
 	exit 1
 fi
 
-echo "layers-table: clean (${#gates[@]} check gates, ${rows} layer rows, every row states what it cannot see)"
+echo "layers-table: clean (${#gates[@]} check prerequisites + ${#recipe[@]} recipe-body command(s), ${rows} layer rows, every row states what it cannot see)"
