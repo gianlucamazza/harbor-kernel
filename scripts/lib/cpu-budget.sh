@@ -59,11 +59,33 @@ cpu_budget_read_host_busy_hz() {
 	CPU_BUDGET_HOST_BUSY_HZ=$((user + nice + system + irq + softirq + steal))
 }
 
+# Every pid whose `comm` names a QEMU system emulator, whoever its parent is.
+#
+# The point is the container case: `docker run` puts the emulator under the
+# container runtime, so it is nowhere in the caller's process tree — but it is
+# still an ordinary process in the host's pid namespace, visible in /proc like
+# any other. Matching on `comm` finds it there without knowing anything about
+# cgroup layout, which varies by driver and by distribution.
+#
+# `comm` is truncated to 15 characters, so `qemu-system-aarch64` reads as
+# `qemu-system-aar`. The prefix is what is matched.
+cpu_budget_emulator_pids() {
+	local stat comm
+	for stat in /proc/[0-9]*/stat; do
+		[[ -r "${stat}" ]] || continue
+		read -r _ comm _ <"${stat}" 2>/dev/null || continue
+		[[ "${comm}" == "(qemu-system"* ]] && printf '%s\n' "${stat%/stat}"
+	done
+}
+
 cpu_budget_start() {
 	cpu_budget_read_host_busy_hz
 	CPU_BUDGET_BUSY_BEFORE="${CPU_BUDGET_HOST_BUSY_HZ}"
 	CPU_BUDGET_STARTED=${SECONDS}
 	CPU_BUDGET_PEAK_HZ=0
+	# Emulators already running before this gate started are somebody else's,
+	# and counting them would let a neighbouring QEMU vouch for this one.
+	CPU_BUDGET_PRE_EXISTING=" $(cpu_budget_emulator_pids | sed 's|/proc/||' | tr '\n' ' ')"
 }
 
 # Watch $1 until it exits or $2 seconds elapse, sampling its CPU time.
@@ -80,21 +102,53 @@ cpu_budget_start() {
 # was mostly `ffmpeg`. The `(host-wide fallback)` suffix on the printed line is
 # there so a reader can tell the two apart.
 #
-# **In CI the fallback is always what runs**, and no change here can fix it:
-# `.github/workflows/ci.yml` wraps `qemu-system-aarch64` in `docker run`, so the
-# emulator is a child of the container runtime and never appears in the process
-# tree this samples. Every CI budget line therefore carries the suffix, and the
-# guard there is a floor against a wholly idle runner rather than a measurement
-# of what the guest received. Issue #28 is the standing item for giving the boot
-# oracle guaranteed CPU; until it is paid, CI's numbers are weaker than a
-# workstation's and the printed suffix is what says so.
+# The fallback used to be *all* CI ever ran, because
+# `.github/workflows/ci.yml` wraps `qemu-system-aarch64` in `docker run` and the
+# emulator is therefore a child of the container runtime, nowhere in the
+# caller's process tree. Every CI budget line carried the suffix, which meant
+# issue #28's own detector could not distinguish "the runner gave QEMU 2.3
+# cores" from "the runner was busy with something else".
+#
+# So the emulator is now found by identity rather than by parentage — see
+# `cpu_budget_emulator_pids`. A container does not hide a process from the
+# host's /proc, only from the caller's descendants. The fallback stays for the
+# case where no emulator can be found at all, which is a real possibility
+# (a pid namespace of its own, a differently-named binary) and is exactly when
+# a floor rather than a measurement is the honest thing to have.
+#
+# The identity scan has its own limit, and it is the mirror of the old one: a
+# second, unrelated QEMU started during the window is counted in. Pre-existing
+# ones are excluded at `cpu_budget_start`, so this needs a neighbour that starts
+# *inside* the gate. In this repository the gates are sequential, so it does not
+# arise; on a shared machine it would inflate the number rather than deflate it,
+# which fails toward a false green and is worth knowing.
 cpu_budget_watch() {
-	local pid="$1" limit="$2" deadline watched_comm
+	local pid="$1" limit="$2" deadline dir emulator sum found
 	deadline=$((CPU_BUDGET_STARTED + limit))
-	watched_comm="$(cat "/proc/${pid}/comm" 2>/dev/null || echo unknown)"
+	CPU_BUDGET_SAW_EMULATOR=0
 	while ((SECONDS < deadline)) && kill -0 "${pid}" 2>/dev/null; do
+		# The launched pid first: on a workstation it *is* the emulator, and
+		# reading one file beats scanning /proc.
 		cpu_budget_read_pid_hz "${pid}"
-		((CPU_BUDGET_PID_HZ > CPU_BUDGET_PEAK_HZ)) && CPU_BUDGET_PEAK_HZ="${CPU_BUDGET_PID_HZ}"
+		sum="${CPU_BUDGET_PID_HZ}"
+		found=0
+		if [[ "$(cat "/proc/${pid}/comm" 2>/dev/null)" == qemu-system* ]]; then
+			found=1
+		else
+			# Otherwise look for the emulator by identity. This is the container
+			# case, and it is why the host-wide fallback below is now a last
+			# resort rather than the normal CI path.
+			sum=0
+			for dir in $(cpu_budget_emulator_pids); do
+				emulator="${dir#/proc/}"
+				[[ "${CPU_BUDGET_PRE_EXISTING}" == *" ${emulator} "* ]] && continue
+				cpu_budget_read_pid_hz "${emulator}"
+				sum=$((sum + CPU_BUDGET_PID_HZ))
+				found=1
+			done
+		fi
+		((found == 1)) && CPU_BUDGET_SAW_EMULATOR=1
+		((sum > CPU_BUDGET_PEAK_HZ)) && CPU_BUDGET_PEAK_HZ="${sum}"
 		sleep 0.2
 	done
 	CPU_BUDGET_SECONDS=$((SECONDS - CPU_BUDGET_STARTED))
@@ -103,7 +157,7 @@ cpu_budget_watch() {
 
 	CPU_BUDGET_CORES=$((CPU_BUDGET_PEAK_HZ * 100 / (CPU_BUDGET_CLK_TCK * CPU_BUDGET_SECONDS)))
 	CPU_BUDGET_HOST_WIDE=0
-	if [[ "${watched_comm}" != qemu* ]]; then
+	if ((CPU_BUDGET_SAW_EMULATOR == 0)); then
 		CPU_BUDGET_CORES=$(((CPU_BUDGET_HOST_BUSY_HZ - CPU_BUDGET_BUSY_BEFORE) * 100 / (\
 			CPU_BUDGET_CLK_TCK * CPU_BUDGET_SECONDS)))
 		CPU_BUDGET_HOST_WIDE=1
