@@ -93,8 +93,17 @@ jobs:
           sudo tee /usr/local/bin/qemu-system-aarch64 >/dev/null <<'WRAP'
           #!/usr/bin/env bash
           # Forward host paths into the container (kernel image, cwd).
+          #
+          # `--network host` because `qemu-virtio-check` injects RX through a
+          # `-netdev socket,listen=127.0.0.1:<port>` that a Python peer on the
+          # runner connects to. In the container's own namespace that loopback
+          # is not the runner's: the peer got `[Errno 111] Connection refused`
+          # 449 times in 45s while the guest booted perfectly in the same log.
+          # Nothing else here needs the network, and the gate that does could
+          # not have discovered this until it was in a pipeline at all.
           set -euo pipefail
           exec docker run --rm -i \
+            --network host \
             -v /home/runner:/home/runner \
             -v /tmp:/tmp \
             -w "${PWD}" \
@@ -109,6 +118,16 @@ jobs:
             exit 1
           fi
           qemu-system-aarch64 -machine help | grep -E '^raspi4b\b'
+
+      # `make check` boots the H3 L0 lab image (ADR-0071) as of 2026-08-18: its
+      # only gate was `x86-boot-check`, which ran in neither `make check` nor
+      # this workflow, so `done (QEMU-x86)` was a status claim nothing verified.
+      # The runner is arm64, so this is TCG emulation of x86 — slow, and the
+      # guest is five serial lines and a `hlt`.
+      - name: x86 lab target and emulator
+        run: |
+          rustup target add x86_64-unknown-none
+          sudo apt-get update && sudo apt-get install -y qemu-system-x86
 
       - name: Install nightly with Miri
         run: |

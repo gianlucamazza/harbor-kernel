@@ -7,21 +7,47 @@
 
 use kernel_core::genet::{
     self, ArbiterReport, DEFAULT_TX_RING, DESC_RING, Descriptor, DescriptorError, DmaPhase,
-    GenetBoot, LinkState, MdioError, MdioTxn, PhyError, PhyInitReport, PhyLink, PriorityReport,
-    Queue0Report, QueueEnable, QueueEnableError, RbufChkReport, RbufReport, ResetReport, Revision,
-    RevisionError, RgmiiReport, RingBufReport, RingCfgReport, RingProgram, RingProgramError,
-    Rings14Report, RxReport, TbufReport, TbufSizeReport, TxReport, TxRingSet, UmacMibReport,
-    UmacReport, WrrPriority, dma_registers, mdio, phy, registers,
+    GenetBoot, HfbReport, LinkState, MdioError, MdioTxn, PhyError, PhyInitReport, PhyLink,
+    PriorityReport, Queue0Report, QueueEnable, QueueEnableError, RbufChkReport, RbufReport,
+    ResetReport, Revision, RevisionError, RgmiiReport, RingBufReport, RingCfgReport, RingProgram,
+    RingProgramError, Rings14Report, RxReport, StateDump, TbufReport, TbufSizeReport, TxReport,
+    TxRingSet, UmacMibReport, UmacReport, WrrPriority, dma_registers, mdio, phy, registers,
 };
 use kernel_core::genet_fdt::Binding;
 
 use crate::arch::cache;
 use crate::arch::mmio::Mmio;
 use crate::arch::probe;
+use crate::arch::timer;
 use kernel_core::poll;
 
 const RESET_SPIN_LIMIT: u32 = 1_000_000;
 const CMD_SW_RESET: u32 = 1 << 13;
+
+/// Linux's settle after a flush or reset-latch write (`udelay(10)`).
+///
+/// A register readback stood in for this and is not the same thing: the read
+/// returns as soon as the bus does, which on Device-nGnRnE is nanoseconds. A
+/// settle expressed as "one more transaction" is a settle of zero (ADR-0107).
+const FLUSH_SETTLE_US: u32 = 10;
+/// Linux's settle after asserting `CMD_SW_RESET` (`udelay(2)`).
+const RESET_SETTLE_US: u32 = 2;
+/// How long a bounded TSV read waits for UniMAC to finish with the frame.
+///
+/// The wire frame of 2026-08-17 11:21 arrived while the counters still read
+/// zero; 20 ms is far beyond any plausible MAC latency for a 60-byte frame and
+/// still short enough that a boot which never transmits is not slowed by
+/// anything a reader would notice.
+const TSV_SETTLE_US: u32 = 20_000;
+const TSV_STEP_US: u32 = 200;
+/// How long a bounded RX waits for the link partner to send something.
+///
+/// Bounded because a boot may not hang, and generous because the thing being
+/// waited for is not Harbor's to schedule. Half a second is well inside the
+/// boot's existing budget and wide enough to catch the periodic broadcasts a
+/// quiet link still carries.
+const RX_WINDOW_US: u32 = 500_000;
+const RX_STEP_US: u32 = 500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -127,17 +153,42 @@ impl Genet {
         self.stop_dma(genet::registers::RDMA)?;
         self.stop_dma(genet::registers::TDMA)?;
 
-        // Linux's v5 sequence clears the RBUF software-reset latch before
-        // issuing UniMAC reset; the latch is deliberately not hidden behind a
-        // delay-only assumption here.
-        self.regs.write32(genet::registers::RBUF_CTRL as usize, 0);
+        // `bcmgenet_open`'s order: `bcmgenet_umac_reset` ("take MAC out of
+        // reset") and then `init_umac`, whose first act is `reset_umac`
+        // (`bcmgenet.c:3368-3370`).
+        //
+        // Both work on `SYS_RBUF_FLUSH_CTRL` in the **SYS** block, not on
+        // `RBUF_CTRL` in the RBUF block. Linux reaches the two through one
+        // helper name (`bcmgenet_rbuf_ctrl_get/set`, `:127-140`) that does not
+        // say `SYS`, and Harbor had been zeroing the wrong one — so the latch
+        // that holds UniMAC in reset was never touched at all.
+        self.release_umac_reset();
+
+        // `reset_umac` (`:2560-2571`): zero the latch, wait 10 µs, assert
+        // `CMD_SW_RESET`, wait 2 µs — and **stop**. Linux does not wait for
+        // that bit to clear and never clears it by hand.
+        //
+        // Harbor polled for it to self-clear and treated a timeout as a failed
+        // probe. That poll used to pass while the MAC was held by the SYS
+        // latch and `UMAC_CMD` read back as zero; with the latch released it
+        // times out, which is the 2026-08-17 11:10 `probe unavailable
+        // (Timeout)` and is evidence *for* the diagnosis, not against it. The
+        // self-clearing contract was invented here; the state dump reports the
+        // bit instead of a poll asserting it.
+        self.regs
+            .write32(genet::registers::SYS_RBUF_FLUSH_CTRL as usize, 0);
+        settle(FLUSH_SETTLE_US);
         self.regs
             .write32(genet::registers::UMAC_CMD as usize, CMD_SW_RESET);
-        if !poll::until(RESET_SPIN_LIMIT, || {
-            self.regs.read32(genet::registers::UMAC_CMD as usize) & CMD_SW_RESET == 0
-        }) {
-            return Err(Error::Timeout);
-        }
+        settle(RESET_SETTLE_US);
+        // …and then take the MAC back out of it. Linux leaves the bit asserted
+        // and `umac_enable_set` guards on it; on BCM2711 it does not
+        // self-clear, and the 11:15 state dump read `cmd=0x1002067` — reset
+        // still held, with the whole datapath written over the top. A quiescent
+        // controller is one that is out of reset with nothing enabled, not one
+        // that is held.
+        self.regs.write32(genet::registers::UMAC_CMD as usize, 0);
+        settle(RESET_SETTLE_US);
         self.phase = self.phase.reset();
         self.tx_cpu = 0;
         self.tx_dma = 0;
@@ -216,27 +267,41 @@ impl Genet {
             .map_err(Error::Descriptor)?;
         rx.validate_windows(self.binding.dma)
             .map_err(Error::Descriptor)?;
-        let tx_ring = RingProgram::new(
-            registers::TDMA,
-            queue,
-            0,
-            1,
-            tx.length
-                .try_into()
-                .map_err(|_| Error::Descriptor(DescriptorError::TooLarge))?,
-        )
-        .map_err(Error::Ring)?;
-        let rx_ring = RingProgram::new(
-            registers::RDMA,
-            queue,
-            0,
-            1,
-            rx.length
-                .try_into()
-                .map_err(|_| Error::Descriptor(DescriptorError::TooLarge))?,
-        )
-        .map_err(Error::Ring)?;
+        // Ring geometry is checked here so a bad one is refused before any
+        // register is touched; the writes happen in `program_rings`, which
+        // runs after UniMAC and after the flush prologue (ADR-0107 §1).
+        self.ring_program(registers::TDMA, queue)?;
+        self.ring_program(registers::RDMA, queue)?;
+        self.tx_cpu = tx_cpu;
+        self.tx_dma = tx.address;
+        self.tx_len = tx.length;
+        self.rx_cpu = rx_cpu;
+        self.rx_dma = rx.address;
+        self.rx_len = rx.length;
+        self.queue = queue;
+        Ok(())
+    }
 
+    /// Ring 0 owns Linux's `GENET_Q0_TX_BD_CNT` / `GENET_Q0_RX_BD_CNT`, and
+    /// every ring's slot size is `RX_BUF_LENGTH` — not the packet length.
+    ///
+    /// Harbor programmed one BD with the frame length as the slot size, while
+    /// `program_priority_tx_rings` placed rings 1–4 at BD 128 on the
+    /// assumption ring 0 owned 0..127. The two disagreed
+    /// (`bcmgenet.c:2730-2733`, `:2817-2819`, `:3022`).
+    fn ring_program(&self, block: u32, queue: u8) -> Result<RingProgram, Error> {
+        let count = match (block, queue) {
+            (registers::TDMA, DEFAULT_TX_RING) => genet::V5_Q0_TX_BD_CNT,
+            (registers::RDMA, DEFAULT_TX_RING) => genet::V5_Q0_RX_BD_CNT,
+            _ => 1,
+        };
+        RingProgram::new(block, queue, 0, count, genet::RX_BUF_LENGTH).map_err(Error::Ring)
+    }
+
+    /// Write the SCB burst policy, ring 0 on both engines, and the two posted
+    /// descriptors. Runs after UniMAC/RBUF/TBUF/HFB and after the flush, in
+    /// Linux's `bcmgenet_init_dma` position; DMA is still disabled here.
+    fn program_rings(&self) -> Result<(), Error> {
         self.regs.write32(
             (registers::RDMA + dma_registers::SCB_BURST_SIZE) as usize,
             self.dma_burst_value(),
@@ -245,25 +310,28 @@ impl Genet {
             (registers::TDMA + dma_registers::SCB_BURST_SIZE) as usize,
             self.dma_burst_value(),
         );
-        self.write_ring(tx_ring);
-        self.write_ring(rx_ring);
-        self.write_descriptor(registers::TDMA, 0, tx, true)?;
-        self.write_descriptor(registers::RDMA, 0, rx, true)?;
-        self.tx_cpu = tx_cpu;
-        self.tx_dma = tx.address;
-        self.tx_len = tx.length;
-        self.rx_cpu = rx_cpu;
-        self.rx_dma = rx.address;
-        self.rx_len = rx.length;
-        self.queue = queue;
+        self.write_ring(self.ring_program(registers::TDMA, self.queue)?);
+        self.write_ring(self.ring_program(registers::RDMA, self.queue)?);
+        let tx = Descriptor {
+            address: self.tx_dma,
+            length: self.tx_len,
+            status: 0,
+        };
+        let rx = Descriptor {
+            address: self.rx_dma,
+            length: self.rx_len,
+            status: 0,
+        };
+        self.write_descriptor(registers::TDMA, 0, tx)?;
+        self.write_descriptor(registers::RDMA, 0, rx)?;
         // Descriptor RAM is Device MMIO. Packet buffers are Normal; clean TX
         // so the engine sees CPU stores, invalidate RX so stale lines cannot
         // shadow a later device write (ADR-0106).
         // SAFETY: the caller identity-mapped `tx_cpu`/`rx_cpu`; the DMA
         // addresses were already accepted by validate_windows.
         unsafe {
-            cache::clean_dcache_poc(tx_cpu, tx.length as usize);
-            cache::invalidate_dcache_poc(rx_cpu, rx.length as usize);
+            cache::clean_dcache_poc(self.tx_cpu, self.tx_len as usize);
+            cache::invalidate_dcache_poc(self.rx_cpu, self.rx_len as usize);
         }
         Ok(())
     }
@@ -278,7 +346,7 @@ impl Genet {
                 queue,
                 first,
                 genet::V5_TX_BDS_PER_Q,
-                genet::MAX_FRAME_BYTES as u16,
+                genet::RX_BUF_LENGTH,
             )
             .expect("priority TX ring");
             self.write_ring(program);
@@ -357,6 +425,24 @@ impl Genet {
         if !matches!(programmed, Queue0Report::Programmed) {
             return boot;
         }
+        // Linux order, and the whole point of this sequence (ADR-0107 §1):
+        // `init_umac` — MIB, max frame, station, TBUF TSB, RBUF align/64B,
+        // RBUF_CHK, RBUF_TBUF_SIZE — then the RGMII block, then `hfb_init`,
+        // then `init_dma`'s flush prologue, then the rings, and `DMA_EN`
+        // **last** (`bcmgenet.c:3351-3380`, `:3089-3180`). Harbor used to
+        // enable DMA first and program UniMAC into a running engine.
+        boot.umac = Some(self.program_umac_init());
+        boot.tbuf = Some(self.program_tbuf_tsb());
+        boot.tbuf_size = Some(self.program_rbuf_tbuf_size());
+        boot.rbuf = Some(self.program_rbuf_64b());
+        boot.rbuf_chk = Some(self.program_rbuf_chk());
+        boot.rgmii = Some(self.program_rgmii_oob());
+        boot.hfb = Some(self.clear_hfb());
+        self.flush_before_rings();
+        if self.program_rings().is_err() {
+            boot.enabled = Some(Queue0Report::Enable(QueueEnableError::NotProgrammed));
+            return boot;
+        }
         boot.rings14 = Some(self.program_priority_tx_rings());
         boot.arb = Some(self.program_tdma_wrr());
         boot.prio = Some(self.program_tdma_priority());
@@ -375,12 +461,6 @@ impl Genet {
                 return boot;
             }
         }
-        boot.rgmii = Some(self.program_rgmii_oob());
-        boot.umac = Some(self.program_umac_init());
-        boot.tbuf = Some(self.program_tbuf_tsb());
-        boot.tbuf_size = Some(self.program_rbuf_tbuf_size());
-        boot.rbuf = Some(self.program_rbuf_64b());
-        boot.rbuf_chk = Some(self.program_rbuf_chk());
         boot.tx = Some(match self.submit_one_tx() {
             Ok(report) => report,
             Err(Error::Timeout) => TxReport::Timeout,
@@ -388,7 +468,7 @@ impl Genet {
             Err(_) => TxReport::NotEnabled,
         });
         if boot.tx.is_some() {
-            boot.mib = Some(self.read_umac_tsv());
+            boot.mib = Some(self.settle_umac_tsv());
         }
         boot.rx = Some(match self.submit_one_rx() {
             Ok(report) => report,
@@ -396,6 +476,7 @@ impl Genet {
             Err(Error::Phy(PhyError::LinkDown)) => RxReport::LinkDown,
             Err(_) => RxReport::NotEnabled,
         });
+        boot.state = Some(self.read_state());
         boot.recovered = Some(match self.recover() {
             Ok(report) => report,
             Err(Error::Timeout) => ResetReport::Timeout,
@@ -438,7 +519,7 @@ impl Genet {
             length: genet::TX_DMA_BYTES,
             status: 0,
         };
-        self.write_descriptor(registers::TDMA, 0, descriptor, true)?;
+        self.write_descriptor(registers::TDMA, 0, descriptor)?;
         self.regs
             .write32(ring + dma_registers::PROD_INDEX as usize, 1);
         if !poll::until(RESET_SPIN_LIMIT, || {
@@ -486,7 +567,7 @@ impl Genet {
             length: self.rx_len,
             status: 0,
         };
-        self.write_descriptor(registers::RDMA, 0, descriptor, true)?;
+        self.write_descriptor(registers::RDMA, 0, descriptor)?;
         let cmd = self.regs.read32(registers::UMAC_CMD as usize);
         self.regs.write32(
             registers::UMAC_CMD as usize,
@@ -494,14 +575,30 @@ impl Genet {
         );
         self.regs
             .write32(ring + dma_registers::PROD_INDEX as usize, 1);
-        if !poll::until(RESET_SPIN_LIMIT, || {
+        // A wall-clock window, not a spin budget. RX waits on a frame the
+        // *link partner* chooses to send, so the bound has to be expressed in
+        // the units that question is asked in. The 11:21 boot completed an RX
+        // and the 11:27 boot timed out on the same code — the difference was
+        // whether a broadcast happened to land inside a spin count, which is a
+        // fact about the laptop, not about Harbor.
+        let mut waited = 0;
+        let complete = loop {
             let cons = self.regs.read32(ring + dma_registers::CONS_INDEX as usize);
-            TxReport::cons_has_posted(cons)
+            if TxReport::cons_has_posted(cons)
                 && matches!(
                     RxReport::from_status(self.regs.read32(registers::RDMA as usize)),
                     RxReport::Complete(_)
                 )
-        }) {
+            {
+                break true;
+            }
+            if waited >= RX_WINDOW_US {
+                break false;
+            }
+            settle(RX_STEP_US);
+            waited += RX_STEP_US;
+        };
+        if !complete {
             return Ok(RxReport::from_poll(
                 self.regs.read32(ring + dma_registers::CONS_INDEX as usize),
                 self.regs.read32(registers::RDMA as usize),
@@ -543,12 +640,155 @@ impl Genet {
         Ok(())
     }
 
-    /// Pulse `UMAC_TX_FLUSH` at UniMAC init. Linux does not flush on every xmit.
-    fn pulse_tx_flush(&self) {
+    /// Linux `bcmgenet_init_dma`'s prologue: flush the TX queues and pulse the
+    /// RBUF flush bit, both with a real 10 µs settle, **before** any ring is
+    /// programmed and long before `DMA_EN` (`bcmgenet.c:3113-3123`).
+    ///
+    /// Harbor pulsed `TX_FLUSH` from `program_umac_init`, which ran after the
+    /// DMA engines were already enabled, and used a register readback where
+    /// Linux waits. Both are corrected here as one sequence claim (ADR-0107).
+    fn flush_before_rings(&self) {
         self.regs.write32(registers::UMAC_TX_FLUSH as usize, 1);
-        let _ = self.regs.read32(registers::UMAC_TX_FLUSH as usize);
+        settle(FLUSH_SETTLE_US);
         self.regs.write32(registers::UMAC_TX_FLUSH as usize, 0);
-        let _ = self.regs.read32(registers::UMAC_TX_FLUSH as usize);
+        settle(FLUSH_SETTLE_US);
+
+        let flush = self.regs.read32(registers::SYS_RBUF_FLUSH_CTRL as usize);
+        self.regs.write32(
+            registers::SYS_RBUF_FLUSH_CTRL as usize,
+            flush | registers::SYS_RBUF_FLUSH,
+        );
+        settle(FLUSH_SETTLE_US);
+        self.regs
+            .write32(registers::SYS_RBUF_FLUSH_CTRL as usize, flush);
+        settle(FLUSH_SETTLE_US);
+    }
+
+    /// Linux `bcmgenet_umac_reset`, commented *"take MAC out of reset"* and
+    /// called from `bcmgenet_open` immediately before `init_umac`
+    /// (`bcmgenet.c:3299-3311`, `:3368`): pulse `SYS_UMAC_SW_RESET` in
+    /// `SYS_RBUF_FLUSH_CTRL`, 10 µs on each edge.
+    ///
+    /// Harbor had no analogue. `umac_enable_set` refuses to write `UMAC_CMD`
+    /// while that bit is set (`:2540-2545`), which is the exact shape of what
+    /// silicon has shown for twenty-six boots: TDMA retires the descriptor and
+    /// UniMAC counts nothing.
+    fn release_umac_reset(&self) {
+        let flush = self.regs.read32(registers::SYS_RBUF_FLUSH_CTRL as usize);
+        self.regs.write32(
+            registers::SYS_RBUF_FLUSH_CTRL as usize,
+            flush | registers::SYS_UMAC_SW_RESET,
+        );
+        settle(FLUSH_SETTLE_US);
+        self.regs.write32(
+            registers::SYS_RBUF_FLUSH_CTRL as usize,
+            flush & !registers::SYS_UMAC_SW_RESET,
+        );
+        settle(FLUSH_SETTLE_US);
+    }
+
+    /// Read back what the controller holds. Writes nothing (ADR-0107 §4).
+    pub fn read_state(&self) -> StateDump {
+        StateDump {
+            sys_rbuf_flush: self.regs.read32(registers::SYS_RBUF_FLUSH_CTRL as usize),
+            sys_port_ctrl: self.regs.read32(registers::SYS_PORT_CTRL as usize),
+            rgmii_oob: self.regs.read32(registers::EXT_RGMII_OOB_CTRL as usize),
+            umac_cmd: self.regs.read32(registers::UMAC_CMD as usize),
+            rbuf_ctrl: self.regs.read32(registers::RBUF_CTRL as usize),
+            tbuf_ctrl: self.regs.read32(registers::TBUF_CTRL as usize),
+            tdma_ctrl: self
+                .regs
+                .read32((registers::TDMA + dma_registers::CTRL) as usize),
+            tdma_status: self
+                .regs
+                .read32((registers::TDMA + dma_registers::STATUS) as usize),
+            rdma_ctrl: self
+                .regs
+                .read32((registers::RDMA + dma_registers::CTRL) as usize),
+            rdma_status: self
+                .regs
+                .read32((registers::RDMA + dma_registers::STATUS) as usize),
+            tx_desc_status: self.regs.read32(registers::TDMA as usize),
+        }
+    }
+
+    /// Linux `bcmgenet_hfb_clear`: disable the hardware filter block, zero
+    /// every filter, zero the eight RDMA index-to-ring words, then re-enable
+    /// filter 0 with length 4 — the "default flow to ring 0"
+    /// (`bcmgenet.c:720-741`).
+    ///
+    /// Harbor never touched HFB. On a board whose firmware brings GENET up for
+    /// network boot, that means inheriting whatever filtering the firmware
+    /// left, and `HFB_CTRL = 0` is what Linux calls *disable MAC receive*.
+    /// Not an RX claim: this only removes a reason RX could never arrive.
+    pub fn clear_hfb(&self) -> HfbReport {
+        self.regs.write32(registers::HFB_CTRL as usize, 0);
+        self.regs.write32(registers::HFB_FLT_ENABLE as usize, 0);
+        self.regs
+            .write32((registers::HFB_FLT_ENABLE + 4) as usize, 0);
+        for word in 0..dma_registers::INDEX2RING_COUNT {
+            self.regs.write32(
+                (registers::RDMA + dma_registers::INDEX2RING_0 + 4 * word) as usize,
+                0,
+            );
+        }
+
+        for filter in 0..genet::HFB_FILTER_COUNT {
+            self.set_hfb_filter_length(filter, 0);
+            for word in 0..genet::HFB_FILTER_WORDS {
+                if let Some(offset) = genet::hfb_filter_ram_offset(filter, word) {
+                    self.regs.write32(offset as usize, 0);
+                }
+            }
+        }
+
+        self.set_hfb_filter_length(0, genet::HFB_DEFAULT_FLOW_LEN);
+        self.enable_hfb_filter(0);
+        HfbReport::Cleared
+    }
+
+    fn set_hfb_filter_length(&self, filter: u32, length: u32) {
+        let Some(offset) = genet::hfb_filter_length_offset(filter) else {
+            return;
+        };
+        let current = self.regs.read32(offset as usize);
+        self.regs.write32(
+            offset as usize,
+            genet::hfb_filter_length_word(current, filter, length),
+        );
+    }
+
+    fn enable_hfb_filter(&self, filter: u32) {
+        let Some(offset) = genet::hfb_filter_enable_offset(filter) else {
+            return;
+        };
+        let current = self.regs.read32(offset as usize);
+        self.regs.write32(
+            offset as usize,
+            current | genet::hfb_filter_enable_bit(filter),
+        );
+        let ctrl = self.regs.read32(registers::HFB_CTRL as usize);
+        self.regs
+            .write32(registers::HFB_CTRL as usize, ctrl | registers::HFB_EN);
+    }
+
+    /// Read the TSV after giving UniMAC a bounded window to move the frame.
+    ///
+    /// The 2026-08-17 11:21 boot put a `0x88b5` frame on the wire and still
+    /// printed `packed=0 linux=0 pok=0`, because the counters were sampled
+    /// microseconds after the doorbell. A MIB counter is not a doorbell
+    /// acknowledgement; it moves when the MAC has finished with the frame.
+    /// Bounded, and honest when the window expires: the last read is what gets
+    /// printed, zero or not.
+    pub fn settle_umac_tsv(&self) -> UmacMibReport {
+        let mut report = self.read_umac_tsv();
+        let mut waited = 0;
+        while waited < TSV_SETTLE_US && report.packed == 0 && report.linux == 0 && report.pok == 0 {
+            settle(TSV_STEP_US);
+            waited += TSV_STEP_US;
+            report = self.read_umac_tsv();
+        }
+        report
     }
 
     /// UniMAC TX TSV candidates. Not a wire claim.
@@ -641,7 +881,6 @@ impl Genet {
             genet::umac_mac1(genet::STATION_ADDR),
         );
         self.release_umac_mib();
-        self.pulse_tx_flush();
         UmacReport::Programmed
     }
 
@@ -785,27 +1024,42 @@ impl Genet {
             .write32(base + dma_registers::WRITE_PTR_HI as usize, 0);
     }
 
+    /// Write one descriptor, with the words Linux writes and no others.
+    ///
+    /// TX (`bcmgenet_xmit`, `bcmgenet.c:2184-2200`): length, `SOP`, `EOP`,
+    /// `APPEND_CRC` and the v5 qtag. **No `DMA_OWN`, no `DMA_WRAP`** — Harbor
+    /// set both, and already knew the silicon never writes `OWN` back on TX
+    /// (`kernel_core::genet::TxReport::from_tx_cons`).
+    ///
+    /// RX (`bcmgenet_rx_refill`, `bcmgenet.c:2261`): the address **only**.
+    /// Linux never writes a length/status word for an RX buffer; the device
+    /// owns that word and Harbor was overwriting it with a driver-invented
+    /// one before every submit.
     fn write_descriptor(
         &self,
         block: u32,
         index: u16,
         descriptor: Descriptor,
-        wrap: bool,
     ) -> Result<(), Error> {
         let words = descriptor
-            .words(genet::Ownership::Device, true, true, wrap)
+            .words(genet::Ownership::Driver, true, true, false)
             .map_err(Error::Descriptor)?;
-        let length_status = if block == registers::TDMA {
-            TxReport::tx_desc_status(words.length_status)
-        } else {
-            words.length_status
-        };
         let offset = (block + u32::from(index) * genet::DESCRIPTOR_BYTES as u32) as usize;
-        self.regs.write32(offset, length_status);
+        if block == registers::TDMA {
+            self.regs
+                .write32(offset, TxReport::tx_desc_status(words.length_status));
+        }
         self.regs.write32(offset + 4, words.address_low);
         self.regs.write32(offset + 8, words.address_high);
         Ok(())
     }
+}
+
+/// Wall-time settle between two register writes that the controller needs to
+/// see separated. Backed by `CNTFRQ_EL0`, not by a spin count: the laptop's
+/// spin budget and the Pi's are different numbers for the same microsecond.
+fn settle(us: u32) {
+    timer::busy_wait_us(us);
 }
 
 /// TSB prefix plus broadcast probe: dest ff:ff, src [`STATION_ADDR`], 0x88b5.

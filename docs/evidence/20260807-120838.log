@@ -1,0 +1,87 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260807-120838.log
+# sha256:  6d71e54805b2e5b39c6211e17891dc27527afb6eb5fe1de21309655ac826d3e2
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260807-120838.log
+12:10:10.913362 Harbor: hello
+12:10:10.913829 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+12:10:10.914019 build: headless (no SPI TFT, no bring-up gates)
+12:10:10.914188 DTB at 0x2eff1f00
+12:10:10.914348 MMU on  (W^X, guard page at 0xc0000, 102400 B of table arena left)
+12:10:10.935326 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+12:10:10.935524 DTB mapped: 61440 bytes at 0x2eff1000
+12:10:10.935654 heap remaining = 67108864 bytes
+12:10:10.935767 frames: 512 free / 512  base=0x40d1000  (2048 KiB pool)
+12:10:10.935876 aspace: prepare ok  held=14 (empty=1)  root=0x40d1000
+12:10:10.935962 el0: SVC ok  imm=0
+12:10:10.936054 el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+12:10:10.941316 aspace: create/destroy ok  pool=512
+12:10:10.941541 aspace: dual create/destroy ok  pool=512
+12:10:11.025383 rng200: ok word=0x5bb0c241
+12:10:11.025637 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+12:10:11.025796 irq: sealed with 2 handlers registered
+12:10:11.025932 IRQs enabled (timer + UART RX)
+12:10:11.026079 idle: WFI when no RX/tick work
+12:10:11.026225 heap: Box at 0xd1010, Vec of 1024 sums to 523776
+12:10:11.047299 heap: 67100624 bytes free while held, 2 fragments
+12:10:11.047519 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+12:10:11.047642 unmap: page at 0xd2000 fault-ready
+12:10:11.047739 unmap: remapped and freed
+12:10:11.047837 split: page at 0x200000 split 1, remapped
+12:10:11.047924 console: capability minted
+12:10:11.070397 loader: echo loaded text=1 stack=3
+12:10:11.070607 loader: mute loaded text=2 stack=3
+12:10:11.070706 sched: spawned task-a
+12:10:11.070800 sched: spawned task-b
+12:10:11.070896 sched: spawned el0-task
+12:10:11.070985 sched: spawned pl011-agent
+12:10:11.071083 sched: spawned agent-a
+12:10:11.071177 sched: spawned agent-b
+12:10:11.071258 ipc: spawned receiver
+12:10:11.071339 ipc: spawned sender
+12:10:11.071445 ipc: spawned forger
+12:10:11.092403 el0-ipc: spawned receiver
+12:10:11.092590 el0-ipc: spawned sender
+12:10:11.092707 arena: 1 splits, 23 tables free
+12:10:11.092824 H!loader: echo ran putcs=2 refusals=0
+12:10:11.092921 loader: mute ran putcs=0 refusals=2
+12:10:11.092999 task-a 0
+12:10:11.093087 task-b 0
+12:10:11.093173 el0-task: svc ping
+12:10:11.093259 el0-task: svc refuse imm=0x99
+12:10:11.093342 el0-task: resume pings=2
+12:10:11.114277 H!el0-task: putc bytes=2
+12:10:11.114514 el0-task: irq resume irqs=1
+12:10:11.114656 el0-task: ok
+12:10:11.114788 pl011-agent: FR read + svc ok
+12:10:11.114935 pl011-agent: rx own begin
+12:10:11.115057 agent-b: svc ping
+12:10:11.115220 el0-ipc: try-recv empty without waiting empties=1
+12:10:11.115347 el0-ipc: sent slot=0 tag=7 a=42
+12:10:11.136446 el0-ipc: console denied, printed nothing
+12:10:11.136691 el0-ipc: refused slot=1 authority=4
+12:10:11.136883 el0-ipc: agent faulted esr=0x9200004f far=0x80000 faults=1
+12:10:11.137037 el0-ipc: creator alive after fault
+12:10:11.137169 task-a 1
+12:10:11.137300 task-b 1
+12:10:11.137420 pl011-agent: rx poll empty
+12:10:11.137537 agent-a: svc ping
+12:10:11.137655 ipc: sent tag=1 a=42
+12:10:11.156757 *el0-ipc: got payload via EL0 recvs=1
+12:10:11.157032 task-a 2
+12:10:11.157158 task-b 2
+12:10:11.157245 RXagents: concurrent ok  pool=496
+12:10:11.157321 ipc: got tag=1 a=42
+12:10:11.157399 ipc: refuse count=5 full=0 state=0
+12:10:11.157464 task-a 3
+12:10:11.157527 task-b 3
+12:10:11.157610 ELpl011-agent: rx own bytes=2
+12:10:11.157680 pl011-agent: rx own end
+12:10:11.157753 pl011-agent: killed ok  pool=512
+12:10:11.991522 ticks=10
+        [... 543 heartbeat lines elided ...]
+12:19:15.983202 ticks=5450

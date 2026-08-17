@@ -122,10 +122,17 @@ the code that follows.
 | [0100](0100-device-windows.md)                               | Device windows — the composition names, the board decides                                    | accepted   |
 | [0101](0101-composed-driver-agent.md)                        | The first composed driver-agent — a device the store grants                                  | accepted   |
 | [0102](0102-product-binds-a-name.md)                         | The product binds a name — an agent finds the service                                        | accepted   |
-| [0103](0103-p2-el0-durable-endpoint.md)                      | P2 durable storage endpoint for EL0 agents                                                  | accepted   |
-| [0104](0104-p3-edge-network-composition.md)                 | P3 edge-gateway composition over virtio-net                                                 | accepted   |
-| [0105](0105-pi4-nic-backend-boundary.md)                    | Pi 4 NIC backend boundary and evidence gate                                                  | proposed   |
-| [0106](0106-pi4-genet-v5-backend-design.md)                 | Pi 4 BCM2711 GENET v5 backend design                                                        | proposed   |
+| [0103](0103-p2-el0-durable-endpoint.md)                      | P2 durable storage endpoint for EL0 agents                                                   | accepted   |
+| [0104](0104-p3-edge-network-composition.md)                  | P3 edge-gateway composition over virtio-net                                                  | accepted   |
+| [0105](0105-pi4-nic-backend-boundary.md)                     | Pi 4 NIC backend boundary and evidence gate                                                  | accepted   |
+| [0106](0106-pi4-genet-v5-backend-design.md)                  | Pi 4 BCM2711 GENET v5 backend design                                                         | accepted   |
+| [0107](0107-genet-sequence-first-bring-up.md)                | GENET bring-up moves from one-variable slices to sequence-first                              | proposed   |
+| [0108](0108-boot-path-link-acquisition.md)                   | Link acquisition in the boot path                                                            | proposed   |
+| [0109](0109-hardware-evidence-is-tracked.md)                  | Hardware evidence is tracked; the capture that carried it is not                             | proposed   |
+| [0110](0110-a-model-is-consumed-or-declared.md)               | A pure model is consumed by the code that ships, or it names what will consume it            | proposed   |
+| [0111](0111-product-boot-witness.md)                          | The product leaves a witness that it booted, off the serial line                             | proposed   |
+| [0112](0112-p3-publication-transport-boundary.md)             | Publishing a NIC backend — one transport boundary, two backends                              | proposed   |
+| [0113](0113-p4-framebuffer-agent.md)                          | P4 — a framebuffer agent on a device window                                                  | proposed   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

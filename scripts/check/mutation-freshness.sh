@@ -65,19 +65,23 @@ if ! command -v cargo-mutants >/dev/null; then
 	exit 1
 fi
 
-# The same file list the run uses, read from the run's own script so the two
-# cannot drift: a scope that differs between them would make this gate compare
-# a surface to a stamp of a different surface.
+# The same file list the run uses. It used to be scraped out of the run's own
+# script; both now read `docs/mutation-scope.toml`, which is the one place the
+# decision lives (`make mutation-scope` refuses a module missing from it). A
+# scope that differed between them would make this gate compare a surface to a
+# stamp of a different surface.
 mapfile -t files < <(
-	sed -n '/^readonly FILES=(/,/^)/p' scripts/host/run-mutants.sh |
-		sed -e '1d' -e '$d' |
-		tr -s ' \t' '\n' |
-		grep -v '^$'
+	python3 - docs/mutation-scope.toml <<'PY'
+import sys, tomllib
+
+with open(sys.argv[1], "rb") as fh:
+    print("\n".join(tomllib.load(fh)["in_scope"]))
+PY
 )
 
 if [[ "${#files[@]}" -lt 10 ]]; then
-	echo "mutation-freshness: FAIL — parsed only ${#files[@]} scope files from run-mutants.sh" >&2
-	echo "  The FILES block moved or changed shape; this gate would otherwise" >&2
+	echo "mutation-freshness: FAIL — parsed only ${#files[@]} scope files from docs/mutation-scope.toml" >&2
+	echo "  The scope file moved or changed shape; this gate would otherwise" >&2
 	echo "  compare a truncated surface and pass." >&2
 	exit 1
 fi

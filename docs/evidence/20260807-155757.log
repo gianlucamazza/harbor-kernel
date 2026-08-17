@@ -1,0 +1,93 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260807-155757.log
+# sha256:  99cb2251eedc5514313d42224ca48dcfbc3d98e2f0fd4916738ee1f76ebe1080
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260807-155757.log
+15:59:17.743555 Harbor: hello
+15:59:17.743941 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+15:59:17.744100 build: headless (no SPI TFT, no bring-up gates)
+15:59:17.744223 DTB at 0x2eff1f00
+15:59:17.744342 MMU on  (W^X, guard page at 0xc1000, 102400 B of table arena left)
+15:59:17.765437 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+15:59:17.765640 DTB mapped: 61440 bytes at 0x2eff1000
+15:59:17.765763 heap remaining = 67108864 bytes
+15:59:17.765877 frames: 512 free / 512  base=0x40d2000  (2048 KiB pool)
+15:59:17.765986 aspace: prepare ok  held=14 (empty=1)  root=0x40d2000
+15:59:17.766093 el0: SVC ok  imm=0
+15:59:17.766193 el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+15:59:17.771657 aspace: create/destroy ok  pool=512
+15:59:17.771804 aspace: dual create/destroy ok  pool=512
+15:59:17.855420 rng200: ok word=0x6a77bd88
+15:59:17.855595 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+15:59:17.855698 irq: sealed with 2 handlers registered
+15:59:17.855789 IRQs enabled (timer + UART RX)
+15:59:17.855871 idle: WFI when no RX/tick work
+15:59:17.855967 heap: Box at 0xd2010, Vec of 1024 sums to 523776
+15:59:17.878338 heap: 67100624 bytes free while held, 2 fragments
+15:59:17.878526 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+15:59:17.878630 unmap: page at 0xd3000 fault-ready
+15:59:17.878711 unmap: remapped and freed
+15:59:17.878794 split: page at 0x200000 split 1, remapped
+15:59:17.878867 console-server: up
+15:59:17.878940 console: capability minted
+15:59:17.900430 loader: beacon loaded text=1 stack=3
+15:59:17.900609 loader: mute loaded text=2 stack=3
+15:59:17.900706 sched: spawned task-a
+15:59:17.900789 sched: spawned task-b
+15:59:17.900867 sched: spawned el0-task
+15:59:17.900944 sched: spawned pl011-agent
+15:59:17.901016 sched: spawned agent-a
+15:59:17.901104 sched: spawned agent-b
+15:59:17.901176 ipc: spawned receiver
+15:59:17.901243 ipc: spawned sender
+15:59:17.922351 ipc: spawned forger
+15:59:17.922588 el0-ipc: spawned receiver
+15:59:17.922705 el0-ipc: spawned sender
+15:59:17.922822 ipc: orphan spawned id=15
+15:59:17.922934 ipc: reaper spawned
+15:59:17.923059 arena: 1 splits, 23 tables free
+15:59:17.923199 loader: mute ran sends=0 refusals=2
+15:59:17.923312 task-a 0
+15:59:17.923416 task-b 0
+15:59:17.923518 el0-task: svc ping
+15:59:17.923635 el0-task: svc refuse imm=0x99
+15:59:17.944371 el0-task: resume pings=2
+15:59:17.944559 pl011-agent: FR read + svc ok
+15:59:17.944705 pl011-agent: rx own begin
+15:59:17.944836 agent-b: svc ping
+15:59:17.944976 el0-ipc: try-recv empty without waiting empties=1
+15:59:17.945109 el0-ipc: sent slot=0 tag=7 a=42
+15:59:17.945201 el0-ipc: console denied, printed nothing
+15:59:17.967371 el0-ipc: refused slot=1 authority=4
+15:59:17.967612 el0-ipc: agent faulted esr=0x9200004f far=0x80000 faults=1
+15:59:17.967751 el0-ipc: creator alive after fault
+15:59:17.967895 H!H!loader: beacon ran sends=2 refusals=0
+15:59:17.968048 task-a 1
+15:59:17.968191 task-b 1
+15:59:17.968303 el0-task: console sends=2
+15:59:17.968422 el0-task: irq resume irqs=1
+15:59:17.989437 el0-task: ok  pool=451 (was 497)
+15:59:17.989650 pl011-agent: rx poll empty
+15:59:17.989760 agent-a: svc ping
+15:59:17.989861 ipc: sent tag=1 a=42
+15:59:17.989961 task-a 2
+15:59:17.990059 task-b 2
+15:59:17.990158 RXagents: concurrent ok  pool=481
+15:59:17.990240 ipc: got tag=1 a=42
+15:59:17.990337 ipc: refuse count=5 full=0 state=0
+15:59:17.990426 *el0-ipc: got payload via EL0 recvs=1
+15:59:18.004380 ipc: cancel issued cancel_events=1
+15:59:18.004545 task-a 3
+15:59:18.004655 task-b 3
+15:59:18.004753 sched: blocked=0 block_events=6
+15:59:18.004839 ipc: reaped cancelled
+15:59:18.004927  tpl011-agent: rx own bytes=2
+15:59:18.005011 pl011-agent: rx own end
+15:59:18.005118 pl011-agent: killed ok  pool=512 (was 482)
+15:59:18.859359 ticks=10
+        [... 2059 heartbeat lines elided ...]
+16:33:38.834241 ticks=20610

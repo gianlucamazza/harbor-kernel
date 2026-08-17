@@ -1,0 +1,557 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260814-232303.log
+# sha256:  25b0418b1ce3a2defdba4a841f95a59782bc52ebab36fc5878b7740005a9fca3
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260814-232303.log
+23:23:03.679511 ticks=1600
+        [... 16 heartbeat lines elided ...]
+23:23:11.679765 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=510 preempts=0 slots=4/9
+23:23:20.329327 Harbor: hello
+23:23:20.329521 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+23:23:20.329673 build: headless (no bring-up gates) src=30603cba release
+23:23:20.329773 DTB at 0x2eff1f00
+23:23:20.329878 MMU on  (W^X, guard page at 0x10d000, 294912 B of table arena left)
+23:23:20.335217 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+23:23:20.335385 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+23:23:20.359384 smp: core1 alive
+23:23:20.359559 DTB mapped: 61440 bytes at 0x2eff1000
+23:23:20.359685 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+23:23:20.359796 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+23:23:20.359885 discover: cpus 4 (fdt) smp-seen=2 matches
+23:23:20.381264 discover: display compiled=off (claim, not probed)
+23:23:20.381437 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+23:23:20.381534 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+23:23:20.381631 genet: phy=0x600d84a2 (id, not a nic)
+23:23:20.381706 genet: link=down (bmsr, not a nic)
+23:23:20.387843 heap remaining = 67108864 bytes
+23:23:20.387990 frames: 512 free / 512  base=0x411e000  (2048 KiB pool)
+23:23:20.611389 genet: queue0 programmed (rings, not a nic)
+23:23:20.611574 genet: queue0 enabled (dma, not a nic)
+23:23:20.611665 genet: tx unavailable (timeout)
+23:23:20.611743 genet: rx unavailable (timeout)
+23:23:20.611819 genet: reset recovered (idle, not a nic)
+23:23:20.695321 rng200: ok word=0x11a4effa
+23:23:20.695563 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+23:23:20.695690 irq: sealed with 3 handlers registered
+23:23:20.695773 smp: core1 ipi
+23:23:20.695848 smp: core1 ran
+23:23:20.695930 IRQs enabled (timer + UART RX)
+23:23:20.696011 idle: WFI when no RX/tick work
+23:23:20.696104 heap: Box at 0x11e010, Vec of 1024 sums to 523776
+23:23:20.718317 heap: 67100624 bytes free while held, 2 fragments
+23:23:20.718487 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+23:23:20.718611 unmap: page at 0x11f000 fault-ready
+23:23:20.718694 unmap: remapped and freed
+23:23:20.718786 split: page at 0x200000 split 1, remapped
+23:23:20.718866 console-server: up
+23:23:20.740261 console: capability minted
+23:23:20.740425 authority: 0 console ok
+23:23:20.740531 authority: bound console
+23:23:20.740635 blob: service up
+23:23:20.740709 authority: 1 blob ok
+23:23:20.740794 authority: 2 blob-reply ok
+23:23:20.740875 authority: bound blob
+23:23:20.740957 authority: bound blob-reply
+23:23:20.741043 authority: network vocabulary VACANT
+23:23:20.741121 authority: 0 rng ok
+23:23:20.762476 authority: windows 1 declared
+23:23:20.762672 loader: store n=5 image
+23:23:20.762783 loader: beacon loaded text=1 stack=3 home=0
+23:23:20.762879 loader: chirp loaded text=1 stack=3 home=1
+23:23:20.762986 loader: lookup loaded text=1 stack=3 home=0
+23:23:20.763071 loader: entropy loaded text=1 stack=3 home=0
+23:23:20.784384 loader: blob loaded text=1 stack=3 home=0
+23:23:20.784599 arena: 1 splits, 70 tables free
+23:23:20.784741 boot: mmu=24 ms discover=77 ms ready=464 ms
+23:23:20.784875 ?loader: chirp ran sends=1 refusals=0
+23:23:20.784999 loader: lookup ran sends=1 refusals=0
+23:23:20.785124 H!NRloader: beacon ran sends=2 refusals=0
+23:23:20.785249 loader: entropy ran sends=1 refusals=0
+23:23:20.789713 blob: put ok
+23:23:20.789858 blob: got
+23:23:20.789968 Sloader: blob ran sends=3 refusals=0
+23:23:21.782089 ticks=10
+        [... 1538 heartbeat lines elided ...]
+23:36:10.774368 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=510 preempts=0 slots=4/9
+23:36:39.085918 Harbor: hello
+23:36:39.086093 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+23:36:39.086196 build: headless (no bring-up gates) src=7a2b7ab2 release
+23:36:39.086273 DTB at 0x2eff1f00
+23:36:39.086361 MMU on  (W^X, guard page at 0x10d000, 294912 B of table arena left)
+23:36:39.091628 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+23:36:39.091799 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+23:36:39.115913 smp: core1 alive
+23:36:39.116065 DTB mapped: 61440 bytes at 0x2eff1000
+23:36:39.116162 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+23:36:39.116256 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+23:36:39.116331 discover: cpus 4 (fdt) smp-seen=2 matches
+23:36:39.137857 discover: display compiled=off (claim, not probed)
+23:36:39.138046 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+23:36:39.138180 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+23:36:39.138263 genet: phy=0x600d84a2 (id, not a nic)
+23:36:39.138332 genet: link=down (bmsr, not a nic)
+23:36:39.144482 heap remaining = 67108864 bytes
+23:36:39.144685 frames: 512 free / 512  base=0x411e000  (2048 KiB pool)
+23:36:39.795783 genet: queue0 programmed (rings, not a nic)
+23:36:39.795930 genet: queue0 enabled (dma, not a nic)
+23:36:39.796007 genet: tx unavailable (timeout)
+23:36:39.796073 genet: rx unavailable (timeout)
+23:36:39.796137 genet: reset recovered (idle, not a nic)
+23:36:39.879845 rng200: ok word=0x040c26d9
+23:36:39.880028 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+23:36:39.880118 irq: sealed with 3 handlers registered
+23:36:39.880181 smp: core1 ipi
+23:36:39.880239 smp: core1 ran
+23:36:39.880300 IRQs enabled (timer + UART RX)
+23:36:39.880360 idle: WFI when no RX/tick work
+23:36:39.880428 heap: Box at 0x11e010, Vec of 1024 sums to 523776
+23:36:39.901986 heap: 67100624 bytes free while held, 2 fragments
+23:36:39.902167 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+23:36:39.902269 unmap: page at 0x11f000 fault-ready
+23:36:39.902354 unmap: remapped and freed
+23:36:39.902441 split: page at 0x200000 split 1, remapped
+23:36:39.902514 console-server: up
+23:36:39.924909 console: capability minted
+23:36:39.925064 authority: 0 console ok
+23:36:39.925162 authority: bound console
+23:36:39.925242 blob: service up
+23:36:39.925317 authority: 1 blob ok
+23:36:39.925394 authority: 2 blob-reply ok
+23:36:39.925468 authority: bound blob
+23:36:39.925571 authority: bound blob-reply
+23:36:39.925651 authority: network vocabulary VACANT
+23:36:39.925720 authority: 0 rng ok
+23:36:39.946838 authority: windows 1 declared
+23:36:39.946980 loader: store n=5 image
+23:36:39.947081 loader: beacon loaded text=1 stack=3 home=0
+23:36:39.947168 loader: chirp loaded text=1 stack=3 home=1
+23:36:39.947250 loader: lookup loaded text=1 stack=3 home=0
+23:36:39.947330 loader: entropy loaded text=1 stack=3 home=0
+23:36:39.968908 loader: blob loaded text=1 stack=3 home=0
+23:36:39.969065 arena: 1 splits, 70 tables free
+23:36:39.969173 boot: mmu=24 ms discover=77 ms ready=891 ms
+23:36:39.969262 ?loader: chirp ran sends=1 refusals=0
+23:36:39.969358 loader: lookup ran sends=1 refusals=0
+23:36:39.969450 H!NRloader: beacon ran sends=2 refusals=0
+23:36:39.969534 loader: entropy ran sends=1 refusals=0
+23:36:39.974030 blob: put ok
+23:36:39.974164 blob: got
+23:36:39.974275 Sloader: blob ran sends=3 refusals=0
+23:36:40.966600 ticks=10
+        [... 4410 heartbeat lines elided ...]
+00:13:25.945506 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=510 preempts=0 slots=4/9
+00:13:36.989200 Harbor: hello
+00:13:36.989370 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+00:13:36.989476 build: headless (no bring-up gates) src=3ee58791 release
+00:13:36.989563 DTB at 0x2eff1f00
+00:13:36.989655 MMU on  (W^X, guard page at 0x10e000, 294912 B of table arena left)
+00:13:37.012557 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+00:13:37.012732 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+00:13:37.012813 smp: core1 alive
+00:13:37.012895 DTB mapped: 61440 bytes at 0x2eff1000
+00:13:37.012985 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+00:13:37.034345 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+00:13:37.034504 discover: cpus 4 (fdt) smp-seen=2 matches
+00:13:37.034615 discover: display compiled=off (claim, not probed)
+00:13:37.034728 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+00:13:37.034823 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+00:13:37.046169 genet: phy=0x600d84a2 (id, not a nic)
+00:13:37.046316 genet: link=down (bmsr, not a nic)
+00:13:37.046419 heap remaining = 67108864 bytes
+00:13:37.046509 frames: 512 free / 512  base=0x411f000  (2048 KiB pool)
+00:13:37.698396 genet: queue0 programmed (rings, not a nic)
+00:13:37.698608 genet: queue0 enabled (dma, not a nic)
+00:13:37.698709 genet: tx unavailable (timeout)
+00:13:37.698792 genet: rx unavailable (timeout)
+00:13:37.698873 genet: reset recovered (idle, not a nic)
+00:13:37.782419 rng200: ok word=0xee53e5cf
+00:13:37.782623 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+00:13:37.782721 irq: sealed with 3 handlers registered
+00:13:37.782806 smp: core1 ipi
+00:13:37.782906 smp: core1 ran
+00:13:37.782999 IRQs enabled (timer + UART RX)
+00:13:37.783077 idle: WFI when no RX/tick work
+00:13:37.783177 heap: Box at 0x11f010, Vec of 1024 sums to 523776
+00:13:37.805394 heap: 67100624 bytes free while held, 2 fragments
+00:13:37.805581 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+00:13:37.805681 unmap: page at 0x120000 fault-ready
+00:13:37.805763 unmap: remapped and freed
+00:13:37.805846 split: page at 0x200000 split 1, remapped
+00:13:37.805917 console-server: up
+00:13:37.827280 console: capability minted
+00:13:37.827442 authority: 0 console ok
+00:13:37.827526 authority: bound console
+00:13:37.827604 blob: service up
+00:13:37.827687 authority: 1 blob ok
+00:13:37.827753 authority: 2 blob-reply ok
+00:13:37.827817 authority: bound blob
+00:13:37.827882 authority: bound blob-reply
+00:13:37.827952 authority: network vocabulary VACANT
+00:13:37.828038 authority: 0 rng ok
+00:13:37.849303 authority: windows 1 declared
+00:13:37.849462 loader: store n=5 image
+00:13:37.849577 loader: beacon loaded text=1 stack=3 home=0
+00:13:37.849668 loader: chirp loaded text=1 stack=3 home=1
+00:13:37.849753 loader: lookup loaded text=1 stack=3 home=0
+00:13:37.849848 loader: entropy loaded text=1 stack=3 home=0
+00:13:37.871178 loader: blob loaded text=1 stack=3 home=0
+00:13:37.871317 arena: 1 splits, 70 tables free
+00:13:37.871406 boot: mmu=21 ms discover=73 ms ready=888 ms
+00:13:37.871517 ?loader: chirp ran sends=1 refusals=0
+00:13:37.871648 loader: lookup ran sends=1 refusals=0
+00:13:37.871751 H!NRloader: beacon ran sends=2 refusals=0
+00:13:37.871832 loader: entropy ran sends=1 refusals=0
+00:13:37.876461 blob: put ok
+00:13:37.876538 blob: got
+00:13:37.876626 Sloader: blob ran sends=3 refusals=0
+00:13:38.869254 ticks=10
+        [... 3200 heartbeat lines elided ...]
+00:40:18.852650 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=510 preempts=0 slots=4/9
+00:40:26.431971 Harbor: hello
+00:40:26.432140 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+00:40:26.432244 build: headless (no bring-up gates) src=d53194dc release
+00:40:26.432317 DTB at 0x2eff1f00
+00:40:26.432407 MMU on  (W^X, guard page at 0x10e000, 294912 B of table arena left)
+00:40:26.455063 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+00:40:26.455310 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+00:40:26.455459 smp: core1 alive
+00:40:26.455579 DTB mapped: 61440 bytes at 0x2eff1000
+00:40:26.455689 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+00:40:26.477025 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+00:40:26.477234 discover: cpus 4 (fdt) smp-seen=2 matches
+00:40:26.477368 discover: display compiled=off (claim, not probed)
+00:40:26.477493 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+00:40:26.477618 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+00:40:26.488506 genet: phy=0x600d84a2 (id, not a nic)
+00:40:26.488722 genet: link=down (bmsr, not a nic)
+00:40:26.488834 heap remaining = 67108864 bytes
+00:40:26.488944 frames: 512 free / 512  base=0x411f000  (2048 KiB pool)
+00:40:27.144475 genet: queue0 programmed (rings, not a nic)
+00:40:27.144649 genet: queue0 enabled (dma, not a nic)
+00:40:27.144746 genet: rgmii oob (ext-gphy, not a nic)
+00:40:27.144832 genet: tx unavailable (timeout)
+00:40:27.144916 genet: rx unavailable (timeout)
+00:40:27.145001 genet: reset recovered (idle, not a nic)
+00:40:27.228937 rng200: ok word=0x7e9ba70c
+00:40:27.229121 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+00:40:27.229231 irq: sealed with 3 handlers registered
+00:40:27.229311 smp: core1 ipi
+00:40:27.229387 smp: core1 ran
+00:40:27.229469 IRQs enabled (timer + UART RX)
+00:40:27.229568 idle: WFI when no RX/tick work
+00:40:27.229661 heap: Box at 0x11f010, Vec of 1024 sums to 523776
+00:40:27.250995 heap: 67100624 bytes free while held, 2 fragments
+00:40:27.251206 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+00:40:27.251332 unmap: page at 0x120000 fault-ready
+00:40:27.251433 unmap: remapped and freed
+00:40:27.251554 split: page at 0x200000 split 1, remapped
+00:40:27.251638 console-server: up
+00:40:27.273914 console: capability minted
+00:40:27.274069 authority: 0 console ok
+00:40:27.274155 authority: bound console
+00:40:27.274229 blob: service up
+00:40:27.274296 authority: 1 blob ok
+00:40:27.274376 authority: 2 blob-reply ok
+00:40:27.274439 authority: bound blob
+00:40:27.274514 authority: bound blob-reply
+00:40:27.274599 authority: network vocabulary VACANT
+00:40:27.274664 authority: 0 rng ok
+00:40:27.295805 authority: windows 1 declared
+00:40:27.295965 loader: store n=5 image
+00:40:27.296069 loader: beacon loaded text=1 stack=3 home=0
+00:40:27.296168 loader: chirp loaded text=1 stack=3 home=1
+00:40:27.296252 loader: lookup loaded text=1 stack=3 home=0
+00:40:27.296328 loader: entropy loaded text=1 stack=3 home=0
+00:40:27.317891 loader: blob loaded text=1 stack=3 home=0
+00:40:27.318064 arena: 1 splits, 70 tables free
+00:40:27.318166 boot: mmu=21 ms discover=73 ms ready=892 ms
+00:40:27.318253 ?loader: chirp ran sends=1 refusals=0
+00:40:27.318335 loader: lookup ran sends=1 refusals=0
+00:40:27.318416 H!NRloader: beacon ran sends=2 refusals=0
+00:40:27.318493 loader: entropy ran sends=1 refusals=0
+00:40:27.322839 blob: put ok
+00:40:27.322963 blob: got
+00:40:27.323052 Sloader: blob ran sends=3 refusals=0
+00:40:28.315580 ticks=10
+        [... 2822 heartbeat lines elided ...]
+01:03:59.290253 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=510 preempts=0 slots=4/9
+01:04:10.539511 Harbor: hello
+01:04:10.539588 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+01:04:10.539627 build: headless (no bring-up gates) src=6addf8f4 release
+01:04:10.539656 DTB at 0x2eff1f00
+01:04:10.539690 MMU on  (W^X, guard page at 0x10e000, 294912 B of table arena left)
+01:04:10.561634 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+01:04:10.561805 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+01:04:10.561888 smp: core1 alive
+01:04:10.561969 DTB mapped: 61440 bytes at 0x2eff1000
+01:04:10.562059 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+01:04:10.583474 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+01:04:10.583540 discover: cpus 4 (fdt) smp-seen=2 matches
+01:04:10.583584 discover: display compiled=off (claim, not probed)
+01:04:10.583624 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+01:04:10.583655 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+01:04:10.595446 genet: phy=0x600d84a2 (id, not a nic)
+01:04:10.595509 genet: link=down (bmsr, not a nic)
+01:04:10.595549 heap remaining = 67108864 bytes
+01:04:10.595585 frames: 512 free / 512  base=0x411f000  (2048 KiB pool)
+01:04:11.254551 genet: queue0 programmed (rings, not a nic)
+01:04:11.254632 genet: queue0 enabled (dma, not a nic)
+01:04:11.254667 genet: rgmii oob (ext-gphy, not a nic)
+01:04:11.254698 genet: umac init (frame, not a nic)
+01:04:11.254726 genet: tx unavailable (timeout)
+01:04:11.254753 genet: rx unavailable (timeout)
+01:04:11.255342 genet: reset recovered (idle, not a nic)
+01:04:11.339498 rng200: ok word=0x28628d6c
+01:04:11.339571 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+01:04:11.339607 irq: sealed with 3 handlers registered
+01:04:11.339633 smp: core1 ipi
+01:04:11.339658 smp: core1 ran
+01:04:11.339684 IRQs enabled (timer + UART RX)
+01:04:11.339711 idle: WFI when no RX/tick work
+01:04:11.339740 heap: Box at 0x11f010, Vec of 1024 sums to 523776
+01:04:11.362639 heap: 67100624 bytes free while held, 2 fragments
+01:04:11.362718 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+01:04:11.362756 unmap: page at 0x120000 fault-ready
+01:04:11.362787 unmap: remapped and freed
+01:04:11.362820 split: page at 0x200000 split 1, remapped
+01:04:11.362848 console-server: up
+01:04:11.384522 console: capability minted
+01:04:11.384680 authority: 0 console ok
+01:04:11.384759 authority: bound console
+01:04:11.384850 blob: service up
+01:04:11.384914 authority: 1 blob ok
+01:04:11.384977 authority: 2 blob-reply ok
+01:04:11.385035 authority: bound blob
+01:04:11.385095 authority: bound blob-reply
+01:04:11.385159 authority: network vocabulary VACANT
+01:04:11.385217 authority: 0 rng ok
+01:04:11.406600 authority: windows 1 declared
+01:04:11.406735 loader: store n=5 image
+01:04:11.406820 loader: beacon loaded text=1 stack=3 home=0
+01:04:11.406895 loader: chirp loaded text=1 stack=3 home=1
+01:04:11.406982 loader: lookup loaded text=1 stack=3 home=0
+01:04:11.407062 loader: entropy loaded text=1 stack=3 home=0
+01:04:11.428761 loader: blob loaded text=1 stack=3 home=0
+01:04:11.428897 arena: 1 splits, 70 tables free
+01:04:11.428984 boot: mmu=21 ms discover=73 ms ready=896 ms
+01:04:11.429058 ?loader: chirp ran sends=1 refusals=0
+01:04:11.429128 loader: lookup ran sends=1 refusals=0
+01:04:11.429199 H!NRloader: beacon ran sends=2 refusals=0
+01:04:11.429268 loader: entropy ran sends=1 refusals=0
+01:04:11.433726 blob: put ok
+01:04:11.433850 blob: got
+01:04:11.433940 Sloader: blob ran sends=3 refusals=0
+01:04:12.426285 ticks=10
+        [... 1530 heartbeat lines elided ...]
+01:16:57.416138 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=510 preempts=0 slots=4/9
+01:17:05.414003 Harbor: hello
+01:17:05.414203 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+01:17:05.414332 build: headless (no bring-up gates) src=8b896ceb release
+01:17:05.414429 DTB at 0x2eff1f00
+01:17:05.414539 MMU on  (W^X, guard page at 0x10e000, 294912 B of table arena left)
+01:17:05.436001 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+01:17:05.436216 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+01:17:05.436345 smp: core1 alive
+01:17:05.436472 DTB mapped: 61440 bytes at 0x2eff1000
+01:17:05.436640 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+01:17:05.458013 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+01:17:05.458243 discover: cpus 4 (fdt) smp-seen=2 matches
+01:17:05.458442 discover: display compiled=off (claim, not probed)
+01:17:05.458623 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+01:17:05.458760 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+01:17:05.470313 genet: phy=0x600d84a2 (id, not a nic)
+01:17:05.470482 genet: link=down (bmsr, not a nic)
+01:17:05.470593 heap remaining = 67108864 bytes
+01:17:05.470687 frames: 512 free / 512  base=0x411f000  (2048 KiB pool)
+01:17:06.129749 genet: desc ring programmed (16, not a nic)
+01:17:06.130073 genet: desc ring enabled (dma, not a nic)
+01:17:06.130225 genet: rgmii oob (ext-gphy, not a nic)
+01:17:06.130343 genet: umac init (frame, not a nic)
+01:17:06.130453 genet: tx unavailable (timeout)
+01:17:06.130575 genet: rx unavailable (timeout)
+01:17:06.130700 genet: reset recovered (idle, not a nic)
+01:17:06.214957 rng200: ok word=0xc29a5d72
+01:17:06.215055 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+01:17:06.215114 irq: sealed with 3 handlers registered
+01:17:06.215160 smp: core1 ipi
+01:17:06.215209 smp: core1 ran
+01:17:06.215254 IRQs enabled (timer + UART RX)
+01:17:06.215296 idle: WFI when no RX/tick work
+01:17:06.215347 heap: Box at 0x11f010, Vec of 1024 sums to 523776
+01:17:06.236987 heap: 67100624 bytes free while held, 2 fragments
+01:17:06.237115 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+01:17:06.237176 unmap: page at 0x120000 fault-ready
+01:17:06.237230 unmap: remapped and freed
+01:17:06.237280 split: page at 0x200000 split 1, remapped
+01:17:06.237324 console-server: up
+01:17:06.258976 console: capability minted
+01:17:06.259157 authority: 0 console ok
+01:17:06.259221 authority: bound console
+01:17:06.259275 blob: service up
+01:17:06.259331 authority: 1 blob ok
+01:17:06.259383 authority: 2 blob-reply ok
+01:17:06.259433 authority: bound blob
+01:17:06.259491 authority: bound blob-reply
+01:17:06.259553 authority: network vocabulary VACANT
+01:17:06.259604 authority: 0 rng ok
+01:17:06.280945 authority: windows 1 declared
+01:17:06.281077 loader: store n=5 image
+01:17:06.281152 loader: beacon loaded text=1 stack=3 home=0
+01:17:06.281223 loader: chirp loaded text=1 stack=3 home=1
+01:17:06.281289 loader: lookup loaded text=1 stack=3 home=0
+01:17:06.281354 loader: entropy loaded text=1 stack=3 home=0
+01:17:06.303971 loader: blob loaded text=1 stack=3 home=0
+01:17:06.304150 arena: 1 splits, 70 tables free
+01:17:06.304240 boot: mmu=21 ms discover=73 ms ready=896 ms
+01:17:06.304324 ?loader: chirp ran sends=1 refusals=0
+01:17:06.304398 loader: lookup ran sends=1 refusals=0
+01:17:06.304465 H!NRloader: beacon ran sends=2 refusals=0
+01:17:06.304535 loader: entropy ran sends=1 refusals=0
+01:17:06.308829 blob: put ok
+01:17:06.309687 blob: got
+01:17:06.309763 Sloader: blob ran sends=3 refusals=0
+01:17:07.301304 ticks=10
+        [... 3442 heartbeat lines elided ...]
+01:45:48.279597 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=510 preempts=0 slots=4/9
+01:45:58.094720 Harbor: hello
+01:45:58.094889 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+01:45:58.095007 build: headless (no bring-up gates) src=fa00d083 release
+01:45:58.095104 DTB at 0x2eff1f00
+01:45:58.095196 MMU on  (W^X, guard page at 0x10e000, 294912 B of table arena left)
+01:45:58.116751 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+01:45:58.116921 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+01:45:58.117002 smp: core1 alive
+01:45:58.117088 DTB mapped: 61440 bytes at 0x2eff1000
+01:45:58.117182 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+01:45:58.138813 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+01:45:58.139003 discover: cpus 4 (fdt) smp-seen=2 matches
+01:45:58.139106 discover: display compiled=off (claim, not probed)
+01:45:58.139219 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+01:45:58.139308 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+01:45:58.151163 genet: phy=0x600d84a2 (id, not a nic)
+01:45:58.151313 genet: link=down (bmsr, not a nic)
+01:45:58.151400 heap remaining = 67108864 bytes
+01:45:58.151490 frames: 512 free / 512  base=0x411f000  (2048 KiB pool)
+01:45:58.808774 genet: desc ring programmed (16, not a nic)
+01:45:58.808954 genet: desc ring enabled (dma, not a nic)
+01:45:58.809066 genet: rgmii oob (ext-gphy, not a nic)
+01:45:58.809156 genet: umac init (frame, not a nic)
+01:45:58.809240 genet: tx unavailable (still owned)
+01:45:58.809318 genet: rx unavailable (timeout)
+01:45:58.809815 genet: reset recovered (idle, not a nic)
+01:45:58.894845 rng200: ok word=0xd72c2ebd
+01:45:58.895069 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+01:45:58.895220 irq: sealed with 3 handlers registered
+01:45:58.895340 smp: core1 ipi
+01:45:58.895447 smp: core1 ran
+01:45:58.895584 IRQs enabled (timer + UART RX)
+01:45:58.895702 idle: WFI when no RX/tick work
+01:45:58.895833 heap: Box at 0x11f010, Vec of 1024 sums to 523776
+01:45:58.916862 heap: 67100624 bytes free while held, 2 fragments
+01:45:58.917039 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+01:45:58.917132 unmap: page at 0x120000 fault-ready
+01:45:58.917208 unmap: remapped and freed
+01:45:58.917285 split: page at 0x200000 split 1, remapped
+01:45:58.917350 console-server: up
+01:45:58.938740 console: capability minted
+01:45:58.938928 authority: 0 console ok
+01:45:58.939016 authority: bound console
+01:45:58.939090 blob: service up
+01:45:58.939161 authority: 1 blob ok
+01:45:58.939233 authority: 2 blob-reply ok
+01:45:58.939302 authority: bound blob
+01:45:58.939375 authority: bound blob-reply
+01:45:58.939449 authority: network vocabulary VACANT
+01:45:58.939515 authority: 0 rng ok
+01:45:58.960983 authority: windows 1 declared
+01:45:58.961157 loader: store n=5 image
+01:45:58.961257 loader: beacon loaded text=1 stack=3 home=0
+01:45:58.961347 loader: chirp loaded text=1 stack=3 home=1
+01:45:58.961430 loader: lookup loaded text=1 stack=3 home=0
+01:45:58.961512 loader: entropy loaded text=1 stack=3 home=0
+01:45:58.983768 loader: blob loaded text=1 stack=3 home=0
+01:45:58.983944 arena: 1 splits, 70 tables free
+01:45:58.984042 boot: mmu=21 ms discover=73 ms ready=895 ms
+01:45:58.984128 ?loader: chirp ran sends=1 refusals=0
+01:45:58.984210 loader: lookup ran sends=1 refusals=0
+01:45:58.984289 H!NRloader: beacon ran sends=2 refusals=0
+01:45:58.984368 loader: entropy ran sends=1 refusals=0
+01:45:58.988168 blob: put ok
+01:45:58.988300 blob: got
+01:45:58.988394 Sloader: blob ran sends=3 refusals=0
+01:45:59.980871 ticks=10
+        [... 2084 heartbeat lines elided ...]
+02:03:21.971844 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=510 preempts=0 slots=4/9
+02:03:30.156312 Harbor: hello
+02:03:30.156496 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+02:03:30.156626 build: headless (no bring-up gates) src=19b6438d release
+02:03:30.156708 DTB at 0x2eff1f00
+02:03:30.156803 MMU on  (W^X, guard page at 0x10e000, 294912 B of table arena left)
+02:03:30.179490 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+02:03:30.179728 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+02:03:30.179820 smp: core1 alive
+02:03:30.179904 DTB mapped: 61440 bytes at 0x2eff1000
+02:03:30.180003 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+02:03:30.201307 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+02:03:30.201585 discover: cpus 4 (fdt) smp-seen=2 matches
+02:03:30.201748 discover: display compiled=off (claim, not probed)
+02:03:30.201911 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+02:03:30.202040 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+02:03:30.212982 genet: phy=0x600d84a2 (id, not a nic)
+02:03:30.213130 genet: link=down (bmsr, not a nic)
+02:03:30.213218 heap remaining = 67108864 bytes
+02:03:30.213307 frames: 512 free / 512  base=0x411f000  (2048 KiB pool)
+02:03:30.435606 genet: desc ring programmed (16, not a nic)
+02:03:30.435791 genet: desc ring enabled (dma, not a nic)
+02:03:30.435888 genet: rgmii oob (ext-gphy, not a nic)
+02:03:30.435974 genet: umac init (frame, not a nic)
+02:03:30.436060 genet: tx complete len=60 (one frame, not a nic)
+02:03:30.436136 genet: rx unavailable (timeout)
+02:03:30.437958 genet: reset recovered (idle, not a nic)
+02:03:30.522369 rng200: ok word=0x2abbc339
+02:03:30.522525 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+02:03:30.522643 irq: sealed with 3 handlers registered
+02:03:30.522714 smp: core1 ipi
+02:03:30.522779 smp: core1 ran
+02:03:30.522847 IRQs enabled (timer + UART RX)
+02:03:30.522915 idle: WFI when no RX/tick work
+02:03:30.522993 heap: Box at 0x11f010, Vec of 1024 sums to 523776
+02:03:30.544520 heap: 67100624 bytes free while held, 2 fragments
+02:03:30.544719 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+02:03:30.544814 unmap: page at 0x120000 fault-ready
+02:03:30.544889 unmap: remapped and freed
+02:03:30.544967 split: page at 0x200000 split 1, remapped
+02:03:30.545033 console-server: up
+02:03:30.566523 console: capability minted
+02:03:30.566691 authority: 0 console ok
+02:03:30.566780 authority: bound console
+02:03:30.566856 blob: service up
+02:03:30.566955 authority: 1 blob ok
+02:03:30.567026 authority: 2 blob-reply ok
+02:03:30.567089 authority: bound blob
+02:03:30.567154 authority: bound blob-reply
+02:03:30.567223 authority: network vocabulary VACANT
+02:03:30.567285 authority: 0 rng ok
+02:03:30.589302 authority: windows 1 declared
+02:03:30.589518 loader: store n=5 image
+02:03:30.589673 loader: beacon loaded text=1 stack=3 home=0
+02:03:30.589803 loader: chirp loaded text=1 stack=3 home=1
+02:03:30.589940 loader: lookup loaded text=1 stack=3 home=0
+02:03:30.590040 loader: entropy loaded text=1 stack=3 home=0
+02:03:30.611353 loader: blob loaded text=1 stack=3 home=0
+02:03:30.611533 arena: 1 splits, 70 tables free
+02:03:30.611639 boot: mmu=21 ms discover=73 ms ready=461 ms
+02:03:30.611719 ?loader: chirp ran sends=1 refusals=0
+02:03:30.611793 loader: lookup ran sends=1 refusals=0
+02:03:30.611867 H!NRloader: beacon ran sends=2 refusals=0
+02:03:30.611939 loader: entropy ran sends=1 refusals=0
+02:03:30.616411 blob: put ok
+02:03:30.616526 blob: got
+02:03:30.616622 Sloader: blob ran sends=3 refusals=0
+02:03:31.608707 ticks=10
+        [... 52742 heartbeat lines elided ...]
+09:23:02.280913 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=510 preempts=0 slots=4/9

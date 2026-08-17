@@ -101,8 +101,8 @@ endif
 .PHONY: all debug img elf check test miri bringup-builds \
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
-	boot-check panic-check hw-check mutation-freshness x86-elf x86-boot-check doc-claims layering fmt fmt-check \
-	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy deploy-oracle \
+	boot-check panic-check hw-check hw-store-audit hw-evidence model-consumed mutation-freshness mutation-scope layers-table clippy-kernel clippy-host x86-elf x86-boot-check doc-claims layering fmt fmt-check \
+	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy deploy-absent-nic deploy-oracle \
 	restore-rpios serial clean agents vocabulary-sync
 
 all: img
@@ -136,12 +136,34 @@ img: elf
 # `miri`/`shellcheck` fail loudly when their tool is absent rather than letting
 # the claim quietly become false (skip only with ALLOW_MIRI_SKIP=1 /
 # ALLOW_SHELLCHECK_SKIP=1, same shape as boot-check's ALLOW_BOOT_SKIP).
-check: fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri mutation-freshness doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence vocabulary-sync
+#
+# **The order below is load-bearing.** Make stops at the first failed
+# prerequisite, so everything after it does not run — and on 2026-08-18 that was
+# ten gates plus both clippy passes, invisible in CI for as long as
+# `mutation-freshness` had been red (which is deliberate, until #81 lands).
+# `xrefs`, `doc-claims`, `layering`, `vocabulary-sync` and the rest had not been
+# executed by CI in days while reporting nothing.
+#
+# So: source-only gates first (seconds, no build), then compile/lint/test, then
+# emulated boots, and the one gate that is *expected* to be red last. A gate
+# that hides other gates should be the last thing in the list.
+check: fmt-check shellcheck xrefs doc-claims doc-symbols roadmap-evidence vocabulary-sync layers-table hw-evidence mutation-scope model-consumed layering arch-board-free no-static-mut irq-scope test clippy-kernel clippy-host bringup-builds debug-builds board-guard product-builds no-simd no-early-exclusives miri boot-check panic-check product-boot-check oracle-census qemu-virtio-check x86-boot-check mutation-freshness
+
+# Clippy is two *prerequisites* rather than two recipe lines, and the move is
+# the point. A recipe body runs only after every prerequisite has passed, so
+# while any one of them was red the two largest lint passes in this target never
+# executed at all — six errors in `genet.rs`'s tests survived weeks of CI that
+# way, discovered only when `mutation-freshness` was finally about to go green.
+# `layers-table` reads the body too now, but a body that cannot run is still a
+# body that cannot run.
+clippy-kernel:
 	cargo clippy --target $(TARGET) -- -D warnings
+
 # `--all-targets` so the host tests are linted too. Without it `make check` was
 # no longer a superset of CI, which is the one property this target claims: CI
 # grew a clippy pass over test code and found an orphaned doc comment that no
 # local run could have seen.
+clippy-host:
 	cargo clippy -p $(TEST_PKG) --target $(HOST_TARGET) --all-targets -- -D warnings
 
 # Every gate in this Makefile is a shell script, and two of them carry
@@ -337,6 +359,26 @@ oracle-census:
 mutation-freshness:
 	./scripts/check/mutation-freshness.sh
 
+mutation-scope:
+	./scripts/check/mutation-scope.sh
+
+layers-table:
+	./scripts/check/layers-table.sh
+
+# Every hardware claim cites a record this repository holds (ADR-0109). The
+# capture stays in the ignored `.serial-log/`; what is tracked is the evidence
+# derived from it, heartbeat collapsed. Derive one with:
+#   ./scripts/host/hw-evidence.sh .serial-log/<capture>.log
+hw-evidence:
+	./scripts/check/hw-evidence.sh
+
+# A pure model is consumed by the code that ships, or its doc names the slice
+# that will consume it (ADR-0110). Python rather than shell because the check is
+# a reachability walk, not a grep: counting `pub` names absent from `src/` gave
+# 38 and the true answer was 9.
+model-consumed:
+	python3 ./scripts/check/model-consumed.py
+
 # Assert a Pi 4B serial transcript against the boot oracle.
 #
 # The one gate that sees what QEMU cannot: TLB fills are speculative on
@@ -345,6 +387,16 @@ mutation-freshness:
 # is a gate nobody runs on the day it matters.
 #
 #   make hw-check TRANSCRIPT=.serial-log/20260810-160227.log
+# P6's audit half, on hardware: read the store back out of the image that was
+# shipped and compare it with what the board said it loaded. Needs a transcript
+# and the product image beside this tree — it refuses a pair that never met.
+hw-store-audit:
+	@if [ -z "$(TRANSCRIPT)" ]; then \
+	  echo "usage: make hw-store-audit TRANSCRIPT=.serial-log/<capture>.log" >&2; \
+	  exit 2; \
+	fi
+	./scripts/check/hw-store-audit.sh "$(TRANSCRIPT)"
+
 hw-check:
 	@if [ -z "$(strip $(TRANSCRIPT))" ]; then \
 	  echo "hw-check: TRANSCRIPT=<serial-capture log> is required" >&2; \
@@ -451,6 +503,17 @@ blobs:
 deploy: product-builds
 	@echo "deploy: product image (no oracle, store injected)"
 	./scripts/host/deploy-sd.sh "$(SD_MOUNT)" "$(PRODUCT_IMG)"
+
+# The one boot that cannot be produced by booting the board as it is: ADR-0105
+# asks for an absent-device refusal on silicon, and the SoC always has GENET.
+# This deploys the product image together with a boot description built from
+# the tracked fixture with `/scb/ethernet` removed, so the kernel is told the
+# device is absent and must refuse rather than invent a binding. Evidence only
+# — a plain `make deploy` takes the description back off.
+deploy-absent-nic: product-builds
+	./scripts/host/absent-nic-dtb.sh
+	@echo "deploy-absent-nic: product image + a boot description with no NIC (ADR-0105)"
+	./scripts/host/deploy-sd.sh "$(SD_MOUNT)" "$(PRODUCT_IMG)" "target/bcm2711-rpi-4-b-no-nic.dtb"
 
 # Lab flash: Cargo defaults (oracle fleet). For hw-check against boot-oracle.
 deploy-oracle: img

@@ -1,8 +1,9 @@
 ---
 id: 0105
 title: Pi 4 NIC backend boundary and evidence gate
-status: proposed
+status: accepted
 date: 2026-08-13
+accepted: 2026-08-17
 related: [0104, 0100, 0101, 0102, 0106]
 ---
 
@@ -10,41 +11,47 @@ related: [0104, 0100, 0101, 0102, 0106]
 
 ## Status
 
-**Proposed.** This ADR records the work required before Harbor can claim a
-network backend on Raspberry Pi 4B. It deliberately does not select a device
-or claim that a driver exists.
+**Accepted 2026-08-17** by the project owner, on the evidence below. This ADR
+records the work required before Harbor can claim a network backend on
+Raspberry Pi 4B; the capture it asks for now exists, and the boundary it
+draws is in force. Immutable under the ADR lifecycle: change only via a
+successor ADR.
 
-A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
-provenance, SMP, and durable-media baseline. The product prints a `genet:`
-FDT report and, when that binding matches the compiled window, runs
-`Genet::probe`. Silicon stamp `20260816-052739.log` (`src=656be102`, PowerOn) has the
-FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot `link=down`,
-`queue0 programmed`,
-`genet: tdma arb (wrr, not a nic)`,
-`queue0 enabled`,
-`genet: ring cfg (0-4, not a nic)`,
-`genet: ring buf (0-4, not a nic)`,
-`genet: rgmii oob (ext-gphy, not a nic)`,
-`genet: umac init (frame, not a nic)`,
-`genet: tbuf tsb (64b, not a nic)`,
-`genet: tbuf size (rbuf, not a nic)`,
-`genet: rbuf 64b (align, not a nic)`,
-`genet: tx cons len=124 (dma, not a nic)`,
-`genet: umac tsv packed=0 linux=0 pok=0 (mib, not a nic)`,
-`genet: rx unavailable (timeout)`,
-`genet: reset recovered (idle, not a nic)`, and `VACANT`. CONS posted
-the 124-byte TSB+probe after TDMA `RING_BUF_EN=0x1f`;
-packed `0x49c`, Linux `0x4a8`, and `pok` `0x4ec` are all zero. The
-Apple NIC pcap has no `0x88b5`. The product now programs TDMA rings
-1–4 (32 BDs from 128) and prints `rings 1-4`; that is unpaid on
-silicon. The product now writes WRR priority words
-(`DMA_PRIORITY_0/1/2` = `WrrPriority::V5`) and prints `tdma prio`;
-that is unpaid on silicon. The product now writes a bounded BMCR
-reset after identify and prints `phy init`; that is unpaid on
-silicon. The product now writes `RBUF_CHK_CTRL` (`0x31`, `CRC_FWD`
-skip) and prints `rbuf chk`; that is unpaid on silicon. Serial CONS
-retire is not this ADR's one-TX gate. No wire RX or Pi absent-device
-result was produced.
+**What acceptance does and does not settle.** `raspi4b` has a NIC backend and
+its hardware evidence. It does **not** publish one: the backend still sits
+below the EL1 network service, the product still prints
+`authority: network vocabulary VACANT`, and binding it to the network
+vocabulary is the later BSP composition step this ADR names. P3 is therefore
+not `done (HW)` on the strength of this acceptance — what is paid is the
+backend and its evidence, not the composition.
+
+Capture `20260817-105728.log`, product image, `make hw-check` clean:
+
+| Gate item | Where | What the board said |
+| --- | --- | --- |
+| probe | boot 7, `src=0a937a23` | `genet: rev=6.0 patch=0x0 (mmio, not a nic)` |
+| link state | boot 7 | `genet: phy=0x600d84a2`, `genet: link=down (bmsr, not a nic)` at probe; up at submit |
+| one bounded TX | boot 7 | `genet: tx cons len=124 (dma, not a nic)` and `genet: umac tsv packed=0 linux=1 pok=1 (mib, not a nic)`, with `02:00:00:00:00:01 > ff:ff:ff:ff:ff:ff ethertype 0x88b5 length 60` in `20260817-105728-apple-nic.pcap` |
+| one bounded RX | boot 7 | `genet: rx complete len=168 (one frame, not a nic)` |
+| reset / recovery | boot 7 | `genet: reset recovered (idle, not a nic)` |
+| absent-device refusal | boot 8, `src=a4b40bb3` | `genet: unavailable (Missing)` and `genet: probe unavailable (no binding)`, with a boot description built from the tracked fixture minus `/scb/ethernet` |
+
+Necessarily two boots: a boot description cannot say the device is both
+present and absent. The two images differ by commits that touch no kernel code
+(`git diff --stat 0a937a23 a4b40bb3 -- src crates` is empty).
+
+The road to that capture — thirty-one silicon stamps, twenty-five of them
+single registers that changed nothing, and the two defects that did (UniMAC
+programmed into a running DMA engine, and UniMAC left in software reset for
+the whole boot) — is recorded boot by boot in
+[verification](../verification.md#hardware-evidence-pi-4-genet-v5-bring-up-2026-08-14--2026-08-17).
+The method change that found them is [ADR-0107](0107-genet-sequence-first-bring-up.md);
+the link decision is [ADR-0108](0108-boot-path-link-acquisition.md).
+
+**Until this ADR is accepted**, `raspi4b` has no NIC backend, P3 stays
+`done (QEMU)`, and the product keeps printing
+`authority: network vocabulary VACANT`.
+
 
 ## Context
 

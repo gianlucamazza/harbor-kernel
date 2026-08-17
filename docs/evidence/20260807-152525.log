@@ -1,0 +1,88 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260807-152525.log
+# sha256:  a0424d7a18525be77ef6c03584502b9de7556272ede774b30b93cada6fb4ccbb
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260807-152525.log
+15:25:51.315999 ��Harbor: hello
+15:25:51.316395 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+15:25:51.316561 build: headless (no SPI TFT, no bring-up gates)
+15:25:51.316677 DTB at 0x2eff1f00
+15:25:51.316804 MMU on  (W^X, guard page at 0xc0000, 102400 B of table arena left)
+15:25:51.337943 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+15:25:51.338193 DTB mapped: 61440 bytes at 0x2eff1000
+15:25:51.338343 heap remaining = 67108864 bytes
+15:25:51.338489 frames: 512 free / 512  base=0x40d1000  (2048 KiB pool)
+15:25:51.338627 aspace: prepare ok  held=14 (empty=1)  root=0x40d1000
+15:25:51.338745 el0: SVC ok  imm=0
+15:25:51.338880 el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+15:25:51.343675 aspace: create/destroy ok  pool=512
+15:25:51.343898 aspace: dual create/destroy ok  pool=512
+15:25:51.427940 rng200: ok word=0x26f0ac6a
+15:25:51.428187 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+15:25:51.428336 irq: sealed with 2 handlers registered
+15:25:51.428462 IRQs enabled (timer + UART RX)
+15:25:51.428561 idle: WFI when no RX/tick work
+15:25:51.428653 heap: Box at 0xd1010, Vec of 1024 sums to 523776
+15:25:51.449901 heap: 67100624 bytes free while held, 2 fragments
+15:25:51.450081 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+15:25:51.450184 unmap: page at 0xd2000 fault-ready
+15:25:51.450271 unmap: remapped and freed
+15:25:51.450359 split: page at 0x200000 split 1, remapped
+15:25:51.450436 console-server: up
+15:25:51.450515 console: capability minted
+15:25:51.472052 loader: beacon loaded text=1 stack=3
+15:25:51.472250 loader: mute loaded text=2 stack=3
+15:25:51.472373 sched: spawned task-a
+15:25:51.472483 sched: spawned task-b
+15:25:51.472585 sched: spawned el0-task
+15:25:51.472694 sched: spawned pl011-agent
+15:25:51.472804 sched: spawned agent-a
+15:25:51.472917 sched: spawned agent-b
+15:25:51.473022 ipc: spawned receiver
+15:25:51.473171 ipc: spawned sender
+15:25:51.494051 ipc: spawned forger
+15:25:51.494298 el0-ipc: spawned receiver
+15:25:51.494440 el0-ipc: spawned sender
+15:25:51.494572 arena: 1 splits, 23 tables free
+15:25:51.494717 loader: mute ran sends=0 refusals=2
+15:25:51.494838 task-a 0
+15:25:51.494955 task-b 0
+15:25:51.495089 el0-task: svc ping
+15:25:51.495225 el0-task: svc refuse imm=0x99
+15:25:51.495350 el0-task: resume pings=2
+15:25:51.517003 pl011-agent: FR read + svc ok
+15:25:51.517186 pl011-agent: rx own begin
+15:25:51.517274 agent-b: svc ping
+15:25:51.517364 el0-ipc: try-recv empty without waiting empties=1
+15:25:51.517442 el0-ipc: sent slot=0 tag=7 a=42
+15:25:51.517521 el0-ipc: console denied, printed nothing
+15:25:51.517596 el0-ipc: refused slot=1 authority=4
+15:25:51.539046 el0-ipc: agent faulted esr=0x9200004f far=0x80000 faults=1
+15:25:51.539299 el0-ipc: creator alive after fault
+15:25:51.539448 H!H!loader: beacon ran sends=2 refusals=0
+15:25:51.539567 task-a 1
+15:25:51.539670 task-b 1
+15:25:51.539780 el0-task: console sends=2
+15:25:51.539890 el0-task: irq resume irqs=1
+15:25:51.539992 el0-task: ok  pool=451 (was 497)
+15:25:51.540128 pl011-agent: rx poll empty
+15:25:51.561038 agent-a: svc ping
+15:25:51.561224 ipc: sent tag=1 a=42
+15:25:51.561314 task-a 2
+15:25:51.561394 task-b 2
+15:25:51.561475 RXagents: concurrent ok  pool=481
+15:25:51.561570 ipc: got tag=1 a=42
+15:25:51.561648 ipc: refuse count=5 full=0 state=0
+15:25:51.561727 *el0-ipc: got payload via EL0 recvs=1
+15:25:51.561792 task-a 3
+15:25:51.561855 task-b 3
+15:25:51.561928  tpl011-agent: rx own bytes=2
+15:25:51.561999 pl011-agent: rx own end
+15:25:51.564221 pl011-agent: killed ok  pool=512 (was 482)
+15:25:52.427042 ticks=10
+        [... 1876 heartbeat lines elided ...]
+15:57:09.404078 ticks=18780

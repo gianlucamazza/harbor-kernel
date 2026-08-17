@@ -12,48 +12,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-IMAGE_BASE = 0x80000
-# Must match `loader::AGENT_STORE_CAPACITY` when end symbols are missing.
-DEFAULT_CAPACITY = 16 * 1024
-
-
-def symbol_vmas(elf: Path) -> dict[str, int]:
-    out = subprocess.check_output(
-        ["llvm-nm", "--defined-only", str(elf)],
-        text=True,
-    )
-    found: dict[str, int] = {}
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) < 3:
-            continue
-        addr_s, _kind, name = parts[0], parts[1], parts[2]
-        try:
-            addr = int(addr_s, 16)
-        except ValueError:
-            continue
-        if name in (
-            "__agent_store_start",
-            "__agent_store_end",
-        ) or name.endswith("AGENT_STORE") or "AGENT_STORE" in name and name.startswith("_ZN"):
-            found[name] = addr
-    return found
-
-
-def resolve_window(elf: Path) -> tuple[int, int]:
-    syms = symbol_vmas(elf)
-    start = syms.get("__agent_store_start")
-    end = syms.get("__agent_store_end")
-    if start is not None and end is not None and end > start:
-        return start, end - start
-    # Fall back to the Rust static (mangled name contains AGENT_STORE).
-    for name, addr in syms.items():
-        if "AGENT_STORE" in name and "AgentStoreBuf" not in name:
-            return addr, DEFAULT_CAPACITY
-    raise SystemExit(
-        f"inject-agent-store: no agent store symbols in {elf} "
-        f"(have {sorted(syms)})"
-    )
+# The window arithmetic is shared with `inspect-store.py`, which reads back
+# what this writes (`store_window.py`). One copy, two users.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from store_window import IMAGE_BASE, resolve_window  # noqa: E402
 
 
 def main() -> int:

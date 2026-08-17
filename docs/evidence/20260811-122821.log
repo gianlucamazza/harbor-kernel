@@ -1,0 +1,421 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260811-122821.log
+# sha256:  4e9bdd3dd54088366d36f4016767c35665c2b22c2b1a9ca1d176f2cccef70a88
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260811-122821.log
+12:28:21.460087 ticks=310
+        [... 90 heartbeat lines elided ...]
+12:29:06.459603 invariants: overwrites=0 abandoned=0 faults=1 blocked=1 frames_free=512 preempts=10
+12:29:16.183220 Harbor: hello
+12:29:16.183502 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+12:29:16.183661 build: headless (no bring-up gates) src=1ed04fbe release
+12:29:16.183774 DTB at 0x2eff1f00
+12:29:16.183910 MMU on  (W^X, guard page at 0x117000, 299008 B of table arena left)
+12:29:16.206462 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+12:29:16.206784 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+12:29:16.206937 smp: core1 alive
+12:29:16.207095 DTB mapped: 61440 bytes at 0x2eff1000
+12:29:16.207253 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+12:29:16.227327 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+12:29:16.227592 discover: cpus 4 (fdt) smp-seen=2 matches
+12:29:16.227764 discover: display compiled=off (claim, not probed)
+12:29:16.227906 heap remaining = 67108864 bytes
+12:29:16.228057 frames: 512 free / 512  base=0x4128000  (2048 KiB pool)
+12:29:16.228204 aspace: prepare ok  held=14 (empty=1)  root=0x4128000
+12:29:16.241474 el0: SVC ok  imm=0
+12:29:16.241645 el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+12:29:16.241742 aspace: create/destroy ok  pool=512
+12:29:16.241823 asid: dual a=2 b=3 ok
+12:29:16.241908 aspace: dual create/destroy ok  pool=512
+12:29:16.325425 rng200: ok word=0x8b26879d
+12:29:16.325661 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+12:29:16.325821 irq: sealed with 3 handlers registered
+12:29:16.325937 smp: core1 ipi
+12:29:16.326058 smp: core1 ran
+12:29:16.326180 IRQs enabled (timer + UART RX)
+12:29:16.326295 idle: WFI when no RX/tick work
+12:29:16.326445 heap: Box at 0x128010, Vec of 1024 sums to 523776
+12:29:16.347262 heap: 67100624 bytes free while held, 2 fragments
+12:29:16.347511 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+12:29:16.347618 unmap: page at 0x129000 fault-ready
+12:29:16.347701 unmap: remapped and freed
+12:29:16.347784 split: page at 0x200000 split 1, remapped
+12:29:16.347856 console-server: up
+12:29:16.370210 console: capability minted
+12:29:16.370400 loader: builtin
+12:29:16.370501 loader: beacon loaded text=1 stack=3 home=0
+12:29:16.370591 loader: mute loaded text=2 stack=3 home=0
+12:29:16.370666 sched: spawned task-a
+12:29:16.370736 sched: spawned task-b
+12:29:16.370805 sched: spawned el0-task
+12:29:16.370876 sched: spawned pl011-agent
+12:29:16.370947 sched: spawned rng-agent
+12:29:16.392293 sched: spawned agent-a
+12:29:16.392486 sched: spawned agent-b
+12:29:16.392589 ipc: spawned receiver
+12:29:16.392676 ipc: spawned sender
+12:29:16.392755 ipc: spawned forger
+12:29:16.392833 el0-ipc: spawned receiver
+12:29:16.392909 el0-ipc: spawned sender
+12:29:16.392987 irq-cap: minted timer cookie=1
+12:29:16.393062 sched: spawned irq-wait
+12:29:16.393140 sched: spawned el0-irq-refuse
+12:29:16.415562 name: resolved
+12:29:16.415829 name: missing
+12:29:16.415965 store: got
+12:29:16.416085 store: missing
+12:29:16.416202 ipc: transfer spawned
+12:29:16.416309 cascade: parent spawned
+12:29:16.416429 el0-resolve: spawned
+12:29:16.416540 ipc: timeout-recv spawned
+12:29:16.416648 el0-xfer: parent spawned
+12:29:16.416758 el0-xfer: refuse spawned
+12:29:16.416870 el0-xfer-peer: parent spawned
+12:29:16.424606 el0-xfer-peer: refuse spawned
+12:29:16.424778 xfer-peer: stale spawned
+12:29:16.424870 el0-timeout: spawned
+12:29:16.424956 density: thin n=2 bytes_each=8192
+12:29:16.425037 density: mini n=2 bytes_each=4096
+12:29:16.446765 durable-media: boot=21 from=Previous part=0x7f slot=B seq=20 host=emmc2
+12:29:16.446941 durable: reloaded
+12:29:16.494410 durable-media: flushed slot=A seq=21
+12:29:16.519260 durable-media: verified
+12:29:16.519506 preempt-el1: workers spawned
+12:29:16.519650 preempt-el1-cpu1: workers spawned
+12:29:16.519782 preempt-el0-cpu1: workers spawned
+12:29:16.519901 smp: steal workers spawned
+12:29:16.520010 preempt: tasks spawned
+12:29:16.520117 ipc: revoke-held spawned
+12:29:16.520230 ipc: orphan spawned id=48
+12:29:16.520333 ipc: reaper spawned
+12:29:16.541478 sched: spawned supervisor
+12:29:16.541650 ipc: auto-reap receiver spawned
+12:29:16.541744 ipc: auto-reap sender spawned
+12:29:16.541830 sched: spawned force-kill supervisor
+12:29:16.541910 arena: 1 splits, 71 tables free
+12:29:16.541992 boot: mmu=21 ms discover=56 ms ready=374 ms
+12:29:16.542052 loader: mute ran sends=0 refusals=2
+12:29:16.542103 task-a 0
+12:29:16.563396 task-b 0
+12:29:16.563579 el0-task: svc ping
+12:29:16.563680 el0-task: svc refuse imm=0x99
+12:29:16.563770 el0-task: resume pings=2
+12:29:16.563854 pl011-agent: FR read + svc ok
+12:29:16.563936 pl011-agent: rx own begin
+12:29:16.564005 rng-agent: map read ok
+12:29:16.564083 rng-agent: killed ok  pool=466 (was 466)
+12:29:16.564158 agent-b: svc ping
+12:29:16.585251 el0-ipc: try-recv empty without waiting empties=1
+12:29:16.585518 el0-ipc: sent slot=0 tag=7 a=42
+12:29:16.585678 el0-ipc: console denied, printed nothing
+12:29:16.585822 el0-ipc: refused slot=1 authority=4
+12:29:16.586074 el0-ipc: agent faulted esr=0x9200004f far=0x80000 faults=1
+12:29:16.586242 el0-ipc: creator alive after fault
+12:29:16.586403 irq-wait: arm cookie=1
+12:29:16.607798 el0-irq: refused refusals=1
+12:29:16.608062 ipc: transfer donor empty
+12:29:16.608202 resolve-grant: refused
+12:29:16.608325 el0-resolve: ok
+12:29:16.608458 el0-resolve: refused refusals=1
+12:29:16.608576 el0-xfer: refused refusals=1
+12:29:16.608690 el0-xfer-peer: spawned
+12:29:16.608814 el0-xfer-peer: refused refusals=1 detail=4
+12:29:16.608927 xfer-peer: band refused
+12:29:16.925221 ipc: held-revoke ok
+12:29:16.925418 ipc: release stale refused
+12:29:16.925541 H!H!loader: beacon ran sends=2 refusals=0
+12:29:16.925631 task-a 1
+12:29:16.925715 task-b 1
+12:29:16.925808 el0-task: console sends=2
+12:29:16.925909 el0-task: irq resume irqs=1
+12:29:16.925998 el0-task: ok  pool=406 (was 497)
+12:29:16.926083 pl011-agent: rx poll empty
+12:29:16.926161 agent-a: svc ping
+12:29:16.941582 ipc: sent tag=1 a=42
+12:29:16.941749 ipc: transfer ok
+12:29:16.941847 el0-xfer: ok
+12:29:16.941935 el0-xfer: parent got cap
+12:29:16.942021 el0-xfer-peer: donor emptied
+12:29:16.942107 irq-wait: woke drops=0 idle_signals=6
+12:29:16.942186 el0-irq: arm slot=0
+12:29:16.942264 xfer-peer: stale refused
+12:29:17.116706 ipc: timed-out cancelled
+12:29:17.116955 preempt-el1-cpu1: rotated
+12:29:17.315818 preempt: rotated
+12:29:17.316177 el0-timeout: cancelled
+12:29:17.534292 ticks=10
+12:29:17.534505 invariants: overwrites=0 abandoned=0 faults=1 blocked=4 frames_free=451 preempts=9
+12:29:17.534599 task-a 2
+12:29:17.534673 task-b 2
+12:29:17.534752 RXagents: concurrent ok  pool=451
+12:29:17.534824 ipc: got tag=1 a=42
+12:29:17.534900 ipc: refuse count=6 full=0 state=0
+12:29:17.534978 *el0-ipc: got payload via EL0 recvs=1
+12:29:17.557298 el0-xfer-peer: ok
+12:29:17.557509 preempt-el1: rotated
+12:29:17.557604 preempt-el1: spinner exited
+12:29:17.557684 el0-irq: woke wait_irqs=1
+12:29:17.557763 irq-device: woke wait_irqs=1
+12:29:17.557839 preempt-el1-cpu1: spinner exited
+12:29:17.557912 preempt-el0-cpu1: rotated
+12:29:17.557985 preempt-el0-cpu1: spinner exited
+12:29:17.558049 smp: steal ok
+12:29:17.563617 preempt: spinner exited irqs=4
+12:29:17.563803 ipc: cancel issued cancel_events=3
+12:29:17.563903 supervisor: reaped id=22 reap_events=1
+12:29:17.734227 force-kill: requested events=1
+12:29:17.734409 task-a 3
+12:29:17.734522 task-b 3
+12:29:17.734615 sched: blocked=1 block_events=13
+12:29:17.734708 cascade: parent exit cascade_events=0
+12:29:17.734790 ipc: reaped cancelled
+12:29:17.734868 supervised: cancelled
+12:29:17.734947 ipc: auto-reaped cancelled
+12:29:17.735024 force-kill: child forced
+12:29:17.735101 force-kill: slot empty
+12:29:17.748628  cascade: cancelled
+12:29:17.748833 ppl011-agent: rx own bytes=2
+12:29:17.748950 pl011-agent: rx own end
+12:29:17.749067 pl011-agent: killed ok  pool=512 (was 482)
+12:29:17.749169 supervisor: restarted id=3
+12:29:17.749265 supervised: cancelled
+12:29:18.220319 ticks=20
+        [... 1180 heartbeat lines elided ...]
+12:39:08.213502 invariants: overwrites=0 abandoned=0 faults=1 blocked=1 frames_free=512 preempts=10
+12:41:04.703549 ��Harbor: hello
+12:41:04.704040 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+12:41:04.704404 build: headless (no bring-up gates) src=bcddba6a release
+12:41:04.704676 DTB at 0x2eff1f00
+12:41:04.705002 MMU on  (W^X, guard page at 0x107000, 299008 B of table arena left)
+12:41:04.725824 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+12:41:04.726424 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+12:41:04.726787 smp: core1 alive
+12:41:04.727126 DTB mapped: 61440 bytes at 0x2eff1000
+12:41:04.728582 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+12:41:04.742303 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+12:41:04.742932 discover: cpus 4 (fdt) smp-seen=2 matches
+12:41:04.745087 discover: display compiled=off (claim, not probed)
+12:41:04.745926 heap remaining = 67108864 bytes
+12:41:04.746867 frames: 512 free / 512  base=0x4118000  (2048 KiB pool)
+12:41:04.826794 rng200: ok word=0x5456bde9
+12:41:04.827192 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+12:41:04.827447 irq: sealed with 3 handlers registered
+12:41:04.827627 smp: core1 ipi
+12:41:04.827803 smp: core1 ran
+12:41:04.827997 IRQs enabled (timer + UART RX)
+12:41:04.828189 idle: WFI when no RX/tick work
+12:41:04.828398 heap: Box at 0x118010, Vec of 1024 sums to 523776
+12:41:04.848982 heap: 67100624 bytes free while held, 2 fragments
+12:41:04.849548 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+12:41:04.849862 unmap: page at 0x119000 fault-ready
+12:41:04.850152 unmap: remapped and freed
+12:41:04.850465 split: page at 0x200000 split 1, remapped
+12:41:04.850709 console-server: up
+12:41:04.874569 console: capability minted
+12:41:04.874933 loader: store n=2 image
+12:41:04.875179 loader: beacon loaded text=1 stack=3 home=0
+12:41:04.875424 loader: chirp loaded text=1 stack=3 home=1
+12:41:04.875632 arena: 1 splits, 71 tables free
+12:41:04.875852 boot: mmu=21 ms discover=56 ms ready=184 ms
+12:41:04.876061 ?loader: chirp ran sends=1 refusals=0
+12:41:04.876273 H!loader: beacon ran sends=2 refusals=0
+12:41:05.914071 ticks=10
+        [... 78 heartbeat lines elided ...]
+12:41:44.912039 invariants: overwrites=0 abandoned=0 faults=0 blocked=1 frames_free=512 preempts=0
+12:41:52.358641 Harbor: hello
+12:41:52.359130 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+12:41:52.359468 build: headless (no bring-up gates) src=bcddba6a release
+12:41:52.359685 DTB at 0x2eff1f00
+12:41:52.359951 MMU on  (W^X, guard page at 0x107000, 299008 B of table arena left)
+12:41:52.380052 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+12:41:52.384011 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+12:41:52.384378 smp: core1 alive
+12:41:52.384626 DTB mapped: 61440 bytes at 0x2eff1000
+12:41:52.384884 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+12:41:52.406755 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+12:41:52.407213 discover: cpus 4 (fdt) smp-seen=2 matches
+12:41:52.407553 discover: display compiled=off (claim, not probed)
+12:41:52.407806 heap remaining = 67108864 bytes
+12:41:52.408074 frames: 512 free / 512  base=0x4118000  (2048 KiB pool)
+12:41:52.482025 rng200: ok word=0x7b306bfc
+12:41:52.484494 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+12:41:52.484793 irq: sealed with 3 handlers registered
+12:41:52.485004 smp: core1 ipi
+12:41:52.485193 smp: core1 ran
+12:41:52.485410 IRQs enabled (timer + UART RX)
+12:41:52.485615 idle: WFI when no RX/tick work
+12:41:52.485856 heap: Box at 0x118010, Vec of 1024 sums to 523776
+12:41:52.507592 heap: 67100624 bytes free while held, 2 fragments
+12:41:52.508024 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+12:41:52.508275 unmap: page at 0x119000 fault-ready
+12:41:52.508496 unmap: remapped and freed
+12:41:52.508715 split: page at 0x200000 split 1, remapped
+12:41:52.508899 console-server: up
+12:41:52.526616 console: capability minted
+12:41:52.526971 loader: store n=2 image
+12:41:52.527237 loader: beacon loaded text=1 stack=3 home=0
+12:41:52.527481 loader: chirp loaded text=1 stack=3 home=1
+12:41:52.527690 arena: 1 splits, 71 tables free
+12:41:52.528176 boot: mmu=21 ms discover=56 ms ready=184 ms
+12:41:52.531877 ?loader: chirp ran sends=1 refusals=0
+12:41:52.532140 H!loader: beacon ran sends=2 refusals=0
+12:41:53.566440 ticks=10
+        [... 230 heartbeat lines elided ...]
+12:43:48.567033 invariants: overwrites=0 abandoned=0 faults=0 blocked=1 frames_free=512 preempts=0
+12:43:56.328689 Harbor: hello
+12:43:56.329333 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+12:43:56.329760 build: headless (no bring-up gates) src=bcddba6a release
+12:43:56.330883 DTB at 0x2eff1f00
+12:43:56.331232 MMU on  (W^X, guard page at 0x107000, 299008 B of table arena left)
+12:43:56.350639 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+12:43:56.353970 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+12:43:56.354247 smp: core1 alive
+12:43:56.354517 DTB mapped: 61440 bytes at 0x2eff1000
+12:43:56.354809 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+12:43:56.369044 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+12:43:56.369554 discover: cpus 4 (fdt) smp-seen=2 matches
+12:43:56.371144 discover: display compiled=off (claim, not probed)
+12:43:56.371470 heap remaining = 67108864 bytes
+12:43:56.371790 frames: 512 free / 512  base=0x4118000  (2048 KiB pool)
+12:43:56.455144 rng200: ok word=0xd77b6940
+12:43:56.455584 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+12:43:56.455840 irq: sealed with 3 handlers registered
+12:43:56.456044 smp: core1 ipi
+12:43:56.456235 smp: core1 ran
+12:43:56.456456 IRQs enabled (timer + UART RX)
+12:43:56.456664 idle: WFI when no RX/tick work
+12:43:56.456870 heap: Box at 0x118010, Vec of 1024 sums to 523776
+12:43:56.476294 heap: 67100624 bytes free while held, 2 fragments
+12:43:56.477131 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+12:43:56.480276 unmap: page at 0x119000 fault-ready
+12:43:56.480605 unmap: remapped and freed
+12:43:56.480843 split: page at 0x200000 split 1, remapped
+12:43:56.481048 console-server: up
+12:43:56.496594 console: capability minted
+12:43:56.496933 loader: store n=2 image
+12:43:56.498973 loader: beacon loaded text=1 stack=3 home=0
+12:43:56.499212 loader: chirp loaded text=1 stack=3 home=1
+12:43:56.499429 arena: 1 splits, 71 tables free
+12:43:56.499646 boot: mmu=21 ms discover=56 ms ready=184 ms
+12:43:56.499852 ?loader: chirp ran sends=1 refusals=0
+12:43:56.500122 H!loader: beacon ran sends=2 refusals=0
+12:43:57.540808 ticks=10
+        [... 78 heartbeat lines elided ...]
+12:44:36.537781 invariants: overwrites=0 abandoned=0 faults=0 blocked=1 frames_free=512 preempts=0
+12:44:46.855852 Harbor: hello
+12:44:46.858595 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+12:44:46.859001 build: headless (no bring-up gates) src=bcddba6a release
+12:44:46.859253 DTB at 0x2eff1f00
+12:44:46.859603 MMU on  (W^X, guard page at 0x107000, 299008 B of table arena left)
+12:44:46.875961 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+12:44:46.878328 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+12:44:46.879533 smp: core1 alive
+12:44:46.882093 DTB mapped: 61440 bytes at 0x2eff1000
+12:44:46.882529 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+12:44:46.893527 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+12:44:46.895641 discover: cpus 4 (fdt) smp-seen=2 matches
+12:44:46.896952 discover: display compiled=off (claim, not probed)
+12:44:46.899572 heap remaining = 67108864 bytes
+12:44:46.899961 frames: 512 free / 512  base=0x4118000  (2048 KiB pool)
+12:44:46.983570 rng200: ok word=0x8a8713d1
+12:44:46.985775 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+12:44:46.987911 irq: sealed with 3 handlers registered
+12:44:46.988257 smp: core1 ipi
+12:44:46.990555 smp: core1 ran
+12:44:46.990912 IRQs enabled (timer + UART RX)
+12:44:46.992201 idle: WFI when no RX/tick work
+12:44:46.994714 heap: Box at 0x118010, Vec of 1024 sums to 523776
+12:44:46.999902 heap: 67100624 bytes free while held, 2 fragments
+12:44:47.001224 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+12:44:47.002974 unmap: page at 0x119000 fault-ready
+12:44:47.004918 unmap: remapped and freed
+12:44:47.006148 split: page at 0x200000 split 1, remapped
+12:44:47.008115 console-server: up
+12:44:47.021849 console: capability minted
+12:44:47.022249 loader: store n=2 image
+12:44:47.024545 loader: beacon loaded text=1 stack=3 home=0
+12:44:47.024858 loader: chirp loaded text=1 stack=3 home=1
+12:44:47.025563 arena: 1 splits, 71 tables free
+12:44:47.027302 boot: mmu=21 ms discover=56 ms ready=184 ms
+12:44:47.029507 ?loader: chirp ran sends=1 refusals=0
+12:44:47.032721 H!loader: beacon ran sends=2 refusals=0
+12:44:48.065557 ticks=10
+        [... 28 heartbeat lines elided ...]
+12:45:02.066534 invariants: overwrites=0 abandoned=0 faults=0 blocked=1 frames_free=512 preempts=0
+12:45:11.202169 Harbor: hello
+12:45:11.215952 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+12:45:11.223106 build: headless (no bring-up gates) src=bcddba6a release
+12:45:11.223465 DTB at 0x2eff1f00
+12:45:11.223873 MMU on  (W^X, guard page at 0x107000, 299008 B of table arena left)
+12:45:11.231253 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+12:45:11.231695 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+12:45:11.231918 smp: core1 alive
+12:45:11.232139 DTB mapped: 61440 bytes at 0x2eff1000
+12:45:11.232401 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+12:45:11.240494 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+12:45:11.242223 discover: cpus 4 (fdt) smp-seen=2 matches
+12:45:11.242672 discover: display compiled=off (claim, not probed)
+12:45:11.243015 heap remaining = 67108864 bytes
+12:45:11.243443 frames: 512 free / 512  base=0x4118000  (2048 KiB pool)
+12:45:11.325280 rng200: ok word=0x49939a9b
+12:45:11.325875 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+12:45:11.326221 irq: sealed with 3 handlers registered
+12:45:11.326488 smp: core1 ipi
+12:45:11.326725 smp: core1 ran
+12:45:11.326963 IRQs enabled (timer + UART RX)
+12:45:11.327216 idle: WFI when no RX/tick work
+12:45:11.327551 heap: Box at 0x118010, Vec of 1024 sums to 523776
+12:45:11.347038 heap: 67100624 bytes free while held, 2 fragments
+12:45:11.347562 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+12:45:11.348520 unmap: page at 0x119000 fault-ready
+12:45:11.348793 unmap: remapped and freed
+12:45:11.349063 split: page at 0x200000 split 1, remapped
+12:45:11.349978 console-server: up
+12:45:11.369018 console: capability minted
+12:45:11.369419 loader: store n=2 image
+12:45:11.369676 loader: beacon loaded text=1 stack=3 home=0
+12:45:11.369913 loader: chirp loaded text=1 stack=3 home=1
+12:45:11.370127 arena: 1 splits, 71 tables free
+12:45:11.370356 boot: mmu=21 ms discover=56 ms ready=184 ms
+12:45:11.370569 ?loader: chirp ran sends=1 refusals=0
+12:45:11.371888 H!loader: beacon ran sends=2 refusals=0
+12:45:12.414500 ticks=10
+        [... 756 heartbeat lines elided ...]
+12:51:30.408245 invariants: overwrites=0 abandoned=0 faults=0 blocked=1 frames_free=512 preempts=0
+12:51:38.581952 Harbor: hello
+12:51:38.582152 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+12:51:38.582257 build: panic-probe src=299fc4f2 release
+12:51:38.582338 DTB at 0x2eff1f00
+12:51:38.582473 MMU on  (W^X, guard page at 0x117000, 299008 B of table arena left)
+12:51:38.582560 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+12:51:38.603841 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+12:51:38.604020 smp: core1 alive
+12:51:38.604135 DTB mapped: 61440 bytes at 0x2eff1000
+12:51:38.604235 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+12:51:38.604342 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+12:51:38.625842 discover: cpus 4 (fdt) smp-seen=2 matches
+12:51:38.626077 discover: display compiled=off (claim, not probed)
+12:51:38.626203 heap remaining = 67108864 bytes
+12:51:38.626330 frames: 512 free / 512  base=0x4128000  (2048 KiB pool)
+12:51:38.626470 aspace: prepare ok  held=14 (empty=1)  root=0x4128000
+12:51:38.626574 el0: SVC ok  imm=0
+12:51:38.638075 el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+12:51:38.638248 aspace: create/destroy ok  pool=512
+12:51:38.638342 asid: dual a=2 b=3 ok
+12:51:38.638449 aspace: dual create/destroy ok  pool=512
+12:51:38.722804 rng200: ok word=0x44ae54fe
+12:51:38.723001 panic-probe: stack guard at 0x129000, writing
+12:51:38.723088 
+12:51:38.723198 *** KERNEL PANIC ***
+12:51:38.723330 panicked at src/arch/aarch64/exception/handlers.rs:83:5:
+12:51:38.723482 sync exception EL1: data abort, current EL, translation fault level 3 on write
+12:51:38.739227   ESR=0x0000000096000047
+12:51:38.739475   ELR=0x000000000008aa6c
+12:51:38.739605   SPSR=0x00000000600003c4
+12:51:38.739728   FAR=0x0000000000129000
+12:51:38.739884 fault: 0x0000000000129000 unmapped inside "heap" — task-stack guard page, i.e. stack overflow
+12:51:38.739999 *** halt ***

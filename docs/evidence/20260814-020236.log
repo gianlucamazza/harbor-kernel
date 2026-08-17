@@ -1,0 +1,200 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260814-020236.log
+# sha256:  cbe1b6a75300a83aa9e00e20a86bfcb3865bcbbdcab529e8329e2e5bf51287ac
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260814-020236.log
+02:05:32.065726 Harbor: hello
+02:05:32.066007 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+02:05:32.066153 build: headless (no bring-up gates) src=6b5f612f release
+02:05:32.066251 DTB at 0x2eff1f00
+02:05:32.066371 MMU on  (W^X, guard page at 0x11a000, 299008 B of table arena left)
+02:05:32.088668 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+02:05:32.088848 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+02:05:32.088946 smp: core1 alive
+02:05:32.089041 DTB mapped: 61440 bytes at 0x2eff1000
+02:05:32.089156 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+02:05:32.110684 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+02:05:32.110878 discover: cpus 4 (fdt) smp-seen=2 matches
+02:05:32.111011 discover: display compiled=off (claim, not probed)
+02:05:32.111121 heap remaining = 67108864 bytes
+02:05:32.111255 frames: 512 free / 512  base=0x412b000  (2048 KiB pool)
+02:05:32.111385 aspace: prepare ok  held=14 (empty=1)  root=0x412b000
+02:05:32.124068 el0: SVC ok  imm=0
+02:05:32.124228 el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+02:05:32.124337 aspace: create/destroy ok  pool=512
+02:05:32.124440 asid: dual a=2 b=3 ok
+02:05:32.124569 aspace: dual create/destroy ok  pool=512
+02:05:32.208689 rng200: ok word=0x5dbd7e3b
+02:05:32.208852 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+02:05:32.208940 irq: sealed with 3 handlers registered
+02:05:32.209005 smp: core1 ipi
+02:05:32.209064 smp: core1 ran
+02:05:32.209156 IRQs enabled (timer + UART RX)
+02:05:32.209258 idle: WFI when no RX/tick work
+02:05:32.209375 heap: Box at 0x12b010, Vec of 1024 sums to 523776
+02:05:32.230809 heap: 67100624 bytes free while held, 2 fragments
+02:05:32.230988 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+02:05:32.231103 unmap: page at 0x12c000 fault-ready
+02:05:32.231190 unmap: remapped and freed
+02:05:32.231286 split: page at 0x200000 split 1, remapped
+02:05:32.231360 console-server: up
+02:05:32.252692 console: capability minted
+02:05:32.252845 authority: 0 console ok
+02:05:32.252941 authority: bound console
+02:05:32.253023 blob: service up
+02:05:32.253095 authority: 1 blob ok
+02:05:32.253190 authority: 2 blob-reply ok
+02:05:32.253301 authority: bound blob
+02:05:32.253409 authority: bound blob-reply
+02:05:32.253527 authority: network vocabulary VACANT
+02:05:32.253627 authority: 0 rng ok
+02:05:32.274735 authority: windows 1 declared
+02:05:32.274951 loader: builtin
+02:05:32.275081 loader: beacon loaded text=1 stack=3 home=0
+02:05:32.275191 loader: mute loaded text=2 stack=3 home=0
+02:05:32.275305 loader: lookup loaded text=1 stack=3 home=0
+02:05:32.275423 loader: noresolve loaded text=1 stack=3 home=0
+02:05:32.296915 loader: nowindow refused — names window 3 of 1
+02:05:32.297064 sched: spawned task-a
+02:05:32.297147 sched: spawned task-b
+02:05:32.297227 sched: spawned el0-task
+02:05:32.297323 sched: spawned pl011-agent
+02:05:32.297424 sched: spawned rng-agent
+02:05:32.297518 sched: spawned agent-a
+02:05:32.297610 sched: spawned agent-b
+02:05:32.297701 ipc: spawned receiver
+02:05:32.297780 ipc: spawned sender
+02:05:32.297871 ipc: spawned forger
+02:05:32.319677 el0-ipc: spawned receiver
+02:05:32.319866 el0-ipc: spawned sender
+02:05:32.319988 irq-cap: minted timer cookie=1
+02:05:32.320097 sched: spawned irq-wait
+02:05:32.320201 sched: spawned el0-irq-refuse
+02:05:32.320302 name: resolved
+02:05:32.320398 name: missing
+02:05:32.320501 store: got
+02:05:32.320602 store: missing
+02:05:32.320691 ipc: transfer spawned
+02:05:32.320801 cascade: parent spawned
+02:05:32.341681 el0-resolve: spawned
+02:05:32.341860 ipc: timeout-recv spawned
+02:05:32.341967 el0-xfer: parent spawned
+02:05:32.342068 el0-xfer: refuse spawned
+02:05:32.342171 el0-xfer-peer: parent spawned
+02:05:32.342274 el0-xfer-peer: refuse spawned
+02:05:32.342369 xfer-peer: stale spawned
+02:05:32.342458 el0-timeout: spawned
+02:05:32.342561 density: thin n=2 bytes_each=8192
+02:05:32.342682 density: mini n=2 bytes_each=4096
+02:05:32.365552 durable-media: boot=22 from=Previous part=0x7f slot=A seq=21 host=emmc2
+02:05:32.365700 durable: reloaded
+02:05:32.416496 durable-media: flushed slot=B seq=22
+02:05:32.440890 durable-media: verified
+02:05:32.441101 preempt-el1: workers spawned
+02:05:32.441242 preempt-el1-cpu1: workers spawned
+02:05:32.441372 preempt-el0-cpu1: workers spawned
+02:05:32.441491 smp: steal workers spawned
+02:05:32.441600 preempt: tasks spawned
+02:05:32.441709 ipc: revoke-held spawned
+02:05:32.441834 ipc: orphan spawned id=51
+02:05:32.441931 ipc: reaper spawned
+02:05:32.463954 sched: spawned supervisor
+02:05:32.464181 ipc: auto-reap receiver spawned
+02:05:32.464317 ipc: auto-reap sender spawned
+02:05:32.464446 sched: spawned force-kill supervisor
+02:05:32.464567 arena: 1 splits, 71 tables free
+02:05:32.464689 boot: mmu=21 ms discover=56 ms ready=413 ms
+02:05:32.464829 loader: mute ran sends=0 refusals=2
+02:05:32.485807 loader: lookup ran sends=1 refusals=0
+02:05:32.486064 loader: noresolve ran sends=0 refusals=2
+02:05:32.486190 task-a 0
+02:05:32.486303 task-b 0
+02:05:32.486414 el0-task: svc ping
+02:05:32.486530 el0-task: svc refuse imm=0x99
+02:05:32.486641 el0-task: resume pings=2
+02:05:32.486757 pl011-agent: FR read + svc ok
+02:05:32.486897 pl011-agent: rx own begin
+02:05:32.487006 rng-agent: map read ok
+02:05:32.507970 rng-agent: killed ok  pool=466 (was 466)
+02:05:32.508124 agent-b: svc ping
+02:05:32.508218 el0-ipc: try-recv empty without waiting empties=1
+02:05:32.508307 el0-ipc: sent slot=0 tag=7 a=42
+02:05:32.508410 el0-ipc: console denied, printed nothing
+02:05:32.508491 el0-ipc: refused slot=1 authority=5
+02:05:32.529785 el0-ipc: agent faulted esr=0x9200004f far=0x80000 faults=1
+02:05:32.530004 el0-ipc: creator alive after fault
+02:05:32.530107 irq-wait: arm cookie=1
+02:05:32.530205 el0-irq: refused refusals=1
+02:05:32.530299 ipc: transfer donor empty
+02:05:32.530392 resolve-grant: refused
+02:05:32.530484 el0-resolve: ok
+02:05:32.530589 el0-resolve: refused refusals=1
+02:05:32.530692 el0-xfer: refused refusals=1
+02:05:32.535910 el0-xfer-peer: spawned
+02:05:32.536047 el0-xfer-peer: refused refusals=1 detail=4
+02:05:32.536155 xfer-peer: band refused
+02:05:32.808869 ipc: held-revoke ok
+02:05:32.809014 ipc: release stale refused
+02:05:32.809112 H!Nloader: beacon ran sends=2 refusals=0
+02:05:32.809195 task-a 1
+02:05:32.809273 task-b 1
+02:05:32.809346 pl011-agent: rx poll empty
+02:05:32.809435 agent-a: svc ping
+02:05:32.809539 ipc: sent tag=1 a=42
+02:05:32.809640 ipc: transfer ok
+02:05:32.809729 el0-xfer: ok
+02:05:32.809839 el0-xfer: parent got cap
+02:05:32.816409 el0-xfer-peer: donor emptied
+02:05:32.816573 xfer-peer: stale refused
+02:05:32.816712 irq-wait: woke drops=0 idle_signals=5
+02:05:32.816829 el0-irq: arm slot=0
+02:05:32.988024 preempt-el1-cpu1: rotated
+02:05:33.192003 preempt: rotated
+02:05:33.192166 ipc: timed-out cancelled
+02:05:33.192267 el0-timeout: cancelled
+02:05:33.408855 ticks=10
+02:05:33.409025 invariants: overwrites=0 abandoned=0 faults=1 blocked=5 frames_free=436 preempts=9 slots=31/57
+02:05:33.409095 task-a 2
+02:05:33.409152 task-b 2
+02:05:33.409235 H*RXagents: concurrent ok  pool=436
+02:05:33.409301 ipc: got tag=1 a=42
+02:05:33.409373 ipc: refuse count=7 full=0 state=0
+02:05:33.409439 el0-xfer-peer: ok
+02:05:33.430919 preempt-el1: rotated
+02:05:33.431064 el0-irq: woke wait_irqs=1
+02:05:33.431142 irq-device: woke wait_irqs=1
+02:05:33.431210 preempt-el1: spinner exited
+02:05:33.431276 preempt-el1-cpu1: spinner exited
+02:05:33.431336 preempt-el0-cpu1: rotated
+02:05:33.431398 preempt-el0-cpu1: spinner exited
+02:05:33.431476 smp: steal ok
+02:05:33.431542 preempt: spinner exited irqs=4
+02:05:33.434836 ipc: cancel issued cancel_events=3
+02:05:33.434966 supervisor: reaped id=21 reap_events=1
+02:05:33.609012 force-kill: requested events=1
+02:05:33.609217 task-a 3
+02:05:33.609326 task-b 3
+02:05:33.609439 !el0-task: console sends=2
+02:05:33.609573 el0-task: irq resume irqs=1
+02:05:33.609687 el0-task: ok  pool=481 (was 497)
+02:05:33.609814 sched: blocked=2 block_events=15
+02:05:33.609935 cascade: parent exit cascade_events=0
+02:05:33.610042 ipc: reaped cancelled
+02:05:33.630866 supervised: cancelled
+02:05:33.631090 ipc: auto-reaped cancelled
+02:05:33.631216 force-kill: child forced
+02:05:33.631331 force-kill: slot empty
+02:05:33.631439 ocascade: cancelled
+02:05:33.631545 tpl011-agent: rx own bytes=2
+02:05:33.631648 pl011-agent: rx own end
+02:05:33.631752 el0-ipc: got payload via EL0 recvs=1
+02:05:33.631883 pl011-agent: killed ok  pool=512 (was 482)
+02:05:33.633364 supervisor: restarted id=4
+02:05:33.633531 supervised: cancelled
+02:05:34.099062 ticks=20
+        [... 192 heartbeat lines elided ...]
+02:07:10.097898 invariants: overwrites=0 abandoned=0 faults=1 blocked=2 frames_free=512 preempts=10 slots=4/57

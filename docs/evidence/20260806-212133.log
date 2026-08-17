@@ -1,0 +1,45 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260806-212133.log
+# sha256:  8d01034be6b5e4e5da63d2d97f7695a8f53aca30477afe75db0bd872d5bef274
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260806-212133.log
+21:22:04.034149 Harbor: hello
+21:22:04.034602 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+21:22:04.034733 DTB at 0x2eff1f00
+21:22:04.034902 MMU on  (W^X, guard page at 0xbd000, 102400 B of table arena left)
+21:22:04.035033 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+21:22:04.035174 DTB mapped: 61440 bytes at 0x2eff1000
+21:22:04.056110 heap remaining = 67108864 bytes
+21:22:04.056363 frames: 512 free / 512  base=0x40ce000  (2048 KiB pool)
+21:22:04.056546 aspace: prepare ok  held=14 (empty=1)  root=0x40ce000
+21:22:04.056657 el0: SVC ok  imm=0
+21:22:04.056793 el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+21:22:04.056937 aspace: create/destroy ok  pool=512
+21:22:04.057768 aspace: dual create/destroy ok  pool=512
+21:22:04.142107 rng200: ok word=0x9b3fe143
+21:22:04.142390 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+21:22:04.142521 irq: sealed with 2 handlers registered
+21:22:04.142617 IRQs enabled (timer + UART RX)
+21:22:04.142706 idle: WFI when no RX/tick work
+21:22:04.142798 heap: Box at 0xce010, Vec of 1024 sums to 523776
+21:22:04.164183 heap: 67100624 bytes free while held, 2 fragments
+21:22:04.164391 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+21:22:04.164545 unmap: page at 0xcf000 fault-ready
+21:22:04.164634 unmap: remapped and freed
+21:22:04.164731 split: page at 0x200000 split 1, remapped
+21:22:04.164810 sched: spawned task-a
+21:22:04.164886 sched: spawned task-b
+21:22:04.186263 sched: spawned el0-task
+21:22:04.186446 sched: spawned pl011-agent
+21:22:04.186543 sched: spawned agent-a
+21:22:04.186632 sched: spawned agent-b
+21:22:04.186711 ipc: spawned receiver
+21:22:04.186786 ipc: spawned sender
+21:22:04.186859 ipc: spawned forger
+21:22:04.186944 arena: 1 splits, 23 tables free
+21:22:04.187031 task-a 0
+21:22:04.187124 task-b 0

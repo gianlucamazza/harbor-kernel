@@ -1,0 +1,54 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260813-100737.log
+# sha256:  4fa035172ef1214a37f88caf8dad46d528231d54edc84aeb867403c2e4067987
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260813-100737.log
+10:09:34.753416 Harbor: hello
+10:09:34.753712 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+10:09:34.753830 build: headless (no bring-up gates) src=ad8264c8 release
+10:09:34.753904 DTB at 0x2eff1f00
+10:09:34.753993 MMU on  (W^X, guard page at 0x108000, 299008 B of table arena left)
+10:09:34.776460 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+10:09:34.776651 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+10:09:34.776739 smp: core1 alive
+10:09:34.776863 DTB mapped: 61440 bytes at 0x2eff1000
+10:09:34.776970 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+10:09:34.792547 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+10:09:34.792704 discover: cpus 4 (fdt) smp-seen=2 matches
+10:09:34.792813 discover: display compiled=off (claim, not probed)
+10:09:34.792891 heap remaining = 67108864 bytes
+10:09:34.792974 frames: 512 free / 512  base=0x4119000  (2048 KiB pool)
+10:09:34.876588 rng200: ok word=0x425ac51e
+10:09:34.876784 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+10:09:34.876933 irq: sealed with 3 handlers registered
+10:09:34.877013 smp: core1 ipi
+10:09:34.877084 smp: core1 ran
+10:09:34.877163 IRQs enabled (timer + UART RX)
+10:09:34.877240 idle: WFI when no RX/tick work
+10:09:34.877328 heap: Box at 0x119010, Vec of 1024 sums to 523776
+10:09:34.899440 heap: 67100624 bytes free while held, 2 fragments
+10:09:34.899654 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+10:09:34.899764 unmap: page at 0x11a000 fault-ready
+10:09:34.899876 unmap: remapped and freed
+10:09:34.899966 split: page at 0x200000 split 1, remapped
+10:09:34.900041 console-server: up
+10:09:34.921598 console: capability minted
+10:09:34.921786 authority: 0 console ok
+10:09:34.921923 authority: 0 rng ok
+10:09:34.922009 authority: windows 1 declared
+10:09:34.922085 loader: store n=3 image
+10:09:34.922170 loader: beacon loaded text=1 stack=3 home=0
+10:09:34.922256 loader: chirp loaded text=1 stack=3 home=1
+10:09:34.922345 loader: entropy loaded text=1 stack=3 home=0
+10:09:34.938549 arena: 1 splits, 71 tables free
+10:09:34.938723 boot: mmu=21 ms discover=56 ms ready=195 ms
+10:09:34.938862 loader: chirp ran sends=1 refusals=0
+10:09:34.938955 ?H!Rloader: beacon ran sends=2 refusals=0
+10:09:34.939036 loader: entropy ran sends=1 refusals=0
+10:09:35.963316 ticks=10
+        [... 402 heartbeat lines elided ...]
+10:12:56.960835 invariants: overwrites=0 abandoned=0 faults=0 blocked=1 frames_free=512 preempts=0 slots=3/6

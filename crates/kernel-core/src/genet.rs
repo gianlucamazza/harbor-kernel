@@ -40,12 +40,14 @@ pub const MIN_FRAME_BYTES: u32 = 60;
 pub const TSB_BYTES: u32 = 64;
 /// DMA length posted when TBUF 64-byte mode is on: TSB plus the probe frame.
 pub const TX_DMA_BYTES: u32 = TSB_BYTES + MIN_FRAME_BYTES;
-/// Linux `bcmgenet_xmit` does not pulse `UMAC_TX_FLUSH`. Flush stays an init step.
-pub const TX_FLUSH_BEFORE_DOORBELL: bool = false;
 /// Locally-administered station address used as the probe frame SA.
 pub const STATION_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 /// Maximum standard Ethernet frame accepted by the first bounded slice.
 pub const MAX_FRAME_BYTES: u32 = 1536;
+/// Linux `RX_BUF_LENGTH`: the low half of `DMA_RING_BUF_SIZE` on **every**
+/// ring, TX included. It is a ring-slot size, not a packet length, which is
+/// why it exceeds [`MAX_FRAME_BYTES`].
+pub const RX_BUF_LENGTH: u16 = 2048;
 /// GENET v5 DMA burst value required by BCM2711 platform data.
 pub const BCM2711_DMA_BURST: u32 = 0x08;
 pub const DMA_LENGTH_MASK: u32 = 0x0fff;
@@ -59,7 +61,6 @@ pub const DMA_TX_APPEND_CRC: u32 = 0x0040;
 /// TX descriptor queue tag. v5 `qtag_mask` is `0x3f` at shift 7.
 pub const DMA_TX_QTAG_SHIFT: u32 = 7;
 pub const DMA_TX_QTAG_MASK: u32 = 0x3f;
-pub const GENET_V5_MAJOR: u8 = 5;
 
 /// GENET register offsets used by the first bounded model.
 pub mod registers {
@@ -83,6 +84,20 @@ pub mod registers {
     pub const TDMA: u32 = 0x4000;
     pub const INTRL2_CPU_CLEAR: u32 = 0x08;
     pub const INTRL2_CPU_MASK_SET: u32 = 0x10;
+    /// Linux `SYS_RBUF_FLUSH_CTRL`, in the **SYS** block — not `RBUF_CTRL`.
+    ///
+    /// `bcmgenet_rbuf_ctrl_get/set` reads this on every version after v1
+    /// (`bcmgenet.c:127-140`), and its name does not say `SYS`. Two different
+    /// registers wear one helper name: `reset_umac` zeroes **this** one, and
+    /// `bcmgenet_umac_reset` pulses [`SYS_UMAC_SW_RESET`] in it to *take the
+    /// MAC out of reset* (`:2563`, `:3299-3311`). `init_umac`'s
+    /// `RBUF_ALIGN_2B | RBUF_64B_EN` go to [`RBUF_CTRL`], which is the other
+    /// one.
+    pub const SYS_RBUF_FLUSH_CTRL: u32 = 0x08;
+    /// `BIT(1)` of [`SYS_RBUF_FLUSH_CTRL`]: UniMAC software reset.
+    pub const SYS_UMAC_SW_RESET: u32 = 1 << 1;
+    /// `BIT(0)` of [`SYS_RBUF_FLUSH_CTRL`]: the RX flush `init_dma` pulses.
+    pub const SYS_RBUF_FLUSH: u32 = 1 << 0;
     pub const RBUF_CTRL: u32 = RBUF;
     pub const RBUF_64B_EN: u32 = 1 << 0;
     pub const RBUF_ALIGN_2B: u32 = 1 << 1;
@@ -95,6 +110,10 @@ pub mod registers {
     pub const RBUF_TBUF_SIZE_CTRL: u32 = RBUF + 0xb4;
     pub const RBUF_TBUF_SIZE: u32 = 1;
     pub const UMAC_CMD: u32 = UMAC + 0x08;
+    /// UniMAC software reset (`unimac.h` `CMD_SW_RESET`). While it is set the
+    /// MAC is held and `umac_enable_set` refuses to write this register at
+    /// all (`bcmgenet.c:2540-2545`).
+    pub const UMAC_CMD_SW_RESET: u32 = 1 << 13;
     pub const UMAC_CMD_TX_EN: u32 = 1 << 0;
     pub const UMAC_CMD_RX_EN: u32 = 1 << 1;
     /// UniMAC `CMD_SPEED_*` occupy bits 3:2 (`unimac.h`).
@@ -120,6 +139,18 @@ pub mod registers {
     pub const MIB_RESET_TX: u32 = 1 << 2;
     pub const UMAC_TX_FLUSH: u32 = UMAC + 0x334;
     pub const UMAC_MDIO_CMD: u32 = MDIO;
+    /// Hardware filter block RAM (`bcmgenet_hw_params_v4.hfb_offset`).
+    pub const HFB_RAM: u32 = 0x8000;
+    /// Hardware filter block registers (`hfb_reg_offset`).
+    pub const HFB_REG: u32 = 0xfc00;
+    /// Linux `HFB_CTRL`. Writing 0 is how `bcmgenet_netif_stop` disables RX.
+    pub const HFB_CTRL: u32 = HFB_REG;
+    /// Linux `HFB_FLT_ENABLE_V3PLUS`; the second word is at `+4`.
+    pub const HFB_FLT_ENABLE: u32 = HFB_REG + 0x04;
+    /// Linux `HFB_FLT_LEN_V3PLUS`: four filter lengths packed per word.
+    pub const HFB_FLT_LEN: u32 = HFB_REG + 0x1c;
+    /// Linux `RBUF_HFB_EN` in `HFB_CTRL`.
+    pub const HFB_EN: u32 = 1 << 0;
     /// v2+ TBUF block (`bcmgenet_hw_params.tbuf_offset`).
     pub const TBUF: u32 = 0x0600;
     pub const TBUF_CTRL: u32 = TBUF;
@@ -218,12 +249,24 @@ pub const fn umac_cmd_with_speed(cmd: u32, speed: LinkSpeed) -> u32 {
     (cmd & !registers::UMAC_CMD_SPEED_MASK) | umac_speed_bits(speed)
 }
 
+/// Clear [`registers::UMAC_CMD_SW_RESET`], leaving every other bit alone.
+///
+/// `reset_umac` asserts that bit and stops; nothing in the driver clears it,
+/// and on BCM2711 it does **not** self-clear — the 2026-08-17 11:15 state dump
+/// read `cmd=0x1002067` almost 300 ms after the reset, with `TX_EN`, `RX_EN`,
+/// `PAD_EN`, `CRC_FWD` and `NO_LEN_CHK` all set *and* bit 13 still high. A MAC
+/// in software reset with the datapath enables written over it is exactly the
+/// shape of "TDMA retires the descriptor and UniMAC counts nothing".
+pub const fn umac_cmd_out_of_reset(cmd: u32) -> u32 {
+    cmd & !registers::UMAC_CMD_SW_RESET
+}
+
 /// Speed plus the UniMAC datapath bits Linux sets at link-up.
 ///
 /// `TX_EN` and `RX_EN` together, `PAD_EN`, `CRC_FWD`, and `NO_LEN_CHK`.
 /// Does not set `PROMISC`.
 pub const fn umac_cmd_datapath(cmd: u32, speed: LinkSpeed) -> u32 {
-    umac_cmd_with_speed(cmd, speed)
+    umac_cmd_out_of_reset(umac_cmd_with_speed(cmd, speed))
         | registers::UMAC_CMD_TX_EN
         | registers::UMAC_CMD_RX_EN
         | registers::UMAC_CMD_PAD_EN
@@ -454,9 +497,75 @@ pub fn write_tsb_probe(buf: &mut [u8]) {
     }
 }
 
+/// Linux `hfb_filter_cnt` for v4/v5.
+pub const HFB_FILTER_COUNT: u32 = 48;
+/// Linux `hfb_filter_size`: words of filter RAM per filter.
+pub const HFB_FILTER_WORDS: u32 = 128;
+/// Linux `bcmgenet_hfb_clear` ends by enabling filter 0 with this length,
+/// "to send default flow to ring 0". Harbor's RX has never had it.
+pub const HFB_DEFAULT_FLOW_LEN: u32 = 4;
+
+/// Byte offset of the packed-length word holding filter `index`.
+///
+/// Linux packs four filter lengths per word and indexes them **backwards**
+/// from `hfb_filter_cnt - 1`, which is the part a reimplementation gets wrong.
+pub const fn hfb_filter_length_offset(index: u32) -> Option<u32> {
+    if index >= HFB_FILTER_COUNT {
+        return None;
+    }
+    Some(registers::HFB_FLT_LEN + 4 * ((HFB_FILTER_COUNT - 1 - index) / 4))
+}
+
+/// Replace filter `index`'s byte inside its packed-length word.
+pub const fn hfb_filter_length_word(current: u32, index: u32, length: u32) -> u32 {
+    let shift = 8 * (index % 4);
+    (current & !(0xff << shift)) | ((length & 0xff) << shift)
+}
+
+/// Byte offset of the enable word holding filter `index`.
+///
+/// Linux: `HFB_FLT_ENABLE_V3PLUS + (f_index < 32) * 4` — filters 0..31 use the
+/// **second** word, 32.. use the first. The predicate reads inverted on
+/// purpose; copying it as written is the only way to match silicon.
+pub const fn hfb_filter_enable_offset(index: u32) -> Option<u32> {
+    if index >= HFB_FILTER_COUNT {
+        return None;
+    }
+    Some(registers::HFB_FLT_ENABLE + if index < 32 { 4 } else { 0 })
+}
+
+/// Bit for filter `index` inside its enable word.
+pub const fn hfb_filter_enable_bit(index: u32) -> u32 {
+    1 << (index % 32)
+}
+
+/// Byte offset of word `word` of filter `index` in the filter RAM.
+pub const fn hfb_filter_ram_offset(index: u32, word: u32) -> Option<u32> {
+    if index >= HFB_FILTER_COUNT || word >= HFB_FILTER_WORDS {
+        return None;
+    }
+    Some(registers::HFB_RAM + 4 * (index * HFB_FILTER_WORDS + word))
+}
+
 /// Linux sets `ENET_MAX_MTU << 16` on TDMA `FLOW_PERIOD` when the ring is not 0.
 pub const fn tdma_flow_period(queue: u8) -> u32 {
     if queue == 0 { 0 } else { MAX_FRAME_BYTES << 16 }
+}
+
+/// Linux `DMA_FC_THRESH_HI`: `TOTAL_DESC >> 4`.
+pub const DMA_FC_THRESH_HI: u32 = TOTAL_DESCRIPTORS as u32 >> 4;
+/// Linux `DMA_FC_THRESH_LO`.
+pub const DMA_FC_THRESH_LO: u32 = 5;
+/// Linux `DMA_XOFF_THRESHOLD_SHIFT`.
+pub const DMA_XOFF_THRESHOLD_SHIFT: u32 = 16;
+/// Linux `GENET_Q0_RX_BD_CNT` with `rx_queues = 0`: ring 0 owns them all.
+pub const V5_Q0_RX_BD_CNT: u16 = TOTAL_DESCRIPTORS;
+
+/// `RDMA_XON_XOFF_THRESH`, which shares the per-ring offset TDMA calls
+/// `FLOW_PERIOD`. `bcmgenet_init_rx_ring` writes it on every RX ring; Harbor
+/// wrote zero there, which is not the same register.
+pub const fn rdma_xon_xoff_thresh() -> u32 {
+    (DMA_FC_THRESH_LO << DMA_XOFF_THRESHOLD_SHIFT) | DMA_FC_THRESH_HI
 }
 
 /// GENET v5 register layout shared by the RDMA and TDMA blocks.
@@ -487,6 +596,10 @@ pub mod dma_registers {
     pub const DMA_PRIORITY_1: u32 = COMMON_BASE + 0x34;
     pub const DMA_PRIORITY_2: u32 = COMMON_BASE + 0x38;
     pub const RING_CFG: u32 = COMMON_BASE;
+    /// Linux `DMA_INDEX2RING_0`; eight consecutive words. `bcmgenet_hfb_clear`
+    /// zeroes all of them on the RDMA block.
+    pub const INDEX2RING_0: u32 = COMMON_BASE + 0x70;
+    pub const INDEX2RING_COUNT: u32 = 8;
     pub const RING0: u32 = RING_BASE;
     pub const DMA_ENABLE: u32 = 1 << 0;
     pub const RING_BUF_EN_SHIFT: u32 = 1;
@@ -813,6 +926,10 @@ impl DescriptorStatus {
 }
 
 /// A descriptor ring's immutable address contract.
+///
+/// Design-ahead (P3 publication — bind the accepted backend to the network
+/// vocabulary). The bring-up driver posts one descriptor at index 0 and never
+/// advances, so it has no ring to lay out; the network service will (ADR-0110).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RingLayout {
     pub base: u64,
@@ -891,6 +1008,10 @@ pub enum Ownership {
     Device,
 }
 
+/// Why a ring operation was refused.
+///
+/// Design-ahead (P3 publication) — the error vocabulary of [`RingState`], and
+/// unreachable from the driver for the same reason it is (ADR-0110).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RingError {
     Full,
@@ -900,6 +1021,10 @@ pub enum RingError {
 }
 
 /// Bounded producer/consumer ownership for one GENET ring.
+///
+/// Design-ahead (P3 publication). `src/drivers/genet.rs` is a bring-up driver:
+/// one descriptor, posted once, polled to completion. A producer/consumer ring
+/// is what the network service needs and what nothing consumes today (ADR-0110).
 ///
 /// The hardware exposes producer and consumer indices, but it does not make
 /// an out-of-order completion safe. This model keeps that ordering explicit:
@@ -978,36 +1103,13 @@ impl RingState {
     }
 }
 
-/// A bounded ring cursor. The ring is fixed-size and never grows from device
-/// input, so an out-of-range cursor is a refusal rather than a modulo guess.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RingCursor {
-    pub index: u16,
-    pub ownership: Ownership,
-}
-
-impl RingCursor {
-    pub const fn new(index: u16, ownership: Ownership) -> Option<Self> {
-        if index < TOTAL_DESCRIPTORS {
-            Some(Self { index, ownership })
-        } else {
-            None
-        }
-    }
-
-    pub const fn advance(self) -> Self {
-        Self {
-            index: if self.index + 1 == TOTAL_DESCRIPTORS {
-                0
-            } else {
-                self.index + 1
-            },
-            ownership: self.ownership,
-        }
-    }
-}
-
 /// The work classes raised by one GENET interrupt block.
+///
+/// Design-ahead (P3 publication — **interrupt slice**, not the first one).
+/// [ADR-0112](../../../docs/adr/0112-p3-publication-transport-boundary.md) §4
+/// polls, the same way the virtio backend does, so the first published backend
+/// still classifies nothing. Binding `INTRL2` and acknowledging it is its own
+/// boundary with its own evidence (ADR-0110).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InterruptWork {
     pub link: bool,
@@ -1032,6 +1134,14 @@ impl InterruptWork {
 }
 
 /// Reset generations invalidate every descriptor token from the prior run.
+///
+/// Design-ahead (P3 publication — **interrupt slice**, not the first one).
+/// `Genet::recover` resets and re-reads; it has no outstanding tokens to
+/// invalidate, because it never handed any out. The first published backend
+/// keeps the generation counter in `network_runtime`, where it is service state
+/// shared by both transports (ADR-0112 §2); this becomes the driver's own
+/// account of it when the driver owns a reset the service did not ask for
+/// (ADR-0110).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResetState {
     generation: u32,
@@ -1150,7 +1260,10 @@ impl RingProgram {
         if buffer_bytes == 0 {
             return Err(RingProgramError::BufferEmpty);
         }
-        if buffer_bytes as u32 > MAX_FRAME_BYTES {
+        // Bounded by the ring-slot size Linux writes, not by a frame length:
+        // `DMA_RING_BUF_SIZE`'s low half is `RX_BUF_LENGTH` on every ring
+        // (`bcmgenet_init_tx_ring`, `bcmgenet_init_rx_ring`).
+        if buffer_bytes > RX_BUF_LENGTH {
             return Err(RingProgramError::BufferTooLarge);
         }
         Ok(Self {
@@ -1189,10 +1302,13 @@ impl RingProgram {
             end: self.end_words(),
             end_hi: 0,
             mbuf_done: 1,
+            // Same per-ring offset, two different registers: TDMA's
+            // `FLOW_PERIOD` and RDMA's `XON_XOFF_THRESH`. Writing zero on the
+            // RX side is not "no rate control", it is a threshold of zero.
             flow: if self.block == registers::TDMA {
                 tdma_flow_period(self.queue)
             } else {
-                0
+                rdma_xon_xoff_thresh()
             },
             read_ptr: start,
             write_ptr: start,
@@ -1593,6 +1709,81 @@ impl Display for RbufReport {
     }
 }
 
+/// A read-only snapshot of what the controller actually holds after the boot
+/// sequence. Writes nothing; explains nothing on its own (ADR-0107 §4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StateDump {
+    pub sys_rbuf_flush: u32,
+    pub sys_port_ctrl: u32,
+    pub rgmii_oob: u32,
+    pub umac_cmd: u32,
+    pub rbuf_ctrl: u32,
+    pub tbuf_ctrl: u32,
+    pub tdma_ctrl: u32,
+    pub tdma_status: u32,
+    pub rdma_ctrl: u32,
+    pub rdma_status: u32,
+    pub tx_desc_status: u32,
+}
+
+impl StateDump {
+    /// True when [`registers::SYS_UMAC_SW_RESET`] is still asserted — the
+    /// state in which `umac_enable_set` refuses to write `UMAC_CMD` at all
+    /// (`bcmgenet.c:2540-2545`), and a plausible shape for "DMA retires the
+    /// descriptor and UniMAC counts nothing".
+    pub const fn umac_held_in_reset(self) -> bool {
+        self.sys_rbuf_flush & registers::SYS_UMAC_SW_RESET != 0
+    }
+
+    /// True when `UMAC_CMD` still carries the UniMAC soft-reset bit.
+    pub const fn umac_cmd_in_reset(self) -> bool {
+        self.umac_cmd & (1 << 13) != 0
+    }
+
+    /// True when both datapath enables survived the sequence.
+    pub const fn datapath_enabled(self) -> bool {
+        self.umac_cmd & (registers::UMAC_CMD_TX_EN | registers::UMAC_CMD_RX_EN)
+            == registers::UMAC_CMD_TX_EN | registers::UMAC_CMD_RX_EN
+    }
+}
+
+impl Display for StateDump {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "genet: state sysrbuf={:#x} port={:#x} oob={:#x} cmd={:#x} rbuf={:#x} tbuf={:#x} tdma={:#x}/{:#x} rdma={:#x}/{:#x} txbd={:#x} (read, not a nic)",
+            self.sys_rbuf_flush,
+            self.sys_port_ctrl,
+            self.rgmii_oob,
+            self.umac_cmd,
+            self.rbuf_ctrl,
+            self.tbuf_ctrl,
+            self.tdma_ctrl,
+            self.tdma_status,
+            self.rdma_ctrl,
+            self.rdma_status,
+            self.tx_desc_status,
+        )
+    }
+}
+
+/// Boot report for the hardware filter block. Not a NIC and not an RX claim.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HfbReport {
+    /// `HFB_CTRL` and both enable words cleared, every filter zeroed, and
+    /// filter 0 re-enabled with [`HFB_DEFAULT_FLOW_LEN`] — Linux's
+    /// "default flow to ring 0".
+    Cleared,
+}
+
+impl Display for HfbReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            HfbReport::Cleared => f.write_str("genet: hfb cleared (flow0, not a nic)"),
+        }
+    }
+}
+
 /// Boot report for Linux `RBUF_CHK_CTRL`. Not a NIC.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RbufChkReport {
@@ -1695,10 +1886,12 @@ pub struct GenetBoot {
     pub tbuf_size: Option<TbufSizeReport>,
     pub rbuf: Option<RbufReport>,
     pub rbuf_chk: Option<RbufChkReport>,
+    pub hfb: Option<HfbReport>,
     pub tx: Option<TxReport>,
     pub mib: Option<UmacMibReport>,
     pub rx: Option<RxReport>,
     pub recovered: Option<ResetReport>,
+    pub state: Option<StateDump>,
 }
 
 impl GenetBoot {
@@ -1717,10 +1910,12 @@ impl GenetBoot {
             tbuf_size: None,
             rbuf: None,
             rbuf_chk: None,
+            hfb: None,
             tx: None,
             mib: None,
             rx: None,
             recovered: None,
+            state: None,
         }
     }
 
@@ -1762,6 +1957,9 @@ impl GenetBoot {
         if let Some(line) = self.rbuf_chk.as_ref() {
             emit(line);
         }
+        if let Some(line) = self.hfb.as_ref() {
+            emit(line);
+        }
         if let Some(line) = self.tx.as_ref() {
             emit(line);
         }
@@ -1771,44 +1969,11 @@ impl GenetBoot {
         if let Some(line) = self.rx.as_ref() {
             emit(line);
         }
-        if let Some(line) = self.recovered.as_ref() {
+        if let Some(line) = self.state.as_ref() {
             emit(line);
         }
-    }
-}
-
-/// Boot report for the descriptor-based ring (Linux `DESC_INDEX` = 16). Not a NIC.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DescRingReport {
-    Programmed,
-    Enabled,
-    OutsideDma,
-    NoFrames,
-    Descriptor(DescriptorError),
-    Ring(RingProgramError),
-    Enable(QueueEnableError),
-}
-
-impl Display for DescRingReport {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            DescRingReport::Programmed => {
-                f.write_str("genet: desc ring programmed (16, not a nic)")
-            }
-            DescRingReport::Enabled => f.write_str("genet: desc ring enabled (dma, not a nic)"),
-            DescRingReport::OutsideDma => f.write_str("genet: desc ring unavailable (outside dma)"),
-            DescRingReport::NoFrames => f.write_str("genet: desc ring unavailable (no frames)"),
-            DescRingReport::Descriptor(_) => {
-                f.write_str("genet: desc ring unavailable (descriptor)")
-            }
-            DescRingReport::Ring(_) => f.write_str("genet: desc ring unavailable (ring)"),
-            DescRingReport::Enable(QueueEnableError::NotProgrammed) => {
-                f.write_str("genet: desc ring unavailable (not programmed)")
-            }
-            DescRingReport::Enable(QueueEnableError::AlreadyEnabled) => {
-                f.write_str("genet: desc ring unavailable (already enabled)")
-            }
-            DescRingReport::Enable(_) => f.write_str("genet: desc ring unavailable (phase)"),
+        if let Some(line) = self.recovered.as_ref() {
+            emit(line);
         }
     }
 }
@@ -2100,6 +2265,181 @@ mod tests {
     };
 
     #[test]
+    fn the_datapath_word_takes_unimac_out_of_software_reset() {
+        // Read back from silicon on 2026-08-17 11:15: TX_EN, RX_EN, PAD_EN,
+        // CRC_FWD, NO_LEN_CHK and CMD_SW_RESET all set at once. Enables
+        // written over a MAC that is still held say nothing.
+        let observed = 0x0100_2067;
+        assert_ne!(observed & registers::UMAC_CMD_SW_RESET, 0);
+        assert_eq!(umac_cmd_out_of_reset(observed), 0x0100_0067);
+
+        let word = umac_cmd_datapath(observed, LinkSpeed::Thousand);
+        assert_eq!(word & registers::UMAC_CMD_SW_RESET, 0);
+        assert_ne!(word & registers::UMAC_CMD_TX_EN, 0);
+        assert_ne!(word & registers::UMAC_CMD_RX_EN, 0);
+        assert_eq!(
+            word & registers::UMAC_CMD_SPEED_MASK,
+            umac_speed_bits(LinkSpeed::Thousand)
+        );
+        // Clearing the reset bit must not disturb anything else.
+        assert_eq!(umac_cmd_out_of_reset(0), 0);
+        assert_eq!(umac_cmd_out_of_reset(u32::MAX), !(1u32 << 13));
+    }
+
+    #[test]
+    fn the_umac_reset_latch_is_a_sys_register_not_the_rbuf_one() {
+        // Two registers, one Linux helper name. `bcmgenet_rbuf_ctrl_get/set`
+        // reaches SYS_RBUF_FLUSH_CTRL on every version after v1, while
+        // `init_umac`'s align/64B bits go to the RBUF block's own RBUF_CTRL.
+        // Harbor zeroed the second and never touched the first.
+        assert_eq!(registers::SYS_RBUF_FLUSH_CTRL, 0x08);
+        assert_eq!(registers::RBUF_CTRL, registers::RBUF);
+        assert_ne!(registers::SYS_RBUF_FLUSH_CTRL, registers::RBUF_CTRL);
+        // …and it sits between the two SYS registers already modelled.
+        const { assert!(registers::SYS_RBUF_FLUSH_CTRL > registers::SYS_PORT_CTRL) };
+        const { assert!(registers::SYS_RBUF_FLUSH_CTRL < registers::SYS_TBUF_FLUSH_CTRL) };
+        assert_eq!(registers::SYS_UMAC_SW_RESET, 1 << 1);
+        assert_eq!(registers::SYS_RBUF_FLUSH, 1 << 0);
+    }
+
+    #[test]
+    fn state_dump_names_the_two_reset_shapes_and_the_datapath() {
+        let held = StateDump {
+            sys_rbuf_flush: registers::SYS_UMAC_SW_RESET,
+            sys_port_ctrl: 0,
+            rgmii_oob: 0,
+            umac_cmd: 0,
+            rbuf_ctrl: 0,
+            tbuf_ctrl: 0,
+            tdma_ctrl: 0,
+            tdma_status: 0,
+            rdma_ctrl: 0,
+            rdma_status: 0,
+            tx_desc_status: 0,
+        };
+        assert!(held.umac_held_in_reset());
+        assert!(!held.umac_cmd_in_reset());
+        assert!(!held.datapath_enabled());
+
+        let running = StateDump {
+            sys_rbuf_flush: 0,
+            umac_cmd: registers::UMAC_CMD_TX_EN | registers::UMAC_CMD_RX_EN,
+            ..held
+        };
+        assert!(!running.umac_held_in_reset());
+        assert!(running.datapath_enabled());
+
+        // Only TX_EN is not "the datapath is up".
+        let half = StateDump {
+            umac_cmd: registers::UMAC_CMD_TX_EN,
+            ..running
+        };
+        assert!(!half.datapath_enabled());
+
+        let in_cmd_reset = StateDump {
+            umac_cmd: 1 << 13,
+            ..running
+        };
+        assert!(in_cmd_reset.umac_cmd_in_reset());
+    }
+
+    #[test]
+    fn hfb_filter_length_is_packed_backwards_from_the_last_filter() {
+        // Linux indexes the packed-length words from `hfb_filter_cnt - 1`.
+        // Filter 47 lands in the first word, filter 0 in the last.
+        assert_eq!(hfb_filter_length_offset(47), Some(registers::HFB_FLT_LEN));
+        assert_eq!(
+            hfb_filter_length_offset(0),
+            Some(registers::HFB_FLT_LEN + 4 * 11)
+        );
+        // Filter 44 is the first of its word, so its offset *is* the base —
+        // written without a `4 * 0` that clippy correctly reads as zero.
+        assert_eq!(hfb_filter_length_offset(44), Some(registers::HFB_FLT_LEN));
+        assert_eq!(hfb_filter_length_offset(HFB_FILTER_COUNT), None);
+    }
+
+    #[test]
+    fn hfb_filter_length_word_replaces_only_its_own_byte() {
+        let packed = 0xaabb_ccdd;
+        assert_eq!(hfb_filter_length_word(packed, 0, 4), 0xaabb_cc04);
+        assert_eq!(hfb_filter_length_word(packed, 1, 4), 0xaabb_04dd);
+        assert_eq!(hfb_filter_length_word(packed, 3, 0), 0x00bb_ccdd);
+        // A length wider than a byte cannot spill into a neighbour.
+        assert_eq!(hfb_filter_length_word(0, 2, 0x1ff), 0x00ff_0000);
+    }
+
+    #[test]
+    fn hfb_enable_word_for_low_filters_is_the_second_word() {
+        // Linux: `HFB_FLT_ENABLE_V3PLUS + (f_index < 32) * sizeof(u32)`.
+        assert_eq!(
+            hfb_filter_enable_offset(0),
+            Some(registers::HFB_FLT_ENABLE + 4)
+        );
+        assert_eq!(
+            hfb_filter_enable_offset(31),
+            Some(registers::HFB_FLT_ENABLE + 4)
+        );
+        assert_eq!(
+            hfb_filter_enable_offset(32),
+            Some(registers::HFB_FLT_ENABLE)
+        );
+        assert_eq!(hfb_filter_enable_offset(HFB_FILTER_COUNT), None);
+        assert_eq!(hfb_filter_enable_bit(0), 1);
+        assert_eq!(hfb_filter_enable_bit(33), 1 << 1);
+    }
+
+    #[test]
+    fn hfb_filter_ram_stays_inside_the_register_window() {
+        assert_eq!(hfb_filter_ram_offset(0, 0), Some(registers::HFB_RAM));
+        let last = hfb_filter_ram_offset(HFB_FILTER_COUNT - 1, HFB_FILTER_WORDS - 1).unwrap();
+        assert_eq!(last, registers::HFB_RAM + 4 * (48 * 128 - 1));
+        assert!((last as u64) < REGISTER_BYTES);
+        // The filter registers sit above the RAM and still inside the window.
+        assert!(registers::HFB_REG as u64 > last as u64);
+        assert!((registers::HFB_FLT_LEN as u64) < REGISTER_BYTES);
+        assert_eq!(hfb_filter_ram_offset(HFB_FILTER_COUNT, 0), None);
+        assert_eq!(hfb_filter_ram_offset(0, HFB_FILTER_WORDS), None);
+    }
+
+    #[test]
+    fn ring_buffer_size_is_bounded_by_the_ring_slot_not_the_frame() {
+        // Linux writes `RX_BUF_LENGTH` (2048) into every ring, TX included;
+        // bounding this by MAX_FRAME_BYTES made ring 0 unrepresentable.
+        assert!(RingProgram::new(registers::TDMA, 0, 0, 1, RX_BUF_LENGTH).is_ok());
+        assert_eq!(
+            RingProgram::new(registers::TDMA, 0, 0, 1, RX_BUF_LENGTH + 1),
+            Err(RingProgramError::BufferTooLarge)
+        );
+        // Linux ring 0: 128 BDs from index 0, slot size 2048.
+        let ring = RingProgram::new(
+            registers::TDMA,
+            DEFAULT_TX_RING,
+            0,
+            V5_Q0_TX_BD_CNT,
+            RX_BUF_LENGTH,
+        )
+        .unwrap();
+        assert_eq!(
+            ring.ring_buf_size(),
+            (u32::from(V5_Q0_TX_BD_CNT) << dma_registers::RING_SIZE_SHIFT)
+                | u32::from(RX_BUF_LENGTH)
+        );
+        // …and it ends exactly where priority ring 1 begins.
+        assert_eq!(
+            ring.end_words(),
+            u32::from(v5_priority_tx_first(1).unwrap()) * 3 - 1
+        );
+    }
+
+    #[test]
+    fn index2ring_words_are_eight_and_sit_after_the_priority_words() {
+        assert_eq!(dma_registers::INDEX2RING_COUNT, 8);
+        const { assert!(dma_registers::INDEX2RING_0 > dma_registers::DMA_PRIORITY_2) };
+        let last = dma_registers::INDEX2RING_0 + 4 * (dma_registers::INDEX2RING_COUNT - 1);
+        assert_eq!(last, dma_registers::COMMON_BASE + 0x8c);
+    }
+
+    #[test]
     fn dma_window_rejects_zero_and_wrapping_ranges() {
         assert_eq!(DmaWindow::new(0x1000, 0), None);
         assert_eq!(DmaWindow::new(u64::MAX, 2), None);
@@ -2374,18 +2714,12 @@ mod tests {
         assert_eq!(ring.post(descriptor), Ok(0));
     }
 
-    #[test]
-    fn ring_cursor_wraps_and_refuses_out_of_range_input() {
-        assert_eq!(RingCursor::new(TOTAL_DESCRIPTORS, Ownership::Driver), None);
-        let cursor = RingCursor::new(TOTAL_DESCRIPTORS - 1, Ownership::Device).unwrap();
-        assert_eq!(
-            cursor.advance(),
-            RingCursor {
-                index: 0,
-                ownership: Ownership::Device
-            }
-        );
-    }
+    /// `RingCursor` used to live here and this test used to pass. It wrapped at
+    /// `TOTAL_DESCRIPTORS` (256) while ring 0 carries `V5_Q0_TX_BD_CNT` (128)
+    /// BDs, so it modelled a ring the hardware does not have — a second copy of
+    /// an advance `RingState::next` already owned correctly, and the wrong copy
+    /// was the one with a green test. Deleted by ADR-0110; the ring advance has
+    /// one implementation again, and `ring_posts_and_completes_in_order` is it.
 
     #[test]
     fn interrupt_classes_are_kept_directional() {
@@ -2502,7 +2836,7 @@ mod tests {
             Err(RingProgramError::BufferEmpty)
         );
         assert_eq!(
-            RingProgram::new(registers::RDMA, 0, 0, 1, MAX_FRAME_BYTES as u16 + 1),
+            RingProgram::new(registers::RDMA, 0, 0, 1, RX_BUF_LENGTH + 1),
             Err(RingProgramError::BufferTooLarge)
         );
         assert_eq!(
@@ -2717,10 +3051,6 @@ mod tests {
             desc.ctrl(),
             dma_registers::DMA_ENABLE | (1 << (dma_registers::RING_BUF_EN_SHIFT + 16))
         );
-        assert_eq!(
-            DescRingReport::Programmed.to_string(),
-            "genet: desc ring programmed (16, not a nic)"
-        );
         assert_eq!(DmaPhase::Idle.program(), Ok(DmaPhase::Programmed));
         assert_eq!(
             DmaPhase::Idle.enable(),
@@ -2865,7 +3195,6 @@ mod tests {
         assert_eq!(tbuf_with_tsb(0x2), 0x2 | registers::TBUF_64B_EN);
         assert_eq!(TSB_BYTES, 64);
         assert_eq!(TX_DMA_BYTES, 124);
-        const { assert!(!TX_FLUSH_BEFORE_DOORBELL) };
         let mut probe = [0x5au8; TX_DMA_BYTES as usize];
         write_tsb_probe(&mut probe);
         assert!(probe[..TSB_BYTES as usize].iter().all(|&b| b == 0));
@@ -2947,13 +3276,16 @@ mod tests {
                 .flow,
             MAX_FRAME_BYTES << 16
         );
+        // Same per-ring offset, different register: RDMA writes Linux's
+        // `XON_XOFF_THRESH`, never zero (`bcmgenet.c:2817-2819`).
         assert_eq!(
             RingProgram::new(registers::RDMA, DESC_RING, 0, 1, 128)
                 .unwrap()
                 .words()
                 .flow,
-            0
+            rdma_xon_xoff_thresh()
         );
+        assert_eq!(rdma_xon_xoff_thresh(), (5 << 16) | 16);
         assert_eq!(
             TbufReport::Raw.to_string(),
             "genet: tbuf raw (no 64b, not a nic)"

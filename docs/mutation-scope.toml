@@ -1,0 +1,94 @@
+# Which `kernel-core` modules mutation testing covers, and why the rest do not.
+#
+# Read by `scripts/host/run-mutants.sh` (which derives its `--file` arguments
+# from `in_scope`) and enforced by `scripts/check/mutation-scope.sh`, which
+# refuses a tree where a `pub mod` of `crates/kernel-core/src/lib.rs` is
+# missing here, appears twice, or is named here and does not exist.
+#
+# The failure this file exists for: `genet.rs` grew to 3142 lines across 51
+# commits — the whole ADR-0105/0106 model — and was never mutated, because
+# membership lived in a hand-written array nobody was asked to revisit.
+# `mutation-freshness` could not see it: it counts mutants *inside* the scope,
+# so a module outside the scope is invisible by construction. ADR-0049 had
+# already named the trigger ("the next membership miss"); this is it.
+#
+# Three states, and the difference between the last two is the point:
+#
+#   in_scope  the run covers it
+#   queued    it *should* be covered and is not yet — the reason is cost, and
+#             saying so keeps the debt visible instead of implicit
+#   exempt    a positive argument that mutation would add nothing here
+#
+# A new module must be classified before it can merge. Choosing `queued` is
+# allowed; forgetting is not.
+
+in_scope = [
+  "cap",
+  "capslots",
+  "genet",
+  "genet_fdt",
+  "ipc",
+  "irqcap",
+  "irqtable",
+  "irqwait",
+  "layout",
+  "lifecycle",
+  "loaderplan",
+  "manifest",
+  "prog",
+  "reply",
+  "reset",
+  "runqueue",
+  "rxline",
+  "syscall",
+  "taskcap",
+  "tasks",
+]
+
+# Decision-bearing modules whose only reason for being out is run time. A full
+# serial run already takes over an hour on the capped laptop; `genet` alone
+# adds 855 mutants to 660. These are the next ones in, not permanent residents.
+[queued]
+agentstore = "ADR-0027 store wire format: length and bounds decisions"
+asid = "ADR-0047/0050 pool and TTBR0 packing: recycling decisions"
+blob = "P2 EL0 endpoint protocol: request/reply framing decisions"
+budget = "ADR-0046 budget arithmetic: the preemption decision's input"
+density = "ADR-0044/0086 density arithmetic: slot accounting"
+durable = "ADR-0045 multi-blob wire format: offset and slot decisions"
+durable_media = "ADR-0066 media wrapper: A/B slot selection"
+fdt = "ADR-0073 closed extraction list: what a malformed blob may do"
+frame = "ADR-0012 free-list arithmetic: double-free and exhaustion"
+heap = "first-fit split/coalesce: the classic mutation target"
+held = "ADR-0099/0100 composition vocabularies: what may be named"
+hwdesc = "ADR-0072 reconciliation: the evidence spine's comparisons"
+mbr = "ADR-0066 partition reader: bounds on untrusted media"
+naming = "ADR-0035/0039 registry: bind/resolve authority"
+net = "ADR-0104 wire protocol: token validation"
+paging = "stage-1 encodings: W^X and access-permission bits"
+parktime = "ADR-0040 deadline table: timeout ordering"
+preempt = "ADR-0064 IRQ-side decision: when a switch is allowed"
+ring = "SPSC byte ring; the `unsafe` half is covered by Miri, the arithmetic is not"
+sdcard = "init state machine: refusal paths on absent media"
+storage = "ADR-0036 keyed store: key collision and capacity"
+virtio = "ADR-0104 pure contracts: descriptor and feature arithmetic"
+wake = "ADR-0008 SPSC wake queue; same split as `ring`"
+
+# Modules where a killed mutant would not tell us anything a test does not
+# already say directly: fixed encodings, tables, and single-expression
+# arithmetic with no branch that carries authority.
+[exempt]
+a64 = "instruction-word encoder; a wrong word fails the llvm-mc byte gate, not a test"
+bump = "bump pointer bookkeeping; no reclaim decision exists to break"
+cpuid = "MIDR field decode against a fixed table"
+delay = "one multiplication over a counter frequency"
+display = "RGB565 packing and a declarative op list; the panel is retired (ADR-0094)"
+fault = "ESR_EL1 field names; a decode table, not a decision"
+font8x8 = "bitmap glyph table"
+gic = "GICv2 register index arithmetic; wrong indices fault, they do not survive"
+poll = "bounded spin helper; the bound is the contract and is asserted directly"
+rng = "RNG200 register encodings"
+sdhci = "SDHCI register encodings"
+spi = "clock-divisor arithmetic; the panel that used it is retired (ADR-0094)"
+textgrid = "fixed grid with dirty tracking for a retired status surface"
+timer = "one comparator deadline addition"
+uart = "PL011 baud divisor arithmetic (ARM DDI 0183)"

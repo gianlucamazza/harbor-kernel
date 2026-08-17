@@ -1,8 +1,9 @@
 ---
 id: 0106
 title: Pi 4 BCM2711 GENET v5 backend design
-status: proposed
+status: accepted
 date: 2026-08-13
+accepted: 2026-08-17
 related: [0072, 0073, 0104, 0105]
 ---
 
@@ -10,10 +11,23 @@ related: [0072, 0073, 0104, 0105]
 
 ## Status
 
-**Proposed.** This is the board-specific design required by ADR-0105. It
-selects the actual Pi 4B Ethernet device from the boot description and defines
-the EL1-only backend boundary. It does not claim implementation, emulation, or
-hardware evidence.
+**Accepted 2026-08-17** by the project owner, together with
+[ADR-0105](0105-pi4-nic-backend-boundary.md). This is the board-specific design
+that ADR-0105 requires: it selects the Pi 4B Ethernet device from the boot
+description and defines the EL1-only backend boundary. Immutable under the ADR
+lifecycle: change only via a successor ADR.
+
+The design is now implemented and carries hardware evidence — probe, PHY
+identify and BMSR classify, the Linux v5 init order with UniMAC taken out of
+software reset, a bounded TX confirmed by UniMAC's own counter and by an
+`0x88b5` frame on the wire, a bounded RX, recovery, and an absent-device
+refusal. The road there, including the two defects that mattered and the
+twenty-five single registers that did not, is recorded boot by boot in
+[verification](../verification.md#hardware-evidence-pi-4-genet-v5-bring-up-2026-08-14--2026-08-17).
+
+Acceptance covers the **backend**, not its publication: the network vocabulary
+on `raspi4b` is still vacant, and binding it is the BSP composition step
+ADR-0105 names.
 
 ## Evidence basis
 
@@ -87,7 +101,7 @@ bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
 on silicon. Silicon evidence lives in
 [verification.md](../verification.md) (current stamp
-`20260816-052739.log`, `src=656be102`: `ring buf`, `tx cons len=124`).
+`20260816-052739.log`, `src=3f2d01b8`: `phy init`, `tx unavailable (link down)`).
 CONS retire is not a UniMAC send and not a wire frame. The network
 vocabulary stays vacant.
 A separate AArch64 control-plane slice in
@@ -154,19 +168,27 @@ than a stray bit; cache invalidate-to-PoC is an AArch64 operation, not a
 `qemu-virt` feature. The driver still does not select `board-rpi4` or
 publish a network service.
 
-### Unpaid silicon leftovers (one variable each)
+### Unpaid silicon leftovers
 
-Not a NIC claim. Next on the roadmap is the first row.
+Not a NIC claim. The unit is no longer one register: [ADR-0107](0107-genet-sequence-first-bring-up.md) makes it one coherent claim about the sequence, because twenty-five single variables did not move the outcome and the review found the defect in *where* they were written, not in *which*.
 
 | Leftover | Linux fact | Harbor today |
 | --- | --- | --- |
 | `RING_BUF_EN` mask `0x1f` | `init_tx_queues` writes the same mask to `DMA_CTRL` `RING_BUF_EN` | Paid (HW) negative (`src=656be102`) |
-| Program rings 1–4 | 32 BDs each after Q0's 128 | Product writes TDMA ring words; silicon unpaid |
-| WRR priority words | `DMA_PRIORITY_0/1/2` weights | Product writes `WrrPriority::V5`; silicon unpaid |
-| `init_phy` on the boot path | PHY setup before first xmit | Product writes BMCR reset after identify; silicon unpaid |
-| `RBUF_CHK_CTRL` | RX checksum control | Product writes `0x31`; silicon unpaid |
+| Program rings 1–4 | 32 BDs each after Q0's 128 | Paid (HW) negative (`src=7d1631b4`) |
+| WRR priority words | `DMA_PRIORITY_0/1/2` weights | Paid (HW) negative (`src=414f4098`) |
+| `init_phy` on the boot path | PHY setup before first xmit | Paid (HW) negative (`src=3f2d01b8`); submit now LinkDown |
+| `RBUF_CHK_CTRL` | RX checksum control | Product writes `0x31`; **Paid (HW) negative** (`src=8981a0dc`) |
+| **Init order** | `init_umac` and `hfb_init` run before `bcmgenet_init_dma`, which writes `DMA_EN` last (`bcmgenet.c:3351-3380`, `:3172-3180`) | Corrected 2026-08-17; **Paid (HW)** — negative alone (`src=8981a0dc`), part of the working sequence at `src=0a937a23` |
+| **Flush settles** | `UMAC_TX_FLUSH` and the `RBUF_CTRL` latch pulsed inside `init_dma` with `udelay(10)`; `reset_umac` waits 10 µs then 2 µs (`:3113-3123`, `:2560-2571`) | Corrected 2026-08-17 (`CNTFRQ_EL0` waits, not readbacks); **Paid (HW)** (`src=0a937a23`) |
+| **HFB** | `bcmgenet_hfb_clear` zeroes `HFB_CTRL`, both enable words, the eight index-to-ring words and all 48 filters, then enables filter 0 with length 4 — the default flow to ring 0 (`:720-741`) | Was never touched; corrected 2026-08-17; **Paid (HW)** (`src=0a937a23`) — `hfb cleared`, and RX completes |
+| **TX/RX descriptor words** | `bcmgenet_xmit` sets no `DMA_OWN` and no `DMA_WRAP`; `bcmgenet_rx_refill` writes the address only (`:2184-2200`, `:2261`) | Corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) |
+| **Ring 0 geometry** | TX ring 0 owns 128 BDs, RX ring 0 owns 256, slot size `RX_BUF_LENGTH` on every ring (`:2730-2733`, `:3022`) | Was one BD sized by the frame, contradicting the rings 1–4 placed after it; corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) |
+| **RDMA `XON_XOFF_THRESH`** | Same per-ring offset TDMA calls `FLOW_PERIOD`; `bcmgenet_init_rx_ring` writes `(FC_THRESH_LO << 16) \| FC_THRESH_HI` (`:2817-2819`) | Was zero; corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) |
+| **UniMAC reset latch** | `bcmgenet_rbuf_ctrl_get/set` is `SYS_RBUF_FLUSH_CTRL` (SYS `0x08`), not `RBUF_CTRL`; `reset_umac` zeroes it and `bcmgenet_umac_reset` pulses `BIT(1)` in it to take the MAC out of reset before `init_umac` (`bcmgenet.c:127-140`, `:2563`, `:3299-3311`, `:3368`) | Was writing the wrong register and had no release pulse; corrected 2026-08-17; **Paid (HW)** (`src=9b074c54` refuted the latch itself, `src=4616443a` found the real one) |
 | More than one TX BD | Linux posts the frame BDs it has | One BD |
 | `TX_EN` settle | Datapath then transmit | Immediate doorbell |
+| **`CMD_SW_RESET`** | `reset_umac` asserts it and stops; nothing in Linux clears it (`bcmgenet.c:2560-2571`), and `umac_enable_set` refuses to write `UMAC_CMD` while it is set (`:2540-2545`) | On BCM2711 it does **not** self-clear. Harbor polled for it, and the poll only ever passed because the write never landed. The 11:15 state dump read `cmd=0x1002067` — reset held, datapath written over it — for the whole boot. `reset()` now writes `UMAC_CMD = 0` after the settle; **Paid (HW)** (`src=4616443a`): first frame on the wire |
 
 Revision decoding and the v5 RDMA/TDMA offsets — descriptor RAM, then 17
 rings, then the common control block — are also part of the pure contract,

@@ -97,14 +97,22 @@ residuals.
 Next: **Pi4 backend evidence for the completed P3 edge-gateway target** — the
 transport and split-queue lifecycle, packet service, directional EL0 ownership,
 deterministic peer RX, and service reset/recovery are integrated and gated by
-`make qemu-virtio-check`. The Pi 4 product prints a `genet:` FDT report, probes, classifies
-link, programs Linux v5 default TX ring 0 (`TxRingSet` mask `0x1f` on TDMA, doorbell 0) and WRR arbiter, enables it, programs RGMII OOB for `rgmii-rxid`, programs UniMAC max-frame, station address, datapath (`TX_EN`/`RX_EN`/pad), and a 64-byte TSB TBUF plus `RBUF_TBUF_SIZE_CTRL=1` and `RBUF_CTRL` 64B+align, and may attempt one CONS-retire TX (not a wire frame), one bounded RX, and one recover
-(refused before the doorbell or RX arm when BMSR is down; recover
-returns Idle); it leaves the
-network vocabulary vacant; that is not a NIC. Board-specific
-backend evidence remains open under
-[ADR-0105](docs/adr/0105-pi4-nic-backend-boundary.md) and the proposed
-[GENET design ADR-0106](docs/adr/0106-pi4-genet-v5-backend-design.md).
+`make qemu-virtio-check`. On Pi 4 the product brings up the BCM2711 GENET v5
+controller — FDT report, probe, PHY identify and BMSR classify, UniMAC/TBUF/RBUF
+and a full HFB clear before `DMA_EN`, the Linux v5 ring layout, one bounded TX
+and one bounded RX, and recovery — and on 2026-08-17 that produced the six
+things [ADR-0105](docs/adr/0105-pi4-nic-backend-boundary.md)'s evidence gate
+asks for, on silicon: probe, link state, a bounded TX confirmed by UniMAC's own
+counter and by an `0x88b5` frame on the wire, a bounded RX, reset/recovery, and
+an absent-device refusal. The boots are recorded one per row in
+[verification](docs/verification.md#hardware-evidence-pi-4-genet-v5-bring-up-2026-08-14--2026-08-17).
+ADR-0105 and the design
+[ADR-0106](docs/adr/0106-pi4-genet-v5-backend-design.md) were **accepted on
+that evidence** (2026-08-17). What is paid is the **backend**, not its
+publication: the product still prints `authority: network vocabulary VACANT` on
+`raspi4b`, binding the backend to the network vocabulary is the BSP composition
+step ADR-0105 always named as later, and P3 stays `done (QEMU)` until it
+happens.
 K5-H stays held: measured
 peak is 8 of 57 slots on QEMU (9 on a Pi 4B that runs the five-agent store).
 
@@ -120,7 +128,7 @@ density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |
 | ------------ | ------------------------------------------------------------ |
-| Verification | 592 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 606 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 
@@ -152,7 +160,7 @@ Toolchain: [`rust-toolchain.toml`](rust-toolchain.toml) · target
 make              # release kernel8.img
 make test         # host tests
 make qemu         # boot in QEMU
-make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri mutation-freshness doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence vocabulary-sync, then clippy
+make check        # fmt-check shellcheck xrefs doc-claims doc-symbols roadmap-evidence vocabulary-sync layers-table hw-evidence mutation-scope model-consumed layering arch-board-free no-static-mut irq-scope test clippy-kernel clippy-host bringup-builds debug-builds board-guard product-builds no-simd no-early-exclusives miri boot-check panic-check product-boot-check oracle-census qemu-virtio-check x86-boot-check mutation-freshness
 ```
 
 On a Pi 4B (FAT boot partition + 3.3 V USB-serial):

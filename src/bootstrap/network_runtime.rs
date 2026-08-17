@@ -7,7 +7,7 @@
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use kernel_core::frame::FrameId;
-use kernel_core::virtio::{self, PacketPool};
+use kernel_core::net::{self as net_abi, PacketPool};
 
 use crate::arch::cache;
 use crate::bsp::board;
@@ -41,7 +41,7 @@ pub enum StartError {
 pub enum ServiceError {
     Unavailable,
     Busy,
-    Packet(kernel_core::virtio::PacketError),
+    Packet(kernel_core::net::PacketError),
     Transport(QueueSetupFailure),
 }
 
@@ -71,10 +71,10 @@ struct Lease {
     dma_packets: [PacketPage; DMA_PACKET_COUNT],
     pool: PacketPool,
     rx_slots: [u8; 8],
-    tx_token: Option<kernel_core::virtio::PacketToken>,
-    service_tx: Option<kernel_core::virtio::PacketToken>,
-    tx_event: Option<kernel_core::virtio::PacketToken>,
-    rx_event: Option<kernel_core::virtio::PacketToken>,
+    tx_token: Option<kernel_core::net::PacketToken>,
+    service_tx: Option<kernel_core::net::PacketToken>,
+    tx_event: Option<kernel_core::net::PacketToken>,
+    rx_event: Option<kernel_core::net::PacketToken>,
 }
 
 impl Drop for Lease {
@@ -164,7 +164,7 @@ pub fn start() -> Result<Report, StartError> {
         packets,
         dma_packets,
         pool: PacketPool::new(),
-        rx_slots: core::array::from_fn(|i| (virtio::PACKET_SLOTS / 2 + i) as u8),
+        rx_slots: core::array::from_fn(|i| (net_abi::PACKET_SLOTS / 2 + i) as u8),
         tx_token: None,
         service_tx: None,
         tx_event: None,
@@ -173,7 +173,7 @@ pub fn start() -> Result<Report, StartError> {
     for slot in 0..8 {
         if let Err(error) = lease.configured.post_rx(
             dma_address(&lease.dma_packets, 1 + slot),
-            PACKET_HEADER_BYTES + virtio::PACKET_BYTES,
+            PACKET_HEADER_BYTES + net_abi::PACKET_BYTES,
         ) {
             drop(lease);
             return Err(StartError::Device(error));
@@ -209,7 +209,7 @@ pub fn enable_service() {
     SERVICE_ACTIVE.store(true, Ordering::Release);
 }
 
-pub fn submit_service_tx(token: kernel_core::virtio::PacketToken) -> Result<(), ServiceError> {
+pub fn submit_service_tx(token: kernel_core::net::PacketToken) -> Result<(), ServiceError> {
     LEASE.with(|lease| {
         let lease = lease.as_mut().ok_or(ServiceError::Unavailable)?;
         if lease.service_tx.is_some() {
@@ -244,7 +244,7 @@ pub fn submit_service_tx(token: kernel_core::virtio::PacketToken) -> Result<(), 
     })
 }
 
-pub fn return_service_rx(token: kernel_core::virtio::PacketToken) -> Result<(), ServiceError> {
+pub fn return_service_rx(token: kernel_core::net::PacketToken) -> Result<(), ServiceError> {
     LEASE.with(|lease| {
         let lease = lease.as_mut().ok_or(ServiceError::Unavailable)?;
         lease.pool.return_rx(token).map_err(ServiceError::Packet)?;
@@ -253,9 +253,9 @@ pub fn return_service_rx(token: kernel_core::virtio::PacketToken) -> Result<(), 
             .post_rx(
                 dma_address(
                     &lease.dma_packets,
-                    1 + usize::from(token.slot) - virtio::PACKET_SLOTS / 2,
+                    1 + usize::from(token.slot) - net_abi::PACKET_SLOTS / 2,
                 ),
-                PACKET_HEADER_BYTES + virtio::PACKET_BYTES,
+                PACKET_HEADER_BYTES + net_abi::PACKET_BYTES,
             )
             .map_err(ServiceError::Transport)?;
         publish_ring(&lease.rings[0], &lease.rings[1]);
@@ -263,7 +263,7 @@ pub fn return_service_rx(token: kernel_core::virtio::PacketToken) -> Result<(), 
     })
 }
 
-pub fn take_tx_complete() -> Option<kernel_core::virtio::PacketToken> {
+pub fn take_tx_complete() -> Option<kernel_core::net::PacketToken> {
     LEASE.with(|lease| {
         let lease = lease.as_mut()?;
         let token = lease.tx_event.take()?;
@@ -272,7 +272,7 @@ pub fn take_tx_complete() -> Option<kernel_core::virtio::PacketToken> {
     })
 }
 
-pub fn take_rx_available() -> Option<kernel_core::virtio::PacketToken> {
+pub fn take_rx_available() -> Option<kernel_core::net::PacketToken> {
     LEASE.with(|lease| lease.as_mut()?.rx_event.take())
 }
 
@@ -307,7 +307,7 @@ pub fn poll() {
             let descriptor = usize::from(used.descriptor);
             if descriptor >= lease.rx_slots.len()
                 || used.len < PACKET_HEADER_BYTES as u32
-                || used.len as usize > PACKET_HEADER_BYTES + virtio::PACKET_BYTES
+                || used.len as usize > PACKET_HEADER_BYTES + net_abi::PACKET_BYTES
             {
                 REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
                 rearm_rx(lease, descriptor);
@@ -362,7 +362,7 @@ pub fn poll() {
                 }
             };
             let Some(used) = used else { break };
-            if used.len <= (PACKET_HEADER_BYTES + virtio::PACKET_BYTES) as u32 {
+            if used.len <= (PACKET_HEADER_BYTES + net_abi::PACKET_BYTES) as u32 {
                 if let Some(token) = lease.service_tx.take() {
                     lease.tx_event = Some(token);
                 } else {
@@ -391,7 +391,7 @@ fn rearm_rx(lease: &mut Lease, descriptor: usize) {
         .configured
         .post_rx(
             dma_address(&lease.dma_packets, 1 + descriptor),
-            PACKET_HEADER_BYTES + virtio::PACKET_BYTES,
+            PACKET_HEADER_BYTES + net_abi::PACKET_BYTES,
         )
         .is_ok()
     {
@@ -443,7 +443,7 @@ fn submit_probe_packet(lease: &mut Lease) -> Result<usize, StartError> {
     // the lease; the writes remain within the 2 KiB slot.
     unsafe {
         let buffer = pa as *mut u8;
-        core::ptr::write_bytes(buffer, 0, virtio::PACKET_BYTES);
+        core::ptr::write_bytes(buffer, 0, net_abi::PACKET_BYTES);
         core::ptr::write_bytes(buffer.add(PACKET_HEADER_BYTES), 0xff, 6);
         buffer
             .add(PACKET_HEADER_BYTES + 6)
@@ -492,20 +492,19 @@ fn allocate_ring() -> Option<RingFrames> {
 
 fn pool_address(pages: &[PacketPage; PACKET_PAGE_COUNT], slot: u8) -> u64 {
     let slot = usize::from(slot);
-    (pages[slot / 2].pa + (slot % 2) * virtio::PACKET_BYTES) as u64
+    (pages[slot / 2].pa + (slot % 2) * net_abi::PACKET_BYTES) as u64
 }
 
 fn allocate_packets() -> Option<[PacketPage; PACKET_PAGE_COUNT]> {
-    let mut pages = [None; PACKET_PAGE_COUNT];
+    let mut pages: [Option<PacketPage>; PACKET_PAGE_COUNT] = [None; PACKET_PAGE_COUNT];
     for page in &mut pages {
-        *page = mm::frames::alloc().map(|(id, pa)| PacketPage { id, pa });
-        if page.is_none() {
+        let Some(packet) = mm::frames::alloc().map(|(id, pa)| PacketPage { id, pa }) else {
             for allocated in pages.into_iter().flatten() {
                 let _ = mm::frames::free(allocated.id);
             }
             return None;
-        }
-        let packet = page.expect("packet page allocated");
+        };
+        *page = Some(packet);
         // SAFETY: the frame was just allocated and is identity-mapped Normal
         // memory; both 2 KiB packet halves must not expose a prior owner.
         unsafe {
@@ -513,22 +512,26 @@ fn allocate_packets() -> Option<[PacketPage; PACKET_PAGE_COUNT]> {
             cache::clean_dcache_poc(packet.pa, RING_PAGE_BYTES);
         }
     }
-    Some(core::array::from_fn(|i| {
-        pages[i].expect("packet page allocated")
-    }))
+    // Exhaustion already returned above, so every slot is `Some`. Saying that
+    // with `?` rather than with `expect` keeps the exhaustion path a bounded
+    // refusal in shape as well as in fact (2026-08-17 review, F-14).
+    let mut allocated = [pages[0]?; PACKET_PAGE_COUNT];
+    for (slot, page) in pages.iter().enumerate() {
+        allocated[slot] = (*page)?;
+    }
+    Some(allocated)
 }
 
 fn allocate_dma_packets() -> Option<[PacketPage; DMA_PACKET_COUNT]> {
-    let mut pages = [None; DMA_PACKET_COUNT];
+    let mut pages: [Option<PacketPage>; DMA_PACKET_COUNT] = [None; DMA_PACKET_COUNT];
     for page in &mut pages {
-        *page = mm::frames::alloc().map(|(id, pa)| PacketPage { id, pa });
-        if page.is_none() {
+        let Some(packet) = mm::frames::alloc().map(|(id, pa)| PacketPage { id, pa }) else {
             for allocated in pages.into_iter().flatten() {
                 let _ = mm::frames::free(allocated.id);
             }
             return None;
-        }
-        let packet = page.expect("DMA packet page allocated");
+        };
+        *page = Some(packet);
         // SAFETY: the frame is exclusively owned by the EL1 transport and is
         // never mapped into an agent address space.
         unsafe {
@@ -536,9 +539,14 @@ fn allocate_dma_packets() -> Option<[PacketPage; DMA_PACKET_COUNT]> {
             cache::clean_dcache_poc(packet.pa, RING_PAGE_BYTES);
         }
     }
-    Some(core::array::from_fn(|i| {
-        pages[i].expect("DMA packet page allocated")
-    }))
+    // Exhaustion already returned above, so every slot is `Some`. Saying that
+    // with `?` rather than with `expect` keeps the exhaustion path a bounded
+    // refusal in shape as well as in fact (2026-08-17 review, F-14).
+    let mut allocated = [pages[0]?; DMA_PACKET_COUNT];
+    for (slot, page) in pages.iter().enumerate() {
+        allocated[slot] = (*page)?;
+    }
+    Some(allocated)
 }
 
 fn dma_address(pages: &[PacketPage; DMA_PACKET_COUNT], slot: usize) -> u64 {

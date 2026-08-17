@@ -1,0 +1,75 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260806-212223.log
+# sha256:  c9acabc8b0ff115d8642a91e1971d696049ad0095d24becf46683be859b404c4
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260806-212223.log
+21:22:24.088188 ticks=200
+        [... 159 heartbeat lines elided ...]
+21:25:04.127578 ticks=1800
+21:25:12.061376 Harbor: hello
+21:25:12.061580 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+21:25:12.061722 DTB at 0x2eff1f00
+21:25:12.061847 MMU on  (W^X, guard page at 0xbd000, 102400 B of table arena left)
+21:25:12.061960 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+21:25:12.062058 DTB mapped: 61440 bytes at 0x2eff1000
+21:25:12.084378 heap remaining = 67108864 bytes
+21:25:12.084601 frames: 512 free / 512  base=0x40ce000  (2048 KiB pool)
+21:25:12.084770 aspace: prepare ok  held=14 (empty=1)  root=0x40ce000
+21:25:12.084894 el0: SVC ok  imm=0
+21:25:12.085029 el0: FAULT ok  ESR=0x9200004f FAR=0x80000
+21:25:12.085176 aspace: create/destroy ok  pool=512
+21:25:12.085618 aspace: dual create/destroy ok  pool=512
+21:25:12.170409 rng200: ok word=0x3399878a
+21:25:12.170682 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+21:25:12.170854 irq: sealed with 2 handlers registered
+21:25:12.171000 IRQs enabled (timer + UART RX)
+21:25:12.171123 idle: WFI when no RX/tick work
+21:25:12.171258 heap: Box at 0xce010, Vec of 1024 sums to 523776
+21:25:12.192384 heap: 67100624 bytes free while held, 2 fragments
+21:25:12.192623 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+21:25:12.192760 unmap: page at 0xcf000 fault-ready
+21:25:12.192877 unmap: remapped and freed
+21:25:12.193034 split: page at 0x200000 split 1, remapped
+21:25:12.193154 sched: spawned task-a
+21:25:12.193255 sched: spawned task-b
+21:25:12.214416 sched: spawned el0-task
+21:25:12.214617 sched: spawned pl011-agent
+21:25:12.214740 sched: spawned agent-a
+21:25:12.214853 sched: spawned agent-b
+21:25:12.214955 ipc: spawned receiver
+21:25:12.215064 ipc: spawned sender
+21:25:12.215220 ipc: spawned forger
+21:25:12.215334 arena: 1 splits, 23 tables free
+21:25:12.215418 task-a 0
+21:25:12.215516 task-b 0
+21:25:12.215606 el0-task: svc ping
+21:25:12.215703 el0-task: svc refuse imm=0x99
+21:25:12.236377 el0-task: resume pings=2
+21:25:12.236607 H!el0-task: putc bytes=2
+21:25:12.236739 el0-task: irq resume irqs=1
+21:25:12.236833 el0-task: ok
+21:25:12.236925 pl011-agent: FR read + svc ok
+21:25:12.237034 pl011-agent: rx own begin
+21:25:12.237121 agent-b: svc ping
+21:25:12.237231 task-a 1
+21:25:12.237324 task-b 1
+21:25:12.237406 pl011-agent: rx poll empty
+21:25:12.237485 agent-a: svc ping
+21:25:12.255823 ipc: sent tag=1 a=42
+21:25:12.256010 task-a 2
+21:25:12.256114 task-b 2
+21:25:12.256232 RXagents: concurrent ok  pool=496
+21:25:12.256332 ipc: got tag=1 a=42
+21:25:12.256435 ipc: refuse count=1 full=0 state=0
+21:25:12.256540 task-a 3
+21:25:12.256639 task-b 3
+21:25:12.256744  tpl011-agent: rx own bytes=2
+21:25:12.256828 pl011-agent: rx own end
+21:25:12.256938 pl011-agent: killed ok  pool=512
+21:25:13.127406 ticks=10
+        [... 413 heartbeat lines elided ...]
+21:32:07.109575 ticks=4150
