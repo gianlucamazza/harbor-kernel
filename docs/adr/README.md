@@ -129,6 +129,7 @@ the code that follows.
 | [0107](0107-genet-sequence-first-bring-up.md)                | GENET bring-up moves from one-variable slices to sequence-first                              | proposed   |
 | [0108](0108-boot-path-link-acquisition.md)                   | Link acquisition in the boot path                                                            | proposed   |
 | [0109](0109-hardware-evidence-is-tracked.md)                  | Hardware evidence is tracked; the capture that carried it is not                             | proposed   |
+| [0110](0110-a-model-is-consumed-or-declared.md)               | A pure model is consumed by the code that ships, or it names what will consume it            | proposed   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

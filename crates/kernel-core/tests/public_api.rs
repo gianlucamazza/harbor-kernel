@@ -303,9 +303,6 @@ fn the_genet_tx_report_is_reachable_from_outside() {
     boot.each_line(|_| n += 1);
     assert_eq!(n, 2);
     assert_eq!(kernel_core::genet::TX_DMA_BYTES, 124);
-    const {
-        assert!(!kernel_core::genet::TX_FLUSH_BEFORE_DOORBELL);
-    }
     assert_eq!(
         kernel_core::genet::tbuf_with_tsb(0),
         kernel_core::genet::registers::TBUF_64B_EN
@@ -350,10 +347,6 @@ fn the_genet_tx_report_is_reachable_from_outside() {
     assert_eq!(
         kernel_core::genet::UmacReport::Programmed.to_string(),
         "genet: umac init (frame, not a nic)"
-    );
-    assert_eq!(
-        kernel_core::genet::DescRingReport::Programmed.to_string(),
-        "genet: desc ring programmed (16, not a nic)"
     );
 }
 

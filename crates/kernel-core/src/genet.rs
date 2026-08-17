@@ -40,8 +40,6 @@ pub const MIN_FRAME_BYTES: u32 = 60;
 pub const TSB_BYTES: u32 = 64;
 /// DMA length posted when TBUF 64-byte mode is on: TSB plus the probe frame.
 pub const TX_DMA_BYTES: u32 = TSB_BYTES + MIN_FRAME_BYTES;
-/// Linux `bcmgenet_xmit` does not pulse `UMAC_TX_FLUSH`. Flush stays an init step.
-pub const TX_FLUSH_BEFORE_DOORBELL: bool = false;
 /// Locally-administered station address used as the probe frame SA.
 pub const STATION_ADDR: [u8; 6] = [0x02, 0x00, 0x00, 0x00, 0x00, 0x01];
 /// Maximum standard Ethernet frame accepted by the first bounded slice.
@@ -63,7 +61,6 @@ pub const DMA_TX_APPEND_CRC: u32 = 0x0040;
 /// TX descriptor queue tag. v5 `qtag_mask` is `0x3f` at shift 7.
 pub const DMA_TX_QTAG_SHIFT: u32 = 7;
 pub const DMA_TX_QTAG_MASK: u32 = 0x3f;
-pub const GENET_V5_MAJOR: u8 = 5;
 
 /// GENET register offsets used by the first bounded model.
 pub mod registers {
@@ -929,6 +926,10 @@ impl DescriptorStatus {
 }
 
 /// A descriptor ring's immutable address contract.
+///
+/// Design-ahead (P3 publication — bind the accepted backend to the network
+/// vocabulary). The bring-up driver posts one descriptor at index 0 and never
+/// advances, so it has no ring to lay out; the network service will (ADR-0110).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RingLayout {
     pub base: u64,
@@ -1007,6 +1008,10 @@ pub enum Ownership {
     Device,
 }
 
+/// Why a ring operation was refused.
+///
+/// Design-ahead (P3 publication) — the error vocabulary of [`RingState`], and
+/// unreachable from the driver for the same reason it is (ADR-0110).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RingError {
     Full,
@@ -1016,6 +1021,10 @@ pub enum RingError {
 }
 
 /// Bounded producer/consumer ownership for one GENET ring.
+///
+/// Design-ahead (P3 publication). `src/drivers/genet.rs` is a bring-up driver:
+/// one descriptor, posted once, polled to completion. A producer/consumer ring
+/// is what the network service needs and what nothing consumes today (ADR-0110).
 ///
 /// The hardware exposes producer and consumer indices, but it does not make
 /// an out-of-order completion safe. This model keeps that ordering explicit:
@@ -1094,36 +1103,10 @@ impl RingState {
     }
 }
 
-/// A bounded ring cursor. The ring is fixed-size and never grows from device
-/// input, so an out-of-range cursor is a refusal rather than a modulo guess.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RingCursor {
-    pub index: u16,
-    pub ownership: Ownership,
-}
-
-impl RingCursor {
-    pub const fn new(index: u16, ownership: Ownership) -> Option<Self> {
-        if index < TOTAL_DESCRIPTORS {
-            Some(Self { index, ownership })
-        } else {
-            None
-        }
-    }
-
-    pub const fn advance(self) -> Self {
-        Self {
-            index: if self.index + 1 == TOTAL_DESCRIPTORS {
-                0
-            } else {
-                self.index + 1
-            },
-            ownership: self.ownership,
-        }
-    }
-}
-
 /// The work classes raised by one GENET interrupt block.
+///
+/// Design-ahead (P3 publication). The bring-up driver polls a bounded window
+/// and takes no GENET interrupt, so nothing classifies one yet (ADR-0110).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InterruptWork {
     pub link: bool,
@@ -1148,6 +1131,10 @@ impl InterruptWork {
 }
 
 /// Reset generations invalidate every descriptor token from the prior run.
+///
+/// Design-ahead (P3 publication). `Genet::recover` resets and re-reads; it has
+/// no outstanding tokens to invalidate, because it never handed any out. A
+/// service that grants frame ownership will (ADR-0110).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResetState {
     generation: u32,
@@ -1984,42 +1971,6 @@ impl GenetBoot {
     }
 }
 
-/// Boot report for the descriptor-based ring (Linux `DESC_INDEX` = 16). Not a NIC.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DescRingReport {
-    Programmed,
-    Enabled,
-    OutsideDma,
-    NoFrames,
-    Descriptor(DescriptorError),
-    Ring(RingProgramError),
-    Enable(QueueEnableError),
-}
-
-impl Display for DescRingReport {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            DescRingReport::Programmed => {
-                f.write_str("genet: desc ring programmed (16, not a nic)")
-            }
-            DescRingReport::Enabled => f.write_str("genet: desc ring enabled (dma, not a nic)"),
-            DescRingReport::OutsideDma => f.write_str("genet: desc ring unavailable (outside dma)"),
-            DescRingReport::NoFrames => f.write_str("genet: desc ring unavailable (no frames)"),
-            DescRingReport::Descriptor(_) => {
-                f.write_str("genet: desc ring unavailable (descriptor)")
-            }
-            DescRingReport::Ring(_) => f.write_str("genet: desc ring unavailable (ring)"),
-            DescRingReport::Enable(QueueEnableError::NotProgrammed) => {
-                f.write_str("genet: desc ring unavailable (not programmed)")
-            }
-            DescRingReport::Enable(QueueEnableError::AlreadyEnabled) => {
-                f.write_str("genet: desc ring unavailable (already enabled)")
-            }
-            DescRingReport::Enable(_) => f.write_str("genet: desc ring unavailable (phase)"),
-        }
-    }
-}
-
 /// Boot report for one bounded TX. Not a NIC and not an RX claim.
 ///
 /// [`TxReport::ConsPosted`] is DMA CONS retire. It is not a UniMAC send
@@ -2325,7 +2276,7 @@ mod tests {
         );
         // Clearing the reset bit must not disturb anything else.
         assert_eq!(umac_cmd_out_of_reset(0), 0);
-        assert_eq!(umac_cmd_out_of_reset(u32::MAX), u32::MAX & !(1 << 13));
+        assert_eq!(umac_cmd_out_of_reset(u32::MAX), !(1u32 << 13));
     }
 
     #[test]
@@ -2338,8 +2289,8 @@ mod tests {
         assert_eq!(registers::RBUF_CTRL, registers::RBUF);
         assert_ne!(registers::SYS_RBUF_FLUSH_CTRL, registers::RBUF_CTRL);
         // …and it sits between the two SYS registers already modelled.
-        assert!(registers::SYS_RBUF_FLUSH_CTRL > registers::SYS_PORT_CTRL);
-        assert!(registers::SYS_RBUF_FLUSH_CTRL < registers::SYS_TBUF_FLUSH_CTRL);
+        const { assert!(registers::SYS_RBUF_FLUSH_CTRL > registers::SYS_PORT_CTRL) };
+        const { assert!(registers::SYS_RBUF_FLUSH_CTRL < registers::SYS_TBUF_FLUSH_CTRL) };
         assert_eq!(registers::SYS_UMAC_SW_RESET, 1 << 1);
         assert_eq!(registers::SYS_RBUF_FLUSH, 1 << 0);
     }
@@ -2394,10 +2345,9 @@ mod tests {
             hfb_filter_length_offset(0),
             Some(registers::HFB_FLT_LEN + 4 * 11)
         );
-        assert_eq!(
-            hfb_filter_length_offset(44),
-            Some(registers::HFB_FLT_LEN + 4 * 0)
-        );
+        // Filter 44 is the first of its word, so its offset *is* the base —
+        // written without a `4 * 0` that clippy correctly reads as zero.
+        assert_eq!(hfb_filter_length_offset(44), Some(registers::HFB_FLT_LEN));
         assert_eq!(hfb_filter_length_offset(HFB_FILTER_COUNT), None);
     }
 
@@ -2477,7 +2427,7 @@ mod tests {
     #[test]
     fn index2ring_words_are_eight_and_sit_after_the_priority_words() {
         assert_eq!(dma_registers::INDEX2RING_COUNT, 8);
-        assert!(dma_registers::INDEX2RING_0 > dma_registers::DMA_PRIORITY_2);
+        const { assert!(dma_registers::INDEX2RING_0 > dma_registers::DMA_PRIORITY_2) };
         let last = dma_registers::INDEX2RING_0 + 4 * (dma_registers::INDEX2RING_COUNT - 1);
         assert_eq!(last, dma_registers::COMMON_BASE + 0x8c);
     }
@@ -2757,18 +2707,12 @@ mod tests {
         assert_eq!(ring.post(descriptor), Ok(0));
     }
 
-    #[test]
-    fn ring_cursor_wraps_and_refuses_out_of_range_input() {
-        assert_eq!(RingCursor::new(TOTAL_DESCRIPTORS, Ownership::Driver), None);
-        let cursor = RingCursor::new(TOTAL_DESCRIPTORS - 1, Ownership::Device).unwrap();
-        assert_eq!(
-            cursor.advance(),
-            RingCursor {
-                index: 0,
-                ownership: Ownership::Device
-            }
-        );
-    }
+    /// `RingCursor` used to live here and this test used to pass. It wrapped at
+    /// `TOTAL_DESCRIPTORS` (256) while ring 0 carries `V5_Q0_TX_BD_CNT` (128)
+    /// BDs, so it modelled a ring the hardware does not have — a second copy of
+    /// an advance `RingState::next` already owned correctly, and the wrong copy
+    /// was the one with a green test. Deleted by ADR-0110; the ring advance has
+    /// one implementation again, and `ring_posts_and_completes_in_order` is it.
 
     #[test]
     fn interrupt_classes_are_kept_directional() {
@@ -3100,10 +3044,6 @@ mod tests {
             desc.ctrl(),
             dma_registers::DMA_ENABLE | (1 << (dma_registers::RING_BUF_EN_SHIFT + 16))
         );
-        assert_eq!(
-            DescRingReport::Programmed.to_string(),
-            "genet: desc ring programmed (16, not a nic)"
-        );
         assert_eq!(DmaPhase::Idle.program(), Ok(DmaPhase::Programmed));
         assert_eq!(
             DmaPhase::Idle.enable(),
@@ -3248,7 +3188,6 @@ mod tests {
         assert_eq!(tbuf_with_tsb(0x2), 0x2 | registers::TBUF_64B_EN);
         assert_eq!(TSB_BYTES, 64);
         assert_eq!(TX_DMA_BYTES, 124);
-        const { assert!(!TX_FLUSH_BEFORE_DOORBELL) };
         let mut probe = [0x5au8; TX_DMA_BYTES as usize];
         write_tsb_probe(&mut probe);
         assert!(probe[..TSB_BYTES as usize].iter().all(|&b| b == 0));
