@@ -42,7 +42,9 @@
 //! DRAM-only store (ADR-0045). A witness that can stop the product from booting
 //! would turn an observation aid into a failure mode.
 
+use crate::drivers::pl011::Pl011;
 use crate::drivers::sdhci::{SdError, Sdhci};
+use crate::println;
 use kernel_core::durable_media::Slot;
 
 /// A loaded store on media, waiting to be written back.
@@ -55,45 +57,54 @@ pub struct Witness {
 /// Bring up media, load the store, advance the boot counter, and report.
 ///
 /// Returns `None` on every degraded path, having said which one on the console.
-pub fn open() -> Option<Witness> {
+///
+/// Takes the UART because it runs **before** `console::install_tx`, and
+/// `kprintln!` writes nowhere until then. The first draft used `kprintln!` and
+/// produced a witness that printed nothing at all: `boot-check` caught it with
+/// *"no durable-media line at all — the ADR-0066 path never ran"*, which is the
+/// same silent-no-op failure this module exists to end, committed inside the
+/// module that ends it. [`Witness::commit`] keeps `kprintln!` because the
+/// oracle calls it from `demos`, long after the console is installed and after
+/// the UART handle has been moved into it.
+pub fn open(uart: &mut Pl011) -> Option<Witness> {
     use kernel_core::mbr;
 
     // SAFETY: exclusive SDHCI windows; core 0 only, before any agent runs.
     let (sd, host) = match unsafe { crate::bsp::board::sdhci::init() } {
         Ok(pair) => pair,
         Err(SdError::NotPresent) => {
-            crate::kprintln!("durable-media: absent (NotPresent)");
+            println!(uart, "durable-media: absent (NotPresent)");
             return None;
         }
         Err(SdError::NoCard) => {
-            crate::kprintln!("durable-media: no-card (no SDHC/SDXC answered)");
+            println!(uart, "durable-media: no-card (no SDHC/SDXC answered)");
             return None;
         }
         Err(SdError::Unsupported) => {
-            crate::kprintln!("durable-media: unsupported (not SDHC/SDXC)");
+            println!(uart, "durable-media: unsupported (not SDHC/SDXC)");
             return None;
         }
         Err(e) => {
-            crate::kprintln!("durable-media: error (init {e:?})");
+            println!(uart, "durable-media: error (init {e:?})");
             return None;
         }
     };
 
     let mut sector0 = [0u8; 512];
     if let Err(e) = sd.read_block(0, &mut sector0) {
-        crate::kprintln!("durable-media: error (mbr read {e:?})");
+        println!(uart, "durable-media: error (mbr read {e:?})");
         return None;
     }
     let lba = match mbr::parse(&sector0) {
         Ok(entries) => match mbr::find_store_partition(&entries) {
             Some((lba, _sectors)) => lba,
             None => {
-                crate::kprintln!("durable-media: no-partition (no 0x7f entry)");
+                println!(uart, "durable-media: no-partition (no 0x7f entry)");
                 return None;
             }
         },
         Err(e) => {
-            crate::kprintln!("durable-media: no-partition ({e:?})");
+            println!(uart, "durable-media: no-partition ({e:?})");
             return None;
         }
     };
@@ -104,7 +115,7 @@ pub fn open() -> Option<Witness> {
     let winner = match sd.media_load(lba, &mut loaded) {
         Ok(w) => w,
         Err(e) => {
-            crate::kprintln!("durable-media: error (load {e:?})");
+            println!(uart, "durable-media: error (load {e:?})");
             return None;
         }
     };
@@ -119,15 +130,17 @@ pub fn open() -> Option<Witness> {
     };
     let boot = prev + 1;
     match winner {
-        Some((slot, seq)) => crate::kprintln!(
+        Some((slot, seq)) => println!(
+            uart,
             "durable-media: boot={boot} from=Previous part=0x7f slot={slot:?} seq={seq} host={host}"
         ),
-        None => crate::kprintln!(
+        None => println!(
+            uart,
             "durable-media: boot={boot} from=Fresh part=0x7f slot=- seq=0 host={host}"
         ),
     }
     if let Err(e) = crate::durable::put(b"boot", &boot.to_le_bytes()) {
-        crate::kprintln!("durable-media: error (counter put {e:?})");
+        println!(uart, "durable-media: error (counter put {e:?})");
         return None;
     }
 

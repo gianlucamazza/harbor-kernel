@@ -843,7 +843,7 @@ pub fn run() -> ! {
     // As early as the media stack allows and before any agent runs, because a
     // witness written at the end of bring-up cannot witness anything that stops
     // bring-up — which is the class that cost an afternoon on 2026-08-17.
-    let witness = witness::open();
+    let witness = witness::open(&mut uart);
     // The product commits at once: one write, and nothing later to wait for.
     // The oracle carries it to `demos::run_all`, whose `cfg` and blob puts
     // should ride the same flush (ADR-0066 keeps one flush point per boot).
