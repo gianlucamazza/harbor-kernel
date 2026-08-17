@@ -33,9 +33,16 @@ run_boot() {
     local output="$1"
     shift
     set +e
+    # `-nic none` because this runner is used for the *absent-device* boot, and
+    # without it QEMU helpfully adds its own default NIC — so the gate was
+    # asserting "no device" while a device was present and merely of a kind the
+    # mmio probe cannot see. It also drags in `efi-virtio.rom`, which the pinned
+    # Debian QEMU container does not ship: CI's first run of this gate died on
+    # `failed to find romfile "efi-virtio.rom"`. Absence has to be asked for.
     timeout "${SECONDS_TO_RUN}s" "${QEMU}" \
         -machine virt,gic-version=2 -cpu cortex-a72 -m 128M -smp 1 \
         -kernel "${IMG}" -global virtio-mmio.force-legacy=false \
+        -nic none \
         -serial mon:stdio -display none -no-reboot "$@" \
         </dev/null >"${output}" 2>&1
     local result=$?

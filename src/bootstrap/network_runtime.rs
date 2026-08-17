@@ -8,7 +8,6 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use kernel_core::frame::FrameId;
 use kernel_core::net::{self as net_abi, PacketPool};
-use kernel_core::virtio;
 
 use crate::arch::cache;
 use crate::bsp::board;
