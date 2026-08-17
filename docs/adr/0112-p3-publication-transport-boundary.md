@@ -142,6 +142,35 @@ Stated here so that a green `make check` is never read as coverage of this
 slice. **The only evidence for the GENET backend is on silicon**, and QEMU's
 role is to prove the refusal, not the function.
 
+## Implementation order, and where it deliberately stops
+
+Three steps, and the boundary between the second and third is not fatigue.
+
+1. **The packet ABI moves** (done, `52dafab`). Self-contained, no behaviour,
+   verifiable on the host. It goes first because every later decision made while
+   the service's token type is named after one transport is made under a false
+   constraint.
+
+2. **The gate that protects the refactor** (done, `49ac51a`). `make
+qemu-virtio-check` is the only gate over the accepted P3 implementation, and
+   it was in neither `make check` nor CI, and had no ADR-0087 guard. Rewriting
+   the module it covers while nothing ran it would have been a rewrite with no
+   net.
+
+3. **The boundary and the GENET backend, together — not the boundary alone.**
+
+Step 3 is one slice on purpose. Introducing `bsp::board::net` with only virtio
+behind it would create an abstraction with a single implementation, invented
+from a guess about what a second one will need. That is exactly what
+[ADR-0110](0110-a-model-is-consumed-or-declared.md) had just finished paying to
+remove — `RingCursor` was a model written ahead of its consumer, and it wrapped
+at the wrong number for two months because nothing ran it.
+
+An interface derived from one caller is a model with one consumer. So the
+boundary is born with two backends or not at all, and since the GENET half's
+only possible evidence is a Pi 4B on a desk (§5), step 3 begins at a hardware
+session and not before.
+
 ## Evidence gate
 
 P3 becomes `done (HW)` when one capture holds:
