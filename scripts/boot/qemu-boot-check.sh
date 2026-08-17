@@ -13,7 +13,7 @@ IMG="${1:?usage: $0 <kernel8.img> [ceiling-seconds]}"
 # what the oracle needs of it (ADR-0087).
 SECONDS_TO_RUN="${2:-45}"
 last_run_seconds="${SECONDS_TO_RUN}"
-watched_comm=unknown
+saw_emulator=0
 QEMU="${QEMU:-qemu-system-aarch64}"
 QEMU_MACHINE="${QEMU_MACHINE:-raspi4b}"
 
@@ -52,6 +52,13 @@ fi
 log="$(mktemp)"
 trap 'rm -f "${log}"' EXIT
 
+# `cpu_budget_emulator_pids` — the emulator found by identity rather than by
+# parentage. This script keeps its own rungs (`CORES_TO_BE_CREDIBLE`) and its
+# own per-boot reporting; what it borrows is the one thing that must not exist
+# in two versions, which is how the emulator is located.
+# shellcheck source=scripts/lib/cpu-budget.sh
+source "${BASH_SOURCE[0]%/*}/../lib/cpu-budget.sh"
+
 # CPU time a live process has consumed, in USER_HZ: utime + stime out of
 # `/proc/<pid>/stat`. No `/usr/bin/time`, so the measurement adds no dependency
 # to a script `make check` always runs.
@@ -86,12 +93,13 @@ read_cpu_hz_of() {
 # Busy CPU across the whole host, in USER_HZ: everything in `/proc/stat`'s
 # summary line except idle and iowait.
 #
-# The fallback for the case the reading above cannot cover: CI does not run
-# QEMU as a child at all. It installs a wrapper that `exec docker run`s an Arch
-# container, so the process this script starts is a docker *client* — the
-# emulator is a child of the daemon, in another namespace, and no amount of
-# sampling our own pid will ever see it. That is why both earlier attempts read
-# essentially zero there.
+# The last resort, for when the emulator cannot be located at all — neither as
+# this shell's child nor by identity in the host's /proc.
+#
+# It used to cover the whole CI case, because the wrapper `exec docker run`s the
+# emulator and sampling our own pid sees only a docker client. Locating it by
+# `comm` instead reaches it there too: a container does not hide a process from
+# the host's /proc, only from the caller's descendants.
 #
 # Containers share the host kernel, so the emulator's cycles do land in
 # `/proc/stat` even when they land nowhere this script can attribute. The
@@ -231,20 +239,41 @@ run_boot() {
 	shift 2
 	: >"${log}"
 	local deadline=$((SECONDS + seconds)) started=${SECONDS} pid busy_before
+	local pre_existing dir emulator sum
 	read_host_busy_hz
 	busy_before="${HOST_BUSY_HZ}"
+	# Emulators already running are somebody else's; counting them would let a
+	# neighbour vouch for this boot.
+	pre_existing=" $(cpu_budget_emulator_pids | sed 's|/proc/||' | tr '\n' ' ')"
 	# raspi4b requires min 4 CPUs; ADR-0070 needs secondaries present to unpark.
 	"${QEMU}" \
 		-M "${QEMU_MACHINE}" -smp 4 -kernel "${IMG}" \
 		-serial mon:stdio -display none "$@" </dev/null >"${log}" 2>&1 &
 	pid=$!
 	RUN_CPU_HZ=0
-	watched_comm="$(cat "/proc/${pid}/comm" 2>/dev/null || echo unknown)"
+	saw_emulator=0
 	while ((SECONDS < deadline)) && kill -0 "${pid}" 2>/dev/null; do
-		read_cpu_hz_of "${pid}"
+		if [[ "$(cat "/proc/${pid}/comm" 2>/dev/null)" == qemu-system* ]]; then
+			read_cpu_hz_of "${pid}"
+			sum="${CPU_HZ}"
+			saw_emulator=1
+		else
+			# The container case: `docker run` puts the emulator under the
+			# container runtime, so it is nowhere below this shell — but a
+			# container does not hide a process from the host's /proc, only
+			# from the caller's descendants.
+			sum=0
+			for dir in $(cpu_budget_emulator_pids); do
+				emulator="${dir#/proc/}"
+				[[ "${pre_existing}" == *" ${emulator} "* ]] && continue
+				read_cpu_hz_of "${emulator}"
+				sum=$((sum + CPU_HZ))
+				saw_emulator=1
+			done
+		fi
 		# The last reading before exit, not the first: a boot that ends early
 		# still reports what it burned. Zero only if it was never observable.
-		((CPU_HZ > RUN_CPU_HZ)) && RUN_CPU_HZ="${CPU_HZ}"
+		((sum > RUN_CPU_HZ)) && RUN_CPU_HZ="${sum}"
 		"${done_when}" && break
 		sleep 0.2
 	done
@@ -257,17 +286,21 @@ run_boot() {
 
 	emulator_cores=$((RUN_CPU_HZ * 100 / (clk_tck * seconds)))
 	share_is_host_wide=0
-	if [[ "${watched_comm}" != qemu* ]]; then
-		# What we started is not the emulator. Ask the process itself rather
-		# than inferring it from a small number: CI's wrapper `exec docker
-		# run`s the emulator in a container, and the client left behind reads
-		# `comm=docker` while still burning 0.06s of its own relaying serial —
-		# enough that "is the reading zero?" answered no and the fallback
-		# never fired. The name answers exactly, and answers on the first
-		# sample.
+	if ((saw_emulator == 0)); then
+		# No emulator was found anywhere — not below this shell, and not by
+		# identity in the host's /proc. That is now a genuinely unusual case
+		# (its own pid namespace, a differently-named binary) rather than the
+		# normal CI one, and it is exactly when a floor rather than a
+		# measurement is the honest thing to have.
 		#
-		# Never the other way round: a process we *can* see is always the
-		# better answer, and the fallback says so wherever it is printed.
+		# It used to be every CI run: the wrapper `exec docker run`s the
+		# emulator, the client left behind reads `comm=docker`, and sampling
+		# our own pid saw 0.06s of serial relaying. The host-wide number that
+		# replaced it *rises* with unrelated load, so a busy runner read as a
+		# generous one — the reading that made issue #28 undiagnosable.
+		#
+		# Never preferred: a process we can see is always the better answer,
+		# and the fallback says so wherever it is printed.
 		emulator_cores=$(((HOST_BUSY_HZ - busy_before) * 100 / (clk_tck * seconds)))
 		share_is_host_wide=1
 	fi
