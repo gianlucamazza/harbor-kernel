@@ -189,6 +189,52 @@ section below records for HW stamps).
 | ADR-0071            | H3 L0 x86_64 QEMU first slice                 | `make x86-boot-check` — `Harbor: hello (x86 lab)`, `cpu: … family=… model=…`, `x86-lab: alive` under `qemu-system-x86_64 -machine q35 -kernel harbor-x86.elf` (PVH note). Status **done (QEMU-x86)** only; never collapsed into AArch64 `done (QEMU)` or `done (HW)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | ADR-0072 + ADR-0073 | Hardware self-discovery (FDT report)          | `discover: model` / `memory` / `cpus` / `display` lines — host tests on fixture DTB; QEMU first boot with `-dtb` fixture, second boot DTB-less `unknown (no dtb)`; verify-don't-select (no map consumption). **Pi stamp 2026-08-10**, transcript `20260810-030801-boot2.log` (`model … Rev 1.5 rev=0xc03115`, `memory 3956 MiB (2 ranges) beyond compiled map`, `cpus 4 … matches`, `hw-transcript-check` clean)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
+## Hardware evidence: P6 compose/audit on silicon (2026-08-17)
+
+P6 is "host tools for store composition and audit". The compose half ran on
+every deploy; the audit half only ever ran on the blob **about to be** injected
+— `product-image.sh` round-trips `agents.bin` through `inspect-store.py` before
+shipping it, which proves the packer and the reader agree with each other and
+nothing about what left the building.
+
+`inspect-store.py --elf … --image …` now reads the store out of a shipped
+image, through the window arithmetic the injector used to put it there
+(`scripts/agent/store_window.py`, one copy and two users). It refuses a pair
+from different builds rather than resolving to a plausible offset in the wrong
+place, which is why `product-image.sh` keeps `kernel8-product.elf` beside its
+image — `${OUT}/harbor-kernel` is a shared path every `cargo build` overwrites,
+hardlinked from cargo's cache, so not even its mtime says which build won.
+
+`make hw-store-audit TRANSCRIPT=…` compares the two accounts: the count against
+`loader: store n=N`, and every agent's `home_cpu` against
+`loader: <name> loaded … home=N`. `home_cpu` is the field worth comparing — a
+composition decision taken on the host whose only observation point is the
+board. It also requires the transcript's own `build: … src=` to match the tree
+the image was built from, because two artifacts that never met can agree by
+coincidence.
+
+**Pi stamp 2026-08-17, transcript `20260817-132244.log` (`src=82f3508d`,
+PowerOn, boot 2 of 2)**: `make hw-check` clean, and
+
+```
+hw-store-audit: clean (5 agents; the image on the card and the boot agree)
+  beacon: home_cpu=0 on both sides
+  chirp:  home_cpu=1 on both sides
+  lookup: home_cpu=0 on both sides
+  entropy: home_cpu=0 on both sides
+  blob:   home_cpu=0 on both sides
+```
+
+Seen red three times while it was written: on an ELF and image from different
+builds, on a transcript from `src=a4b40bb3` against a tree at `62c5a08c`, and —
+the one that mattered — on the boot that produced no transcript at all, because
+the deploy had removed the board's device tree without writing one. That last
+failure is recorded in the [2026-08-17 review's second postscript](reviews/2026-08-17-excellence.md).
+
+Blind to: whether an agent did anything useful (`loader: … ran sends=…` is the
+product oracle's business), and the bytes physically on the card — it audits
+the image beside the tree, so a card written by hand after the build would pass.
+
 ## Hardware evidence: Pi 4 GENET v5 bring-up (2026-08-14 → 2026-08-17)
 
 ADR-[0105](adr/0105-pi4-nic-backend-boundary.md)/[0106](adr/0106-pi4-genet-v5-backend-design.md),
