@@ -127,6 +127,15 @@ assert_product_boot() {
 		fail "providing the declared RNG window failed"
 	fi
 	grep -qa 'console: capability minted' "${log}" || fail "console send capability was not minted"
+	# ADR-0111: the product leaves a trace off the serial line. Either the media
+	# answered and the counter advanced, or it said honestly why not — but the
+	# path has to be *in the image*, which is the thing that was not true before:
+	# the witness lived in `demos.rs` and `product-builds` stripped it, so an
+	# afternoon of empty captures could not distinguish a dead adapter from a
+	# board that never booted.
+	if ! grep -qaE 'durable-media: (boot=[0-9]+ from=(Fresh|Previous)|absent|no-card|unsupported|no-partition|error) ?' "${log}"; then
+		fail "the product image carries no boot witness (ADR-0111)"
+	fi
 	grep -qa 'authority: bound console' "${log}" || fail "product did not bind the console name (ADR-0102)"
 	grep -qa 'blob: service up' "${log}" || fail "durable blob service did not spawn (ADR-0103)"
 	grep -qa 'authority: 1 blob ok' "${log}" || fail "blob request capability was not provided (ADR-0103)"

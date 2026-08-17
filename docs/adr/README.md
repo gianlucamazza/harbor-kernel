@@ -130,6 +130,7 @@ the code that follows.
 | [0108](0108-boot-path-link-acquisition.md)                   | Link acquisition in the boot path                                                            | proposed   |
 | [0109](0109-hardware-evidence-is-tracked.md)                  | Hardware evidence is tracked; the capture that carried it is not                             | proposed   |
 | [0110](0110-a-model-is-consumed-or-declared.md)               | A pure model is consumed by the code that ships, or it names what will consume it            | proposed   |
+| [0111](0111-product-boot-witness.md)                          | The product leaves a witness that it booted, off the serial line                             | proposed   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:

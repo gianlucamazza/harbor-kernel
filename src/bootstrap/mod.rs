@@ -22,6 +22,7 @@ mod network_server;
 mod panic_probe;
 #[cfg(feature = "bringup")]
 mod selftest;
+mod witness;
 
 use crate::arch::{bootinfo, cpu, exception, mmu, smp, timer};
 use kernel_core::asid::ASID_BITS;
@@ -838,6 +839,19 @@ pub fn run() -> ! {
 
     init_memory_pools(&mut uart, plan.heap_end, plan.frame_base, plan.frame_end);
 
+    // ADR-0111: the trace a boot leaves that does not pass through this UART.
+    // As early as the media stack allows and before any agent runs, because a
+    // witness written at the end of bring-up cannot witness anything that stops
+    // bring-up — which is the class that cost an afternoon on 2026-08-17.
+    let witness = witness::open();
+    // The product commits at once: one write, and nothing later to wait for.
+    // The oracle carries it to `demos::run_all`, whose `cfg` and blob puts
+    // should ride the same flush (ADR-0066 keeps one flush point per boot).
+    #[cfg(not(feature = "oracle"))]
+    if let Some(w) = &witness {
+        w.commit();
+    }
+
     // Carried to `authority::assemble` below: the window vocabulary provides the
     // RNG page only on a board that has the block (ADR-0101).
     let rng_present = probe_rng(&mut uart);
@@ -900,7 +914,10 @@ pub fn run() -> ! {
     // it lives in `demos`, which is the file `product-builds` derives its
     // forbidden-symbol list from (rule 9 of `architecture.md`).
     #[cfg(feature = "oracle")]
-    demos::run_all(authority.held.get(authority::HELD_CONSOLE));
+    demos::run_all(
+        authority.held.get(authority::HELD_CONSOLE),
+        witness.as_ref(),
+    );
 
     // Deliberate fault, last so the demo tasks are alive when it runs: the
     // probe must overflow its own guard while a peer stack exists, or it cannot
