@@ -160,7 +160,7 @@ Toolchain: [`rust-toolchain.toml`](rust-toolchain.toml) · target
 make              # release kernel8.img
 make test         # host tests
 make qemu         # boot in QEMU
-make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri hw-evidence model-consumed mutation-freshness mutation-scope layers-table doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence vocabulary-sync, then clippy
+make check        # fmt-check test no-simd no-early-exclusives no-static-mut irq-scope boot-check panic-check bringup-builds debug-builds board-guard product-builds product-boot-check oracle-census miri qemu-virtio-check hw-evidence model-consumed mutation-freshness mutation-scope layers-table doc-claims doc-symbols layering arch-board-free shellcheck xrefs roadmap-evidence vocabulary-sync, then clippy
 ```
 
 On a Pi 4B (FAT boot partition + 3.3 V USB-serial):
