@@ -5,7 +5,7 @@ status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
 related: [0026, 0039, 0041, 0060, 0063, 0092]
-amended: 2026-08-11
+amended: 2026-08-17
 ---
 
 # ADR-0049: Explicit deferrals (policy)
@@ -25,8 +25,8 @@ does not invent product or ambient authority.
 | ~~**#14 SpiDevice**~~ | **Closed 2026-08-11**: ADR-0020 superseded by [ADR-0094](0094-retire-debug-display.md) — the trait went with the panel. A permanent watch was a retirement nobody had scheduled | — |
 | ~~**Panic-path oracle**~~ | **Delivered** by [ADR-0093](0093-panic-path-positive-evidence.md) (2026-08-11): a `panic-probe` image faults on a real stack guard page, and `make panic-check` asserts the whole chain — including that the printed `FAR` is the address the probe announced | — |
 | ~~**Task-cap spawn epoch**~~ | **Delivered** by [ADR-0062](0062-taskid-epoch.md) (2026-08-09): the epoch lives in `TaskId` itself and the task-cap entry stores it (`taskcap.rs` raw id), so the exit→revoke window is closed structurally | — |
-| **Derived mutation file list** | `run-mutants.sh` list is hand-written; scope now validated but membership is still a decision ([ADR-0058](0058-adr-amendments-and-mutation-freshness.md)) | Marker-derived list, or the next membership miss |
-| ~~**kernel-core extractions**~~ | **Delivered in full.** The loader plan, the last of the four, by [ADR-0097](0097-loader-plan.md) (2026-08-11); the others by ADR-0063, ADR-0060 and [ADR-0092](0092-lifecycle-verdicts.md). What is left outside the host-test and mutation nets in `src/` is mechanism — MMIO, assembly, lock discipline — not decisions | — |
+| ~~**Derived mutation file list**~~ | **Closed 2026-08-17** — the trigger fired: `genet.rs` reached 3142 lines over 51 commits without ever being mutated, and `mutation-freshness` could not see it because it counts only inside the scope. Scope is now `docs/mutation-scope.toml`, every kernel-core module carries a recorded decision (`in_scope` / `queued` / `exempt` with a reason), `make mutation-scope` refuses an unclassified module (seen red on `genet`/`genet_fdt`), and `run-mutants.sh` derives its `--file` list from that same file instead of keeping a second copy | — |
+| ~~**kernel-core extractions**~~ | **Delivered in full.** The loader plan, the last of the four, by [ADR-0097](0097-loader-plan.md) (2026-08-11); the others by ADR-0063, ADR-0060 and [ADR-0092](0092-lifecycle-verdicts.md). What was left outside the host-test and mutation nets in `src/` was described here as mechanism — MMIO, assembly, lock discipline — not decisions. **Amended 2026-08-17:** that is no longer true. `src/drivers/genet.rs` is 817 lines of decisions — init ordering, when to assert `RGMII_LINK`, when to arm `RX_EN`, what `boot_after_program` sequences, which settle is acceptable — and none of it is tested ([2026-08-17 review](../reviews/2026-08-17-excellence.md) F-11). The extractions are still delivered; the claim about what remains is retired | — |
 
 > **Amendment (2026-08-11, reconciliation per [ADR-0058](0058-adr-amendments-and-mutation-freshness.md) —
 > reconciled by [ADR-0092](0092-lifecycle-verdicts.md)).** The R1 row named four

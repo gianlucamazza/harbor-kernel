@@ -80,11 +80,23 @@ fi
 # target, and cargo-mutants builds in a scratch directory where `-- --target`
 # reaches `cargo test` but not the build before it — without this the run ends
 # in several hundred compile errors that look like mutants and are not.
-# One name per line; every module that decides authority belongs here.
-readonly FILES=(
-	ipc tasks layout irqtable rxline reset cap syscall prog manifest
-	taskcap irqcap reply runqueue irqwait capslots lifecycle loaderplan
+# The scope is `in_scope` in docs/mutation-scope.toml, not a second copy here.
+# A hand-written array in this file is what let `genet.rs` reach 3142 lines
+# without ever being mutated: membership was a decision nobody was asked to
+# revisit. `scripts/check/mutation-scope.sh` now refuses a kernel-core module
+# with no recorded decision, and this reads the same file it enforces.
+readonly SCOPE_FILE="docs/mutation-scope.toml"
+mapfile -t FILES < <(
+	python3 - "${SCOPE_FILE}" <<'PY'
+import sys, tomllib
+with open(sys.argv[1], "rb") as fh:
+    print("\n".join(tomllib.load(fh)["in_scope"]))
+PY
 )
+if [[ "${#FILES[@]}" -eq 0 ]]; then
+	echo "mutants: FAIL — ${SCOPE_FILE} lists no in_scope module" >&2
+	exit 1
+fi
 file_args=()
 for f in "${FILES[@]}"; do
 	file_args+=(--file "**/${f}.rs")
