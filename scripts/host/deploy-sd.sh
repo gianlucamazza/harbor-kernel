@@ -5,11 +5,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MOUNT="${1:-}"
 IMG="${2:-}"
-# Optional third argument: a boot description to place beside the image. The
-# Pi firmware prefers a `.dtb` on the boot partition over its own, so this is
-# the only thing on the card that can change what the kernel is told the
-# hardware is — which makes it the one file that must never be left behind by
-# accident (ADR-0105's absent-device evidence, scripts/host/absent-nic-dtb.sh).
+# Optional third argument: a boot description to place instead of the tracked
+# one. The Pi 4 firmware reads the `.dtb` from the boot partition, so this is
+# the only file on the card that changes what the kernel is told the hardware
+# is — which makes it both the lever ADR-0105's absent-device evidence needs
+# (scripts/host/absent-nic-dtb.sh) and the file a deploy must never leave to
+# chance. Omit it and the tracked fixture is written.
 DTB="${3:-}"
 
 if [[ -z "${MOUNT}" || -z "${IMG}" ]]; then
@@ -51,30 +52,37 @@ fi
 # so "some start4.elf" is not the same claim as "the one that was validated".
 assert_blobs_pinned "${BLOBS}" || exit 1
 
-# Remove the board's own boot description first, always. A deploy that only
-# *adds* files would let one capture's evidence-only DTB survive into every
-# later boot, and the symptom — a board that reports no NIC — looks exactly
-# like a regression. Absence is the default and has to be restored, not
-# assumed.
+# A deploy always leaves a boot description, exactly as it always leaves
+# `start4.elf` and `config.txt`. It is not optional and it is not inherited.
 #
-# Exactly this one filename, and no glob. The first version of this deleted
-# every `*.dtb` on the partition and took three Compute Module 5 descriptions
-# left there by Raspberry Pi OS with it. They could not have affected this
-# board — the firmware selects by model — so removing them was neither
-# necessary nor ours to do. A deploy is allowed to own the file it writes.
+# ## The bug this is the fix for
+#
+# The first version of this block removed every `*.dtb` and wrote none. It was
+# written so that one capture's evidence-only description could not survive
+# into later boots — a real hazard, since a board silently reporting no NIC
+# looks exactly like a regression. What it missed is that the card already
+# carried Raspberry Pi OS's `bcm2711-rpi-4-b.dtb`, and **that** was the
+# description feeding every Harbor boot: `DTB mapped: 61440 bytes` in the
+# transcripts is 60 KiB of real board description, not something the firmware
+# synthesises. Removing it and writing nothing left the board with no device
+# tree, and the Pi 4 then never carries the kernel as far as the UART: zero
+# bytes on the wire, no durable write, an ACT LED that blinks once and stops.
+# It cost most of an afternoon and looked, in turn, like a dead adapter, a
+# corrupt card, a brown-out and a failed board.
+#
+# Inheriting a file the deploy does not write is the shape of the mistake.
+# Absence *and* presence both have to be produced, not assumed — so this writes
+# one every time, from the tracked fixture unless the caller names another.
 readonly BOARD_DTB="bcm2711-rpi-4-b.dtb"
-if [[ -f "${MOUNT}/${BOARD_DTB}" ]]; then
-	echo "removing boot description: ${BOARD_DTB}"
-	rm -f "${MOUNT:?}/${BOARD_DTB}"
-fi
+readonly DEFAULT_DTB="${ROOT}/crates/kernel-core/tests/fixtures/${BOARD_DTB}"
 
-if [[ -n "${DTB}" ]]; then
-	if [[ ! -f "${DTB}" ]]; then
-		echo "error: boot description not found: ${DTB}" >&2
-		exit 1
-	fi
-	install -m 0644 "${DTB}" "${MOUNT}/${BOARD_DTB}"
+dtb_source="${DTB:-${DEFAULT_DTB}}"
+if [[ ! -f "${dtb_source}" ]]; then
+	echo "error: boot description not found: ${dtb_source}" >&2
+	echo "  A deploy without one leaves a card the firmware will not boot." >&2
+	exit 1
 fi
+install -m 0644 "${dtb_source}" "${MOUNT}/${BOARD_DTB}"
 
 install -m 0644 "${IMG}" "${MOUNT}/kernel8.img"
 install -m 0644 "${CONFIG}" "${MOUNT}/config.txt"
@@ -82,11 +90,32 @@ install -m 0644 "${BLOBS}/start4.elf" "${MOUNT}/start4.elf"
 install -m 0644 "${BLOBS}/fixup4.dat" "${MOUNT}/fixup4.dat"
 
 sync
+
+# Assert the card is bootable before saying so. Every file below is required by
+# the Pi 4 boot chain, and the failure that motivates this check was a deploy
+# that reported success while leaving the card without a device tree — the
+# board then produced nothing at all, which reads as a hardware fault rather
+# than as a missing file. A deploy that cannot say "bootable" should not say
+# "deployed".
+missing=0
+for required in kernel8.img config.txt start4.elf fixup4.dat "${BOARD_DTB}"; do
+	if [[ ! -s "${MOUNT}/${required}" ]]; then
+		echo "deploy-sd: FAIL — ${required} is missing or empty on ${MOUNT}" >&2
+		missing=$((missing + 1))
+	fi
+done
+if [[ "${missing}" -ne 0 ]]; then
+	echo "deploy-sd: the card is not bootable; ${missing} required file(s) absent" >&2
+	exit 1
+fi
+
 echo "Deployed to ${MOUNT}:"
 ls -la "${MOUNT}/kernel8.img" "${MOUNT}/config.txt" "${MOUNT}/start4.elf" "${MOUNT}/fixup4.dat"
 if [[ -n "${DTB}" ]]; then
-	echo "boot description: $(basename "${DTB}") -> ${BOARD_DTB}"
-	echo "  This card now tells the kernel something other than the firmware would."
-	echo "  Run a plain 'make deploy' to take it off again."
+	echo "boot description: $(basename "${DTB}") -> ${BOARD_DTB}  (evidence-only)"
+	echo "  This card now tells the kernel something other than the tracked one."
+	echo "  Run a plain 'make deploy' to put the tracked description back."
+else
+	echo "boot description: tracked fixture -> ${BOARD_DTB}"
 fi
 echo "note: product compositions are injected into kernel8.img (.agent_store, ADR-0029)"

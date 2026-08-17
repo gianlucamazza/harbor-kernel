@@ -392,3 +392,48 @@ boot**, e nessuno poteva vederlo perché il poll che avrebbe dovuto accorgersene
 passava solo grazie a una scrittura che non atterrava. Il finding che ha
 davvero pagato non è nella lista sopra — è il dump read-only che ADR-0107 §4
 aveva prescritto *prima* che l'ipotesi della sequenza potesse fallire.
+
+
+---
+
+## Postscript 2 — la regressione del deploy (2026-08-17 pomeriggio)
+
+Il gate P6 di questa passata ha portato con sé un bug che ha fermato la board
+per tre ore, ed è istruttivo perché **nessun gate del progetto poteva vederlo**.
+
+`deploy-sd.sh` aveva imparato a rimuovere `bcm2711-rpi-4-b.dtb` a ogni deploy,
+perché la descrizione evidence-only di ADR-0105 non sopravvivesse ai boot
+successivi — un rischio reale: una board che riporta silenziosamente «nessun
+NIC» è indistinguibile da una regressione. Quello che la regola ignorava è che
+la card **portava già** il DTB di Raspberry Pi OS, e che era quello a nutrire
+ogni boot di Harbor: `DTB mapped: 61440 bytes` nei transcript sono 60 KiB di
+descrizione reale, non un blob sintetizzato dalla firmware.
+
+Rimuoverlo senza scriverne uno ha lasciato la board senza device tree. Il Pi 4
+allora non porta il kernel fino alla UART: zero byte sul filo, nessuna scrittura
+durable, un ACT che lampeggia una volta e si spegne. Nell'ordine, è sembrato un
+adattatore morto, una card corrotta, un brown-out e una board guasta — e solo
+l'ultimo di quei sospetti era falsificabile a costo zero (bastava rimettere il
+file).
+
+**Perché nessun gate l'ha preso.** `make check` verifica l'albero; la CI verifica
+l'albero; `hw-check` verifica un transcript *che esiste*. Nessuno di questi
+guarda **la card**, che è l'artefatto che la board consuma. Il deploy era l'unico
+punto che poteva accorgersene e si limitava a elencare ciò che aveva scritto.
+
+**Il fix, e la sua forma.** Non «non cancellare»: un deploy ora **scrive sempre**
+una descrizione di boot, dal fixture tracciato, esattamente come scrive sempre
+`start4.elf` e `config.txt`. Ereditare un file che il deploy non produce era la
+forma dell'errore — assenza *e* presenza vanno entrambe prodotte, mai assunte.
+E prima di dire «Deployed», il deploy asserisce che i cinque file richiesti dal
+boot chain sono sulla card e non vuoti: *un deploy che non può dire «bootabile»
+non deve dire «fatto»*.
+
+**Il costo diagnostico**, che vale più del bug: per tutto il pomeriggio il ciclo
+HW non ha saputo distinguere «la board non ha bootato» da «il canale è morto».
+Il durable store sarebbe quel testimone indipendente, ma il flush sulla media
+vive in `src/bootstrap/demos.rs` e **l'immagine prodotto non lo contiene** — per
+ciò che spediamo non esiste alcun testimone di boot fuori dalla seriale. Un
+adattatore CP2104 che si sganciava dal bus USB quattro volte in un'ora ha reso
+quella ambiguità totale. È il buco che merita di essere chiuso per primo, ed è
+la ragione della issue aperta su questo punto.
