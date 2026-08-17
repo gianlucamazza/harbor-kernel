@@ -418,22 +418,26 @@ fn map_dtb_and_discover(uart: &mut Pl011, core1: bool) -> u64 {
 
 /// Bring up GENET through the existing driver when the FDT binding matches
 /// the compiled window. Always prints one probe line (ADR-0072: fail-open).
-/// After a successful revision probe, prints one PHY-identify line.
-/// After a successful identify, issues the bounded BMCR reset and prints
-/// one `PhyInitReport` line, then one BMSR link line (post-reset probe).
+/// After a successful revision probe, prints one PHY-identify line, then one
+/// BMSR link line.
 ///
 /// Uses `Genet::probe` (mask, stop DMA, UniMAC reset), then
-/// `Genet::identify_phy` (PHYIDR only), then `Genet::reset_phy`
-/// (BMCR only), then `Genet::classify_link` (BMSR only). Queue-0
-/// program/enable run later, after frames exist. Does not require
-/// link-up, submit TX/RX, or bind the network vocabulary.
+/// `Genet::identify_phy` (PHYIDR only), then `Genet::classify_link`
+/// (BMSR only). Queue-0 program/enable run later, after frames exist.
+/// Does not require link-up, submit TX/RX, or bind the network vocabulary.
+///
+/// The boot path deliberately does **not** reset the PHY (ADR-0108). A BMCR
+/// reset restarts autonegotiation, which takes seconds on 1000BASE-T, so a
+/// BMSR read in the same phase samples a link that cannot be up yet — the
+/// 2026-08-16 14:39 stamp is exactly that, and it is why TX and RX refused
+/// before the doorbell. `Genet::reset_phy` stays on the driver for a later
+/// slice that can afford to wait for the link it destroys.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
     use crate::bsp::board::memmap;
     use crate::drivers::genet::{Error, Genet};
     use kernel_core::genet::{
-        LinkReport, MdioError, MmioProbe, PhyError, PhyIdentify, PhyInitReport, RevisionError,
-        mmio_probe_intent,
+        LinkReport, MdioError, MmioProbe, PhyError, PhyIdentify, RevisionError, mmio_probe_intent,
     };
 
     let probed = match report {
@@ -474,15 +478,8 @@ fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
             };
             println!(uart, "{phy}");
             if matches!(phy, PhyIdentify::Identity(_)) {
-                let init = match controller.reset_phy() {
-                    Ok(report) => report,
-                    Err(Error::Timeout) => PhyInitReport::Timeout,
-                    Err(Error::Phy(error)) => PhyInitReport::Unavailable(error),
-                    Err(_) => PhyInitReport::Unavailable(PhyError::Id(MdioError::ReadFail)),
-                };
-                println!(uart, "{init}");
-                // Probe sample only, after the BMCR reset. Submit re-reads
-                // BMSR and does not reprint.
+                // Probe sample only, of the link the firmware left. Submit
+                // re-reads BMSR and does not reprint.
                 let link = match controller.classify_link() {
                     Ok(state) => LinkReport::Classified(state),
                     Err(Error::Timeout) => LinkReport::Timeout,

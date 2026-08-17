@@ -42,7 +42,7 @@ refused. packed `0x49c`, Linux `0x4a8`, and `pok` `0x4ec` are all zero.
 The Apple NIC pcap has no `0x88b5`. The product now writes
 `RBUF_CHK_CTRL` (`0x31`, `CRC_FWD` skip) and prints `rbuf chk`;
 that is unpaid on silicon.
-Serial CONS retire is not this ADR's one-TX gate. No wire RX or Pi
+**2026-08-17, unpaid on silicon:** the boot path no longer resets the PHY ([ADR-0108](0108-boot-path-link-acquisition.md)) — the BMCR reset restarted autonegotiation and the same-phase BMSR read could not see a link, which is what `tx/rx unavailable (link down)` above records. The bring-up method also changes ([ADR-0107](0107-genet-sequence-first-bring-up.md)): the unit of experiment is a coherent sequence claim, not one register. Neither changes this ADR's evidence gate. Serial CONS retire is not this ADR's one-TX gate. No wire RX or Pi
 absent-device result was produced.
 
 ## Context
