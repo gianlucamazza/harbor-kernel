@@ -51,23 +51,29 @@ fi
 # so "some start4.elf" is not the same claim as "the one that was validated".
 assert_blobs_pinned "${BLOBS}" || exit 1
 
-# Remove any boot description first, always. A deploy that only *adds* files
-# would let one capture's evidence-only DTB survive into every later boot, and
-# the symptom — a board that reports no NIC — looks exactly like a regression.
-# Absence is the default and has to be restored, not assumed.
-shopt -s nullglob
-for stale in "${MOUNT}"/*.dtb; do
-	echo "removing stale boot description: $(basename "${stale}")"
-	rm -f "${stale}"
-done
-shopt -u nullglob
+# Remove the board's own boot description first, always. A deploy that only
+# *adds* files would let one capture's evidence-only DTB survive into every
+# later boot, and the symptom — a board that reports no NIC — looks exactly
+# like a regression. Absence is the default and has to be restored, not
+# assumed.
+#
+# Exactly this one filename, and no glob. The first version of this deleted
+# every `*.dtb` on the partition and took three Compute Module 5 descriptions
+# left there by Raspberry Pi OS with it. They could not have affected this
+# board — the firmware selects by model — so removing them was neither
+# necessary nor ours to do. A deploy is allowed to own the file it writes.
+readonly BOARD_DTB="bcm2711-rpi-4-b.dtb"
+if [[ -f "${MOUNT}/${BOARD_DTB}" ]]; then
+	echo "removing boot description: ${BOARD_DTB}"
+	rm -f "${MOUNT:?}/${BOARD_DTB}"
+fi
 
 if [[ -n "${DTB}" ]]; then
 	if [[ ! -f "${DTB}" ]]; then
 		echo "error: boot description not found: ${DTB}" >&2
 		exit 1
 	fi
-	install -m 0644 "${DTB}" "${MOUNT}/bcm2711-rpi-4-b.dtb"
+	install -m 0644 "${DTB}" "${MOUNT}/${BOARD_DTB}"
 fi
 
 install -m 0644 "${IMG}" "${MOUNT}/kernel8.img"
@@ -79,7 +85,7 @@ sync
 echo "Deployed to ${MOUNT}:"
 ls -la "${MOUNT}/kernel8.img" "${MOUNT}/config.txt" "${MOUNT}/start4.elf" "${MOUNT}/fixup4.dat"
 if [[ -n "${DTB}" ]]; then
-	echo "boot description: $(basename "${DTB}") -> bcm2711-rpi-4-b.dtb"
+	echo "boot description: $(basename "${DTB}") -> ${BOARD_DTB}"
 	echo "  This card now tells the kernel something other than the firmware would."
 	echo "  Run a plain 'make deploy' to take it off again."
 fi
