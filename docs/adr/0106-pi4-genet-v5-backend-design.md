@@ -164,13 +164,13 @@ Not a NIC claim. The unit is no longer one register: [ADR-0107](0107-genet-seque
 | Program rings 1–4 | 32 BDs each after Q0's 128 | Paid (HW) negative (`src=7d1631b4`) |
 | WRR priority words | `DMA_PRIORITY_0/1/2` weights | Paid (HW) negative (`src=414f4098`) |
 | `init_phy` on the boot path | PHY setup before first xmit | Paid (HW) negative (`src=3f2d01b8`); submit now LinkDown |
-| `RBUF_CHK_CTRL` | RX checksum control | Product writes `0x31`; silicon unpaid |
-| **Init order** | `init_umac` and `hfb_init` run before `bcmgenet_init_dma`, which writes `DMA_EN` last (`bcmgenet.c:3351-3380`, `:3172-3180`) | Corrected 2026-08-17; silicon unpaid |
-| **Flush settles** | `UMAC_TX_FLUSH` and the `RBUF_CTRL` latch pulsed inside `init_dma` with `udelay(10)`; `reset_umac` waits 10 µs then 2 µs (`:3113-3123`, `:2560-2571`) | Corrected 2026-08-17 (`CNTFRQ_EL0` waits, not readbacks); silicon unpaid |
-| **HFB** | `bcmgenet_hfb_clear` zeroes `HFB_CTRL`, both enable words, the eight index-to-ring words and all 48 filters, then enables filter 0 with length 4 — the default flow to ring 0 (`:720-741`) | Was never touched; corrected 2026-08-17; silicon unpaid |
-| **TX/RX descriptor words** | `bcmgenet_xmit` sets no `DMA_OWN` and no `DMA_WRAP`; `bcmgenet_rx_refill` writes the address only (`:2184-2200`, `:2261`) | Corrected 2026-08-17; silicon unpaid |
-| **Ring 0 geometry** | TX ring 0 owns 128 BDs, RX ring 0 owns 256, slot size `RX_BUF_LENGTH` on every ring (`:2730-2733`, `:3022`) | Was one BD sized by the frame, contradicting the rings 1–4 placed after it; corrected 2026-08-17; silicon unpaid |
-| **RDMA `XON_XOFF_THRESH`** | Same per-ring offset TDMA calls `FLOW_PERIOD`; `bcmgenet_init_rx_ring` writes `(FC_THRESH_LO << 16) \| FC_THRESH_HI` (`:2817-2819`) | Was zero; corrected 2026-08-17; silicon unpaid |
+| `RBUF_CHK_CTRL` | RX checksum control | Product writes `0x31`; **Paid (HW) negative** (`src=8981a0dc`) |
+| **Init order** | `init_umac` and `hfb_init` run before `bcmgenet_init_dma`, which writes `DMA_EN` last (`bcmgenet.c:3351-3380`, `:3172-3180`) | Corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) |
+| **Flush settles** | `UMAC_TX_FLUSH` and the `RBUF_CTRL` latch pulsed inside `init_dma` with `udelay(10)`; `reset_umac` waits 10 µs then 2 µs (`:3113-3123`, `:2560-2571`) | Corrected 2026-08-17 (`CNTFRQ_EL0` waits, not readbacks); **Paid (HW) negative** (`src=8981a0dc`) |
+| **HFB** | `bcmgenet_hfb_clear` zeroes `HFB_CTRL`, both enable words, the eight index-to-ring words and all 48 filters, then enables filter 0 with length 4 — the default flow to ring 0 (`:720-741`) | Was never touched; corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) — `hfb cleared` on the wire, TSV still zero |
+| **TX/RX descriptor words** | `bcmgenet_xmit` sets no `DMA_OWN` and no `DMA_WRAP`; `bcmgenet_rx_refill` writes the address only (`:2184-2200`, `:2261`) | Corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) |
+| **Ring 0 geometry** | TX ring 0 owns 128 BDs, RX ring 0 owns 256, slot size `RX_BUF_LENGTH` on every ring (`:2730-2733`, `:3022`) | Was one BD sized by the frame, contradicting the rings 1–4 placed after it; corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) |
+| **RDMA `XON_XOFF_THRESH`** | Same per-ring offset TDMA calls `FLOW_PERIOD`; `bcmgenet_init_rx_ring` writes `(FC_THRESH_LO << 16) \| FC_THRESH_HI` (`:2817-2819`) | Was zero; corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) |
 | More than one TX BD | Linux posts the frame BDs it has | One BD |
 | `TX_EN` settle | Datapath then transmit | Immediate doorbell |
 
