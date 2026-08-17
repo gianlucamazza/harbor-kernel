@@ -437,3 +437,53 @@ ciò che spediamo non esiste alcun testimone di boot fuori dalla seriale. Un
 adattatore CP2104 che si sganciava dal bus USB quattro volte in un'ora ha reso
 quella ambiguità totale. È il buco che merita di essere chiuso per primo, ed è
 la ragione della issue aperta su questo punto.
+
+---
+
+## Poscritto 3 — due misure sbagliate in questa stessa review, e un rosso mai visto
+
+Scritto il 2026-08-17, chiudendo F-3 e F-12. Riguarda l'affidabilità di questo
+documento, quindi vive qui e non in un commit.
+
+### F-3 contava la cosa sbagliata
+
+La riga diceva **38 item `pub` su 100** senza consumatori in `src/`, e da lì
+concludeva che le prove host su `genet.rs` fossero prove su codice che il
+silicio non esegue. Il conteggio era `grep` del nome sotto `src/`, e sbaglia per
+costruzione: `DescriptorWords` non è mai nominato dal driver, ma `write_descriptor`
+sì, e lo usa. Una visita di raggiungibilità dal grafo delle chiamate dà **9**.
+
+L'errore ha avuto un costo concreto: il piano costruito sul 38 metteva #83 prima
+di #81 per non spendere 12–25 ore a mutare superficie morta. La superficie morta
+era **7 mutanti** (1615 → 1608). L'ordine era giusto per un'altra ragione, che
+nessuna delle due misure aveva visto: `RingCursor::advance` avvolgeva a 256 su
+un anello di 128, e la raccomandazione di F-3 — *far consumare il modello al
+driver* — lo avrebbe portato fuori dalla ring 0.
+
+Un modello non consumato non è neutro: marcisce, e i suoi test verdi marciscono
+con lui ([ADR-0110](../adr/0110-a-model-is-consumed-or-declared.md)).
+
+### F-12 misurava il nastro invece del record
+
+La riga diceva ~55 log locali e nessuno tracciato, e trattava «tracciarli» come
+una scelta costosa (20 MB su un `.git` di 5,6). Profilando la cattura più
+grande: **71 964 righe su ~72 000 sono `ticks=` e `invariants:`**. Il costo era
+del metronomo, non dell'evidenza. Tolto il battito, tutte le 34 catture citate
+stanno in 412 KiB ([ADR-0109](../adr/0109-hardware-evidence-is-tracked.md)).
+
+Entrambe le misure sbagliate condividono la forma: hanno misurato il contenitore
+e riportato il contenuto.
+
+### Un rosso che nessuna CI ha mai raggiunto
+
+`make check` ha **sei errori clippy** nei test di `genet`, e non sono nuovi.
+`mutation-freshness` è un *prerequisito* di `check:`, quindi fallisce prima che
+make arrivi al corpo della regola, dove vivono le due passate clippy. La CI si è
+fermata lì ogni volta: il secondo rosso non è mai stato eseguito, e pagare #81
+avrebbe lasciato la CI rossa una riga dopo.
+
+È il difetto strutturale che vale oltre il caso: **in un target make, un
+prerequisito rosso nasconde tutto il corpo della regola**. `layers-table`
+enumera i prerequisiti di `check:` e non guarda il corpo, quindi il gate che
+esiste per garantire che ogni livello sia elencato è cieco proprio dove il rosso
+si è nascosto. Corretto qui; la cecità del gate resta, dichiarata.
