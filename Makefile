@@ -102,7 +102,7 @@ endif
 	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
 	boot-check panic-check hw-check mutation-freshness mutation-scope layers-table x86-elf x86-boot-check doc-claims layering fmt fmt-check \
-	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy deploy-oracle \
+	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy deploy-absent-nic deploy-oracle \
 	restore-rpios serial clean agents vocabulary-sync
 
 all: img
@@ -457,6 +457,17 @@ blobs:
 deploy: product-builds
 	@echo "deploy: product image (no oracle, store injected)"
 	./scripts/host/deploy-sd.sh "$(SD_MOUNT)" "$(PRODUCT_IMG)"
+
+# The one boot that cannot be produced by booting the board as it is: ADR-0105
+# asks for an absent-device refusal on silicon, and the SoC always has GENET.
+# This deploys the product image together with a boot description built from
+# the tracked fixture with `/scb/ethernet` removed, so the kernel is told the
+# device is absent and must refuse rather than invent a binding. Evidence only
+# — a plain `make deploy` takes the description back off.
+deploy-absent-nic: product-builds
+	./scripts/host/absent-nic-dtb.sh
+	@echo "deploy-absent-nic: product image + a boot description with no NIC (ADR-0105)"
+	./scripts/host/deploy-sd.sh "$(SD_MOUNT)" "$(PRODUCT_IMG)" "target/bcm2711-rpi-4-b-no-nic.dtb"
 
 # Lab flash: Cargo defaults (oracle fleet). For hw-check against boot-oracle.
 deploy-oracle: img
