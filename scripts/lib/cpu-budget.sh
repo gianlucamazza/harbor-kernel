@@ -76,6 +76,12 @@ cpu_budget_emulator_pids() {
 		read -r _ comm _ <"${stat}" 2>/dev/null || continue
 		[[ "${comm}" == "(qemu-system"* ]] && printf '%s\n' "${stat%/stat}"
 	done
+	# Explicit, because the loop's status is that of its last `[[ ]]` and the
+	# last pid on a machine is almost never an emulator. A caller running under
+	# `set -euo pipefail` — `qemu-boot-check.sh` does — then dies on
+	# `x="$(cpu_budget_emulator_pids | …)"` with no output at all, which is
+	# exactly how this reached CI: the change was shellchecked and not run.
+	return 0
 }
 
 cpu_budget_start() {
