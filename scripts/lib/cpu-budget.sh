@@ -157,6 +157,15 @@ cpu_budget_watch() {
 		((sum > CPU_BUDGET_PEAK_HZ)) && CPU_BUDGET_PEAK_HZ="${sum}"
 		sleep 0.2
 	done
+	# Did it end on its own, or was it still going at the ceiling? The
+	# difference decides whether a low reading means "starved" or "it died".
+	# A guest that exits instantly burns no CPU, and without this a genuinely
+	# broken image would report INDETERMINATE forever instead of red — seen
+	# with a deliberately corrupt ELF on `x86-boot-check`.
+	CPU_BUDGET_ENDED_EARLY=0
+	# shellcheck disable=SC2034  # read by callers (qemu-x86-boot-check.sh)
+	kill -0 "${pid}" 2>/dev/null || CPU_BUDGET_ENDED_EARLY=1
+
 	CPU_BUDGET_SECONDS=$((SECONDS - CPU_BUDGET_STARTED))
 	((CPU_BUDGET_SECONDS > 0)) || CPU_BUDGET_SECONDS=1
 	cpu_budget_read_host_busy_hz

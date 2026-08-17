@@ -147,7 +147,7 @@ img: elf
 # So: source-only gates first (seconds, no build), then compile/lint/test, then
 # emulated boots, and the one gate that is *expected* to be red last. A gate
 # that hides other gates should be the last thing in the list.
-check: fmt-check shellcheck xrefs doc-claims doc-symbols roadmap-evidence vocabulary-sync layers-table hw-evidence mutation-scope model-consumed layering arch-board-free no-static-mut irq-scope test clippy-kernel clippy-host bringup-builds debug-builds board-guard product-builds no-simd no-early-exclusives miri boot-check panic-check product-boot-check oracle-census qemu-virtio-check mutation-freshness
+check: fmt-check shellcheck xrefs doc-claims doc-symbols roadmap-evidence vocabulary-sync layers-table hw-evidence mutation-scope model-consumed layering arch-board-free no-static-mut irq-scope test clippy-kernel clippy-host bringup-builds debug-builds board-guard product-builds no-simd no-early-exclusives miri boot-check panic-check product-boot-check oracle-census qemu-virtio-check x86-boot-check mutation-freshness
 
 # Clippy is two *prerequisites* rather than two recipe lines, and the move is
 # the point. A recipe body runs only after every prerequisite has passed, so

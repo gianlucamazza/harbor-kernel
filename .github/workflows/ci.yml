@@ -119,6 +119,16 @@ jobs:
           fi
           qemu-system-aarch64 -machine help | grep -E '^raspi4b\b'
 
+      # `make check` boots the H3 L0 lab image (ADR-0071) as of 2026-08-18: its
+      # only gate was `x86-boot-check`, which ran in neither `make check` nor
+      # this workflow, so `done (QEMU-x86)` was a status claim nothing verified.
+      # The runner is arm64, so this is TCG emulation of x86 — slow, and the
+      # guest is five serial lines and a `hlt`.
+      - name: x86 lab target and emulator
+        run: |
+          rustup target add x86_64-unknown-none
+          sudo apt-get update && sudo apt-get install -y qemu-system-x86
+
       - name: Install nightly with Miri
         run: |
           rustup toolchain install nightly --component miri
