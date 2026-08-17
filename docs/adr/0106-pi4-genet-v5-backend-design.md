@@ -171,6 +171,7 @@ Not a NIC claim. The unit is no longer one register: [ADR-0107](0107-genet-seque
 | **TX/RX descriptor words** | `bcmgenet_xmit` sets no `DMA_OWN` and no `DMA_WRAP`; `bcmgenet_rx_refill` writes the address only (`:2184-2200`, `:2261`) | Corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) |
 | **Ring 0 geometry** | TX ring 0 owns 128 BDs, RX ring 0 owns 256, slot size `RX_BUF_LENGTH` on every ring (`:2730-2733`, `:3022`) | Was one BD sized by the frame, contradicting the rings 1–4 placed after it; corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) |
 | **RDMA `XON_XOFF_THRESH`** | Same per-ring offset TDMA calls `FLOW_PERIOD`; `bcmgenet_init_rx_ring` writes `(FC_THRESH_LO << 16) \| FC_THRESH_HI` (`:2817-2819`) | Was zero; corrected 2026-08-17; **Paid (HW) negative** (`src=8981a0dc`) |
+| **UniMAC reset latch** | `bcmgenet_rbuf_ctrl_get/set` is `SYS_RBUF_FLUSH_CTRL` (SYS `0x08`), not `RBUF_CTRL`; `reset_umac` zeroes it and `bcmgenet_umac_reset` pulses `BIT(1)` in it to take the MAC out of reset before `init_umac` (`bcmgenet.c:127-140`, `:2563`, `:3299-3311`, `:3368`) | Was writing the wrong register and had no release pulse; corrected 2026-08-17; silicon unpaid |
 | More than one TX BD | Linux posts the frame BDs it has | One BD |
 | `TX_EN` settle | Datapath then transmit | Immediate doorbell |
 

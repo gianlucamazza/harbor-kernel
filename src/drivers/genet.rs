@@ -10,8 +10,9 @@ use kernel_core::genet::{
     GenetBoot, HfbReport, LinkState, MdioError, MdioTxn, PhyError, PhyInitReport, PhyLink,
     PriorityReport, Queue0Report, QueueEnable, QueueEnableError, RbufChkReport, RbufReport,
     ResetReport, Revision, RevisionError, RgmiiReport, RingBufReport, RingCfgReport, RingProgram,
-    RingProgramError, Rings14Report, RxReport, TbufReport, TbufSizeReport, TxReport, TxRingSet,
-    UmacMibReport, UmacReport, WrrPriority, dma_registers, mdio, phy, registers,
+    RingProgramError, Rings14Report, RxReport, StateDump, TbufReport, TbufSizeReport, TxReport,
+    TxRingSet, UmacMibReport, UmacReport, UmacResetReport, WrrPriority, dma_registers, mdio, phy,
+    registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -137,11 +138,16 @@ impl Genet {
         self.stop_dma(genet::registers::RDMA)?;
         self.stop_dma(genet::registers::TDMA)?;
 
-        // Linux `reset_umac`: clear the RBUF software-reset latch, wait 10 µs,
-        // then assert `CMD_SW_RESET` and wait 2 µs. Both waits are real
-        // (`bcmgenet.c:2560-2571`); Harbor had neither, and a settle that is
-        // only a bus transaction is not a settle (ADR-0107 §1).
-        self.regs.write32(genet::registers::RBUF_CTRL as usize, 0);
+        // Linux `reset_umac`: zero the software-reset latch, wait 10 µs, then
+        // assert `CMD_SW_RESET` and wait 2 µs (`bcmgenet.c:2560-2571`).
+        //
+        // The latch is `SYS_RBUF_FLUSH_CTRL` in the **SYS** block, not
+        // `RBUF_CTRL` in the RBUF block. Linux reaches both through one helper
+        // name (`bcmgenet_rbuf_ctrl_get/set`, `:127-140`) whose name does not
+        // say `SYS`, and Harbor had been zeroing the wrong one — so the latch
+        // that holds UniMAC in reset was never touched at all.
+        self.regs
+            .write32(genet::registers::SYS_RBUF_FLUSH_CTRL as usize, 0);
         settle(FLUSH_SETTLE_US);
         self.regs
             .write32(genet::registers::UMAC_CMD as usize, CMD_SW_RESET);
@@ -393,6 +399,7 @@ impl Genet {
         // then `init_dma`'s flush prologue, then the rings, and `DMA_EN`
         // **last** (`bcmgenet.c:3351-3380`, `:3089-3180`). Harbor used to
         // enable DMA first and program UniMAC into a running engine.
+        boot.umac_released = Some(self.release_umac_reset());
         boot.umac = Some(self.program_umac_init());
         boot.tbuf = Some(self.program_tbuf_tsb());
         boot.tbuf_size = Some(self.program_rbuf_tbuf_size());
@@ -438,6 +445,7 @@ impl Genet {
             Err(Error::Phy(PhyError::LinkDown)) => RxReport::LinkDown,
             Err(_) => RxReport::NotEnabled,
         });
+        boot.state = Some(self.read_state());
         boot.recovered = Some(match self.recover() {
             Ok(report) => report,
             Err(Error::Timeout) => ResetReport::Timeout,
@@ -598,12 +606,64 @@ impl Genet {
         self.regs.write32(registers::UMAC_TX_FLUSH as usize, 0);
         settle(FLUSH_SETTLE_US);
 
-        let rbuf = self.regs.read32(registers::RBUF_CTRL as usize);
+        let flush = self.regs.read32(registers::SYS_RBUF_FLUSH_CTRL as usize);
+        self.regs.write32(
+            registers::SYS_RBUF_FLUSH_CTRL as usize,
+            flush | registers::SYS_RBUF_FLUSH,
+        );
+        settle(FLUSH_SETTLE_US);
         self.regs
-            .write32(registers::RBUF_CTRL as usize, rbuf | registers::RBUF_64B_EN);
+            .write32(registers::SYS_RBUF_FLUSH_CTRL as usize, flush);
         settle(FLUSH_SETTLE_US);
-        self.regs.write32(registers::RBUF_CTRL as usize, rbuf);
+    }
+
+    /// Linux `bcmgenet_umac_reset`, commented *"take MAC out of reset"* and
+    /// called from `bcmgenet_open` immediately before `init_umac`
+    /// (`bcmgenet.c:3299-3311`, `:3368`): pulse `SYS_UMAC_SW_RESET` in
+    /// `SYS_RBUF_FLUSH_CTRL`, 10 µs on each edge.
+    ///
+    /// Harbor had no analogue. `umac_enable_set` refuses to write `UMAC_CMD`
+    /// while that bit is set (`:2540-2545`), which is the exact shape of what
+    /// silicon has shown for twenty-six boots: TDMA retires the descriptor and
+    /// UniMAC counts nothing.
+    pub fn release_umac_reset(&self) -> UmacResetReport {
+        let flush = self.regs.read32(registers::SYS_RBUF_FLUSH_CTRL as usize);
+        self.regs.write32(
+            registers::SYS_RBUF_FLUSH_CTRL as usize,
+            flush | registers::SYS_UMAC_SW_RESET,
+        );
         settle(FLUSH_SETTLE_US);
+        self.regs.write32(
+            registers::SYS_RBUF_FLUSH_CTRL as usize,
+            flush & !registers::SYS_UMAC_SW_RESET,
+        );
+        settle(FLUSH_SETTLE_US);
+        UmacResetReport::Released
+    }
+
+    /// Read back what the controller holds. Writes nothing (ADR-0107 §4).
+    pub fn read_state(&self) -> StateDump {
+        StateDump {
+            sys_rbuf_flush: self.regs.read32(registers::SYS_RBUF_FLUSH_CTRL as usize),
+            sys_port_ctrl: self.regs.read32(registers::SYS_PORT_CTRL as usize),
+            rgmii_oob: self.regs.read32(registers::EXT_RGMII_OOB_CTRL as usize),
+            umac_cmd: self.regs.read32(registers::UMAC_CMD as usize),
+            rbuf_ctrl: self.regs.read32(registers::RBUF_CTRL as usize),
+            tbuf_ctrl: self.regs.read32(registers::TBUF_CTRL as usize),
+            tdma_ctrl: self
+                .regs
+                .read32((registers::TDMA + dma_registers::CTRL) as usize),
+            tdma_status: self
+                .regs
+                .read32((registers::TDMA + dma_registers::STATUS) as usize),
+            rdma_ctrl: self
+                .regs
+                .read32((registers::RDMA + dma_registers::CTRL) as usize),
+            rdma_status: self
+                .regs
+                .read32((registers::RDMA + dma_registers::STATUS) as usize),
+            tx_desc_status: self.regs.read32(registers::TDMA as usize),
+        }
     }
 
     /// Linux `bcmgenet_hfb_clear`: disable the hardware filter block, zero

@@ -87,6 +87,20 @@ pub mod registers {
     pub const TDMA: u32 = 0x4000;
     pub const INTRL2_CPU_CLEAR: u32 = 0x08;
     pub const INTRL2_CPU_MASK_SET: u32 = 0x10;
+    /// Linux `SYS_RBUF_FLUSH_CTRL`, in the **SYS** block — not `RBUF_CTRL`.
+    ///
+    /// `bcmgenet_rbuf_ctrl_get/set` reads this on every version after v1
+    /// (`bcmgenet.c:127-140`), and its name does not say `SYS`. Two different
+    /// registers wear one helper name: `reset_umac` zeroes **this** one, and
+    /// `bcmgenet_umac_reset` pulses [`SYS_UMAC_SW_RESET`] in it to *take the
+    /// MAC out of reset* (`:2563`, `:3299-3311`). `init_umac`'s
+    /// `RBUF_ALIGN_2B | RBUF_64B_EN` go to [`RBUF_CTRL`], which is the other
+    /// one.
+    pub const SYS_RBUF_FLUSH_CTRL: u32 = 0x08;
+    /// `BIT(1)` of [`SYS_RBUF_FLUSH_CTRL`]: UniMAC software reset.
+    pub const SYS_UMAC_SW_RESET: u32 = 1 << 1;
+    /// `BIT(0)` of [`SYS_RBUF_FLUSH_CTRL`]: the RX flush `init_dma` pulses.
+    pub const SYS_RBUF_FLUSH: u32 = 1 << 0;
     pub const RBUF_CTRL: u32 = RBUF;
     pub const RBUF_64B_EN: u32 = 1 << 0;
     pub const RBUF_ALIGN_2B: u32 = 1 << 1;
@@ -1685,6 +1699,80 @@ impl Display for RbufReport {
     }
 }
 
+/// Boot report for `bcmgenet_umac_reset` — the pulse Linux comments as
+/// "take MAC out of reset" (`bcmgenet.c:3299-3311`, called at `:3368` before
+/// `init_umac`). Not a NIC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UmacResetReport {
+    Released,
+}
+
+impl Display for UmacResetReport {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            UmacResetReport::Released => f.write_str("genet: umac released (sys rbuf, not a nic)"),
+        }
+    }
+}
+
+/// A read-only snapshot of what the controller actually holds after the boot
+/// sequence. Writes nothing; explains nothing on its own (ADR-0107 §4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StateDump {
+    pub sys_rbuf_flush: u32,
+    pub sys_port_ctrl: u32,
+    pub rgmii_oob: u32,
+    pub umac_cmd: u32,
+    pub rbuf_ctrl: u32,
+    pub tbuf_ctrl: u32,
+    pub tdma_ctrl: u32,
+    pub tdma_status: u32,
+    pub rdma_ctrl: u32,
+    pub rdma_status: u32,
+    pub tx_desc_status: u32,
+}
+
+impl StateDump {
+    /// True when [`registers::SYS_UMAC_SW_RESET`] is still asserted — the
+    /// state in which `umac_enable_set` refuses to write `UMAC_CMD` at all
+    /// (`bcmgenet.c:2540-2545`), and a plausible shape for "DMA retires the
+    /// descriptor and UniMAC counts nothing".
+    pub const fn umac_held_in_reset(self) -> bool {
+        self.sys_rbuf_flush & registers::SYS_UMAC_SW_RESET != 0
+    }
+
+    /// True when `UMAC_CMD` still carries the UniMAC soft-reset bit.
+    pub const fn umac_cmd_in_reset(self) -> bool {
+        self.umac_cmd & (1 << 13) != 0
+    }
+
+    /// True when both datapath enables survived the sequence.
+    pub const fn datapath_enabled(self) -> bool {
+        self.umac_cmd & (registers::UMAC_CMD_TX_EN | registers::UMAC_CMD_RX_EN)
+            == registers::UMAC_CMD_TX_EN | registers::UMAC_CMD_RX_EN
+    }
+}
+
+impl Display for StateDump {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "genet: state sysrbuf={:#x} port={:#x} oob={:#x} cmd={:#x} rbuf={:#x} tbuf={:#x} tdma={:#x}/{:#x} rdma={:#x}/{:#x} txbd={:#x} (read, not a nic)",
+            self.sys_rbuf_flush,
+            self.sys_port_ctrl,
+            self.rgmii_oob,
+            self.umac_cmd,
+            self.rbuf_ctrl,
+            self.tbuf_ctrl,
+            self.tdma_ctrl,
+            self.tdma_status,
+            self.rdma_ctrl,
+            self.rdma_status,
+            self.tx_desc_status,
+        )
+    }
+}
+
 /// Boot report for the hardware filter block. Not a NIC and not an RX claim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HfbReport {
@@ -1805,10 +1893,12 @@ pub struct GenetBoot {
     pub rbuf: Option<RbufReport>,
     pub rbuf_chk: Option<RbufChkReport>,
     pub hfb: Option<HfbReport>,
+    pub umac_released: Option<UmacResetReport>,
     pub tx: Option<TxReport>,
     pub mib: Option<UmacMibReport>,
     pub rx: Option<RxReport>,
     pub recovered: Option<ResetReport>,
+    pub state: Option<StateDump>,
 }
 
 impl GenetBoot {
@@ -1828,15 +1918,20 @@ impl GenetBoot {
             rbuf: None,
             rbuf_chk: None,
             hfb: None,
+            umac_released: None,
             tx: None,
             mib: None,
             rx: None,
             recovered: None,
+            state: None,
         }
     }
 
     pub fn each_line(&self, mut emit: impl FnMut(&dyn Display)) {
         emit(&self.programmed);
+        if let Some(line) = self.umac_released.as_ref() {
+            emit(line);
+        }
         if let Some(line) = self.rings14.as_ref() {
             emit(line);
         }
@@ -1883,6 +1978,9 @@ impl GenetBoot {
             emit(line);
         }
         if let Some(line) = self.rx.as_ref() {
+            emit(line);
+        }
+        if let Some(line) = self.state.as_ref() {
             emit(line);
         }
         if let Some(line) = self.recovered.as_ref() {
@@ -2212,6 +2310,63 @@ mod tests {
         windows: [DMA, DMA, DMA, DMA],
         count: 1,
     };
+
+    #[test]
+    fn the_umac_reset_latch_is_a_sys_register_not_the_rbuf_one() {
+        // Two registers, one Linux helper name. `bcmgenet_rbuf_ctrl_get/set`
+        // reaches SYS_RBUF_FLUSH_CTRL on every version after v1, while
+        // `init_umac`'s align/64B bits go to the RBUF block's own RBUF_CTRL.
+        // Harbor zeroed the second and never touched the first.
+        assert_eq!(registers::SYS_RBUF_FLUSH_CTRL, 0x08);
+        assert_eq!(registers::RBUF_CTRL, registers::RBUF);
+        assert_ne!(registers::SYS_RBUF_FLUSH_CTRL, registers::RBUF_CTRL);
+        // …and it sits between the two SYS registers already modelled.
+        assert!(registers::SYS_RBUF_FLUSH_CTRL > registers::SYS_PORT_CTRL);
+        assert!(registers::SYS_RBUF_FLUSH_CTRL < registers::SYS_TBUF_FLUSH_CTRL);
+        assert_eq!(registers::SYS_UMAC_SW_RESET, 1 << 1);
+        assert_eq!(registers::SYS_RBUF_FLUSH, 1 << 0);
+    }
+
+    #[test]
+    fn state_dump_names_the_two_reset_shapes_and_the_datapath() {
+        let held = StateDump {
+            sys_rbuf_flush: registers::SYS_UMAC_SW_RESET,
+            sys_port_ctrl: 0,
+            rgmii_oob: 0,
+            umac_cmd: 0,
+            rbuf_ctrl: 0,
+            tbuf_ctrl: 0,
+            tdma_ctrl: 0,
+            tdma_status: 0,
+            rdma_ctrl: 0,
+            rdma_status: 0,
+            tx_desc_status: 0,
+        };
+        assert!(held.umac_held_in_reset());
+        assert!(!held.umac_cmd_in_reset());
+        assert!(!held.datapath_enabled());
+
+        let running = StateDump {
+            sys_rbuf_flush: 0,
+            umac_cmd: registers::UMAC_CMD_TX_EN | registers::UMAC_CMD_RX_EN,
+            ..held
+        };
+        assert!(!running.umac_held_in_reset());
+        assert!(running.datapath_enabled());
+
+        // Only TX_EN is not "the datapath is up".
+        let half = StateDump {
+            umac_cmd: registers::UMAC_CMD_TX_EN,
+            ..running
+        };
+        assert!(!half.datapath_enabled());
+
+        let in_cmd_reset = StateDump {
+            umac_cmd: 1 << 13,
+            ..running
+        };
+        assert!(in_cmd_reset.umac_cmd_in_reset());
+    }
 
     #[test]
     fn hfb_filter_length_is_packed_backwards_from_the_last_filter() {
