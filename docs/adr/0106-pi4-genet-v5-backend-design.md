@@ -87,7 +87,7 @@ bounded RX are attempted only when BMSR is up; a down link refuses before
 the doorbell or RX arm. Both refuse paths and the Idle recover are paid
 on silicon. Silicon evidence lives in
 [verification.md](../verification.md) (current stamp
-`20260816-052739.log`, `src=656be102`: `ring buf`, `tx cons len=124`).
+`20260816-052739.log`, `src=3f2d01b8`: `phy init`, `tx unavailable (link down)`).
 CONS retire is not a UniMAC send and not a wire frame. The network
 vocabulary stays vacant.
 A separate AArch64 control-plane slice in
@@ -161,9 +161,9 @@ Not a NIC claim. Next on the roadmap is the first row.
 | Leftover | Linux fact | Harbor today |
 | --- | --- | --- |
 | `RING_BUF_EN` mask `0x1f` | `init_tx_queues` writes the same mask to `DMA_CTRL` `RING_BUF_EN` | Paid (HW) negative (`src=656be102`) |
-| Program rings 1–4 | 32 BDs each after Q0's 128 | Product writes TDMA ring words; silicon unpaid |
-| WRR priority words | `DMA_PRIORITY_0/1/2` weights | Product writes `WrrPriority::V5`; silicon unpaid |
-| `init_phy` on the boot path | PHY setup before first xmit | Product writes BMCR reset after identify; silicon unpaid |
+| Program rings 1–4 | 32 BDs each after Q0's 128 | Paid (HW) negative (`src=7d1631b4`) |
+| WRR priority words | `DMA_PRIORITY_0/1/2` weights | Paid (HW) negative (`src=414f4098`) |
+| `init_phy` on the boot path | PHY setup before first xmit | Paid (HW) negative (`src=3f2d01b8`); submit now LinkDown |
 | `RBUF_CHK_CTRL` | RX checksum control | Product writes `0x31`; silicon unpaid |
 | More than one TX BD | Linux posts the frame BDs it has | One BD |
 | `TX_EN` settle | Datapath then transmit | Immediate doorbell |

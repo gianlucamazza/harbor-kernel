@@ -17,10 +17,14 @@ or claim that a driver exists.
 A 2026-08-14 Pi 4B oracle boot stamp confirms the board, UART path, image
 provenance, SMP, and durable-media baseline. The product prints a `genet:`
 FDT report and, when that binding matches the compiled window, runs
-`Genet::probe`. Silicon stamp `20260816-052739.log` (`src=656be102`, PowerOn) has the
-FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot `link=down`,
+`Genet::probe`. Silicon stamp `20260816-052739.log` (`src=3f2d01b8`, PowerOn) has the
+FDT line, `rev=6.0`, `phy=0x600d84a2`,
+`genet: phy init (bmcr, not a nic)`,
+a first-snapshot `link=down`,
 `queue0 programmed`,
+`genet: rings 1-4 (tdma, not a nic)`,
 `genet: tdma arb (wrr, not a nic)`,
+`genet: tdma prio (wrr, not a nic)`,
 `queue0 enabled`,
 `genet: ring cfg (0-4, not a nic)`,
 `genet: ring buf (0-4, not a nic)`,
@@ -29,22 +33,17 @@ FDT line, `rev=6.0`, `phy=0x600d84a2`, a first-snapshot `link=down`,
 `genet: tbuf tsb (64b, not a nic)`,
 `genet: tbuf size (rbuf, not a nic)`,
 `genet: rbuf 64b (align, not a nic)`,
-`genet: tx cons len=124 (dma, not a nic)`,
+`genet: tx unavailable (link down)`,
 `genet: umac tsv packed=0 linux=0 pok=0 (mib, not a nic)`,
-`genet: rx unavailable (timeout)`,
-`genet: reset recovered (idle, not a nic)`, and `VACANT`. CONS posted
-the 124-byte TSB+probe after TDMA `RING_BUF_EN=0x1f`;
-packed `0x49c`, Linux `0x4a8`, and `pok` `0x4ec` are all zero. The
-Apple NIC pcap has no `0x88b5`. The product now programs TDMA rings
-1–4 (32 BDs from 128) and prints `rings 1-4`; that is unpaid on
-silicon. The product now writes WRR priority words
-(`DMA_PRIORITY_0/1/2` = `WrrPriority::V5`) and prints `tdma prio`;
-that is unpaid on silicon. The product now writes a bounded BMCR
-reset after identify and prints `phy init`; that is unpaid on
-silicon. The product now writes `RBUF_CHK_CTRL` (`0x31`, `CRC_FWD`
-skip) and prints `rbuf chk`; that is unpaid on silicon. Serial CONS
-retire is not this ADR's one-TX gate. No wire RX or Pi absent-device
-result was produced.
+`genet: rx unavailable (link down)`,
+`genet: reset recovered (idle, not a nic)`, and `VACANT`. The BMCR
+reset ran; probe and submit BMSR are both down, so the doorbell is
+refused. packed `0x49c`, Linux `0x4a8`, and `pok` `0x4ec` are all zero.
+The Apple NIC pcap has no `0x88b5`. The product now writes
+`RBUF_CHK_CTRL` (`0x31`, `CRC_FWD` skip) and prints `rbuf chk`;
+that is unpaid on silicon.
+Serial CONS retire is not this ADR's one-TX gate. No wire RX or Pi
+absent-device result was produced.
 
 ## Context
 
