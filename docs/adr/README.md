@@ -132,6 +132,7 @@ the code that follows.
 | [0110](0110-a-model-is-consumed-or-declared.md)               | A pure model is consumed by the code that ships, or it names what will consume it            | proposed   |
 | [0111](0111-product-boot-witness.md)                          | The product leaves a witness that it booted, off the serial line                             | proposed   |
 | [0112](0112-p3-publication-transport-boundary.md)             | Publishing a NIC backend — one transport boundary, two backends                              | proposed   |
+| [0113](0113-p4-framebuffer-agent.md)                          | P4 — a framebuffer agent on a device window                                                  | proposed   |
 
 Porting / facade contract (not ADRs): [`../arch-contract.md`](../arch-contract.md),
 [`../porting.md`](../porting.md). Lab second-ISA matrix:
