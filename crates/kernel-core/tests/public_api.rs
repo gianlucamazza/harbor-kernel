@@ -528,3 +528,49 @@ fn the_platform_self_check_surface_is_reachable_from_outside() {
     assert!(cpuid::asid_bits(mmfr0).expect("defined encoding") >= kernel_core::asid::ASID_BITS);
     assert_eq!(cpuid::pa_bits(mmfr0), Some(44));
 }
+
+#[test]
+fn the_packet_abi_is_transport_neutral_and_reachable_from_outside() {
+    // ADR-0112 §1: the tokens that cross the EL0/EL1 service boundary live in
+    // `net`, beside `Request` and `decode`, not in `virtio`. They had lived in
+    // `virtio` since ADR-0104 for no reason but the order things were written
+    // in, and a transport-neutral ABI named after one transport is how the next
+    // backend inherits the confusion — which is ADR-0105 §4's failure exactly.
+    //
+    // This test is the contract that keeps them there. It is also the first
+    // time the packet ABI appeared in this file at all: the types agents and
+    // the service pass to each other were outside the surface the crate
+    // promises, which is the one thing this file exists to hold.
+    use kernel_core::net::{PACKET_BYTES, PACKET_SLOTS, PacketError, PacketPool};
+
+    assert_eq!(PACKET_BYTES, 2 * 1024);
+    assert_eq!(PACKET_SLOTS, 16);
+
+    let mut pool = PacketPool::new();
+
+    // TX begins with the agent; the service may not publish into a TX slot.
+    let tx = pool.submit_tx(0, 0, 64).expect("agent owns TX slot 0");
+    assert_eq!(tx.slot, 0);
+    assert_eq!(tx.len, 64);
+    assert_eq!(pool.publish_rx(0, 64), Err(PacketError::WrongDirection));
+
+    // RX begins with the service, in the second half of the table.
+    let rx = pool
+        .publish_rx(PACKET_SLOTS / 2, 128)
+        .expect("service owns the first RX slot");
+    assert_eq!(usize::from(rx.slot), PACKET_SLOTS / 2);
+
+    // Length is bounded before any device state is touched. A *fresh* RX slot,
+    // because slot 8 now belongs to the agent and ownership is checked first —
+    // which is itself the ordering the service depends on.
+    assert_eq!(
+        pool.publish_rx(PACKET_SLOTS / 2 + 1, PACKET_BYTES + 1),
+        Err(PacketError::Oversize)
+    );
+
+    // A reset invalidates every token the previous generation handed out —
+    // the property the service's reset path rests on (ADR-0104).
+    pool.reset();
+    assert_eq!(pool.accept_tx(tx), Err(PacketError::StaleGeneration));
+    assert_eq!(pool.return_rx(rx), Err(PacketError::StaleGeneration));
+}

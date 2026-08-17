@@ -286,11 +286,6 @@ pub fn split_queue_layout(base: u64, size: usize) -> Result<SplitQueueLayout, Qu
     })
 }
 
-/// Fixed packet slot size mandated by ADR-0104.
-pub const PACKET_BYTES: usize = 2 * 1024;
-/// Bounded first-slice pool size.
-pub const PACKET_SLOTS: usize = 16;
-
 /// Why a DMA descriptor was refused before it reached the transport.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DescriptorError {
@@ -323,185 +318,10 @@ pub const fn validate_descriptor(
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SlotState {
-    TxAgent,
-    TxService,
-    RxService,
-    RxAgent,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Slot {
-    generation: u32,
-    state: SlotState,
-}
-
-/// A bounded TX/RX packet ownership table.
-///
-/// The first half is TX-owned by the agent and the second half is RX-owned by
-/// the service.  Tokens contain only slot, generation, and length; no token
-/// exposes a physical address or a kernel pointer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PacketPool {
-    slots: [Slot; PACKET_SLOTS],
-}
-
-/// A packet reference carried across the service boundary.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PacketToken {
-    pub slot: u8,
-    pub generation: u32,
-    pub len: u16,
-}
-
-/// Why a packet operation was refused before touching device state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PacketError {
-    SlotOutOfRange,
-    StaleGeneration,
-    WrongDirection,
-    WrongOwner,
-    Oversize,
-}
-
-impl PacketPool {
-    /// Create a reset pool.  TX slots start with the agent; RX slots with EL1.
-    pub const fn new() -> Self {
-        let mut slots = [Slot {
-            generation: 0,
-            state: SlotState::TxAgent,
-        }; PACKET_SLOTS];
-        let mut i = PACKET_SLOTS / 2;
-        while i < PACKET_SLOTS {
-            slots[i].state = SlotState::RxService;
-            i += 1;
-        }
-        Self { slots }
-    }
-
-    /// Submit a frame from an agent TX slot to the EL1 service.
-    pub fn submit_tx(
-        &mut self,
-        slot: usize,
-        generation: u32,
-        len: usize,
-    ) -> Result<PacketToken, PacketError> {
-        let current = self.checked_slot(slot, generation)?;
-        if slot >= PACKET_SLOTS / 2 {
-            return Err(PacketError::WrongDirection);
-        }
-        if current.state != SlotState::TxAgent {
-            return Err(PacketError::WrongOwner);
-        }
-        let len = u16::try_from(len).map_err(|_| PacketError::Oversize)?;
-        if usize::from(len) > PACKET_BYTES {
-            return Err(PacketError::Oversize);
-        }
-        self.slots[slot].state = SlotState::TxService;
-        Ok(PacketToken {
-            slot: slot as u8,
-            generation,
-            len,
-        })
-    }
-
-    /// Accept a token received over the service endpoint after validating its
-    /// slot, generation, length, direction, and current owner.
-    pub fn accept_tx(&mut self, token: PacketToken) -> Result<(), PacketError> {
-        let slot = self.checked_token(token)?;
-        if usize::from(token.slot) >= PACKET_SLOTS / 2 {
-            return Err(PacketError::WrongDirection);
-        }
-        if slot.state != SlotState::TxAgent {
-            return Err(PacketError::WrongOwner);
-        }
-        self.slots[usize::from(token.slot)].state = SlotState::TxService;
-        Ok(())
-    }
-
-    /// Return a completed TX slot to the agent.
-    pub fn complete_tx(&mut self, token: PacketToken) -> Result<(), PacketError> {
-        let slot = self.checked_token(token)?;
-        if slot.state != SlotState::TxService {
-            return Err(PacketError::WrongOwner);
-        }
-        self.slots[usize::from(token.slot)].state = SlotState::TxAgent;
-        Ok(())
-    }
-
-    /// Publish an RX frame into an EL1-owned RX slot and notify the agent.
-    pub fn publish_rx(&mut self, slot: usize, len: usize) -> Result<PacketToken, PacketError> {
-        if slot >= PACKET_SLOTS {
-            return Err(PacketError::SlotOutOfRange);
-        }
-        if slot < PACKET_SLOTS / 2 {
-            return Err(PacketError::WrongDirection);
-        }
-        let current = self.slots[slot];
-        if current.state != SlotState::RxService {
-            return Err(PacketError::WrongOwner);
-        }
-        let len = u16::try_from(len).map_err(|_| PacketError::Oversize)?;
-        if usize::from(len) > PACKET_BYTES {
-            return Err(PacketError::Oversize);
-        }
-        self.slots[slot].state = SlotState::RxAgent;
-        Ok(PacketToken {
-            slot: slot as u8,
-            generation: current.generation,
-            len,
-        })
-    }
-
-    /// Return an RX slot after the agent consumed it.
-    pub fn return_rx(&mut self, token: PacketToken) -> Result<(), PacketError> {
-        let slot = self.checked_token(token)?;
-        if slot.state != SlotState::RxAgent {
-            return Err(PacketError::WrongOwner);
-        }
-        self.slots[usize::from(token.slot)].state = SlotState::RxService;
-        Ok(())
-    }
-
-    /// Reset the device contract and invalidate every outstanding token.
-    pub fn reset(&mut self) {
-        for slot in &mut self.slots {
-            slot.generation = slot.generation.wrapping_add(1);
-            slot.state = SlotState::TxAgent;
-        }
-        let mut i = PACKET_SLOTS / 2;
-        while i < PACKET_SLOTS {
-            self.slots[i].state = SlotState::RxService;
-            i += 1;
-        }
-    }
-
-    fn checked_slot(&self, slot: usize, generation: u32) -> Result<Slot, PacketError> {
-        let current = *self.slots.get(slot).ok_or(PacketError::SlotOutOfRange)?;
-        if current.generation != generation {
-            return Err(PacketError::StaleGeneration);
-        }
-        Ok(current)
-    }
-
-    fn checked_token(&self, token: PacketToken) -> Result<Slot, PacketError> {
-        if usize::from(token.len) > PACKET_BYTES {
-            return Err(PacketError::Oversize);
-        }
-        self.checked_slot(usize::from(token.slot), token.generation)
-    }
-}
-
-impl Default for PacketPool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net::PACKET_BYTES;
 
     #[test]
     fn mmio_probe_refuses_wrong_identity_before_negotiation() {
@@ -605,31 +425,6 @@ mod tests {
     }
 
     #[test]
-    fn tx_and_rx_ownership_is_directional() {
-        let mut pool = PacketPool::new();
-        let tx = pool.submit_tx(0, 0, 64).unwrap();
-        assert_eq!(pool.submit_tx(0, 0, 64), Err(PacketError::WrongOwner));
-        assert_eq!(pool.publish_rx(0, 64), Err(PacketError::WrongDirection));
-        pool.complete_tx(tx).unwrap();
-        let rx = pool.publish_rx(PACKET_SLOTS / 2, 128).unwrap();
-        assert_eq!(pool.return_rx(rx), Ok(()));
-        assert_eq!(pool.return_rx(rx), Err(PacketError::WrongOwner));
-    }
-
-    #[test]
-    fn malformed_lengths_are_refused() {
-        let mut pool = PacketPool::new();
-        assert_eq!(
-            pool.submit_tx(0, 0, PACKET_BYTES + 1),
-            Err(PacketError::Oversize)
-        );
-        assert_eq!(
-            pool.publish_rx(PACKET_SLOTS / 2, PACKET_BYTES + 1),
-            Err(PacketError::Oversize)
-        );
-    }
-
-    #[test]
     fn malformed_descriptors_are_refused_without_memory_access() {
         assert_eq!(
             validate_descriptor(0, 64, PACKET_BYTES),
@@ -647,17 +442,5 @@ mod tests {
             validate_descriptor(0x1000, PACKET_BYTES + 1, PACKET_BYTES),
             Err(DescriptorError::LengthTooLarge)
         );
-    }
-
-    #[test]
-    fn reset_invalidates_outstanding_tokens() {
-        let mut pool = PacketPool::new();
-        let tx = pool.submit_tx(0, 0, 1).unwrap();
-        let rx = pool.publish_rx(PACKET_SLOTS / 2, 1).unwrap();
-        pool.reset();
-        assert_eq!(pool.complete_tx(tx), Err(PacketError::StaleGeneration));
-        assert_eq!(pool.return_rx(rx), Err(PacketError::StaleGeneration));
-        let fresh = pool.submit_tx(0, 1, 1).unwrap();
-        assert_eq!(fresh.generation, 1);
     }
 }

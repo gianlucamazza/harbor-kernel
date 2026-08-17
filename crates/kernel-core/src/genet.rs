@@ -1105,8 +1105,11 @@ impl RingState {
 
 /// The work classes raised by one GENET interrupt block.
 ///
-/// Design-ahead (P3 publication). The bring-up driver polls a bounded window
-/// and takes no GENET interrupt, so nothing classifies one yet (ADR-0110).
+/// Design-ahead (P3 publication — **interrupt slice**, not the first one).
+/// [ADR-0112](../../../docs/adr/0112-p3-publication-transport-boundary.md) §4
+/// polls, the same way the virtio backend does, so the first published backend
+/// still classifies nothing. Binding `INTRL2` and acknowledging it is its own
+/// boundary with its own evidence (ADR-0110).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InterruptWork {
     pub link: bool,
@@ -1132,9 +1135,13 @@ impl InterruptWork {
 
 /// Reset generations invalidate every descriptor token from the prior run.
 ///
-/// Design-ahead (P3 publication). `Genet::recover` resets and re-reads; it has
-/// no outstanding tokens to invalidate, because it never handed any out. A
-/// service that grants frame ownership will (ADR-0110).
+/// Design-ahead (P3 publication — **interrupt slice**, not the first one).
+/// `Genet::recover` resets and re-reads; it has no outstanding tokens to
+/// invalidate, because it never handed any out. The first published backend
+/// keeps the generation counter in `network_runtime`, where it is service state
+/// shared by both transports (ADR-0112 §2); this becomes the driver's own
+/// account of it when the driver owns a reset the service did not ask for
+/// (ADR-0110).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResetState {
     generation: u32,

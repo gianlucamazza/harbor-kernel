@@ -166,7 +166,7 @@ pub const fn encode_net_tx_rx_exit(
         &mut out,
         &mut i,
         2,
-        crate::net::packed_token(crate::virtio::PacketToken {
+        crate::net::packed_token(crate::net::PacketToken {
             slot: 1,
             generation: 0,
             len: 16,
@@ -211,7 +211,7 @@ pub const fn encode_net_tx_exit(pool_va: u64, tx_slot: u16, complete_slot: u16) 
         &mut out,
         &mut i,
         2,
-        crate::net::packed_token(crate::virtio::PacketToken {
+        crate::net::packed_token(crate::net::PacketToken {
             slot: 1,
             generation: 0,
             len: 16,
