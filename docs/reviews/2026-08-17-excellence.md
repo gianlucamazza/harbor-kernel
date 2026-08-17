@@ -370,7 +370,25 @@ bounded nella forma oltre che nel fatto — ma la severità corretta era P3, non
 P2. Il finding resta sopra come record datato dell'audit; questa riga è la
 rettifica.
 
+**F-10 chiuso lo stesso giorno.** La cella ADR-0105+0106 era arrivata a
+**20 799 caratteri** — la passata sopra l'aveva misurata a ~4 500 parole e le
+sessioni GENET del 17 l'hanno fatta crescere ancora. È ora
+[una sezione datata](../verification.md#hardware-evidence-pi-4-genet-v5-bring-up-2026-08-14--2026-08-17)
+con una riga di tabella per boot (31 stamp), il modello host in prosa e il gate
+in fondo; la cella è scesa a 916 caratteri e rimanda lì. La stessa passata ha
+aggiornato README, `architecture.md` e lo Status di ADR-0105, che dichiaravano
+ancora uno stato del GENET superato dai fatti.
+
 **Non fatto in questa passata**: F-3 (divergenza modello/driver — va dopo che
-la sequenza funziona, non durante), F-10 (la cella da 4500 parole), F-12
-(decisione sui transcript), F-15 (potatura branch), F-16 (stub x86 in
-ADR-0049), e il piano di completamento oltre P3.
+la sequenza funziona, non durante), F-12 (decisione sui transcript), F-15
+(potatura branch), F-16 (stub x86 in ADR-0049), e il piano di completamento
+oltre P3.
+
+**Nota sul percorso GENET del 2026-08-17.** L'audit sopra aveva scritto che il
+dead-end «non è un mistero: è una sequenza sbagliata». Era vero a metà. Il
+riordino era reale e necessario, ma da solo non ha prodotto nulla: il difetto
+che teneva ferma la TX era che **UniMAC restava in software reset per tutto il
+boot**, e nessuno poteva vederlo perché il poll che avrebbe dovuto accorgersene
+passava solo grazie a una scrittura che non atterrava. Il finding che ha
+davvero pagato non è nella lista sopra — è il dump read-only che ADR-0107 §4
+aveva prescritto *prima* che l'ipotesi della sequenza potesse fallire.
