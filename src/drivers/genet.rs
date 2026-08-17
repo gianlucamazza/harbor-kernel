@@ -40,6 +40,14 @@ const RESET_SETTLE_US: u32 = 2;
 /// anything a reader would notice.
 const TSV_SETTLE_US: u32 = 20_000;
 const TSV_STEP_US: u32 = 200;
+/// How long a bounded RX waits for the link partner to send something.
+///
+/// Bounded because a boot may not hang, and generous because the thing being
+/// waited for is not Harbor's to schedule. Half a second is well inside the
+/// boot's existing budget and wide enough to catch the periodic broadcasts a
+/// quiet link still carries.
+const RX_WINDOW_US: u32 = 500_000;
+const RX_STEP_US: u32 = 500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -567,14 +575,30 @@ impl Genet {
         );
         self.regs
             .write32(ring + dma_registers::PROD_INDEX as usize, 1);
-        if !poll::until(RESET_SPIN_LIMIT, || {
+        // A wall-clock window, not a spin budget. RX waits on a frame the
+        // *link partner* chooses to send, so the bound has to be expressed in
+        // the units that question is asked in. The 11:21 boot completed an RX
+        // and the 11:27 boot timed out on the same code — the difference was
+        // whether a broadcast happened to land inside a spin count, which is a
+        // fact about the laptop, not about Harbor.
+        let mut waited = 0;
+        let complete = loop {
             let cons = self.regs.read32(ring + dma_registers::CONS_INDEX as usize);
-            TxReport::cons_has_posted(cons)
+            if TxReport::cons_has_posted(cons)
                 && matches!(
                     RxReport::from_status(self.regs.read32(registers::RDMA as usize)),
                     RxReport::Complete(_)
                 )
-        }) {
+            {
+                break true;
+            }
+            if waited >= RX_WINDOW_US {
+                break false;
+            }
+            settle(RX_STEP_US);
+            waited += RX_STEP_US;
+        };
+        if !complete {
             return Ok(RxReport::from_poll(
                 self.regs.read32(ring + dma_registers::CONS_INDEX as usize),
                 self.regs.read32(registers::RDMA as usize),
