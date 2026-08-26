@@ -12,6 +12,9 @@ pub mod rpi4;
 #[cfg(feature = "board-qemu-q35")]
 pub mod qemu_q35;
 
+#[cfg(target_arch = "aarch64")]
+pub mod net;
+
 #[cfg(all(feature = "board-qemu-virt", target_arch = "aarch64"))]
 pub mod qemu_virt;
 

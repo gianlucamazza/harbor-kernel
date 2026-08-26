@@ -24,6 +24,7 @@ pub fn resolve(name: &[u8]) -> Result<CapId, ResolveError> {
 }
 
 /// Remove a binding.
+#[cfg(feature = "oracle")]
 pub fn unbind(name: &[u8]) -> Result<(), ResolveError> {
     NAMES.with(|t| t.unbind(name))
 }

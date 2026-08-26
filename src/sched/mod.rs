@@ -417,6 +417,7 @@ pub fn mark_current_not_stealeable() {
 }
 
 /// Opt the current task into work stealing (ADR-0082/0083 first code is opt-in).
+#[cfg(feature = "oracle")]
 pub fn mark_current_stealeable() {
     let cpu = this_cpu();
     with_sched(|sched| {
@@ -426,11 +427,13 @@ pub fn mark_current_stealeable() {
 }
 
 /// Create a ready task that starts at `entry` with no capabilities.
+#[cfg(feature = "oracle")]
 pub fn spawn(entry: fn()) -> Result<TaskId, SpawnError> {
     spawn_with_caps(entry, &[])
 }
 
 /// Thin-stack spawn (ADR-0044 / K5) — 4 KiB usable + guard.
+#[cfg(feature = "oracle")]
 pub fn spawn_thin(entry: fn()) -> Result<TaskId, SpawnError> {
     spawn_with_class(entry, &[], StackClass::Thin)
 }
@@ -439,6 +442,7 @@ pub fn spawn_thin(entry: fn()) -> Result<TaskId, SpawnError> {
 ///
 /// For short EL1 workers that yield/exit. Do not use for deep multi-SVC agent
 /// driver loops (stack overflow risk).
+#[cfg(feature = "oracle")]
 pub fn spawn_mini(entry: fn()) -> Result<TaskId, SpawnError> {
     spawn_with_class(entry, &[], StackClass::Mini)
 }
@@ -482,6 +486,7 @@ pub fn spawn_with_slots_on(
     spawn_on_inner(cpu, entry, slots, StackClass::Full)
 }
 
+#[cfg(feature = "oracle")]
 fn spawn_with_class(entry: fn(), caps: &[CapId], class: StackClass) -> Result<TaskId, SpawnError> {
     if caps.len() > MAX_CAPS_PER_TASK {
         return Err(SpawnError::TooManyCaps);
@@ -493,6 +498,7 @@ fn spawn_with_class(entry: fn(), caps: &[CapId], class: StackClass) -> Result<Ta
     spawn_inner(entry, &slots, class)
 }
 
+#[cfg(feature = "oracle")]
 fn spawn_inner(
     entry: fn(),
     slots: &[Option<CapId>],
@@ -576,6 +582,7 @@ pub fn grant_resolve(id: TaskId) -> bool {
 
 /// Grant resolve to the running task (bootstrap / oracle convenience).
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn grant_resolve_current() -> bool {
     grant_resolve(current_task_id())
 }
@@ -765,6 +772,7 @@ static CASCADE_EVENTS: AtomicU32 = AtomicU32::new(0);
 
 /// How many blocked children were cancelled on creator exit (ADR-0038).
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn cascade_events() -> u32 {
     CASCADE_EVENTS.load(Ordering::Relaxed)
 }
@@ -963,6 +971,7 @@ pub fn blocked_count() -> u32 {
 }
 
 /// Cumulative successful entries into `Blocked` since boot (ADR-0024).
+#[cfg(feature = "oracle")]
 pub fn block_events() -> u32 {
     with_sched(|sched| sched.tasks.block_events())
 }
@@ -1021,6 +1030,7 @@ pub fn take_cancel_wait() -> bool {
 
 /// How many times a cancel prepared successfully.
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn cancel_events() -> u32 {
     CANCEL_EVENTS.load(Ordering::Relaxed)
 }
@@ -1029,11 +1039,14 @@ pub fn cancel_events() -> u32 {
 ///
 /// The classes and the order they are decided in live in
 /// [`kernel_core::lifecycle`] (ADR-0092); this is the kernel's name for them.
+#[cfg(feature = "oracle")]
 pub use kernel_core::lifecycle::ReapError;
 
+#[cfg(feature = "oracle")]
 static REAP_EVENTS: AtomicU32 = AtomicU32::new(0);
 
 /// Observe a task's lifecycle state (creator/supervisor path, ADR-0033).
+#[cfg(feature = "oracle")]
 pub fn task_state(id: TaskId) -> Option<kernel_core::tasks::State> {
     with_sched(|sched| sched.tasks.state(id))
 }
@@ -1043,6 +1056,7 @@ pub fn task_state(id: TaskId) -> Option<kernel_core::tasks::State> {
 /// Product API over [`crate::ipc::cancel_blocked`]. The child must treat
 /// `Cancelled` as terminal for this wait and return from its entry (trampoline
 /// exits). Does **not** force-kill a Running EL0 session or destroy a remote AS.
+#[cfg(feature = "oracle")]
 pub fn supervisor_reap_blocked(id: TaskId) -> Result<(), ReapError> {
     match lifecycle::reap(id == Tasks::<MAX_TASKS>::IDLE, task_state(id)) {
         lifecycle::ReapVerdict::Refuse(e) => Err(e),
@@ -1060,6 +1074,7 @@ pub fn supervisor_reap_blocked(id: TaskId) -> Result<(), ReapError> {
 
 /// Successful [`supervisor_reap_blocked`] calls since boot.
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn reap_events() -> u32 {
     REAP_EVENTS.load(Ordering::Relaxed)
 }
@@ -1069,8 +1084,10 @@ pub fn reap_events() -> u32 {
 /// Decided by [`kernel_core::lifecycle::force`] (ADR-0092). Note that an empty
 /// slot answers `Empty` here and `NotBlocked` to [`supervisor_reap_blocked`] —
 /// deliberate, and asserted by a test that names it.
+#[cfg(feature = "oracle")]
 pub use kernel_core::lifecycle::ForceError;
 
+#[cfg(feature = "oracle")]
 static FORCE_EXIT_EVENTS: AtomicU32 = AtomicU32::new(0);
 
 /// Request that `id` exit at the next safe point (ADR-0090).
@@ -1078,6 +1095,7 @@ static FORCE_EXIT_EVENTS: AtomicU32 = AtomicU32::new(0);
 /// **Blocked:** also cancels the wait (same path as reap). **Ready / Running:**
 /// sets a flag; the victim observes it in the trampoline or the agent session
 /// loop and tears down **its own** AS — not a remote destroy.
+#[cfg(feature = "oracle")]
 pub fn supervisor_force_exit(id: TaskId) -> Result<(), ForceError> {
     let is_idle = id == Tasks::<MAX_TASKS>::IDLE;
     let need_cancel = with_sched(|sched| {
@@ -1124,12 +1142,14 @@ pub fn take_force_exit() -> bool {
 
 /// Successful [`supervisor_force_exit`] calls since boot.
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn force_exit_events() -> u32 {
     FORCE_EXIT_EVENTS.load(Ordering::Relaxed)
 }
 
 /// Wake queue drop count (full queue under IRQ pressure).
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn wake_drops() -> u32 {
     irq::wait::drops()
 }

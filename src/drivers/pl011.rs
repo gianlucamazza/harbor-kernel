@@ -35,6 +35,7 @@ const DR_ERRORS: u32 = 0b1111 << 8;
 // CR bits.
 const CR_UARTEN: u32 = 1 << 0;
 /// Loopback enable (DDI 0183): TX is fed to RX inside the block.
+#[cfg(feature = "oracle")]
 const CR_LBE: u32 = 1 << 7;
 const CR_TXE: u32 = 1 << 8;
 const CR_RXE: u32 = 1 << 9;
@@ -144,6 +145,7 @@ impl Pl011 {
     }
 
     /// Mask all PL011 IRQs (agent poll ownership; kernel drain is off).
+    #[cfg(feature = "oracle")]
     pub fn disable_rx_interrupt(&self) {
         self.regs.write32(IMSC, 0);
     }
@@ -152,6 +154,7 @@ impl Pl011 {
     ///
     /// Does not touch baud/format. Caller must own exclusive use of RX for the
     /// window (kernel drain suspended) so looped bytes are not stolen by IRQ.
+    #[cfg(feature = "oracle")]
     pub fn set_loopback(&self, on: bool) {
         let mut cr = self.regs.read32(CR);
         if on {
@@ -226,6 +229,7 @@ impl Pl011Rx {
     ///
     /// Used when kernel drain is suspended so an EL0 agent can poll `DR`
     /// without a level-triggered UART SPI re-firing into a no-op handler.
+    #[cfg(feature = "oracle")]
     pub fn discard_and_ack(&self) {
         while self.regs.read32(FR) & FR_RXFE == 0 {
             let _ = self.regs.read32(DR);

@@ -1,24 +1,18 @@
-//! Resident P3 transport ownership, below the future packet service.
-//!
-//! Bootstrap allocates the DMA pages because the driver layer must not import
-//! the allocator. This module retains both the configured transport and the
-//! frame ids until a later service lifecycle explicitly resets them.
+//! Resident transport ownership below the network service.
 
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use kernel_core::frame::FrameId;
-use kernel_core::net::{self as net_abi, PacketPool};
+use kernel_core::net::{self as net_abi, PacketPool, PacketToken};
 
 use crate::arch::cache;
-use crate::bsp::board;
-use crate::drivers::virtio_mmio::{Configured, QueueMemory, QueueSetupFailure};
+use crate::bsp::net::{self as transport, Transport};
 use crate::mm;
 use crate::sync::Mutex;
 
-const RING_PAGE_BYTES: usize = 4096;
 const PACKET_PAGE_COUNT: usize = 8;
 const DMA_PACKET_COUNT: usize = 9;
-const PACKET_HEADER_BYTES: usize = 12;
+const SCRATCH_COUNT: usize = transport::SCRATCH_PAGES;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Report {
@@ -34,7 +28,7 @@ pub struct Report {
 pub enum StartError {
     AlreadyStarted,
     FramesUnavailable,
-    Device(QueueSetupFailure),
+    Device(transport::Error),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,53 +36,42 @@ pub enum ServiceError {
     Unavailable,
     Busy,
     Packet(kernel_core::net::PacketError),
-    Transport(QueueSetupFailure),
+    Transport(transport::Error),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecoveryError {
+    Unavailable,
+    TransportReset(transport::Error),
+    PoolPublish { slot: u8 },
+    PoolReturn { slot: u8 },
+    TransportReturn { slot: u8, error: transport::Error },
 }
 
 #[derive(Clone, Copy)]
-struct PacketPage {
+struct Page {
     id: FrameId,
     pa: usize,
 }
 
-struct RingFrames {
-    ids: [FrameId; 3],
-    memory: QueueMemory,
-}
-
-impl RingFrames {
-    fn release(&self) {
-        for id in self.ids {
-            let _ = mm::frames::free(id);
-        }
-    }
-}
-
 struct Lease {
-    configured: Configured,
-    rings: [RingFrames; 2],
-    packets: [PacketPage; PACKET_PAGE_COUNT],
-    dma_packets: [PacketPage; DMA_PACKET_COUNT],
+    transport: transport::Backend,
+    scratch: [Page; SCRATCH_COUNT],
+    packets: [Page; PACKET_PAGE_COUNT],
+    dma_packets: [Page; DMA_PACKET_COUNT],
     pool: PacketPool,
-    rx_slots: [u8; 8],
-    tx_token: Option<kernel_core::net::PacketToken>,
-    service_tx: Option<kernel_core::net::PacketToken>,
-    tx_event: Option<kernel_core::net::PacketToken>,
-    rx_event: Option<kernel_core::net::PacketToken>,
+    rx_slots: [u8; net_abi::PACKET_SLOTS / 2],
+    service_tx: Option<PacketToken>,
+    tx_event: Option<PacketToken>,
+    rx_event: Option<PacketToken>,
 }
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        self.configured.reset();
-        for ring in &self.rings {
-            ring.release();
-        }
-        for page in self.packets {
-            let _ = mm::frames::free(page.id);
-        }
-        for page in self.dma_packets {
-            let _ = mm::frames::free(page.id);
-        }
+        let _ = self.transport.reset();
+        free_pages(&self.scratch);
+        free_pages(&self.packets);
+        free_pages(&self.dma_packets);
     }
 }
 
@@ -98,9 +81,7 @@ static TX_PACKETS: AtomicU32 = AtomicU32::new(0);
 static REFUSED_PACKETS: AtomicU32 = AtomicU32::new(0);
 static SERVICE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// Physical pages backing the EL1-owned packet pool. The loader may map these
-/// only for an entry with the explicit packet-pool grant; the addresses never
-/// enter an IPC message or manifest.
+#[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
 pub fn packet_pool_pages() -> Option<[usize; crate::mm::aspace::PACKET_POOL_PAGES]> {
     LEASE.with(|lease| {
         let lease = lease.as_ref()?;
@@ -108,108 +89,115 @@ pub fn packet_pool_pages() -> Option<[usize; crate::mm::aspace::PACKET_POOL_PAGE
     })
 }
 
-/// Allocate rings and retain the configured EL1 transport for the resident
-/// service. No agent capability is minted here.
-pub fn start() -> Result<Report, StartError> {
-    if LEASE.with(|lease| lease.is_some()) {
-        return Err(StartError::AlreadyStarted);
-    }
-    let first = allocate_ring().ok_or(StartError::FramesUnavailable)?;
-    let second = match allocate_ring() {
-        Some(ring) => ring,
-        None => {
-            first.release();
-            return Err(StartError::FramesUnavailable);
-        }
-    };
-    let packets = match allocate_packets() {
-        Some(packets) => packets,
-        None => {
-            first.release();
-            second.release();
-            return Err(StartError::FramesUnavailable);
-        }
-    };
-    let dma_packets = match allocate_dma_packets() {
-        Some(packets) => packets,
-        None => {
-            first.release();
-            second.release();
-            for page in packets {
-                let _ = mm::frames::free(page.id);
-            }
-            return Err(StartError::FramesUnavailable);
-        }
-    };
-    let memory = [first.memory, second.memory];
-    // SAFETY: bootstrap owns the only network lease; the BSP maps the window
-    // as Device and the ring frames are identity-mapped Normal memory.
-    let (report, configured) = match unsafe { board::network::configure(memory) } {
-        Ok(result) => result,
-        Err(error) => {
-            first.release();
-            second.release();
-            for page in packets {
-                let _ = mm::frames::free(page.id);
-            }
-            for page in dma_packets {
-                let _ = mm::frames::free(page.id);
-            }
-            return Err(StartError::Device(error));
-        }
-    };
-    let mut lease = Lease {
-        configured,
-        rings: [first, second],
-        packets,
-        dma_packets,
-        pool: PacketPool::new(),
-        rx_slots: core::array::from_fn(|i| (net_abi::PACKET_SLOTS / 2 + i) as u8),
-        tx_token: None,
-        service_tx: None,
-        tx_event: None,
-        rx_event: None,
-    };
-    for slot in 0..8 {
-        if let Err(error) = lease.configured.post_rx(
-            dma_address(&lease.dma_packets, 1 + slot),
-            PACKET_HEADER_BYTES + net_abi::PACKET_BYTES,
-        ) {
-            drop(lease);
-            return Err(StartError::Device(error));
-        }
-    }
-    publish_ring(&lease.rings[0], &lease.rings[1]);
-    let tx_len = submit_probe_packet(&mut lease)?;
-    let tx_token = lease
-        .pool
-        .submit_tx(0, 0, tx_len)
-        .map_err(|_| StartError::Device(QueueSetupFailure::InvalidBuffer))?;
-    lease.tx_token = Some(tx_token);
-    if let Err(error) = lease.configured.submit_tx(
-        dma_address(&lease.dma_packets, 0),
-        PACKET_HEADER_BYTES + tx_len,
-    ) {
-        drop(lease);
-        return Err(StartError::Device(error));
-    }
-    publish_ring(&lease.rings[0], &lease.rings[1]);
-    LEASE.with(|current| *current = Some(lease));
-    Ok(Report {
-        base: report.base,
-        vendor: report.negotiated.device.vendor,
-        features: report.negotiated.features,
-        queues: report.queues,
-        queue_size: report.queue_size,
-        tx_submitted: true,
-    })
-}
-
 pub fn enable_service() {
     SERVICE_ACTIVE.store(true, Ordering::Release);
 }
 
-pub fn submit_service_tx(token: kernel_core::net::PacketToken) -> Result<(), ServiceError> {
+/// Whether the resident transport lease was claimed successfully.
+pub fn service_available() -> bool {
+    LEASE.with(|lease| lease.is_some())
+}
+
+pub fn start() -> Result<Report, StartError> {
+    crate::kprintln!("net: transport start");
+    if LEASE.with(|lease| lease.is_some()) {
+        crate::kprintln!("net: transport start FAILED already started");
+        return Err(StartError::AlreadyStarted);
+    }
+    let packets = match allocate_pages::<PACKET_PAGE_COUNT>() {
+        Some(packets) => packets,
+        None => {
+            crate::kprintln!("net: packet pages FAILED");
+            return Err(StartError::FramesUnavailable);
+        }
+    };
+    let dma_packets = match allocate_pages::<DMA_PACKET_COUNT>() {
+        Some(p) => p,
+        None => {
+            crate::kprintln!("net: DMA packet pages FAILED");
+            free_pages(&packets);
+            return Err(StartError::FramesUnavailable);
+        }
+    };
+    let scratch = match allocate_pages::<SCRATCH_COUNT>() {
+        Some(p) => p,
+        None => {
+            crate::kprintln!("net: scratch pages FAILED");
+            free_pages(&packets);
+            free_pages(&dma_packets);
+            return Err(StartError::FramesUnavailable);
+        }
+    };
+    let scratch_pa = core::array::from_fn(|i| scratch[i].pa as u64);
+    let (mut backend, facts) = match transport::claim(&scratch_pa) {
+        Ok(value) => value,
+        Err(error) => {
+            crate::kprintln!("net: transport claim FAILED {error:?}");
+            free_pages(&scratch);
+            free_pages(&packets);
+            free_pages(&dma_packets);
+            return Err(StartError::Device(error));
+        }
+    };
+    let mut pool = PacketPool::new();
+    let rx_slots = core::array::from_fn(|i| (net_abi::PACKET_SLOTS / 2 + i) as u8);
+    let rx_set: [transport::RxSlot; net_abi::PACKET_SLOTS / 2] = core::array::from_fn(|i| {
+        let token = pool
+            .publish_rx(usize::from(rx_slots[i]), 0)
+            .expect("fresh RX slot");
+        pool.return_rx(token).expect("fresh RX return");
+        transport::RxSlot {
+            token,
+            buffer: transport::Buffer {
+                pa: dma_packets[i + 1].pa as u64,
+                len: net_abi::PACKET_BYTES,
+            },
+        }
+    });
+    if let Err(error) = backend.start(
+        &rx_set,
+        transport::Buffer {
+            pa: dma_packets[0].pa as u64,
+            len: net_abi::PACKET_BYTES,
+        },
+    ) {
+        let _ = backend.reset();
+        crate::kprintln!("net: transport start FAILED {error:?}");
+        free_pages(&scratch);
+        free_pages(&packets);
+        free_pages(&dma_packets);
+        return Err(StartError::Device(error));
+    }
+    LEASE.with(|lease| {
+        *lease = Some(Lease {
+            transport: backend,
+            scratch,
+            packets,
+            dma_packets,
+            pool,
+            rx_slots,
+            service_tx: None,
+            tx_event: None,
+            rx_event: None,
+        })
+    });
+    crate::kprintln!(
+        "net: transport started base={:#x} queues={} size={}",
+        facts.base,
+        facts.queues,
+        facts.queue_size
+    );
+    Ok(Report {
+        base: facts.base as usize,
+        vendor: facts.identity,
+        features: facts.features,
+        queues: facts.queues,
+        queue_size: facts.queue_size,
+        tx_submitted: true,
+    })
+}
+
+pub fn submit_service_tx(token: PacketToken) -> Result<(), ServiceError> {
     LEASE.with(|lease| {
         let lease = lease.as_mut().ok_or(ServiceError::Unavailable)?;
         if lease.service_tx.is_some() {
@@ -217,338 +205,222 @@ pub fn submit_service_tx(token: kernel_core::net::PacketToken) -> Result<(), Ser
         }
         lease.pool.accept_tx(token).map_err(ServiceError::Packet)?;
         let source = pool_address(&lease.packets, token.slot);
-        // The agent owns the shared Normal-WB slot until this operation; make
-        // its bytes visible before EL1 copies them for DMA.
-        // SAFETY: source is one of the service-owned, Normal-WB packet pages;
-        // the pool token bounds the range to one 2 KiB slot.
-        unsafe { cache::clean_dcache_poc(source as usize, usize::from(token.len)) };
-        let dma = lease.dma_packets[1].pa;
-        // SAFETY: the private DMA page is retained by the lease and the token
-        // length is bounded by PacketPool::accept_tx.
+        // SAFETY: the pool validated `token`; both pages belong to this lease,
+        // and the bounded length stays within the packet halves.
         unsafe {
-            core::ptr::write_bytes(dma as *mut u8, 0, PACKET_HEADER_BYTES);
+            cache::clean_dcache_poc(source as usize, usize::from(token.len));
             core::ptr::copy_nonoverlapping(
                 source as *const u8,
-                (dma + PACKET_HEADER_BYTES) as *mut u8,
+                lease.dma_packets[1].pa as *mut u8,
                 usize::from(token.len),
             );
-            cache::clean_dcache_poc(dma, PACKET_HEADER_BYTES + usize::from(token.len));
         }
         lease
-            .configured
-            .submit_tx(dma as u64, PACKET_HEADER_BYTES + usize::from(token.len))
+            .transport
+            .submit_tx(
+                token,
+                transport::Buffer {
+                    pa: lease.dma_packets[1].pa as u64,
+                    len: usize::from(token.len),
+                },
+            )
             .map_err(ServiceError::Transport)?;
-        publish_ring(&lease.rings[0], &lease.rings[1]);
         lease.service_tx = Some(token);
         Ok(())
     })
 }
 
-pub fn return_service_rx(token: kernel_core::net::PacketToken) -> Result<(), ServiceError> {
+pub fn return_service_rx(token: PacketToken) -> Result<(), ServiceError> {
     LEASE.with(|lease| {
         let lease = lease.as_mut().ok_or(ServiceError::Unavailable)?;
         lease.pool.return_rx(token).map_err(ServiceError::Packet)?;
+        let i = usize::from(token.slot) - net_abi::PACKET_SLOTS / 2;
         lease
-            .configured
-            .post_rx(
-                dma_address(
-                    &lease.dma_packets,
-                    1 + usize::from(token.slot) - net_abi::PACKET_SLOTS / 2,
-                ),
-                PACKET_HEADER_BYTES + net_abi::PACKET_BYTES,
+            .transport
+            .return_rx(
+                token,
+                transport::Buffer {
+                    pa: lease.dma_packets[i + 1].pa as u64,
+                    len: net_abi::PACKET_BYTES,
+                },
             )
-            .map_err(ServiceError::Transport)?;
-        publish_ring(&lease.rings[0], &lease.rings[1]);
-        Ok(())
+            .map_err(ServiceError::Transport)
     })
 }
 
-pub fn take_tx_complete() -> Option<kernel_core::net::PacketToken> {
+pub fn take_tx_complete() -> Option<PacketToken> {
     LEASE.with(|lease| {
         let lease = lease.as_mut()?;
-        let token = lease.tx_event.take()?;
-        let _ = lease.pool.complete_tx(token);
-        Some(token)
+        if let Some(token) = lease.tx_event.take() {
+            return Some(token);
+        }
+        let (token, _) = lease.transport.take_tx_complete()?;
+        if lease.service_tx == Some(token) {
+            lease.service_tx = None;
+            let _ = lease.pool.complete_tx(token);
+            lease.tx_event = Some(token);
+        } else {
+            TX_PACKETS.fetch_add(1, Ordering::Relaxed);
+        }
+        lease.tx_event.take()
     })
 }
 
-pub fn take_rx_available() -> Option<kernel_core::net::PacketToken> {
+pub fn take_rx_available() -> Option<PacketToken> {
     LEASE.with(|lease| lease.as_mut()?.rx_event.take())
 }
 
-/// Recycle the resident network service after its current composition exits.
-///
-/// This is the explicit service-lifecycle reset boundary: all outstanding
-/// packet tokens become stale, the transport negotiates again, and fresh RX
-/// descriptors are published before the service can be reused.
-pub fn recycle_after_session() -> bool {
-    LEASE.with(|lease| lease.as_mut().is_some_and(recover))
-}
-
-/// Poll completed device work from the voluntary EL1 path.
-///
-/// The IRQ handler only acknowledges the line. This function is called from
-/// the idle loop, where it may take the service lock and perform bounded ring
-/// work without violating the IRQ no-block/no-switch rule.
 pub fn poll() {
     LEASE.with(|lease| {
         let Some(lease) = lease.as_mut() else { return };
-        consume_used(&lease.rings[0], &lease.rings[1]);
-        loop {
-            let used = match lease.configured.poll_used(Configured::rx_queue()) {
-                Ok(used) => used,
-                Err(error) => {
-                    crate::kprintln!("virtio-net: rx poll failed {error:?}; recovering");
-                    let _ = recover(lease);
-                    break;
-                }
-            };
-            let Some(used) = used else { break };
-            let descriptor = usize::from(used.descriptor);
-            if descriptor >= lease.rx_slots.len()
-                || used.len < PACKET_HEADER_BYTES as u32
-                || used.len as usize > PACKET_HEADER_BYTES + net_abi::PACKET_BYTES
-            {
-                REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
-                rearm_rx(lease, descriptor);
-                continue;
+        if lease.transport.poll().is_err() {
+            REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
+            if let Err(error) = recover(lease) {
+                crate::kprintln!("net: poll recovery FAILED {error:?}");
             }
-            let len = used.len as usize - PACKET_HEADER_BYTES;
-            let slot = usize::from(lease.rx_slots[descriptor]);
-            let source = dma_address(&lease.dma_packets, 1 + descriptor) as usize;
-            let destination = pool_address(&lease.packets, slot as u8) as usize;
-            // The device owns the private RX page until used-ring consumption;
-            // make the frame visible before copying it into the EL0 pool.
-            // SAFETY: both ranges are retained packet pages and `len` is
-            // bounded by the virtio packet slot size above.
+            return;
+        }
+        while let Some((token, completion)) = lease.transport.take_rx_available() {
+            let source = dma_address(&lease.dma_packets, token.slot);
+            let destination = pool_address(&lease.packets, token.slot);
+            // SAFETY: the transport returned a token previously posted by
+            // this lease; completion.len is bounded by the packet buffer.
             unsafe {
-                cache::invalidate_dcache_poc(source, used.len as usize);
+                cache::invalidate_dcache_poc(source as usize, completion.len);
                 core::ptr::copy_nonoverlapping(
-                    (source + PACKET_HEADER_BYTES) as *const u8,
+                    source as *const u8,
                     destination as *mut u8,
-                    len,
+                    completion.len,
                 );
-                cache::clean_dcache_poc(destination, len);
+                cache::clean_dcache_poc(destination as usize, completion.len);
             }
-            match lease.pool.publish_rx(slot, len) {
-                Ok(token) => {
-                    if RX_PACKETS.fetch_add(1, Ordering::Relaxed) == 0 {
-                        crate::kprintln!("virtio-net: rx available len={}", len);
-                    }
-                    if SERVICE_ACTIVE.load(Ordering::Acquire) {
-                        if lease.rx_event.is_none() {
-                            lease.rx_event = Some(token);
-                        } else {
-                            REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
-                        }
-                    } else {
-                        let _ = lease.pool.return_rx(token);
-                        rearm_rx(lease, descriptor);
-                    }
+            match lease
+                .pool
+                .publish_rx(usize::from(token.slot), completion.len)
+            {
+                Ok(published)
+                    if SERVICE_ACTIVE.load(Ordering::Acquire) && lease.rx_event.is_none() =>
+                {
+                    lease.rx_event = Some(published);
+                    RX_PACKETS.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(published) => {
+                    let _ = lease.pool.return_rx(published);
+                    let _ = lease.transport.return_rx(
+                        published,
+                        transport::Buffer {
+                            pa: source,
+                            len: net_abi::PACKET_BYTES,
+                        },
+                    );
                 }
                 Err(_) => {
                     REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
-                    rearm_rx(lease, descriptor);
+                    let _ = lease.transport.return_rx(
+                        token,
+                        transport::Buffer {
+                            pa: source,
+                            len: net_abi::PACKET_BYTES,
+                        },
+                    );
                 }
             }
         }
-        loop {
-            let used = match lease.configured.poll_used(Configured::tx_queue()) {
-                Ok(used) => used,
-                Err(error) => {
-                    crate::kprintln!("virtio-net: tx poll failed {error:?}; recovering");
-                    let _ = recover(lease);
-                    break;
-                }
-            };
-            let Some(used) = used else { break };
-            if used.len <= (PACKET_HEADER_BYTES + net_abi::PACKET_BYTES) as u32 {
-                if let Some(token) = lease.service_tx.take() {
-                    lease.tx_event = Some(token);
-                } else {
-                    if let Some(token) = lease.tx_token.take() {
-                        let _ = lease.pool.complete_tx(token);
-                    }
-                    if TX_PACKETS.fetch_add(1, Ordering::Relaxed) == 0 {
-                        crate::kprintln!(
-                            "virtio-net: tx descriptor complete used_len={}",
-                            used.len
-                        );
-                    }
-                }
+        while let Some((token, _)) = lease.transport.take_tx_complete() {
+            if lease.service_tx == Some(token) {
+                lease.service_tx = None;
+                let _ = lease.pool.complete_tx(token);
+                lease.tx_event = Some(token);
             } else {
-                REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
+                TX_PACKETS.fetch_add(1, Ordering::Relaxed);
             }
         }
     });
 }
 
-fn rearm_rx(lease: &mut Lease, descriptor: usize) {
-    if descriptor >= lease.rx_slots.len() {
-        return;
-    }
-    if lease
-        .configured
-        .post_rx(
-            dma_address(&lease.dma_packets, 1 + descriptor),
-            PACKET_HEADER_BYTES + net_abi::PACKET_BYTES,
-        )
-        .is_ok()
-    {
-        publish_ring(&lease.rings[0], &lease.rings[1]);
-    }
-}
-
-fn recover(lease: &mut Lease) -> bool {
-    if lease.configured.restart().is_err() {
-        REFUSED_PACKETS.fetch_add(1, Ordering::Relaxed);
-        return false;
-    }
-    lease.pool.reset();
-    lease.tx_token = None;
-    lease.service_tx = None;
-    lease.tx_event = None;
-    lease.rx_event = None;
-    for descriptor in 0..lease.rx_slots.len() {
-        rearm_rx(lease, descriptor);
-    }
-    crate::kprintln!("virtio-net: recovery complete");
-    true
-}
-
-fn publish_ring(first: &RingFrames, second: &RingFrames) {
-    for ring in [first, second] {
-        // SAFETY: these pages are the lease's exclusively-owned split rings.
-        unsafe {
-            cache::clean_dcache_poc(ring.memory.desc_pa as usize, RING_PAGE_BYTES);
-            cache::clean_dcache_poc(ring.memory.avail_pa as usize, RING_PAGE_BYTES);
-        }
-    }
-}
-
-fn consume_used(first: &RingFrames, second: &RingFrames) {
-    for ring in [first, second] {
-        // SAFETY: the device owns the used-ring updates after publication.
-        unsafe {
-            cache::invalidate_dcache_poc(ring.memory.used_pa as usize, RING_PAGE_BYTES);
-        }
-    }
-}
-
-fn submit_probe_packet(lease: &mut Lease) -> Result<usize, StartError> {
-    let payload = b"harbor-p3-virtio-tx";
-    let frame_len = 14 + payload.len();
-    let pa = dma_address(&lease.dma_packets, 0) as usize;
-    // SAFETY: packet slot 0 is an EL1-owned, zeroed Normal buffer retained by
-    // the lease; the writes remain within the 2 KiB slot.
-    unsafe {
-        let buffer = pa as *mut u8;
-        core::ptr::write_bytes(buffer, 0, net_abi::PACKET_BYTES);
-        core::ptr::write_bytes(buffer.add(PACKET_HEADER_BYTES), 0xff, 6);
-        buffer
-            .add(PACKET_HEADER_BYTES + 6)
-            .copy_from_nonoverlapping([2, 0, 0, 0, 0, 1].as_ptr(), 6);
-        *buffer.add(PACKET_HEADER_BYTES + 12) = 0x88;
-        *buffer.add(PACKET_HEADER_BYTES + 13) = 0xb5;
-        core::ptr::copy_nonoverlapping(
-            payload.as_ptr(),
-            buffer.add(PACKET_HEADER_BYTES + 14),
-            payload.len(),
-        );
-        cache::clean_dcache_poc(pa, PACKET_HEADER_BYTES + frame_len);
-    }
-    Ok(frame_len)
-}
-
-fn allocate_ring() -> Option<RingFrames> {
-    let first = mm::frames::alloc();
-    let second = mm::frames::alloc();
-    let third = mm::frames::alloc();
-    let (Some((desc, desc_pa)), Some((avail, avail_pa)), Some((used, used_pa))) =
-        (first, second, third)
-    else {
-        for allocation in [first, second, third].into_iter().flatten() {
-            let _ = mm::frames::free(allocation.0);
-        }
-        return None;
-    };
-    for address in [desc_pa, avail_pa, used_pa] {
-        // SAFETY: each frame is identity-mapped Normal RW and exclusively
-        // owned by this ring until reset.
-        unsafe {
-            core::ptr::write_bytes(address as *mut u8, 0, RING_PAGE_BYTES);
-            cache::clean_dcache_poc(address, RING_PAGE_BYTES);
-        }
-    }
-    Some(RingFrames {
-        ids: [desc, avail, used],
-        memory: QueueMemory {
-            desc_pa: desc_pa as u64,
-            avail_pa: avail_pa as u64,
-            used_pa: used_pa as u64,
-        },
+pub fn recycle_after_session() -> Result<(), RecoveryError> {
+    LEASE.with(|lease| {
+        lease
+            .as_mut()
+            .ok_or(RecoveryError::Unavailable)
+            .and_then(recover)
     })
 }
 
-fn pool_address(pages: &[PacketPage; PACKET_PAGE_COUNT], slot: u8) -> u64 {
+fn recover(lease: &mut Lease) -> Result<(), RecoveryError> {
+    lease
+        .transport
+        .reset()
+        .map_err(RecoveryError::TransportReset)?;
+    lease.pool.reset();
+    lease.service_tx = None;
+    lease.tx_event = None;
+    lease.rx_event = None;
+    for i in 0..lease.rx_slots.len() {
+        let Ok(token) = lease.pool.publish_rx(usize::from(lease.rx_slots[i]), 0) else {
+            return Err(RecoveryError::PoolPublish {
+                slot: lease.rx_slots[i],
+            });
+        };
+        lease
+            .pool
+            .return_rx(token)
+            .map_err(|_| RecoveryError::PoolReturn {
+                slot: lease.rx_slots[i],
+            })?;
+        lease
+            .transport
+            .return_rx(
+                token,
+                transport::Buffer {
+                    pa: lease.dma_packets[i + 1].pa as u64,
+                    len: net_abi::PACKET_BYTES,
+                },
+            )
+            .map_err(|error| RecoveryError::TransportReturn {
+                slot: lease.rx_slots[i],
+                error,
+            })?;
+    }
+    Ok(())
+}
+
+fn allocate_pages<const N: usize>() -> Option<[Page; N]> {
+    let mut pages: [Option<Page>; N] = [None; N];
+    for entry in &mut pages {
+        let Some((id, pa)) = mm::frames::alloc() else {
+            for page in pages.into_iter().flatten() {
+                let _ = mm::frames::free(page.id);
+            }
+            return None;
+        };
+        // SAFETY: frame allocation returns an exclusive identity-mapped page;
+        // zeroing it before publication establishes the DMA buffer contents.
+        unsafe {
+            core::ptr::write_bytes(pa as *mut u8, 0, 4096);
+            cache::clean_dcache_poc(pa, 4096);
+        }
+        *entry = Some(Page { id, pa });
+    }
+    Some(core::array::from_fn(|i| {
+        pages[i].unwrap_or(Page {
+            id: FrameId::from_index(0),
+            pa: 0,
+        })
+    }))
+}
+
+fn free_pages<const N: usize>(pages: &[Page; N]) {
+    for page in pages {
+        let _ = mm::frames::free(page.id);
+    }
+}
+
+fn pool_address(pages: &[Page; PACKET_PAGE_COUNT], slot: u8) -> u64 {
     let slot = usize::from(slot);
     (pages[slot / 2].pa + (slot % 2) * net_abi::PACKET_BYTES) as u64
 }
 
-fn allocate_packets() -> Option<[PacketPage; PACKET_PAGE_COUNT]> {
-    let mut pages: [Option<PacketPage>; PACKET_PAGE_COUNT] = [None; PACKET_PAGE_COUNT];
-    for page in &mut pages {
-        let Some(packet) = mm::frames::alloc().map(|(id, pa)| PacketPage { id, pa }) else {
-            for allocated in pages.into_iter().flatten() {
-                let _ = mm::frames::free(allocated.id);
-            }
-            return None;
-        };
-        *page = Some(packet);
-        // SAFETY: the frame was just allocated and is identity-mapped Normal
-        // memory; both 2 KiB packet halves must not expose a prior owner.
-        unsafe {
-            core::ptr::write_bytes(packet.pa as *mut u8, 0, RING_PAGE_BYTES);
-            cache::clean_dcache_poc(packet.pa, RING_PAGE_BYTES);
-        }
-    }
-    // Exhaustion already returned above, so every slot is `Some`. Saying that
-    // with `?` rather than with `expect` keeps the exhaustion path a bounded
-    // refusal in shape as well as in fact (2026-08-17 review, F-14).
-    let mut allocated = [pages[0]?; PACKET_PAGE_COUNT];
-    for (slot, page) in pages.iter().enumerate() {
-        allocated[slot] = (*page)?;
-    }
-    Some(allocated)
-}
-
-fn allocate_dma_packets() -> Option<[PacketPage; DMA_PACKET_COUNT]> {
-    let mut pages: [Option<PacketPage>; DMA_PACKET_COUNT] = [None; DMA_PACKET_COUNT];
-    for page in &mut pages {
-        let Some(packet) = mm::frames::alloc().map(|(id, pa)| PacketPage { id, pa }) else {
-            for allocated in pages.into_iter().flatten() {
-                let _ = mm::frames::free(allocated.id);
-            }
-            return None;
-        };
-        *page = Some(packet);
-        // SAFETY: the frame is exclusively owned by the EL1 transport and is
-        // never mapped into an agent address space.
-        unsafe {
-            core::ptr::write_bytes(packet.pa as *mut u8, 0, RING_PAGE_BYTES);
-            cache::clean_dcache_poc(packet.pa, RING_PAGE_BYTES);
-        }
-    }
-    // Exhaustion already returned above, so every slot is `Some`. Saying that
-    // with `?` rather than with `expect` keeps the exhaustion path a bounded
-    // refusal in shape as well as in fact (2026-08-17 review, F-14).
-    let mut allocated = [pages[0]?; DMA_PACKET_COUNT];
-    for (slot, page) in pages.iter().enumerate() {
-        allocated[slot] = (*page)?;
-    }
-    Some(allocated)
-}
-
-fn dma_address(pages: &[PacketPage; DMA_PACKET_COUNT], slot: usize) -> u64 {
-    pages[slot].pa as u64
+fn dma_address(pages: &[Page; DMA_PACKET_COUNT], slot: u8) -> u64 {
+    pages[1 + usize::from(slot) - net_abi::PACKET_SLOTS / 2].pa as u64
 }

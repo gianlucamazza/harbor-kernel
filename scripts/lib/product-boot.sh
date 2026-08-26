@@ -72,5 +72,9 @@ product_boot_capture() {
 	cpu_budget_watch "${pid}" "${PRODUCT_SECONDS_LIMIT}"
 	kill -TERM "${pid}" 2>/dev/null || true
 	wait "${pid}" 2>/dev/null || true
-	cpu_budget_verdict "${who}"
+	# The product reaches WFI after its composition work, so a healthy run is
+	# intentionally almost idle. Serial assertions below remain authoritative;
+	# keep only a minimal measurement floor to distinguish a run that never
+	# started from a passive but complete product boot.
+	CPU_BUDGET_MINIMUM=1 cpu_budget_verdict "${who}"
 }

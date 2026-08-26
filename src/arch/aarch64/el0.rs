@@ -64,6 +64,7 @@ const N_EL0_PUBLISH: usize = 2;
 /// `SPSR_EL1` for EL0t with DAIF all masked (default session contract).
 const SPSR_EL0_IRQS_MASKED: u64 = 0x3c0;
 /// `SPSR_EL1` for EL0t with DAIF.I clear — IRQs may take lower-EL IRQ vectors.
+#[cfg(feature = "oracle")]
 const SPSR_EL0_IRQS_OPEN: u64 = 0x340;
 
 /// Result of one EL0 stretch (enter or resume until the next lower-EL sync).
@@ -86,6 +87,7 @@ pub enum El0Outcome {
 /// than `unsafe fn` for that reason: the worst a mistimed call does is choose
 /// the mask for the *next* entry of the task it names.
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn set_entry_irqs_masked(session: *mut El0Session) {
     require_published(session);
     current().entry_spsr = SPSR_EL0_IRQS_MASKED;
@@ -93,6 +95,7 @@ pub fn set_entry_irqs_masked(session: *mut El0Session) {
 
 /// Next [`enter`] uses EL0 `SPSR` with DAIF.I clear (IRQ → [`El0Outcome::Irq`]).
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn set_entry_irqs_unmasked(session: *mut El0Session) {
     require_published(session);
     current().entry_spsr = SPSR_EL0_IRQS_OPEN;
@@ -102,6 +105,7 @@ pub fn set_entry_irqs_unmasked(session: *mut El0Session) {
 ///
 /// # Safety
 /// Same as [`enter`].
+#[cfg(feature = "oracle")]
 pub unsafe fn run(
     session: *mut El0Session,
     user_ttbr: usize,

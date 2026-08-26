@@ -117,11 +117,14 @@ def main() -> int:
         off += 4
         (reserved,) = struct.unpack_from("<I", raw, off)
         off += 4
-        if reserved & ~0x1FF:
+        # ADR-0104: bit 9 grants the bounded packet pool to edge-gateway;
+        # bits 31:10 remain reserved exactly as in kernel-core::agentstore.
+        if reserved & ~0x3FF:
             print(f"  agent[{i}]: reserved grant bits are non-zero", file=sys.stderr)
             return 1
         home_cpu = reserved & 0xFF
         may_resolve = bool(reserved & 0x100)
+        packet_pool = bool(reserved & 0x200)
         # ADR-0100: device word (window index in bits 7:0) then the VA it lands
         # at. No physical address is on the wire — what a reader can audit here
         # is which position an agent named, not which page it gets.
@@ -150,7 +153,8 @@ def main() -> int:
         )
         print(
             f"  [{i}] name={name!r} text_pages={text_pages} stack_pages={stack_pages} "
-            f"home_cpu={home_cpu} may_resolve={may_resolve} slots=[{slot_s}] "
+            f"home_cpu={home_cpu} may_resolve={may_resolve} packet_pool={packet_pool} "
+            f"slots=[{slot_s}] "
             f"device={device_s} image_len={len(image)}"
         )
     return 0

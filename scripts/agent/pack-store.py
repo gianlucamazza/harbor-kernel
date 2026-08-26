@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pack a Harbor external agent store (ADR-0027).
 
-Default product composition: beacon (H!) + chirp (?) + lookup (N) + entropy + blob (S).
+Default product composition: beacon (H!) + chirp (?) + lookup (N) + entropy + blob (S) + edge-gateway.
 """
 from __future__ import annotations
 
@@ -136,6 +136,57 @@ svc #1
 b .
 """
 
+# encode_net_tx_rx_exit(0x5300_0000, 0, 1, 2, 3) — ADR-0104/0112.
+# Keep this host-store image byte-for-byte equivalent to kernel_core::prog.
+# The product store is the shipped source of the agent image; the oracle-only
+# builtin entry is deliberately not used as a substitute.
+EDGE_GATEWAY_ASM = """\
+movz x0, #0
+movk x0, #0x5300, lsl #16
+movk x0, #0, lsl #32
+movk x0, #0, lsl #48
+movz x1, #0xffff
+movk x1, #0xffff, lsl #16
+movk x1, #0xffff, lsl #32
+movk x1, #2, lsl #48
+str x1, [x0, #0]
+movz x1, #0
+movk x1, #1, lsl #16
+movk x1, #0xb588, lsl #32
+movk x1, #0x6168, lsl #48
+str x1, [x0, #8]
+movz x1, #0x6272
+movk x1, #0x726f, lsl #16
+movk x1, #0x702d, lsl #32
+movk x1, #0x2d33, lsl #48
+str x1, [x0, #16]
+movz x1, #0x6567
+movk x1, #0x656e, lsl #16
+movk x1, #0x2d74, lsl #32
+movk x1, #0x7874, lsl #48
+str x1, [x0, #24]
+str xzr, [x0, #32]
+str xzr, [x0, #40]
+str xzr, [x0, #48]
+str xzr, [x0, #56]
+movz x0, #0
+movz x1, #0x1101
+movz x2, #0
+movk x2, #0, lsl #16
+movk x2, #0x3c00, lsl #32
+movk x2, #0, lsl #48
+svc #3
+movz x0, #1
+svc #4
+movz x0, #2
+svc #4
+movz x0, #3
+movz x1, #0x1102
+svc #3
+svc #1
+b .
+"""
+
 # Where the RNG window lands in the agent's own address space. The composition
 # chooses this; the board chooses which page appears there (ADR-0100).
 ENTROPY_VA = 0x5100_0000
@@ -254,6 +305,7 @@ def main() -> int:
         lookup = assemble(LOOKUP_ASM)
         entropy = assemble(ENTROPY_ASM)
         blob = assemble(BLOB_ASM)
+        edge_gateway = assemble(EDGE_GATEWAY_ASM)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"pack-agent-store: FAIL — need llvm-mc and llvm-objcopy: {e}", file=sys.stderr)
         return 1
@@ -278,6 +330,23 @@ def main() -> int:
             ("lookup", 1, 3, [SLOT_NONE] * 4, lookup, 0, True, False, WINDOW_NONE, 0),
             ("entropy", 1, 3, console_slots, entropy, 0, False, False, WINDOWS["rng"], ENTROPY_VA),
             ("blob", 1, 3, blob_slots, blob, 0, False, False, WINDOW_NONE, 0),
+            (
+                "edge-gateway",
+                1,
+                3,
+                [
+                    HELD["net-tx"],
+                    HELD["net-tx-complete"],
+                    HELD["net-rx"],
+                    HELD["net-rx-return"],
+                ],
+                edge_gateway,
+                0,
+                False,
+                True,
+                WINDOW_NONE,
+                0,
+            ),
         ]
     blob = pack(agents)
     args.output.parent.mkdir(parents=True, exist_ok=True)

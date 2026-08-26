@@ -21,7 +21,6 @@
 use kernel_core::held::{DeclareError, Held, Window, Windows};
 use kernel_core::paging::Perms;
 
-#[cfg(feature = "board-qemu-virt")]
 use super::network_server;
 use super::{blob_server, console_server};
 
@@ -235,34 +234,53 @@ fn start_blob_service() -> Option<(kernel_core::cap::CapId, kernel_core::cap::Ca
     Some((requests.send, replies.recv))
 }
 
-#[cfg(feature = "board-qemu-virt")]
 fn start_network_service() -> Option<(
     kernel_core::cap::CapId,
     kernel_core::cap::CapId,
     kernel_core::cap::CapId,
     kernel_core::cap::CapId,
 )> {
-    let tx = crate::ipc::create_channel().ok()?;
-    let tx_complete = crate::ipc::create_channel().ok()?;
-    let rx = crate::ipc::create_channel().ok()?;
-    let rx_return = crate::ipc::create_channel().ok()?;
-    crate::sched::spawn_with_caps(
+    if !crate::bootstrap::network_runtime::service_available() {
+        crate::kprintln!("net: service unavailable — transport not claimed");
+        return None;
+    }
+    let tx = match crate::ipc::create_channel() {
+        Ok(channel) => channel,
+        Err(error) => {
+            crate::kprintln!("net: tx channel FAILED {error:?}");
+            return None;
+        }
+    };
+    let tx_complete = match crate::ipc::create_channel() {
+        Ok(channel) => channel,
+        Err(error) => {
+            crate::kprintln!("net: tx-complete channel FAILED {error:?}");
+            return None;
+        }
+    };
+    let rx = match crate::ipc::create_channel() {
+        Ok(channel) => channel,
+        Err(error) => {
+            crate::kprintln!("net: rx channel FAILED {error:?}");
+            return None;
+        }
+    };
+    let rx_return = match crate::ipc::create_channel() {
+        Ok(channel) => channel,
+        Err(error) => {
+            crate::kprintln!("net: rx-return channel FAILED {error:?}");
+            return None;
+        }
+    };
+    if let Err(error) = crate::sched::spawn_with_caps(
         network_server::run,
         &[tx.recv, tx_complete.send, rx_return.recv, rx.send],
-    )
-    .ok()?;
+    ) {
+        crate::kprintln!("net: service spawn FAILED {error:?}");
+        return None;
+    }
     crate::kprintln!("net: endpoints up");
     Some((tx.send, tx_complete.recv, rx.recv, rx_return.send))
-}
-
-#[cfg(not(feature = "board-qemu-virt"))]
-fn start_network_service() -> Option<(
-    kernel_core::cap::CapId,
-    kernel_core::cap::CapId,
-    kernel_core::cap::CapId,
-    kernel_core::cap::CapId,
-)> {
-    None
 }
 
 /// Declare a window position, or say why the vocabulary refused it.

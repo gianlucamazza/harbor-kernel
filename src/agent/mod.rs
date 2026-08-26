@@ -55,7 +55,9 @@ use crate::arch::{cpu, el0};
 
 use crate::ipc;
 use crate::irq;
-use crate::mm::{self, AddressSpace, AsError};
+#[cfg(feature = "oracle")]
+use crate::mm;
+use crate::mm::{AddressSpace, AsError};
 use crate::sched;
 
 /// Why agent create / EL0 entry failed.
@@ -328,6 +330,7 @@ pub struct Agent {
 
 impl Agent {
     /// Allocate, prepare (kernel clone + user window).
+    #[cfg(feature = "oracle")]
     pub fn create_prepared() -> Result<Self, AgentError> {
         // ADR-0082/0083: tasks that own a user AS are not stealeable until a
         // TLB-IPI slice exists — pin the driver for the rest of its life.
@@ -348,16 +351,19 @@ impl Agent {
     }
 
     #[inline]
+    #[cfg(feature = "oracle")]
     pub fn aspace(&self) -> &AddressSpace {
         &self.aspace
     }
 
     #[inline]
+    #[cfg(feature = "oracle")]
     pub fn aspace_mut(&mut self) -> &mut AddressSpace {
         &mut self.aspace
     }
 
     /// Write user text and enter EL0 until the first lower-EL sync (one-shot).
+    #[cfg(feature = "oracle")]
     pub fn run_user_prog(&mut self, prog: &[u8]) -> Result<el0::El0Outcome, AgentError> {
         self.aspace
             .poke_user(0, prog)
@@ -576,6 +582,7 @@ impl Agent {
 }
 
 /// Dispatch a returned `SVC` outcome for demo agents.
+#[cfg(feature = "oracle")]
 pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
     match outcome {
         el0::El0Outcome::Svc { imm } => match syscall::decode(imm) {
@@ -599,15 +606,23 @@ pub fn report_svc(prefix: &str, outcome: el0::El0Outcome) {
 /// bit0 = alpha prepared, bit1 = beta prepared,
 /// bit2 = alpha el0 done, bit3 = beta el0 done,
 /// bit4 = alpha destroyed, bit5 = beta destroyed.
+#[cfg(feature = "oracle")]
 static CONC: AtomicU32 = AtomicU32::new(0);
 
+#[cfg(feature = "oracle")]
 const A_PREP: u32 = 1;
+#[cfg(feature = "oracle")]
 const B_PREP: u32 = 2;
+#[cfg(feature = "oracle")]
 const A_EL0: u32 = 4;
+#[cfg(feature = "oracle")]
 const B_EL0: u32 = 8;
+#[cfg(feature = "oracle")]
 const A_DIE: u32 = 16;
+#[cfg(feature = "oracle")]
 const B_DIE: u32 = 32;
 
+#[cfg(feature = "oracle")]
 fn wait_bits(need: u32) {
     while CONC.load(Ordering::Acquire) & need != need {
         sched::yield_now();
@@ -615,9 +630,11 @@ fn wait_bits(need: u32) {
 }
 
 /// Free-count while both peers hold a prepared AS (set by alpha after barrier).
+#[cfg(feature = "oracle")]
 static FREE_AT_DUAL_LIVE: AtomicU32 = AtomicU32::new(0);
 
 /// Peer A: prepare → wait peer → EL0 ping → wait peer → destroy.
+#[cfg(feature = "oracle")]
 pub fn concurrent_agent_alpha() {
     let mut agent = match Agent::create_prepared() {
         Ok(a) => a,
@@ -653,6 +670,7 @@ pub fn concurrent_agent_alpha() {
 }
 
 /// Peer B: same protocol as alpha (symmetric barrier).
+#[cfg(feature = "oracle")]
 pub fn concurrent_agent_beta() {
     let mut agent = match Agent::create_prepared() {
         Ok(a) => a,

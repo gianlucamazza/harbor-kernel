@@ -10,8 +10,9 @@ use kernel_core::genet::{
     GenetBoot, HfbReport, LinkState, MdioError, MdioTxn, PhyError, PhyInitReport, PhyLink,
     PriorityReport, Queue0Report, QueueEnable, QueueEnableError, RbufChkReport, RbufReport,
     ResetReport, Revision, RevisionError, RgmiiReport, RingBufReport, RingCfgReport, RingProgram,
-    RingProgramError, Rings14Report, RxReport, StateDump, TbufReport, TbufSizeReport, TxReport,
-    TxRingSet, UmacMibReport, UmacReport, WrrPriority, dma_registers, mdio, phy, registers,
+    RingProgramError, Rings14Report, RxReport, SpeedError, StateDump, TbufReport, TbufSizeReport,
+    TxReport, TxRingSet, UmacMibReport, UmacReport, WrrPriority, dma_registers, mdio, phy,
+    registers,
 };
 use kernel_core::genet_fdt::Binding;
 
@@ -48,6 +49,13 @@ const TSV_STEP_US: u32 = 200;
 /// quiet link still carries.
 const RX_WINDOW_US: u32 = 500_000;
 const RX_STEP_US: u32 = 500;
+/// Bounded link-acquisition window for service start and recovery.
+///
+/// Autonegotiation is external to the kernel and may still be settling when
+/// the DT probe completes.  Waiting here is part of acquisition; a fixed
+/// deadline keeps a disconnected cable an explicit device error.
+const LINK_WINDOW_US: u32 = 5_000_000;
+const LINK_STEP_US: u32 = 10_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -57,9 +65,25 @@ pub enum Error {
     Timeout,
     Ring(RingProgramError),
     Descriptor(DescriptorError),
+    Frame(kernel_core::net::FrameError),
     Mdio(MdioError),
     Phy(PhyError),
+    Speed(SpeedError),
     Enable(QueueEnableError),
+}
+
+/// Read-only queue-0 evidence for the resident service.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceSnapshot {
+    pub state: StateDump,
+    pub tx_prod: u32,
+    pub tx_cons: u32,
+    pub tx_desc_status: u32,
+    pub tx_desc_addr_lo: u32,
+    pub tx_desc_addr_hi: u32,
+    pub rx_prod: u32,
+    pub rx_cons: u32,
+    pub rx_desc_status: u32,
 }
 
 /// A probed and reset GENET v5 controller.
@@ -241,6 +265,35 @@ impl Genet {
         rx_cpu: usize,
     ) -> Result<(), Error> {
         self.configure_named_ring(DEFAULT_TX_RING, tx, rx, tx_cpu, rx_cpu)
+    }
+
+    /// Write the SCB burst policy to both DMA engines. The service ring step
+    /// that must precede any per-ring geometry (ADR-0107 §1 order).
+    pub fn program_service_burst(&self) {
+        self.regs.write32(
+            (registers::RDMA + dma_registers::SCB_BURST_SIZE) as usize,
+            self.dma_burst_value(),
+        );
+        self.regs.write32(
+            (registers::TDMA + dma_registers::SCB_BURST_SIZE) as usize,
+            self.dma_burst_value(),
+        );
+    }
+
+    /// Program both engines for service ring 0: Linux's ring-program words
+    /// with the v5 queue-0 descriptor counts (TDMA 128, RDMA 256) and the
+    /// [`genet::RX_BUF_LENGTH`] slot size. Descriptors are written separately
+    /// so a caller can post more than the bring-up pair. Moves the DMA phase
+    /// to `Programmed`; enabling still goes through `enable_queue0`.
+    pub fn program_service_rings(&mut self) -> Result<(), Error> {
+        self.phase = self.phase.program().map_err(Error::Enable)?;
+        self.queue = DEFAULT_TX_RING;
+        self.program_service_burst();
+        let tdma = self.ring_program(registers::TDMA, DEFAULT_TX_RING)?;
+        self.write_ring(tdma);
+        let rdma = self.ring_program(registers::RDMA, DEFAULT_TX_RING)?;
+        self.write_ring(rdma);
+        Ok(())
     }
 
     /// Program the descriptor-based ring (16) on both engines. Not a NIC.
@@ -485,6 +538,29 @@ impl Genet {
         boot
     }
 
+    /// Start the resident network datapath after its first TX/RX buffers have
+    /// been installed. Unlike [`boot_after_program`], this path does not send
+    /// the bring-up probe, wait for an incidental RX frame, or recover
+    /// immediately; ownership remains with the network service.
+    pub fn start_network(&mut self) -> Result<(), Error> {
+        if self.phase != DmaPhase::Programmed {
+            return Err(Error::Enable(QueueEnableError::NotProgrammed));
+        }
+        self.program_umac_init();
+        self.program_tbuf_tsb();
+        self.program_rbuf_tbuf_size();
+        self.program_rbuf_64b();
+        self.program_rbuf_chk();
+        self.program_rgmii_oob();
+        self.clear_hfb();
+        self.flush_before_rings();
+        self.program_rings()?;
+        self.program_priority_tx_rings();
+        self.program_tdma_wrr();
+        self.program_tdma_priority();
+        self.enable_queue0().map(|_| ())
+    }
+
     fn ring_regs(&self, block: u32) -> usize {
         (block + dma_registers::RING_BASE + u32::from(self.queue) * dma_registers::RING_BYTES)
             as usize
@@ -647,7 +723,7 @@ impl Genet {
     /// Harbor pulsed `TX_FLUSH` from `program_umac_init`, which ran after the
     /// DMA engines were already enabled, and used a register readback where
     /// Linux waits. Both are corrected here as one sequence claim (ADR-0107).
-    fn flush_before_rings(&self) {
+    pub fn flush_before_rings(&self) {
         self.regs.write32(registers::UMAC_TX_FLUSH as usize, 1);
         settle(FLUSH_SETTLE_US);
         self.regs.write32(registers::UMAC_TX_FLUSH as usize, 0);
@@ -709,6 +785,37 @@ impl Genet {
                 .regs
                 .read32((registers::RDMA + dma_registers::STATUS) as usize),
             tx_desc_status: self.regs.read32(registers::TDMA as usize),
+        }
+    }
+
+    /// Read queue indices and descriptor words without changing hardware.
+    /// A DMA completion is not treated as wire evidence: this snapshot lets
+    /// the serial trace correlate the producer, consumer, descriptor and MAC.
+    pub fn read_service_snapshot(&self, index: u16) -> ServiceSnapshot {
+        let tx_ring = self.ring_regs(registers::TDMA);
+        let rx_ring = self.ring_regs(registers::RDMA);
+        let tx_desc =
+            (registers::TDMA + u32::from(index) * genet::DESCRIPTOR_BYTES as u32) as usize;
+        let rx_desc =
+            (registers::RDMA + u32::from(index) * genet::DESCRIPTOR_BYTES as u32) as usize;
+        ServiceSnapshot {
+            state: self.read_state(),
+            tx_prod: self
+                .regs
+                .read32(tx_ring + dma_registers::PROD_INDEX as usize),
+            tx_cons: self
+                .regs
+                .read32(tx_ring + dma_registers::CONS_INDEX as usize),
+            tx_desc_status: self.regs.read32(tx_desc),
+            tx_desc_addr_lo: self.regs.read32(tx_desc + 4),
+            tx_desc_addr_hi: self.regs.read32(tx_desc + 8),
+            rx_prod: self
+                .regs
+                .read32(rx_ring + dma_registers::PROD_INDEX as usize),
+            rx_cons: self
+                .regs
+                .read32(rx_ring + dma_registers::CONS_INDEX as usize),
+            rx_desc_status: self.regs.read32(rx_desc),
         }
     }
 
@@ -946,6 +1053,24 @@ impl Genet {
         Ok(PhyLink::classify_bmsr(bmsr))
     }
 
+    /// Acquire a live PHY link within a bounded wall-clock window.
+    ///
+    /// This is deliberately separate from [`classify_link`]: a BMSR snapshot
+    /// is a fact, while service start needs a bounded acquisition policy.
+    pub fn acquire_link(&self) -> Result<(), Error> {
+        let mut waited = 0;
+        loop {
+            if self.classify_link()? == LinkState::Up {
+                return Ok(());
+            }
+            if waited >= LINK_WINDOW_US {
+                return Err(Error::Phy(PhyError::LinkDown));
+            }
+            timer::busy_wait_us(LINK_STEP_US);
+            waited += LINK_STEP_US;
+        }
+    }
+
     /// Bounded BMCR reset. Does not classify BMSR, require link-up, enable
     /// DMA, or publish a network service.
     pub fn reset_phy(&self) -> Result<PhyInitReport, Error> {
@@ -1035,22 +1160,69 @@ impl Genet {
     /// Linux never writes a length/status word for an RX buffer; the device
     /// owns that word and Harbor was overwriting it with a driver-invented
     /// one before every submit.
-    fn write_descriptor(
+    pub fn write_descriptor(
         &self,
         block: u32,
         index: u16,
         descriptor: Descriptor,
     ) -> Result<(), Error> {
-        let words = descriptor
-            .words(genet::Ownership::Driver, true, true, false)
+        descriptor
+            .validate_service_windows(self.binding.dma)
             .map_err(Error::Descriptor)?;
         let offset = (block + u32::from(index) * genet::DESCRIPTOR_BYTES as u32) as usize;
         if block == registers::TDMA {
+            let words = descriptor
+                .service_words(genet::Ownership::Driver, true, true, false)
+                .map_err(Error::Descriptor)?;
             self.regs
                 .write32(offset, TxReport::tx_desc_status(words.length_status));
         }
-        self.regs.write32(offset + 4, words.address_low);
-        self.regs.write32(offset + 8, words.address_high);
+        self.regs.write32(offset + 4, descriptor.address as u32);
+        self.regs
+            .write32(offset + 8, (descriptor.address >> 32) as u32);
+        Ok(())
+    }
+
+    /// Publish `index` as the producer position of `block`'s queue-0 ring —
+    /// the doorbell that starts DMA on everything posted so far.
+    pub fn doorbell_producer(&self, block: u32, index: u16) {
+        let ring = (block + dma_registers::RING_BASE) as usize;
+        self.regs
+            .write32(ring + dma_registers::PROD_INDEX as usize, u32::from(index));
+    }
+
+    /// Free-running consumer position of `block`'s queue-0 ring: how many
+    /// descriptors the engine has retired since reset.
+    pub fn consumer_index(&self, block: u32) -> u32 {
+        let ring = (block + dma_registers::RING_BASE) as usize;
+        self.regs.read32(ring + dma_registers::CONS_INDEX as usize)
+    }
+
+    /// The descriptor status word at `index` of `block`'s queue-0 ring, as
+    /// the device last wrote it. RX descriptors carry the received length and
+    /// cleared ownership there; TX words stay as posted.
+    pub fn descriptor_status(&self, block: u32, index: u16) -> u32 {
+        let offset = (block + u32::from(index) * genet::DESCRIPTOR_BYTES as u32) as usize;
+        self.regs.read32(offset)
+    }
+
+    /// Classify the link, program UniMAC speed/datapath, assert the RGMII
+    /// link, and turn on TX/RX in `UMAC_CMD`. Bounded refusals; touches no
+    /// descriptor. The service composition of what bring-up does per frame.
+    pub fn enable_datapath(&mut self) -> Result<(), Error> {
+        match self.program_umac_datapath() {
+            Ok(()) => {}
+            Err(TxReport::LinkDown) => return Err(Error::Phy(PhyError::LinkDown)),
+            Err(TxReport::UnknownSpeed) => return Err(Error::Speed(SpeedError::Unknown)),
+            Err(TxReport::MdioTimeout) => return Err(Error::Timeout),
+            Err(_) => return Err(Error::Enable(QueueEnableError::NotProgrammed)),
+        }
+        self.assert_rgmii_link();
+        let cmd = self.regs.read32(registers::UMAC_CMD as usize);
+        self.regs.write32(
+            registers::UMAC_CMD as usize,
+            cmd | registers::UMAC_CMD_TX_EN | registers::UMAC_CMD_RX_EN,
+        );
         Ok(())
     }
 }

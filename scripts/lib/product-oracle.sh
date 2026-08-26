@@ -142,7 +142,7 @@ assert_product_boot() {
 	grep -qa 'authority: 2 blob-reply ok' "${log}" || fail "blob reply capability was not provided (ADR-0103)"
 	grep -qa 'authority: bound blob' "${log}" || fail "product did not bind the blob endpoint (ADR-0103)"
 	grep -qa 'authority: bound blob-reply' "${log}" || fail "product did not bind the blob reply endpoint (ADR-0103)"
-	grep -qa 'loader: store n=5 image' "${log}" || fail "product did not load the injected multi-agent store"
+	grep -qa 'loader: store n=6 image' "${log}" || fail "product did not load the injected six-agent store"
 	# ADR-0088: product composition pins chirp on CPU 1; beacon stays home 0.
 	grep -qaE 'loader: beacon loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" ||
 		fail "beacon was not loaded on home=0"
@@ -172,6 +172,26 @@ assert_product_boot() {
 		fail "beacon bytes did not reach the wire, or arrived out of order"
 	grep -qaF '?' "${log}" || fail "chirp byte did not reach the wire"
 	grep -qaF 'N' "${log}" || fail "lookup byte did not reach the wire (ADR-0102)"
+	# ADR-0104/0112: the shipped store must exercise the network service through
+	# directional capabilities and the packet-pool token ABI.
+	if grep -qa 'genet: service unavailable (Device(NotPresent))' "${log}"; then
+		# The baseline product QEMU has no NIC. The composed agent must be
+		# refused before spawn, never consume a scheduler slot or run against
+		# absent hardware.
+		grep -qa 'loader: edge-gateway refused — slot 0 names net-tx which is VACANT' "${log}" ||
+			fail "edge-gateway was not refused when the transport was absent"
+	else
+		grep -qaE 'loader: edge-gateway loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" ||
+			fail "edge-gateway was not loaded"
+		grep -qa 'net: tx accepted slot=0 len=60' "${log}" ||
+			fail "edge-gateway TX token was not accepted"
+		grep -qa 'net: tx complete slot=0 len=60' "${log}" ||
+			fail "edge-gateway TX completion was not returned"
+		grep -qa 'net: rx returned slot=' "${log}" ||
+			fail "edge-gateway did not return its RX token"
+		grep -qa 'loader: edge-gateway ran sends=2 refusals=0' "${log}" ||
+			fail "edge-gateway did not complete successfully"
+	fi
 
 	# ---------------------------------------------------------------------------
 	# 5. Invariant beacon + anomaly negatives
@@ -208,7 +228,8 @@ assert_product_boot() {
 	if grep -qaE 'authority: [0-9]+ [a-z0-9_]+ VACANT' "${log}"; then
 		fail "a declared capability position came up empty (ADR-0099)"
 	fi
-	if grep -qa 'which is VACANT' "${log}"; then
+	if grep -qa 'which is VACANT' "${log}" &&
+		! grep -qa 'loader: edge-gateway refused — slot 0 names net-tx which is VACANT' "${log}"; then
 		fail "an agent named a capability position that was never minted (ADR-0099)"
 	fi
 	# The loader spawns and records the manifest entry under one lock hold; a

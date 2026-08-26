@@ -109,6 +109,30 @@ if [[ "${missing}" -ne 0 ]]; then
 	exit 1
 fi
 
+# Product images carry the external agent composition in the image-resident
+# store. Verify the bytes that are actually on the card, not only the files
+# that were copied successfully: a boot falling back to a builtin manifest
+# hides a stale or incomplete product deploy and invalidates hardware evidence.
+if [[ "$(basename "${IMG}")" == "kernel8-product.img" ]]; then
+	product_elf="${ROOT}/target/aarch64-unknown-none-softfloat/release/kernel8-product.elf"
+	[[ -f "${product_elf}" ]] || {
+		echo "deploy-sd: FAIL — missing matching ${product_elf}" >&2
+		exit 1
+	}
+	cmp -s "${IMG}" "${MOUNT}/kernel8.img" || {
+		echo "deploy-sd: FAIL — SD kernel differs from ${IMG}" >&2
+		exit 1
+	}
+	python3 "${ROOT}/scripts/agent/inspect-store.py" \
+		--elf "${product_elf}" \
+		--image "${MOUNT}/kernel8.img" >/dev/null || {
+		echo "deploy-sd: FAIL — product agent store is invalid on the SD" >&2
+		exit 1
+	}
+	echo "product image SHA256: $(sha256sum "${IMG}" | awk '{print $1}')"
+	echo "SD image SHA256:      $(sha256sum "${MOUNT}/kernel8.img" | awk '{print $1}')"
+fi
+
 echo "Deployed to ${MOUNT}:"
 ls -la "${MOUNT}/kernel8.img" "${MOUNT}/config.txt" "${MOUNT}/start4.elf" "${MOUNT}/fixup4.dat"
 if [[ -n "${DTB}" ]]; then

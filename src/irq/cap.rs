@@ -5,13 +5,16 @@
 //! bootstrap-only for the first slice; lookup is the EL0 wait path.
 
 use kernel_core::cap::CapId;
-use kernel_core::irqcap::{LookupError, MintError, Table};
+#[cfg(feature = "oracle")]
+use kernel_core::irqcap::MintError;
+use kernel_core::irqcap::{LookupError, Table};
 
 use crate::sync::Mutex;
 
 static IRQ_CAPS: Mutex<Table> = Mutex::new(Table::new());
 
 /// Mint a notification for `cookie`. Bootstrap only in this slice.
+#[cfg(feature = "oracle")]
 pub fn mint(cookie: u32) -> Result<CapId, MintError> {
     IRQ_CAPS.with(|table| table.mint(cookie))
 }

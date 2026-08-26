@@ -14,9 +14,7 @@ mod console_server;
 mod demos;
 mod discover;
 mod loader;
-#[cfg(feature = "board-qemu-virt")]
 mod network_runtime;
-#[cfg(feature = "board-qemu-virt")]
 mod network_server;
 #[cfg(feature = "panic-probe")]
 mod panic_probe;
@@ -489,83 +487,35 @@ fn report_genet_mmio(uart: &mut Pl011, report: kernel_core::genet_fdt::Report) {
                 };
                 println!(uart, "{link}");
             }
-            HELD_GENET.with(|held| *held = Some(controller));
+            crate::bsp::board::net::offer(controller);
         }
     }
 }
 
-#[cfg(feature = "board-rpi4")]
-static HELD_GENET: crate::sync::Mutex<Option<crate::drivers::genet::Genet>> =
-    crate::sync::Mutex::new(None);
-
-/// Program, then run the unpublished GENET bring-up after the frame pool exists.
+/// Report the discovery result without touching DMA or claiming the service.
 ///
-/// Probe runs at discover time, before frames; the programmed descriptors
-/// need two identity-mapped frames inside the FDT DMA windows. The driver
-/// owns the sequence (`GenetBoot`); this function only prints.
+/// Discovery owns identification and a quiescent register readback. Ring
+/// programming, link acquisition and all frame ownership belong exclusively
+/// to `network_runtime::start`, after the transport lease exists.
 #[cfg(feature = "board-rpi4")]
 fn report_genet_queue0(uart: &mut Pl011) {
-    HELD_GENET.with(|held| {
-        let controller = held.as_mut()?;
-        let programmed = program_held_queue0(controller);
-        let boot = controller.boot_after_program(programmed);
-        boot.each_line(|line| println!(uart, "{line}"));
+    crate::bsp::board::net::with_controller(|controller| {
+        let controller = controller?;
+        let state = controller.read_state();
+        println!(
+            uart,
+            "genet: discovery ready base={:#x} rev={}.{} state cmd={:#x} tdma={:#x}/{:#x} rdma={:#x}/{:#x}",
+            controller.binding().mmio_base,
+            controller.revision().major,
+            controller.revision().minor,
+            state.umac_cmd,
+            state.tdma_ctrl,
+            state.tdma_status,
+            state.rdma_ctrl,
+            state.rdma_status
+        );
         Some(())
     });
-}
-
-#[cfg(feature = "board-rpi4")]
-fn program_held_queue0(
-    controller: &mut crate::drivers::genet::Genet,
-) -> kernel_core::genet::Queue0Report {
-    use crate::drivers::genet::Error;
-    use kernel_core::genet::{Descriptor, MAX_FRAME_BYTES, Queue0Report};
-
-    let Some((tx_id, tx_cpu)) = crate::mm::frames::alloc() else {
-        return Queue0Report::NoFrames;
-    };
-    let Some((rx_id, rx_cpu)) = crate::mm::frames::alloc() else {
-        let _ = crate::mm::frames::free(tx_id);
-        return Queue0Report::NoFrames;
-    };
-    let release = || {
-        let _ = crate::mm::frames::free(tx_id);
-        let _ = crate::mm::frames::free(rx_id);
-    };
-    let len = MAX_FRAME_BYTES;
-    let dma = controller.binding().dma;
-    let Ok(tx_dma) = dma.map_cpu(tx_cpu as u64, u64::from(len)) else {
-        release();
-        return Queue0Report::OutsideDma;
-    };
-    let Ok(rx_dma) = dma.map_cpu(rx_cpu as u64, u64::from(len)) else {
-        release();
-        return Queue0Report::OutsideDma;
-    };
-    let tx = Descriptor {
-        address: tx_dma,
-        length: len,
-        status: 0,
-    };
-    let rx = Descriptor {
-        address: rx_dma,
-        length: len,
-        status: 0,
-    };
-    match controller.configure_queue0(tx, rx, tx_cpu, rx_cpu) {
-        Ok(()) => Queue0Report::Programmed,
-        Err(error) => {
-            release();
-            match error {
-                Error::Descriptor(error) => Queue0Report::Descriptor(error),
-                Error::Ring(error) => Queue0Report::Ring(error),
-                Error::Enable(error) => Queue0Report::Enable(error),
-                _ => {
-                    Queue0Report::Descriptor(kernel_core::genet::DescriptorError::AddressOutsideDma)
-                }
-            }
-        }
-    }
 }
 
 /// What the kernel map was built from, and when it went live.
@@ -865,18 +815,45 @@ pub fn run() -> ! {
 
     let interrupts_bound = bind_interrupts(&mut uart);
 
-    #[cfg(feature = "board-qemu-virt")]
-    match network_runtime::start() {
-        Ok(result) => println!(
-            uart,
-            "virtio-net: modern probe ok base={:#x} vendor={:#x} features={:#x} queues={} size={} ready tx-descriptor=submitted",
-            result.base,
-            result.vendor,
-            result.features,
-            result.queues,
-            result.queue_size
-        ),
-        Err(error) => println!(uart, "virtio-net: unavailable ({error:?})"),
+    // The transport publishes through `board::net` (ADR-0112); the transcript
+    // wording stays per-board because the qemu-virtio gate matches these
+    // lines byte-for-byte, and each board names the device it actually drove.
+    let network_result = network_runtime::start();
+    match network_result {
+        Ok(result) => {
+            #[cfg(feature = "board-qemu-virt")]
+            println!(
+                uart,
+                "virtio-net: modern probe ok base={:#x} vendor={:#x} features={:#x} queues={} size={} ready tx-descriptor=submitted",
+                result.base,
+                result.vendor,
+                result.features,
+                result.queues,
+                result.queue_size
+            );
+            #[cfg(feature = "board-rpi4")]
+            println!(
+                uart,
+                "genet: service ready base={:#x} rev={:#010x} queues={} size={} ready tx-descriptor=submitted",
+                result.base,
+                result.vendor,
+                result.queues,
+                result.queue_size
+            );
+            #[cfg(not(any(feature = "board-qemu-virt", feature = "board-rpi4")))]
+            let _ = result;
+        }
+        Err(error) => {
+            #[cfg(feature = "board-qemu-virt")]
+            println!(uart, "virtio-net: unavailable ({error:?})");
+            #[cfg(feature = "board-rpi4")]
+            println!(uart, "genet: service unavailable ({error:?})");
+            #[cfg(not(any(feature = "board-qemu-virt", feature = "board-rpi4")))]
+            {
+                let _ = error;
+                println!(uart, "net: transport unavailable");
+            }
+        }
     }
 
     // Hardware gates, only when built with `--features bringup`.
@@ -897,6 +874,16 @@ pub fn run() -> ! {
     // Shared TX for idle + worker tasks (serialized in with_tx; not a claim
     // that the whole kernel is cooperative-only — see K4 preemption).
     console::install_tx(uart);
+
+    match network_result {
+        Ok(result) => crate::kprintln!(
+            "net: transport ready base={:#x} queues={} size={}",
+            result.base,
+            result.queues,
+            result.queue_size
+        ),
+        Err(error) => crate::kprintln!("net: transport unavailable {error:?}"),
+    }
 
     // The vocabulary a composition may name (ADR-0099). Declared positions,
     // then whatever could be minted into them — so a service that fails to

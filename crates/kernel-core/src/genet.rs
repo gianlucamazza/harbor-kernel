@@ -849,6 +849,37 @@ impl Descriptor {
         wrap: bool,
     ) -> Result<DescriptorWords, DescriptorError> {
         self.validate_address(|_, _| true)?;
+        self.encode_words(ownership, start, end, wrap)
+    }
+
+    /// Encode a service descriptor whose DMA slot may be the hardware's
+    /// 2048-byte ring buffer rather than a full-frame-sized buffer.
+    pub fn service_words(
+        self,
+        ownership: Ownership,
+        start: bool,
+        end: bool,
+        wrap: bool,
+    ) -> Result<DescriptorWords, DescriptorError> {
+        if self.length == 0 {
+            return Err(DescriptorError::Empty);
+        }
+        if self.length > u32::from(RX_BUF_LENGTH) {
+            return Err(DescriptorError::TooLarge);
+        }
+        if self.address.checked_add(self.length as u64).is_none() {
+            return Err(DescriptorError::AddressOverflow);
+        }
+        self.encode_words(ownership, start, end, wrap)
+    }
+
+    fn encode_words(
+        self,
+        ownership: Ownership,
+        start: bool,
+        end: bool,
+        wrap: bool,
+    ) -> Result<DescriptorWords, DescriptorError> {
         let status = DescriptorStatus {
             length: self.length as u16,
             ownership,
@@ -981,6 +1012,26 @@ impl Descriptor {
         self.validate_address(|address, len| dma.contains(address, len))
     }
 
+    /// Validate a device buffer slot. GENET's DMA ring slots are 2048 bytes,
+    /// while `MAX_FRAME_BYTES` describes the UniMAC frame limit; the bounded
+    /// service model needs to represent the former without weakening the
+    /// public full-ring descriptor contract.
+    pub fn validate_service_windows(self, dma: DmaWindows) -> Result<(), DescriptorError> {
+        if self.length == 0 {
+            return Err(DescriptorError::Empty);
+        }
+        if self.length > u32::from(RX_BUF_LENGTH) {
+            return Err(DescriptorError::TooLarge);
+        }
+        if self.address.checked_add(self.length as u64).is_none() {
+            return Err(DescriptorError::AddressOverflow);
+        }
+        if !dma.contains(self.address, self.length as u64) {
+            return Err(DescriptorError::AddressOutsideDma);
+        }
+        Ok(())
+    }
+
     fn validate_address(
         self,
         contains: impl FnOnce(u64, u64) -> bool,
@@ -1031,24 +1082,24 @@ pub enum RingError {
 /// the driver posts only at the producer cursor and reclaims only at the
 /// consumer cursor. The fixed backing arrays are the model's bound, not a
 /// request to allocate an unbounded queue.
-pub struct RingState {
+pub struct BoundedRingState<const N: usize> {
     layout: RingLayout,
     dma: DmaWindows,
     producer: u16,
     consumer: u16,
-    ownership: [Ownership; TOTAL_DESCRIPTORS as usize],
-    descriptors: [Option<Descriptor>; TOTAL_DESCRIPTORS as usize],
+    ownership: [Ownership; N],
+    descriptors: [Option<Descriptor>; N],
 }
 
-impl RingState {
+impl<const N: usize> BoundedRingState<N> {
     pub fn new(layout: RingLayout, dma: DmaWindows) -> Self {
         Self {
             layout,
             dma,
             producer: 0,
             consumer: 0,
-            ownership: [Ownership::Driver; TOTAL_DESCRIPTORS as usize],
-            descriptors: [None; TOTAL_DESCRIPTORS as usize],
+            ownership: [Ownership::Driver; N],
+            descriptors: [None; N],
         }
     }
 
@@ -1061,15 +1112,13 @@ impl RingState {
     }
 
     pub fn post(&mut self, descriptor: Descriptor) -> Result<u16, RingError> {
-        descriptor
-            .validate_windows(self.dma)
-            .map_err(RingError::InvalidDescriptor)?;
+        self.validate_descriptor(descriptor)?;
         let index = self.producer;
-        if self.ownership[index as usize] != Ownership::Driver {
+        if self.ownership[self.slot(index)] != Ownership::Driver {
             return Err(RingError::Full);
         }
-        self.descriptors[index as usize] = Some(descriptor);
-        self.ownership[index as usize] = Ownership::Device;
+        self.descriptors[self.slot(index)] = Some(descriptor);
+        self.ownership[self.slot(index)] = Ownership::Device;
         self.producer = self.next(index);
         Ok(index)
     }
@@ -1080,16 +1129,14 @@ impl RingState {
             return Err(RingError::InvalidStatus(DescriptorError::WrongOwnership));
         }
         let index = self.consumer;
-        if self.ownership[index as usize] != Ownership::Device {
+        if self.ownership[self.slot(index)] != Ownership::Device {
             return Err(RingError::NoCompletion);
         }
-        let mut descriptor = self.descriptors[index as usize].ok_or(RingError::NoCompletion)?;
+        let mut descriptor = self.descriptors[self.slot(index)].ok_or(RingError::NoCompletion)?;
         descriptor.length = u32::from(status.length);
         descriptor.status = status.encode().map_err(RingError::InvalidStatus)?;
-        descriptor
-            .validate_windows(self.dma)
-            .map_err(RingError::InvalidDescriptor)?;
-        self.ownership[index as usize] = Ownership::Driver;
+        self.validate_descriptor(descriptor)?;
+        self.ownership[self.slot(index)] = Ownership::Driver;
         self.consumer = self.next(index);
         Ok((index, descriptor))
     }
@@ -1101,7 +1148,23 @@ impl RingState {
             index + 1
         }
     }
+
+    const fn slot(&self, index: u16) -> usize {
+        index as usize % N
+    }
+
+    fn validate_descriptor(&self, descriptor: Descriptor) -> Result<(), RingError> {
+        let result = if N < TOTAL_DESCRIPTORS as usize {
+            descriptor.validate_service_windows(self.dma)
+        } else {
+            descriptor.validate_windows(self.dma)
+        };
+        result.map_err(RingError::InvalidDescriptor)
+    }
 }
+
+/// Full-size GENET ring model retained as the stable public API.
+pub type RingState = BoundedRingState<{ TOTAL_DESCRIPTORS as usize }>;
 
 /// The work classes raised by one GENET interrupt block.
 ///

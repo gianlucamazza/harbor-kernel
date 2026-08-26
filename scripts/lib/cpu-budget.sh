@@ -181,12 +181,12 @@ cpu_budget_watch() {
 
 # Print the budget and return 3 when the run was not measurable (ADR-0087).
 cpu_budget_verdict() {
-	local who="$1"
+	local who="$1" measurable="${CPU_BUDGET_MINIMUM:-${CPU_BUDGET_MEASURABLE}}"
 	printf '%s: CPU budget %s.%02d cores over %ss%s\n' \
 		"${who}" $((CPU_BUDGET_CORES / 100)) $((CPU_BUDGET_CORES % 100)) \
 		"${CPU_BUDGET_SECONDS}" \
 		"$(if ((CPU_BUDGET_HOST_WIDE == 1)); then echo ' (host-wide fallback)'; fi)" >&2
-	if ((CPU_BUDGET_CORES < CPU_BUDGET_MEASURABLE)); then
+	if ((CPU_BUDGET_CORES < measurable)); then
 		echo "${who}: INDETERMINATE — QEMU received only ${CPU_BUDGET_CORES} hundredths of a core" >&2
 		echo "  The assertions were not judged; rerun on a host with sufficient CPU." >&2
 		return 3

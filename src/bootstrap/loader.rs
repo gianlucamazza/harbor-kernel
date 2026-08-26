@@ -28,7 +28,6 @@ use kernel_core::prog;
 // `make vocabulary-sync` does not compare, on the path the boot falls back to
 // when no store is present.
 use super::authority::HELD_CONSOLE;
-#[cfg(feature = "board-qemu-virt")]
 use super::network_runtime;
 use crate::agent::{Agent, SessionEnd};
 use crate::ipc;
@@ -55,9 +54,11 @@ const CONSOLE_SLOT: usize = 1;
 
 /// `H!` via two `SYS_SEND`s, then exit — shared product/oracle image bytes.
 const CONSOLE_HI: [u8; 40] = prog::encode_console_hi_exit(CONSOLE_SLOT as u16);
+#[cfg(feature = "oracle")]
 const LOOKUP_CONSOLE: [u8; 52] = prog::encode_resolve_send_exit(0, b'N');
-#[cfg(feature = "board-qemu-virt")]
-const NET_IMAGE: [u8; 120] =
+#[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
+#[cfg(feature = "oracle")]
+const NET_IMAGE: [u8; 176] =
     prog::encode_net_tx_rx_exit(crate::bsp::board::memmap::USER_PACKET_POOL_VA, 0, 1, 2, 3);
 
 const fn slots_with(console: Option<u8>) -> [Option<u8>; MAX_SLOTS] {
@@ -141,7 +142,7 @@ fn builtin_manifest() -> &'static [AgentEntry] {
                 packet_pool: false,
                 home_cpu: 0,
             },
-            #[cfg(feature = "board-qemu-virt")]
+            #[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
             AgentEntry {
                 name: "edge-gateway",
                 image: &NET_IMAGE,
@@ -309,7 +310,17 @@ const _: () = assert!(sched::MAX_CAPS_PER_TASK == kernel_core::manifest::MAX_SLO
 pub fn load_all(auth: &super::authority::Authority) {
     let (source, table) = match try_store_manifest() {
         Some(t) => (loaderplan::Source::Store { agents: t.len() }, t),
-        None => (loaderplan::Source::Builtin, builtin_manifest()),
+        None => {
+            #[cfg(not(feature = "oracle"))]
+            {
+                crate::kprintln!("loader: store FAILED missing-or-invalid");
+                return;
+            }
+            #[cfg(feature = "oracle")]
+            {
+                (loaderplan::Source::Builtin, builtin_manifest())
+            }
+        }
     };
     match source {
         loaderplan::Source::Store { agents } => crate::kprintln!("loader: store n={agents} image"),
@@ -348,6 +359,14 @@ pub fn load_all(auth: &super::authority::Authority) {
                 slots,
                 device,
             } => {
+                // A board without a claimed network transport cannot satisfy
+                // the packet-pool grant. Refuse before spawning so a vacant
+                // optional service does not consume a scheduler slot only to
+                // fail during its agent body.
+                if entry.packet_pool && network_runtime::packet_pool_pages().is_none() {
+                    crate::kprintln!("loader: {} packet pool unavailable", entry.name);
+                    continue;
+                }
                 // ADR-0088: sticky home, decided by the plan from the entry.
                 //
                 // Spawn and remember under **one** hold of the side tables. The
@@ -479,10 +498,10 @@ fn run(entry: &AgentEntry, window: Option<ResolvedWindow>) {
         return;
     }
     if entry.packet_pool {
-        #[cfg(feature = "board-qemu-virt")]
+        #[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
         let mapped =
             network_runtime::packet_pool_pages().map(|pages| aspace.map_packet_pool(&pages));
-        #[cfg(not(feature = "board-qemu-virt"))]
+        #[cfg(not(any(feature = "board-qemu-virt", feature = "board-rpi4")))]
         let mapped: Option<Result<(), crate::mm::AsError>> = None;
         match mapped {
             Some(Ok(())) => {}

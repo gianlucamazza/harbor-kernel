@@ -3,7 +3,7 @@
 pub mod console;
 pub mod irq;
 pub mod memmap;
-pub mod network;
+pub mod net;
 pub mod pm;
 pub mod rng;
 pub mod sdhci;

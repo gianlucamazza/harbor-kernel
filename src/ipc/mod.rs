@@ -46,9 +46,9 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use kernel_core::cap::CapId;
 use kernel_core::ipc::{Refusals, Table};
 
-pub use kernel_core::ipc::{
-    Channel, CreateError, Message, QueuedError, RecvError, RevokeError, SendError,
-};
+#[cfg(feature = "oracle")]
+use kernel_core::ipc::RevokeError;
+pub use kernel_core::ipc::{Channel, CreateError, Message, QueuedError, RecvError, SendError};
 
 /// Guest-time budget for [`yield_until_empty`] (M8 creator drain barrier).
 ///
@@ -134,18 +134,21 @@ fn with_table<R>(
 /// to prove the forger was rejected, and a merely full mailbox used to raise the
 /// same number.
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn refused_count() -> u32 {
     REFUSED_AUTHORITY.load(Ordering::Relaxed)
 }
 
 /// Sends refused for want of space. Flow control, not a violation.
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn refused_full_count() -> u32 {
     REFUSED_FULL.load(Ordering::Relaxed)
 }
 
 /// Refusals that indicate kernel bookkeeping is wrong. Should stay zero.
 #[inline]
+#[cfg(feature = "oracle")]
 pub fn refused_state_count() -> u32 {
     REFUSED_STATE.load(Ordering::Relaxed)
 }
@@ -157,6 +160,7 @@ pub fn create_channel() -> Result<Channel, CreateError> {
 
 /// Like [`create_channel`], but last SEND-hold drop cancels a parked waiter
 /// (ADR-0031 / K2). Console and intentional servers use [`create_channel`].
+#[cfg(feature = "oracle")]
 pub fn create_channel_ephemeral() -> Result<Channel, CreateError> {
     with_table(|t| t.create_channel_ephemeral())
 }
@@ -329,6 +333,7 @@ pub fn cancel_blocked(id: kernel_core::runqueue::TaskId) -> bool {
 /// Trusted creator/bootstrap path: no TCB hold required (the CapId may still
 /// sit only on the stack after [`create_channel`]). Cancels a parked waiter if
 /// any. EL0 never sees raw CapIds.
+#[cfg(feature = "oracle")]
 pub fn creator_revoke(cap: CapId) -> Result<(), RevokeError> {
     let waiter = with_table(|t| t.revoke_channel(cap))?;
     if let Some(id) = waiter {
@@ -338,6 +343,7 @@ pub fn creator_revoke(cap: CapId) -> Result<(), RevokeError> {
 }
 
 /// Like [`creator_revoke`], but the calling task must **hold** `cap`.
+#[cfg(feature = "oracle")]
 pub fn revoke_held(cap: CapId) -> Result<(), RevokeError> {
     if !sched::current_holds(cap) {
         with_table(|t| t.note_authority_refusal());
@@ -350,6 +356,7 @@ pub fn revoke_held(cap: CapId) -> Result<(), RevokeError> {
 ///
 /// Used to prove a stale CapId fails lookup after revoke without installing it
 /// in a TCB. Not an agent path.
+#[cfg(feature = "oracle")]
 pub fn creator_try_send(cap: CapId, msg: Message) -> Result<(), SendError> {
     let wake = with_table(|t| t.send(cap, msg))?;
     if let Some(id) = wake {

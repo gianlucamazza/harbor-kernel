@@ -60,6 +60,7 @@ fn with_line<R>(f: impl FnOnce(&mut RxLine) -> R) -> R {
 /// Returns `false` if the TX handle is gone and a masking step could not be
 /// applied — the caller must then abandon the plan rather than continue with a
 /// half-applied one.
+#[cfg(feature = "oracle")]
 fn apply(line: &mut RxLine, step: Step) -> bool {
     let performed = match step {
         Step::MaskAndAck => with_tx(|uart| {
@@ -217,6 +218,7 @@ pub unsafe fn enable_rx_irq(uart: &Pl011) {
 /// Returns 0 without disarming anything if the TX handle is missing, since the
 /// mask could not be applied: the caller sees "already suspended" rather than
 /// an unclearable interrupt.
+#[cfg(feature = "oracle")]
 pub fn suspend_rx() -> usize {
     with_line(|line| {
         let Some((base, steps)) = line.plan_suspend() else {
@@ -243,6 +245,7 @@ pub fn suspend_rx() -> usize {
 /// Mirror of [`suspend_rx`]: the view is armed before `IMSC`, because the
 /// reverse order lets a byte fire the handler while the base is still 0 —
 /// which on a level-triggered line is the same unclearable storm.
+#[cfg(feature = "oracle")]
 pub fn resume_rx(base: usize) {
     with_line(|line| {
         let Some(steps) = line.plan_resume(base) else {

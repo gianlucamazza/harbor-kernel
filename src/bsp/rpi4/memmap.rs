@@ -36,11 +36,13 @@ pub const UART0_BASE: usize = PERIPHERAL_BASE + 0x0020_1000;
 ///
 /// The hardware block is smaller; one 4 KiB page is the Stage-1 granule. Kernel
 /// EL1 may still sit inside the coarse peripherals window — agents must not.
+#[cfg(feature = "oracle")]
 pub const UART0_REG_BYTES: usize = FRAME_SIZE;
 
 /// User VA where an EL0 agent maps the PL011 page (identity PA = [`UART0_BASE`]).
 ///
 /// Disjoint from [`USER_VA_BASE`] stack/text window and from kernel identity RAM.
+#[cfg(feature = "oracle")]
 pub const USER_PL011_VA: u64 = 0x0000_0000_5000_0000;
 
 /// Power-management block: reset cause, watchdog, reboot partition.
@@ -56,12 +58,14 @@ pub const PM_BASE: usize = PERIPHERAL_BASE + 0x0010_0000;
 /// Covered by the existing peripherals Device window (no extra map for EL1).
 pub const RNG200_BASE: usize = PERIPHERAL_BASE + 0x0010_4000;
 
-/// RNG200 register block size for **agent** Stage-1 maps (ADR-0013 / ADR-0034).
+/// RNG200 register block size for **agent** Stage‑1 maps (ADR‑0013 / ADR‑0034).
+#[cfg(feature = "oracle")]
 pub const RNG200_REG_BYTES: usize = FRAME_SIZE;
 
 /// User VA where an EL0 agent maps the RNG200 page (PA = [`RNG200_BASE`]).
 ///
 /// Disjoint from [`USER_PL011_VA`] and from [`USER_VA_BASE`].
+#[cfg(feature = "oracle")]
 pub const USER_RNG_VA: u64 = 0x0000_0000_5100_0000;
 
 /// GENET v5 register window (ADR-0106). CPU physical address after the SCB
@@ -143,13 +147,19 @@ pub const FRAME_POOL_BYTES: usize = FRAME_POOL_FRAMES * FRAME_SIZE;
 /// gap above the low layout and below the device windows.
 pub const USER_VA_BASE: u64 = 0x0000_0000_4000_0000;
 
+/// User VA where the resident EL1 packet pool is mapped for the oracle agent.
+///
+/// Kept outside the default text/stack window and the PL011/RNG windows.
+pub const USER_PACKET_POOL_VA: u64 = 0x0000_0000_5300_0000;
+
 /// Total pages of the **default** user window: one of text, three of stack.
 ///
-/// A default rather than the layout: since ADR-0021 an agent declares its own
+/// A default rather than the layout: since ADR‑0021 an agent declares its own
 /// geometry in its manifest entry, and this is what an address space gets when
 /// nobody asks. `USER_STACK_TOP` used to sit beside it and no longer does —
 /// `UserWindow::stack_top` computes it from a window that is now per agent, and
 /// a board constant naming *the* stack top would describe one case out of many.
+#[cfg(feature = "oracle")]
 pub const USER_STACK_PAGES: usize = 4;
 
 /// Device MMIO windows the kernel maps: `(base, length, name)`.

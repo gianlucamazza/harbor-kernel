@@ -4,6 +4,7 @@ pub mod console;
 pub mod gpio;
 pub mod irq;
 pub mod memmap;
+pub mod net;
 pub mod pm;
 pub mod rng;
 pub mod sdhci;

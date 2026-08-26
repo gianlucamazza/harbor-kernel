@@ -92,11 +92,13 @@ fn enqueue(token: u32) {
 }
 
 /// Wakes dropped because the IRQ queue was full.
+#[cfg(feature = "oracle")]
 pub fn drops() -> u32 {
     QUEUE.drops()
 }
 
 /// Signals with no waiter, or queue-push failures after a match.
+#[cfg(feature = "oracle")]
 pub fn signal_idle() -> u32 {
     SIGNAL_IDLE.load(Ordering::Relaxed)
 }

@@ -124,12 +124,12 @@ grep -aqE 'virtio-net: tx descriptor complete used_len=[0-9]+' "${modern_log}" |
     grep -aE 'virtio-net:|discover:|boot:' "${modern_log}" >&2 || true
     exit 1
 }
-grep -aqE 'net: tx accepted slot=1 len=16' "${modern_log}" || {
+grep -aqE 'net: tx accepted slot=0 len=60' "${modern_log}" || {
     echo "qemu-virtio-check: EL1 network service did not accept the agent TX token" >&2
     grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
     exit 1
 }
-grep -aqE 'net: tx complete slot=1 len=16' "${modern_log}" || {
+grep -aqE 'net: tx complete slot=0 len=60' "${modern_log}" || {
     echo "qemu-virtio-check: EL1 network service did not return TX completion" >&2
     grep -aE 'net:|edge-gateway|virtio-net:' "${modern_log}" >&2 || true
     exit 1

@@ -9,11 +9,14 @@ use kernel_core::taskcap::Table;
 
 use crate::sync::Mutex;
 
-pub use kernel_core::taskcap::{LookupError, MintError};
+pub use kernel_core::taskcap::LookupError;
+#[cfg(feature = "oracle")]
+pub use kernel_core::taskcap::MintError;
 
 static TABLE: Mutex<Table> = Mutex::new(Table::new());
 
 /// Mint a task-cap naming `id` (trusted EL1 / creator path).
+#[cfg(feature = "oracle")]
 pub fn mint(id: TaskId) -> Result<CapId, MintError> {
     TABLE.with(|t| t.mint(id.to_raw()))
 }

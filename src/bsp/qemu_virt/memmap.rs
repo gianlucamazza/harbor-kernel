@@ -16,6 +16,7 @@ pub const EARLY_BLOCKS: [MemKind; 4] = {
 };
 
 pub const UART0_BASE: usize = 0x0900_0000;
+#[cfg(feature = "oracle")]
 pub const UART0_REG_BYTES: usize = FRAME_SIZE;
 pub const UART0_CLOCK_HZ: u32 = 24_000_000;
 pub const UART0_BAUD: u32 = 115_200;
@@ -37,10 +38,14 @@ pub const FRAME_POOL_FRAMES: usize = 512;
 pub const FRAME_POOL_BYTES: usize = FRAME_POOL_FRAMES * FRAME_SIZE;
 
 pub const USER_VA_BASE: u64 = 0x0000_0000_5000_0000;
+#[cfg(feature = "oracle")]
 pub const USER_STACK_PAGES: usize = 4;
+#[cfg(feature = "oracle")]
 pub const USER_PL011_VA: u64 = 0x0000_0000_5100_0000;
 pub const RNG200_BASE: usize = 0;
+#[cfg(feature = "oracle")]
 pub const RNG200_REG_BYTES: usize = FRAME_SIZE;
+#[cfg(feature = "oracle")]
 pub const USER_RNG_VA: u64 = 0x0000_0000_5200_0000;
 pub const USER_PACKET_POOL_VA: u64 = 0x0000_0000_5300_0000;
 

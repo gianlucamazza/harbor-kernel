@@ -115,6 +115,7 @@ fn arm_this_core(interval: u64) {
 /// **Caller must hold the EL1 IRQ mask** if the intent is for lower-EL to see
 /// the tick: with DAIF.I clear at EL1 the line is claimed by
 /// `exception_irq_el1` before `el0::enter` runs.
+#[cfg(feature = "oracle")]
 pub fn accelerate_next_tick(counts: u64) {
     let d = physical_count().saturating_add(counts.max(1));
     let i = cpu_index();

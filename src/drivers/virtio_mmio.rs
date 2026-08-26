@@ -90,15 +90,6 @@ impl Configured {
         self.negotiated
     }
 
-    /// Queue 0 is RX and queue 1 is TX in the virtio-net contract.
-    pub const fn rx_queue() -> usize {
-        RX_QUEUE
-    }
-
-    pub const fn tx_queue() -> usize {
-        TX_QUEUE
-    }
-
     /// Reset the device and discard both queue cursors.
     pub fn reset(&mut self) {
         write_status(self.mmio, 0);

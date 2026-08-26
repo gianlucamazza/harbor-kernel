@@ -93,7 +93,13 @@ pub fn run() {
 }
 
 fn recycle_after_session() {
-    if !SESSION_RECYCLED.swap(true, Ordering::AcqRel) && !network_runtime::recycle_after_session() {
-        crate::kprintln!("net: service recycle FAILED");
+    if !SESSION_RECYCLED.load(Ordering::Acquire) {
+        match network_runtime::recycle_after_session() {
+            Ok(()) => {
+                SESSION_RECYCLED.store(true, Ordering::Release);
+                crate::kprintln!("net: service recycle ok");
+            }
+            Err(error) => crate::kprintln!("net: service recycle FAILED {error:?}"),
+        }
     }
 }

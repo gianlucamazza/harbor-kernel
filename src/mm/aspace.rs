@@ -10,9 +10,11 @@ use kernel_core::paging::{
 };
 
 use crate::arch::{cache, mmu};
-#[cfg(feature = "board-qemu-virt")]
+#[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
 use crate::bsp::board::memmap::USER_PACKET_POOL_VA;
-use crate::bsp::board::memmap::{FRAME_SIZE, USER_STACK_PAGES, USER_VA_BASE};
+#[cfg(feature = "oracle")]
+use crate::bsp::board::memmap::USER_STACK_PAGES;
+use crate::bsp::board::memmap::{FRAME_SIZE, USER_VA_BASE};
 use crate::mm::frames;
 use kernel_core::layout::UserWindow;
 
@@ -22,6 +24,7 @@ use kernel_core::layout::UserWindow;
 /// manifest could ask for more (ADR-0021 §5). Geometry and bounds live in
 /// [`UserWindow`], where they are host-tested; this only names the board's
 /// numbers.
+#[cfg(feature = "oracle")]
 const DEFAULT_WINDOW: UserWindow = UserWindow {
     base: USER_VA_BASE,
     pages: USER_STACK_PAGES,
@@ -37,7 +40,7 @@ const DEFAULT_WINDOW: UserWindow = UserWindow {
 /// frame pool, an agent at this ceiling costs an eighth of it — refused as an
 /// error, never a panic.
 pub const MAX_TEXT_PAGES: usize = 16;
-#[cfg(feature = "board-qemu-virt")]
+#[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
 pub const PACKET_POOL_PAGES: usize = 8;
 
 // ## Three things that are correct today for reasons written somewhere else
@@ -96,10 +99,10 @@ pub enum AsError {
     /// Already prepared for EL0.
     AlreadyPrepared,
     /// The caller attempted to map a packet pool without an explicit grant.
-    #[cfg(feature = "board-qemu-virt")]
+    #[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
     PacketPoolNotGranted,
     /// The packet pool was mapped twice.
-    #[cfg(feature = "board-qemu-virt")]
+    #[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
     PacketPoolAlreadyMapped,
     /// VA/PA/len not page-aligned or zero.
     Unaligned,
@@ -125,15 +128,16 @@ pub struct AddressSpace {
     text_phys: [usize; MAX_TEXT_PAGES],
     /// This AS's own geometry, from the manifest entry that asked for it.
     window: UserWindow,
-    #[cfg(feature = "board-qemu-virt")]
+    #[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
     packet_pool_requested: bool,
-    #[cfg(feature = "board-qemu-virt")]
+    #[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
     packet_pool_mapped: bool,
     prepared: bool,
 }
 
 impl AddressSpace {
     /// Allocate and zero a root L1 table frame, with the default window.
+    #[cfg(feature = "oracle")]
     pub fn create() -> Result<Self, AsError> {
         Self::create_with(
             DEFAULT_WINDOW.text_pages,
@@ -147,6 +151,7 @@ impl AddressSpace {
     /// no text or no stack, and text past [`MAX_TEXT_PAGES`]. An agent asking
     /// for more than the pool can spare is an error the loader reports, not a
     /// panic — ADR-0021's frame budget is a consequence, not an assumption.
+    #[cfg(feature = "oracle")]
     pub fn create_with(text_pages: usize, stack_pages: usize) -> Result<Self, AsError> {
         Self::create_with_packet_pool(text_pages, stack_pages, false)
     }
@@ -158,7 +163,7 @@ impl AddressSpace {
         stack_pages: usize,
         packet_pool: bool,
     ) -> Result<Self, AsError> {
-        #[cfg(not(feature = "board-qemu-virt"))]
+        #[cfg(not(any(feature = "board-qemu-virt", feature = "board-rpi4")))]
         let _ = packet_pool;
         let window = UserWindow {
             base: USER_VA_BASE,
@@ -200,9 +205,9 @@ impl AddressSpace {
             user_sp: 0,
             text_phys: [0; MAX_TEXT_PAGES],
             window,
-            #[cfg(feature = "board-qemu-virt")]
+            #[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
             packet_pool_requested: packet_pool,
-            #[cfg(feature = "board-qemu-virt")]
+            #[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
             packet_pool_mapped: false,
             prepared: false,
         })
@@ -232,12 +237,14 @@ impl AddressSpace {
 
     /// Physical root for `TTBR0_EL1` (BADDR only, no ASID bits).
     #[inline]
+    #[cfg(feature = "oracle")]
     pub fn root_phys(&self) -> usize {
         self.root_phys
     }
 
     /// ASID assigned to this address space (never 0).
     #[inline]
+    #[cfg(feature = "oracle")]
     pub fn asid(&self) -> u16 {
         self.asid
     }
@@ -291,7 +298,7 @@ impl AddressSpace {
     /// Map the EL1-owned packet pool into the explicitly granted agent.
     /// The pages remain owned by the resident service and are not added to the
     /// address space ledger. The mapping is Normal WB, not a device window.
-    #[cfg(feature = "board-qemu-virt")]
+    #[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]
     pub fn map_packet_pool(&mut self, pages: &[usize; PACKET_POOL_PAGES]) -> Result<(), AsError> {
         if !self.packet_pool_requested {
             return Err(AsError::PacketPoolNotGranted);
@@ -382,6 +389,7 @@ impl AddressSpace {
     /// hold a reference to this AS (ADR-0064 stop word): the peer writes
     /// through the kernel identity alias, exactly as [`Self::poke_user`] does.
     #[inline]
+    #[cfg(feature = "oracle")]
     pub fn text_page_phys(&self, page: usize) -> Option<usize> {
         match self.text_phys.get(page) {
             Some(&pa) if pa != 0 => Some(pa),
@@ -390,6 +398,7 @@ impl AddressSpace {
     }
 
     #[inline]
+    #[cfg(feature = "oracle")]
     pub fn frame_count(&self) -> usize {
         self.owned.len()
     }

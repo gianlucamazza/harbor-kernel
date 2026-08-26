@@ -21,6 +21,7 @@ pub fn free(asid: u16) -> bool {
 }
 
 /// ASIDs still available for user address spaces.
+#[cfg(feature = "oracle")]
 pub fn free_count() -> u16 {
     POOL.with(|p| p.free_count())
 }

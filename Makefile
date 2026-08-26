@@ -386,7 +386,9 @@ model-consumed:
 # here. It had no target until 2026-08-11 and was invoked from memory — which
 # is a gate nobody runs on the day it matters.
 #
-#   make hw-check TRANSCRIPT=.serial-log/20260810-160227.log
+#   make hw-check TRANSCRIPT=.serial-log/<capture>.log \
+#     PCAP=.serial-log/<capture>.pcap IMAGE=.../kernel8-product.img \
+#     ELF=.../kernel8-product.elf IMAGE_SHA256=<deploy-hash>
 # P6's audit half, on hardware: read the store back out of the image that was
 # shipped and compare it with what the board said it loaded. Needs a transcript
 # and the product image beside this tree — it refuses a pair that never met.
@@ -398,12 +400,12 @@ hw-store-audit:
 	./scripts/check/hw-store-audit.sh "$(TRANSCRIPT)"
 
 hw-check:
-	@if [ -z "$(strip $(TRANSCRIPT))" ]; then \
-	  echo "hw-check: TRANSCRIPT=<serial-capture log> is required" >&2; \
-	  echo "  e.g. make hw-check TRANSCRIPT=.serial-log/20260810-160227.log" >&2; \
+	@if [ -z "$(strip $(TRANSCRIPT))" ] || [ -z "$(strip $(PCAP))" ] || [ -z "$(strip $(IMAGE))" ] || [ -z "$(strip $(ELF))" ] || [ -z "$(strip $(IMAGE_SHA256))" ]; then \
+	  echo "hw-check: TRANSCRIPT, PCAP, IMAGE, ELF and IMAGE_SHA256 are required" >&2; \
+	  echo "  use the hash printed by scripts/host/deploy-sd.sh" >&2; \
 	  exit 1; \
 	fi
-	./scripts/check/hw-transcript-check.sh "$(TRANSCRIPT)"
+	./scripts/check/hw-wire-check.sh "$(TRANSCRIPT)" "$(PCAP)" "$(IMAGE)" "$(ELF)" "$(IMAGE_SHA256)"
 
 # Mutation testing. Not a `check` prerequisite: ~7 minutes, and the value is in
 # reading which mutants survived rather than in a threshold. Cadence and scope

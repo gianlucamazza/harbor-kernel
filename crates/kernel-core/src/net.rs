@@ -107,6 +107,24 @@ fn unpack(value: u64) -> Result<PacketToken, DecodeError> {
 pub const PACKET_BYTES: usize = 2 * 1024;
 /// Bounded first-slice pool size.
 pub const PACKET_SLOTS: usize = 16;
+/// Minimum legal Ethernet frame, excluding backend-private headers.
+pub const ETHERNET_MIN_FRAME_BYTES: usize = 60;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FrameError {
+    TooShort,
+    TooLarge,
+}
+
+pub const fn validate_frame_length(len: usize) -> Result<(), FrameError> {
+    if len < ETHERNET_MIN_FRAME_BYTES {
+        Err(FrameError::TooShort)
+    } else if len > PACKET_BYTES {
+        Err(FrameError::TooLarge)
+    } else {
+        Ok(())
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SlotState {
@@ -286,6 +304,24 @@ impl Default for PacketPool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ethernet_frame_contract_accepts_minimum_and_packet_limit() {
+        assert_eq!(validate_frame_length(ETHERNET_MIN_FRAME_BYTES), Ok(()));
+        assert_eq!(validate_frame_length(PACKET_BYTES), Ok(()));
+    }
+
+    #[test]
+    fn ethernet_frame_contract_rejects_short_and_oversize_frames() {
+        assert_eq!(
+            validate_frame_length(ETHERNET_MIN_FRAME_BYTES - 1),
+            Err(FrameError::TooShort)
+        );
+        assert_eq!(
+            validate_frame_length(PACKET_BYTES + 1),
+            Err(FrameError::TooLarge)
+        );
+    }
+
     #[test]
     fn tx_and_rx_ownership_is_directional() {
         let mut pool = PacketPool::new();
