@@ -38,17 +38,19 @@ if lsblk -nro MOUNTPOINT "${DEV}" | grep -q .; then
 	exit 1
 fi
 
-# Idempotence: one store partition per card, ever.
-if lsblk -nro PARTTYPE "${DEV}" | grep -q '^0x7f$'; then
-	echo "durable partition already present on ${DEV} — nothing to do"
-	exit 0
-fi
-
 # MBR only: the kernel's reader fails closed on GPT (ADR-0066).
 label="$(sudo sfdisk --dump "${DEV}" | sed -n 's/^label: //p')"
 if [[ "${label}" != "dos" ]]; then
 	echo "error: ${DEV} has a '${label:-missing}' partition table; the ADR-0066 reader is MBR-only" >&2
 	exit 1
+fi
+
+# Idempotence: one store partition per card, ever. Read the authoritative
+# sfdisk table rather than lsblk's optional PARTTYPE column, which is absent
+# on some util-linux/device combinations.
+if sudo sfdisk --dump "${DEV}" | grep -q 'type=7f$'; then
+	echo "durable partition already present on ${DEV} — nothing to do"
+	exit 0
 fi
 
 echo "appending a 1 MiB type-0x7f partition to ${DEV}:"
