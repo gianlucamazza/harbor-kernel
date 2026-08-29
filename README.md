@@ -78,7 +78,7 @@ Full stack, including what is deliberately **not** in it:
 
 ## Current status
 
-Snapshot, 2026-08-13. The status of record is
+Snapshot, 2026-08-30. The status of record is
 [`docs/roadmap.md`](docs/roadmap.md) — per-track state lives there and nowhere
 else; what follows is a summary, not a second ledger.
 
@@ -91,10 +91,11 @@ the first driver-agent that *arrives* in the store is `entropy`
 available through the product's EL0 request/reply endpoint
 ([ADR-0103](docs/adr/0103-p2-el0-durable-endpoint.md)). P3 now has a named
 architecture target ([ADR-0104](docs/adr/0104-p3-edge-network-composition.md));
-its Pi4 backend evidence and P4 remain open, along with H3 L1+ and trigger-gated
-residuals.
+its Pi4 backend evidence is complete, while publication certification of that
+backend through the product network service and P4 remain open, along with H3
+L1+ and trigger-gated residuals.
 
-Next: **Pi4 backend evidence for the completed P3 edge-gateway target** — the
+Next: **certify the published P3 edge-gateway path on Pi 4 silicon** — the
 transport and split-queue lifecycle, packet service, directional EL0 ownership,
 deterministic peer RX, and service reset/recovery are integrated and gated by
 `make qemu-virtio-check`. On Pi 4 the product brings up the BCM2711 GENET v5
@@ -108,11 +109,10 @@ an absent-device refusal. The boots are recorded one per row in
 [verification](docs/verification.md#hardware-evidence-pi-4-genet-v5-bring-up-2026-08-14--2026-08-17).
 ADR-0105 and the design
 [ADR-0106](docs/adr/0106-pi4-genet-v5-backend-design.md) were **accepted on
-that evidence** (2026-08-17). What is paid is the **backend**, not its
-publication: the product still prints `authority: network vocabulary VACANT` on
-`raspi4b`, binding the backend to the network vocabulary is the BSP composition
-step ADR-0105 always named as later, and P3 stays `done (QEMU)` until it
-happens.
+that evidence** (2026-08-17). The board-selected transport publication is now
+implemented on `main`; what remains is the correlated silicon certificate that
+the product store, network vocabulary, EL0 service and GENET datapath work
+together. P3 therefore remains `done (QEMU)` until that evidence exists.
 K5-H stays held: measured
 peak is 8 of 57 slots on QEMU (9 on a Pi 4B that runs the five-agent store).
 

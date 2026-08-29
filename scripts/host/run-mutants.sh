@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # Mutation-test the modules that carry authority and scheduling.
 #
-# Not a `make check` prerequisite: a full run is around seven minutes, and the
-# value is in reading *which* mutants survived rather than in a number. The
+# Set MUTANTS_FILES to a comma-separated subset of mutation-scope.toml's
+# in_scope entries for an exploratory batch, for example:
+#   MUTANTS_FILES=genet,genet_fdt MUTANTS_JOBS=4 make mutants
+# Batch runs validate their own artifact but never update the global stamp or
+# apply the full-scope survivor baseline. The default remains the full scope.
+#
+# Not a `make check` prerequisite: a full run can take hours on a loaded or
+# CPU-capped workstation, and the value is in reading *which* mutants survived
+# rather than in a number. The
 # cadence is ADR-0058's: a fresh run before any commit that moves a boundary
 # (new syscall/argument, new cap band, new authority module), and the file
 # list below must gain every module that decides authority — `taskcap.rs`
@@ -97,6 +104,31 @@ if [[ "${#FILES[@]}" -eq 0 ]]; then
 	echo "mutants: FAIL — ${SCOPE_FILE} lists no in_scope module" >&2
 	exit 1
 fi
+
+batch=0
+if [[ -n "${MUTANTS_FILES:-}" ]]; then
+	batch=1
+	declare -a requested=()
+	IFS=',' read -r -a requested <<<"${MUTANTS_FILES}"
+	declare -A allowed=()
+	for f in "${FILES[@]}"; do
+		allowed["${f}"]=1
+	done
+	FILES=()
+	for f in "${requested[@]}"; do
+		[[ -n "${f}" ]] || continue
+		if [[ -z "${allowed[${f}]+yes}" ]]; then
+			echo "mutants: FAIL — '${f}' is not in mutation-scope.toml in_scope" >&2
+			exit 1
+		fi
+		FILES+=("${f}")
+	done
+	if [[ "${#FILES[@]}" -eq 0 ]]; then
+		echo "mutants: FAIL — MUTANTS_FILES selected no modules" >&2
+		exit 1
+	fi
+	echo "mutants: batch scope (${FILES[*]}) — stamp and global baseline disabled" >&2
+fi
 file_args=()
 for f in "${FILES[@]}"; do
 	file_args+=(--file "**/${f}.rs")
@@ -174,7 +206,7 @@ PY
 missed="$(wc -l <mutants.out/missed.txt)"
 timeout="$(wc -l <mutants.out/timeout.txt)"
 
-if [[ "${missed}" -gt "${BASELINE_MISSED}" || "${timeout}" -gt "${BASELINE_TIMEOUT}" ]]; then
+if [[ "${batch}" -eq 0 && ( "${missed}" -gt "${BASELINE_MISSED}" || "${timeout}" -gt "${BASELINE_TIMEOUT}" ) ]]; then
 	echo "mutants: FAIL — ${missed} survived (baseline ${BASELINE_MISSED}), ${timeout} timed out (baseline ${BASELINE_TIMEOUT})" >&2
 	echo "  New survivors are the useful part of the result. Read them:" >&2
 	sed 's/^/    /' mutants.out/missed.txt >&2
@@ -183,7 +215,7 @@ if [[ "${missed}" -gt "${BASELINE_MISSED}" || "${timeout}" -gt "${BASELINE_TIMEO
 	exit 1
 fi
 
-if [[ "${missed}" -lt "${BASELINE_MISSED}" ]]; then
+if [[ "${batch}" -eq 0 && "${missed}" -lt "${BASELINE_MISSED}" ]]; then
 	echo "mutants: ${missed} survived, fewer than the baseline of ${BASELINE_MISSED}."
 	echo "  Lower the baseline in this script — a stale one hides the next regression."
 fi
@@ -192,6 +224,11 @@ fi
 # stale. The stamp is tracked in git precisely because the question it answers
 # — "has the mutable surface moved since anyone last ran this?" — is about the
 # repository's history, not about this working copy (ADR-0096).
+if [[ "${batch}" -eq 1 ]]; then
+	echo "mutants: batch complete (${missed} survived, ${timeout} timed out)"
+	exit 0
+fi
+
 mutant_count="$(cargo mutants --list -p kernel-core "${file_args[@]}" 2>/dev/null | wc -l)"
 run_commit="$(git describe --always 2>/dev/null || echo unknown)"
 cat >"${STAMP}" <<STAMP

@@ -14,6 +14,9 @@ const TX_REQUEST_SLOT: usize = 0;
 const TX_COMPLETE_SLOT: usize = 1;
 const RX_RETURN_SLOT: usize = 2;
 const RX_AVAILABLE_SLOT: usize = 3;
+// The resident service has one transport lease. Recovery is deliberately a
+// one-shot transition after the first completed RX session; a later multi-
+// session contract must replace this latch with an explicit session state.
 static SESSION_RECYCLED: AtomicBool = AtomicBool::new(false);
 
 pub fn run() {
