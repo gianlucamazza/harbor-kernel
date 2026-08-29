@@ -1802,6 +1802,19 @@ For investigation, `MUTANTS_FILES=genet,genet_fdt make mutants` runs a validated
 subset. Batch runs do not update the global mutation stamp or apply its
 full-scope survivor baseline; only a complete scope run may do either.
 
+### Current freshness status (2026-08-30)
+
+The global freshness gate currently reports `1645 mutants, stamp says 660`.
+This is an honest red gate: the stamp records the last complete run and must
+not be advanced by copying a count from `cargo mutants --list` or from a partial
+batch. An exploratory GENET/GENET-FDT batch enumerated 968 mutants and was
+stopped before completion because its four-way run was too expensive on this
+host. The first three `MISSED` results were the register constants
+`RBUF_64B_EN`, `SYS_RBUF_FLUSH`, and `RBUF_RXCHK_EN`, each `1 << 0` mutated to
+`1 >> 0`; these are equivalent expressions with the same value, not untested
+behaviour. The complete mutation run remains an explicit release task; no
+mutation stamp or survivor baseline was changed by the exploratory batch.
+
 The target compares against the ten justified survivors above rather than
 against zero, because `cargo-mutants` exits non-zero whenever anything survives
 and a target that is red every time is a target nobody runs. More survivors than
