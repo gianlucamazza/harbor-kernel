@@ -406,6 +406,39 @@ composition: product store, non-vacant vocabulary, EL0 service, GENET TX/RX and
 reset/recovery. What ADR-0105 acceptance paid is the backend and its evidence;
 ADR-0112 publication still needs its own correlated certificate.
 
+## Hardware evidence: product SD boot and GENET RX smoke (2026-08-30)
+
+This is the first post-publication boot of the board-selected product image
+from the prepared SD card. The host identified the card by MBR ID
+`0x7d23366b`; the boot partition was written through an explicit loop mapping
+whose backing device was `/dev/sdb`, because the `05e3:0749` reader exposed
+stale partition paths as regular files during the first attempt. The final
+product image hash was
+`0269b4750eac719ab87f0bc37a8bcf3bbabea41a3f7610893fe5619f1c0896aa`, and the
+boot partition was remounted read-only before the file hash was checked.
+
+The board then ran the product image continuously on a Pi 4B. The first
+capture records the GENET receive path accepting a real Ethernet frame:
+
+```text
+genet: rx frame len=66 src=0xff0xff0x00xe0 ether=0xe0x94 magic=0x80x6
+genet: rx available len=66
+net: rx available slot=8 len=66
+```
+
+The formatting of the byte fields is an existing diagnostic limitation; the
+EtherType bytes identify the frame as ARP (`0x0806`). Across the capture the
+invariants stayed at `overwrites=0 abandoned=0 faults=0`, with
+`frames_free=489`. A second power-cycle capture reached `ticks=460` with
+`overwrites=0 abandoned=0 faults=0` and `frames_free=472`.
+
+The two derived records are [20260830-011742.log](evidence/20260830-011742.log)
+for the GENET RX event and [20260830-012046.log](evidence/20260830-012046.log)
+for the subsequent clean power-cycle boot. A 20-second passive Ethernet
+capture during the second boot saw zero packets, so this stamp does **not**
+claim TX-on-wire, a product network vocabulary publication, or the complete
+store → EL0 service → GENET certificate. Those remain the next P3 gate.
+
 ## What emulation cannot catch, with the example that proved it
 
 QEMU's TCG implements load/store-exclusive with a global monitor that **ignores

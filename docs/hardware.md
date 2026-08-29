@@ -212,6 +212,14 @@ an error. `drivers::pm` has no write function to reach for by mistake.
    media persistence. Read the slots from the host with
    `scripts/host/durable-read.sh /dev/sdX`.
 
+The Genesys `05e3:0749` reader used in the 2026-08-30 stamp exposes two SCSI
+LUNs and can leave stale regular-file paths at `/dev/sdX1` after a capacity
+reset. Before any write, verify that the whole card is a real block device,
+has the expected partition table, and has non-zero capacity. If a partition
+node is a regular file, do not mount it: use a loop mapping with the exact
+partition offset and size, and verify its `BACK-FILE` is the whole-card block
+device. This is a reader workaround, not a change to the SD layout.
+
 The SD slot is EMMC2 on BCM2711 silicon; QEMU `raspi4b` wires its `-drive
 if=sd` card to the legacy Arasan SDHCI instead, so the board bind probes
 EMMC2 first and falls back, printing which host answered (`host=` on the

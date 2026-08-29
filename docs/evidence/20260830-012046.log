@@ -1,0 +1,12 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260830-012046.log
+# sha256:  25817b7ca140da843f33dd01d52e06bdf436dbb43a4f2e7d747dbc7bc19a2f60
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260830-012046.log
+01:20:47.556116 ticks=30
+        [... 88 heartbeat lines elided ...]
+01:21:31.555934 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
