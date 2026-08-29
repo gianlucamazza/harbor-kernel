@@ -439,6 +439,26 @@ capture during the second boot saw zero packets, so this stamp does **not**
 claim TX-on-wire, a product network vocabulary publication, or the complete
 store → EL0 service → GENET certificate. Those remain the next P3 gate.
 
+### Clean product recheck (2026-08-30 01:31)
+
+The product image was rebuilt from `src=11bc6346`, written to the SD boot
+partition through an explicit `/dev/sdb` loop mapping, and verified byte-for-byte
+against the local image (`sha256=d3c88de3001f9336436f0be58c65030bdf9f108fe57a7115c341a139ea557d4b`).
+The synchronized serial capture [20260830-013117.log](evidence/20260830-013117.log)
+then reached the complete product path: six store agents loaded with their
+expected `home_cpu` values, all network and blob capabilities bound, EL0 blob
+put/get completed, GENET TX accepted/completed, GENET RX accepted/returned, and
+GENET recovery followed by link acquisition and dataplane recycle. Invariants
+remained at `overwrites=0 abandoned=0 faults=0`.
+
+The corresponding host capture `20260830-013200.pcap` contains six host ARP
+requests and no frame from the product source `02:00:00:00:00:01` with
+EtherType `0x88b5`. Therefore `make hw-store-audit` is clean and the serial
+transcript gate is clean, but `make hw-check` correctly remains red on the
+wire-witness assertion. Serial TX completion/GENET counters are not treated as
+proof of a frame on the cable; P3 remains open pending a positive passive
+capture (or equivalent independent wire witness).
+
 ## What emulation cannot catch, with the example that proved it
 
 QEMU's TCG implements load/store-exclusive with a global monitor that **ignores

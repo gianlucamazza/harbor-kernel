@@ -1,0 +1,101 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260830-013117.log
+# sha256:  3d9c0ea699371ba3141ad4dc56f4022a236d7c788c0608d8319411fa6cb94d93
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260830-013117.log
+01:31:32.413190 Harbor: hello
+01:31:32.413488 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+01:31:32.413621 build: headless (no bring-up gates) src=11bc6346 release
+01:31:32.413735 DTB at 0x2eff1f00
+01:31:32.413866 MMU on  (W^X, guard page at 0x116000, 294912 B of table arena left)
+01:31:32.435035 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+01:31:32.435205 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+01:31:32.435303 smp: core1 alive
+01:31:32.435389 DTB mapped: 61440 bytes at 0x2eff1000
+01:31:32.435517 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+01:31:32.457017 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+01:31:32.457192 discover: cpus 4 (fdt) smp-seen=2 matches
+01:31:32.457293 discover: display compiled=off (claim, not probed)
+01:31:32.457395 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+01:31:32.457479 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+01:31:32.477449 genet: phy=0x600d84a2 (id, not a nic)
+01:31:32.477606 genet: link=down (bmsr, not a nic)
+01:31:32.477743 heap remaining = 67108864 bytes
+01:31:32.477886 frames: 512 free / 512  base=0x4127000  (2048 KiB pool)
+01:31:32.478066 genet: discovery ready base=0xfd580000 rev=6.0 state cmd=0x0 tdma=0x0/0x3ffff rdma=0x0/0x3ffff
+01:31:32.497717 durable-media: boot=4 from=Previous part=0x7f slot=A seq=3 host=emmc2
+01:31:32.634052 rng200: ok word=0x35d74e21
+01:31:32.634222 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+01:31:32.634349 genet: service ready base=0xfd580000 rev=0x06000000 queues=1 size=8 ready tx-descriptor=submitted
+01:31:32.634442 irq: sealed with 3 handlers registered
+01:31:32.634515 smp: core1 ipi
+01:31:32.634585 smp: core1 ran
+01:31:32.656018 IRQs enabled (timer + UART RX)
+01:31:32.656265 idle: WFI when no RX/tick work
+01:31:32.656425 heap: Box at 0x127010, Vec of 1024 sums to 523776
+01:31:32.656552 heap: 67100624 bytes free while held, 2 fragments
+01:31:32.656664 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+01:31:32.656771 unmap: page at 0x128000 fault-ready
+01:31:32.678023 unmap: remapped and freed
+01:31:32.678217 split: page at 0x200000 split 1, remapped
+01:31:32.678341 net: transport ready base=0xfd580000 queues=1 size=8
+01:31:32.678467 console-server: up
+01:31:32.678557 console: capability minted
+01:31:32.678661 authority: 0 console ok
+01:31:32.678765 authority: bound console
+01:31:32.678863 blob: service up
+01:31:32.700070 authority: 1 blob ok
+01:31:32.700253 authority: 2 blob-reply ok
+01:31:32.700355 authority: bound blob
+01:31:32.700448 authority: bound blob-reply
+01:31:32.700529 net: endpoints up
+01:31:32.700604 authority: 3 net-tx ok
+01:31:32.700699 authority: 4 net-tx-complete ok
+01:31:32.700800 authority: 5 net-rx ok
+01:31:32.700907 authority: 6 net-rx-return ok
+01:31:32.701014 authority: 0 rng ok
+01:31:32.723040 authority: windows 1 declared
+01:31:32.723195 loader: store n=6 image
+01:31:32.723297 loader: beacon loaded text=1 stack=3 home=0
+01:31:32.723405 loader: chirp loaded text=1 stack=3 home=1
+01:31:32.723533 loader: lookup loaded text=1 stack=3 home=0
+01:31:32.723647 loader: entropy loaded text=1 stack=3 home=0
+01:31:32.745006 loader: blob loaded text=1 stack=3 home=0
+01:31:32.745259 loader: edge-gateway loaded text=1 stack=3 home=0
+01:31:32.745407 arena: 1 splits, 70 tables free
+01:31:32.745547 boot: mmu=21 ms discover=73 ms ready=342 ms
+01:31:32.745661 ?loader: chirp ran sends=1 refusals=0
+01:31:32.745749 net: service up
+01:31:32.745852 genet: tx descriptor complete used_len=124
+01:31:32.767094 genet: umac tsv probe packed=0 linux=1 pok=1 (mib, not a nic)
+01:31:32.767260 loader: lookup ran sends=1 refusals=0
+01:31:32.767394 genet: tx prepared index=1 len=60 prod=1/1 desc=0x7c7fc0 dma=0x0:0x4130000 frame=0xff0xff0x880xb5
+01:31:32.767539 genet: tx doorbell prod=2/2 cmd=0x100006b tdma=0x3f/0x3ffc0
+01:31:32.789121 net: tx accepted slot=0 len=60
+01:31:32.789276 genet: umac tsv tx slot=0 generation=0 packed=0 linux=2 pok=2 (mib, not a nic)
+01:31:32.789409 net: tx complete slot=0 len=60
+01:31:32.789557 H!NRloader: beacon ran sends=2 refusals=0
+01:31:32.789679 loader: entropy ran sends=1 refusals=0
+01:31:32.789765 blob: put ok
+01:31:32.789864 blob: got
+01:31:32.790417 Sloader: blob ran sends=3 refusals=0
+01:31:33.720178 ticks=10
+01:31:33.720398 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
+01:31:33.901036 genet: rx frame len=66 src=0xff0xff0x00xe0 ether=0xe0x94 magic=0x80x6
+01:31:33.901204 genet: rx available len=66
+01:31:33.901304 net: rx available slot=8 len=66
+01:31:33.901399 loader: edge-gateway ran sends=2 refusals=0
+01:31:33.901491 net: rx returned slot=8 len=66
+01:31:33.901580 genet: recovery complete
+01:31:33.923613 genet: link acquisition start window_us=5000000
+01:31:33.923719 genet: link acquisition up
+01:31:33.923830 genet: dataplane programmed tdma=0x0/0x3ffff rdma=0x0/0x3ffff txbd=0x7c7fc0 rxbd=0x826040
+01:31:33.923940 genet: dataplane enabled cmd=0x100006b tdma=0x3f/0x3ffc0 rdma=0x3/0x3fffc tx=0/0 rx=0/0
+01:31:33.924018 net: service recycle ok
+01:31:34.720134 ticks=20
+        [... 336 heartbeat lines elided ...]
+01:34:22.718630 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
