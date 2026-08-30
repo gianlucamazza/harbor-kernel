@@ -335,6 +335,21 @@ mod tests {
     }
 
     #[test]
+    fn rejected_transport_tx_can_return_to_agent() {
+        let mut pool = PacketPool::new();
+        let token = PacketToken {
+            slot: 0,
+            generation: 0,
+            len: 64,
+        };
+        pool.accept_tx(token).unwrap();
+        pool.complete_tx(token).unwrap();
+
+        let retry = pool.submit_tx(0, 0, 64).unwrap();
+        assert_eq!(retry, token);
+    }
+
+    #[test]
     fn malformed_lengths_are_refused() {
         let mut pool = PacketPool::new();
         assert_eq!(

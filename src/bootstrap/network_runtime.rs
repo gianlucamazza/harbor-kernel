@@ -215,16 +215,19 @@ pub fn submit_service_tx(token: PacketToken) -> Result<(), ServiceError> {
                 usize::from(token.len),
             );
         }
-        lease
-            .transport
-            .submit_tx(
-                token,
-                transport::Buffer {
-                    pa: lease.dma_packets[1].pa as u64,
-                    len: usize::from(token.len),
-                },
-            )
-            .map_err(ServiceError::Transport)?;
+        if let Err(error) = lease.transport.submit_tx(
+            token,
+            transport::Buffer {
+                pa: lease.dma_packets[1].pa as u64,
+                len: usize::from(token.len),
+            },
+        ) {
+            // The pool transition above is speculative until the backend
+            // accepts the descriptor. Restore agent ownership on refusal so a
+            // transient link-down does not strand the slot forever.
+            let _ = lease.pool.complete_tx(token);
+            return Err(ServiceError::Transport(error));
+        }
         lease.service_tx = Some(token);
         Ok(())
     })

@@ -14,7 +14,8 @@
 //! tested half of this file.
 
 use kernel_core::genet::{
-    self, BoundedRingState, Descriptor, DescriptorError, RingError, RingLayout, RingProgramError,
+    self, BoundedRingState, Descriptor, DescriptorError, LinkState, RingError, RingLayout,
+    RingProgramError,
 };
 use kernel_core::net::{self, PacketToken};
 
@@ -530,6 +531,12 @@ impl crate::bsp::net::Transport for GenetNet {
             return Err(Error::Enable(
                 kernel_core::genet::QueueEnableError::NotProgrammed,
             ));
+        }
+        // A completed DMA descriptor is not proof that UniMAC had a live
+        // carrier. Re-read BMSR at the service boundary so a link drop cannot
+        // turn an accepted agent token into a phantom TX completion.
+        if self.controller.classify_link()? != LinkState::Up {
+            return Err(Error::Phy(kernel_core::genet::PhyError::LinkDown));
         }
         self.submit_frame(token, buffer)
     }
