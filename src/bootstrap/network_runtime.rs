@@ -11,7 +11,9 @@ use crate::mm;
 use crate::sync::Mutex;
 
 const PACKET_PAGE_COUNT: usize = 8;
-const DMA_PACKET_COUNT: usize = 9;
+const RX_DMA_FIRST_INDEX: usize = 1;
+const SERVICE_TX_DMA_INDEX: usize = RX_DMA_FIRST_INDEX + net_abi::PACKET_SLOTS / 2;
+const DMA_PACKET_COUNT: usize = SERVICE_TX_DMA_INDEX + 1;
 const SCRATCH_COUNT: usize = transport::SCRATCH_PAGES;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,7 +151,7 @@ pub fn start() -> Result<Report, StartError> {
         transport::RxSlot {
             token,
             buffer: transport::Buffer {
-                pa: dma_packets[i + 1].pa as u64,
+                pa: dma_packets[RX_DMA_FIRST_INDEX + i].pa as u64,
                 len: net_abi::PACKET_BYTES,
             },
         }
@@ -211,14 +213,14 @@ pub fn submit_service_tx(token: PacketToken) -> Result<(), ServiceError> {
             cache::clean_dcache_poc(source as usize, usize::from(token.len));
             core::ptr::copy_nonoverlapping(
                 source as *const u8,
-                lease.dma_packets[1].pa as *mut u8,
+                lease.dma_packets[SERVICE_TX_DMA_INDEX].pa as *mut u8,
                 usize::from(token.len),
             );
         }
         if let Err(error) = lease.transport.submit_tx(
             token,
             transport::Buffer {
-                pa: lease.dma_packets[1].pa as u64,
+                pa: lease.dma_packets[SERVICE_TX_DMA_INDEX].pa as u64,
                 len: usize::from(token.len),
             },
         ) {
@@ -243,7 +245,7 @@ pub fn return_service_rx(token: PacketToken) -> Result<(), ServiceError> {
             .return_rx(
                 token,
                 transport::Buffer {
-                    pa: lease.dma_packets[i + 1].pa as u64,
+                    pa: lease.dma_packets[RX_DMA_FIRST_INDEX + i].pa as u64,
                     len: net_abi::PACKET_BYTES,
                 },
             )
@@ -376,7 +378,7 @@ fn recover(lease: &mut Lease) -> Result<(), RecoveryError> {
             .return_rx(
                 token,
                 transport::Buffer {
-                    pa: lease.dma_packets[i + 1].pa as u64,
+                    pa: lease.dma_packets[RX_DMA_FIRST_INDEX + i].pa as u64,
                     len: net_abi::PACKET_BYTES,
                 },
             )

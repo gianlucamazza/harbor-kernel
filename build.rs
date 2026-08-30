@@ -52,6 +52,10 @@ fn emit_source_id() {
     // that change `git describe`'s answer.
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/index");
+    // The dirty suffix is part of the build contract. Track the source tree
+    // as well, otherwise an unstaged edit can reuse a clean build-script
+    // result and stamp the image with a commit that no longer describes it.
+    println!("cargo:rerun-if-changed=src");
 
     let described = std::process::Command::new("git")
         .args(["describe", "--always", "--dirty", "--abbrev=8"])
