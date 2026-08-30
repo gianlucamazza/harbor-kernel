@@ -264,6 +264,12 @@ impl GenetNet {
             state.rx_prod,
             state.rx_cons
         );
+        crate::kprintln!(
+            "genet: service dataplane state link={:?} rgmii={:#x} umac={:#x}",
+            self.controller.classify_link()?,
+            state.state.rgmii_oob,
+            state.state.umac_cmd
+        );
         Ok(())
     }
 
@@ -535,7 +541,13 @@ impl crate::bsp::net::Transport for GenetNet {
         // A completed DMA descriptor is not proof that UniMAC had a live
         // carrier. Re-read BMSR at the service boundary so a link drop cannot
         // turn an accepted agent token into a phantom TX completion.
-        if self.controller.classify_link()? != LinkState::Up {
+        let link = self.controller.classify_link()?;
+        crate::kprintln!(
+            "genet: service tx request slot={} len={} link={link:?}",
+            token.slot,
+            token.len
+        );
+        if link != LinkState::Up {
             return Err(Error::Phy(kernel_core::genet::PhyError::LinkDown));
         }
         self.submit_frame(token, buffer)
