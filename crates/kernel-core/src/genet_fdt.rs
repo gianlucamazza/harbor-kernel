@@ -592,4 +592,78 @@ mod tests {
             "genet: unavailable (Missing)"
         );
     }
+
+    #[test]
+    fn primitive_fdt_decoders_reject_ambiguous_shapes() {
+        assert_eq!(cells(&[0, 0, 0, 7], 1), Ok(7));
+        assert_eq!(cells(&[0, 0, 0, 1, 0, 0, 0, 2], 2), Ok(0x1_0000_0002));
+        assert_eq!(cells(&[], 0), Err(Error::UnsupportedCells));
+        assert_eq!(cells(&[0; 4], 3), Err(Error::UnsupportedCells));
+        assert_eq!(cells(&[0; 3], 1), Err(Error::UnsupportedCells));
+        assert_eq!(prop_u32(&[0, 0, 0, 9]), Ok(9));
+        assert_eq!(prop_u32(&[0; 3]), Err(Error::BadStructure));
+        assert!(compatible(b"vendor,other\0brcm,bcm2711-genet-v5\0"));
+        assert!(!compatible(b"vendor,other\0"));
+        assert_eq!(string(b"abc\0tail", 0, 8), Ok(&b"abc"[..]));
+        assert_eq!(string(b"abc", 0, 3), Err(Error::BadStructure));
+    }
+
+    #[test]
+    fn fdt_range_decoder_checks_cells_sizes_and_overflow() {
+        let mut out = [Range {
+            child: 0,
+            parent: 0,
+            size: 0,
+        }; MAX_RANGES];
+        let mut count = 0;
+        let one = [0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 4];
+        ranges(&one, 1, 1, 1, &mut out, &mut count).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(out[0].child, 1);
+        assert_eq!(out[0].parent, 2);
+        assert_eq!(out[0].size, 4);
+        assert_eq!(
+            ranges(&[], 0, 1, 1, &mut out, &mut count),
+            Err(Error::UnsupportedCells)
+        );
+
+        let zero_size = [0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0];
+        assert_eq!(
+            ranges(&zero_size, 1, 1, 1, &mut out, &mut count),
+            Err(Error::InvalidRange)
+        );
+        let overflow = [
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0, 0, 0, 2, 0, 0, 0, 2,
+        ];
+        assert_eq!(
+            ranges(&overflow, 2, 1, 1, &mut out, &mut count),
+            Err(Error::InvalidRange)
+        );
+
+        let map = [
+            Range {
+                child: 0x100,
+                parent: 0x1000,
+                size: 0x100,
+            },
+            Range {
+                child: 0,
+                parent: 0x2000,
+                size: 0x1000,
+            },
+            Range {
+                child: 0,
+                parent: 0,
+                size: 0,
+            },
+            Range {
+                child: 0,
+                parent: 0,
+                size: 0,
+            },
+        ];
+        assert_eq!(translate(0x110, 4, &map, 2), Ok(0x1010));
+        assert_eq!(translate(0x1fff, 2, &map, 2), Err(Error::InvalidRange));
+        assert_eq!(translate(u64::MAX, 2, &map, 2), Err(Error::InvalidRange));
+    }
 }
