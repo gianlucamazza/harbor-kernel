@@ -1814,8 +1814,8 @@ IPC, scheduler and capability cases; it is not safe to absorb it into the old
 22-survivor baseline without classification. The run also exposed equivalent
 bit-expression mutations among the GENET constants, but the remaining cases
 need targeted tests or an explicit invariant justification. Follow-up coverage
-tests landed in `4590faa`; the stamp and survivor baseline remain unchanged
-until a complete run over that newer tree validates them.
+tests landed in `4590faa` and `ed8c1de`; the stamp and survivor baseline remain
+unchanged until a complete run over that newer tree validates them.
 
 The target compares against the ten justified survivors above rather than
 against zero, because `cargo-mutants` exits non-zero whenever anything survives
