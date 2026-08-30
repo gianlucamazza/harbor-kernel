@@ -168,6 +168,19 @@ Priority is **mission fit**, not ID order. ADR before boundary code.
 | watch | **K7-M** switch-cost lab / **K7-T** if trigger            | Optional; policy [ADR-0084](adr/0084-k7-residual-policy.md)                                                                                                                                                                                                                                                                                                                                                             | [#21](https://github.com/gianlucamazza/harbor-kernel/issues/21) |
 | gated | **K5-H** / agent+TLB / **H3 L1+** / cores 2–3 | Trigger only. **P4 left this row on 2026-08-17**: it has a named composition ([ADR-0113](adr/0113-p4-framebuffer-agent.md)) and is `in design`, which is what an ADR-0026 item looks like when it is being paid rather than deferred | —                                                               |
 
+### Active gate: P3 publication certificate
+
+The only open H1 gate is the correlated silicon certificate for [ADR-0112](adr/0112-p3-publication-transport-boundary.md). The next hardware session must preserve one immutable source/image/store identity and capture, in the same boot where possible:
+
+1. product image booted from the identified SD card, with source and image hash recorded;
+2. non-vacant network vocabulary and a store-loaded EL0 agent using granted network caps;
+3. GENET TX attributable to that agent, with an independent passive Ethernet witness for the frame;
+4. host-originated RX delivered to the EL0 agent, with payload equality checked;
+5. service reset invalidating outstanding tokens and a bounded post-reset refusal;
+6. absent-device boot from `scripts/host/absent-nic-dtb.sh`, retaining a healthy refusal path.
+
+The reproducible host gates are `make qemu-virtio-check`, `make model-consumed`, `make hw-store-audit`, and `make hw-check`; the last two must be evaluated against the same image/source/store evidence, and a serial TX completion alone is not a wire witness.
+
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
 K7 ASID slice **done (HW)** (stamp 2026-08-09). Resolve-grant + peer transfer
 **done (HW)** (same stamp). K4 EL0 + EL1 preemption **done (HW)** (ADR-0064/0068).
