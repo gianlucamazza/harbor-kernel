@@ -2609,6 +2609,10 @@ mod tests {
         assert!(windows.contains(0x1080, 4));
         assert!(windows.contains(0x4080, 4));
         assert!(!windows.contains(0x8080, 4));
+        assert_eq!(windows.map_cpu(0x1080, 4), Ok(0x1080));
+        assert_eq!(windows.map_cpu(0x4080, 4), Ok(0x4080));
+        assert_eq!(windows.map_cpu(0x80ff, 2), Err(DmaMapError::OutsideWindow));
+        assert_eq!(windows.map_cpu(0x4100, 1), Err(DmaMapError::OutsideWindow));
     }
 
     #[test]
@@ -2648,6 +2652,30 @@ mod tests {
             }
             .validate(DMA),
             Err(DescriptorError::AddressOverflow)
+        );
+
+        let service = Descriptor {
+            address: 0x1000,
+            length: u32::from(RX_BUF_LENGTH),
+            status: 0,
+        };
+        assert_eq!(service.validate_service_windows(DMA_WINDOWS), Ok(()));
+        assert_eq!(
+            (Descriptor {
+                length: u32::from(RX_BUF_LENGTH) + 1,
+                ..service
+            })
+            .validate_service_windows(DMA_WINDOWS),
+            Err(DescriptorError::TooLarge)
+        );
+        assert_eq!(
+            (Descriptor {
+                address: 0x4fff,
+                length: 2,
+                ..service
+            })
+            .validate_service_windows(DMA_WINDOWS),
+            Err(DescriptorError::AddressOutsideDma)
         );
     }
 
@@ -3390,6 +3418,14 @@ mod tests {
             Err(SpeedError::Unknown)
         );
         assert_eq!(
+            classify_aneg_speed(up, 0, 0, phy::STAT1000_1000),
+            Err(SpeedError::Unknown)
+        );
+        assert_eq!(
+            classify_aneg_speed(up, 0, phy::CTRL1000_1000, 0),
+            Err(SpeedError::Unknown)
+        );
+        assert_eq!(
             classify_aneg_speed(0, phy::LPA_100, 0, 0),
             Err(SpeedError::LinkDown)
         );
@@ -3398,6 +3434,12 @@ mod tests {
             "genet: tx unavailable (unknown speed)"
         );
         assert_eq!(registers::UMAC_CMD_SPEED_MASK, 0xc);
+        assert!(!queue_supported(1));
+        assert!(!queue_supported(2));
+        assert!(!queue_supported(4));
+        assert!(queue_supported(DESC_RING));
+        assert!(!ring_programmable(registers::RDMA, 1));
+        assert!(ring_programmable(registers::TDMA, 1));
     }
 
     #[test]
@@ -3439,6 +3481,9 @@ mod tests {
         assert_eq!(registers::UMAC_MAX_FRAME_LEN, 0x814);
         assert_eq!(umac_mac0(STATION_ADDR), 0x0200_0000);
         assert_eq!(umac_mac1(STATION_ADDR), 0x0001);
+        let distinct = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc];
+        assert_eq!(umac_mac0(distinct), 0x1234_5678);
+        assert_eq!(umac_mac1(distinct), 0x9abc);
         assert_eq!(STATION_ADDR[0] & 0x02, 0x02);
         assert_eq!(MAX_FRAME_BYTES, 1536);
         assert_eq!(
