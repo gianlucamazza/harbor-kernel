@@ -76,6 +76,7 @@ stty -F "${DEV}" "${BAUD}" cs8 -cstopb -parenb -crtscts -ixon -ixoff -echo -hupc
 mkdir -p "${LOG_DIR}"
 LOG="${LOG_DIR}/$(date +%Y%m%d-%H%M%S).log"
 FIFO="${LOG_DIR}/tx.fifo"
+SESSION="$(date +%Y%m%d-%H%M%S)"
 
 [[ -p "${FIFO}" ]] || {
 	rm -f "${FIFO}"
@@ -94,6 +95,7 @@ echo "capturing ${DEV} @ ${BAUD} 8N1"
 echo "log:  ${LOG}"
 echo "send: printf 'x' > ${FIFO}"
 echo "---"
+printf '# harbor serial session %s device=%s baud=%s\n' "${SESSION}" "${DEV}" "${BAUD}" >>"${LOG}"
 
 # `tr -d '\r'` because the board sends CRLF, and a bare CR makes the log
 # unreadable in anything that respects it. The timestamp is prepended per line;

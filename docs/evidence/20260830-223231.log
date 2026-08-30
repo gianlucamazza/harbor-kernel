@@ -1,92 +1,14 @@
+# Harbor hardware evidence — derived by scripts/host/hw-evidence.sh v1.
+# Do not edit by hand: the gate re-derives this and compares.
+#
+# capture: 20260830-223231.log
+# sha256:  9407d25850dd258ada74f0cef74377a0a07ecc5b5628e85b9d8cf64c3fe339ec
+#
+# Heartbeat runs (`ticks=` / `invariants:`) are collapsed to first + count +
+# last (ADR-0109). Everything else is verbatim. Re-derive with:
+#   scripts/host/hw-evidence.sh .serial-log/20260830-223231.log
 22:32:31.539609 ticks=270
-22:32:31.539936 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:32.539523 ticks=280
-22:32:32.539706 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:33.539512 ticks=290
-22:32:33.539679 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:34.539533 ticks=300
-22:32:34.539826 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:35.539544 ticks=310
-22:32:35.539739 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:36.539511 ticks=320
-22:32:36.539738 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:37.539499 ticks=330
-22:32:37.539789 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:38.539533 ticks=340
-22:32:38.539821 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:39.539532 ticks=350
-22:32:39.539737 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:40.539474 ticks=360
-22:32:40.539706 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:41.539465 ticks=370
-22:32:41.539659 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:42.539428 ticks=380
-22:32:42.539627 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:43.539482 ticks=390
-22:32:43.539713 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:44.539417 ticks=400
-22:32:44.539655 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:45.539452 ticks=410
-22:32:45.539717 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:46.539375 ticks=420
-22:32:46.539619 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:47.539365 ticks=430
-22:32:47.539591 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:48.539359 ticks=440
-22:32:48.539551 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:49.539340 ticks=450
-22:32:49.539578 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:50.539339 ticks=460
-22:32:50.539606 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:51.539348 ticks=470
-22:32:51.539568 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:52.539365 ticks=480
-22:32:52.539592 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:53.539376 ticks=490
-22:32:53.539589 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:54.539280 ticks=500
-22:32:54.539543 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:55.539304 ticks=510
-22:32:55.539512 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:56.539240 ticks=520
-22:32:56.539451 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:57.539259 ticks=530
-22:32:57.539492 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:58.539527 ticks=540
-22:32:58.539731 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:32:59.539216 ticks=550
-22:32:59.539439 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:00.539189 ticks=560
-22:33:00.539372 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:01.539190 ticks=570
-22:33:01.539398 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:02.539167 ticks=580
-22:33:02.539400 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:03.539196 ticks=590
-22:33:03.539419 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:04.539175 ticks=600
-22:33:04.539406 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:05.539164 ticks=610
-22:33:05.539388 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:06.539121 ticks=620
-22:33:06.539296 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:07.539152 ticks=630
-22:33:07.539383 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:08.539126 ticks=640
-22:33:08.539347 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:09.539124 ticks=650
-22:33:09.539327 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:10.539119 ticks=660
-22:33:10.539339 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:11.539113 ticks=670
-22:33:11.539300 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:12.539127 ticks=680
-22:33:12.539334 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:13.539144 ticks=690
-22:33:13.539369 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:14.539077 ticks=700
-22:33:14.539280 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
-22:33:15.538964 ticks=710
+        [... 88 heartbeat lines elided ...]
 22:33:15.539195 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
 22:33:22.307283 Harbor: hello
 22:33:22.307508 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
@@ -165,682 +87,180 @@
 22:33:22.685198 blob: got
 22:33:22.685616 Sloader: blob ran sends=3 refusals=0
 22:33:23.615191 ticks=10
-22:33:23.615393 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:24.615162 ticks=20
-22:33:24.615360 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:25.615182 ticks=30
-22:33:25.615386 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:26.615238 ticks=40
-22:33:26.615481 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:27.615200 ticks=50
-22:33:27.615476 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:28.615231 ticks=60
-22:33:28.615486 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:29.615112 ticks=70
-22:33:29.615354 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:30.615101 ticks=80
-22:33:30.615314 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:31.615107 ticks=90
-22:33:31.615330 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:32.615190 ticks=100
-22:33:32.615498 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:33.615181 ticks=110
-22:33:33.615383 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:34.615135 ticks=120
-22:33:34.615357 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:35.615154 ticks=130
-22:33:35.615419 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:36.615144 ticks=140
-22:33:36.615351 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:37.615206 ticks=150
-22:33:37.615456 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:38.615118 ticks=160
-22:33:38.615333 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:39.615060 ticks=170
-22:33:39.615251 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:40.615056 ticks=180
-22:33:40.615303 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:41.615046 ticks=190
-22:33:41.615242 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:42.614991 ticks=200
-22:33:42.615190 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:43.614984 ticks=210
-22:33:43.615211 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:44.615005 ticks=220
-22:33:44.615223 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:45.614971 ticks=230
-22:33:45.615194 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:46.614956 ticks=240
-22:33:46.615153 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:47.614969 ticks=250
-22:33:47.615197 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:48.614934 ticks=260
-22:33:48.615249 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:49.614912 ticks=270
-22:33:49.615143 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:50.614947 ticks=280
-22:33:50.615179 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:51.614941 ticks=290
-22:33:51.615214 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:52.614899 ticks=300
-22:33:52.615129 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:53.614916 ticks=310
-22:33:53.615187 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:54.614874 ticks=320
-22:33:54.615155 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:55.615086 ticks=330
-22:33:55.615322 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:56.614897 ticks=340
-22:33:56.615174 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:57.614813 ticks=350
-22:33:57.615066 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:58.614840 ticks=360
-22:33:58.615116 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:33:59.614930 ticks=370
-22:33:59.615202 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:00.614810 ticks=380
-22:34:00.615061 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:01.614780 ticks=390
-22:34:01.615041 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:02.614799 ticks=400
-22:34:02.615076 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:03.614754 ticks=410
-22:34:03.615044 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:04.614779 ticks=420
-22:34:04.614986 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:05.614753 ticks=430
-22:34:05.614949 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:06.614749 ticks=440
-22:34:06.615015 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:07.614734 ticks=450
-22:34:07.614965 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:08.614746 ticks=460
-22:34:08.614991 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:09.614745 ticks=470
-22:34:09.614976 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:10.614673 ticks=480
-22:34:10.614884 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:11.614666 ticks=490
-22:34:11.614905 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:12.614681 ticks=500
-22:34:12.614961 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:13.614611 ticks=510
-22:34:13.614856 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:14.614661 ticks=520
-22:34:14.614884 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:15.614608 ticks=530
-22:34:15.614819 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:16.614592 ticks=540
-22:34:16.614827 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:17.614582 ticks=550
-22:34:17.614796 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:18.614560 ticks=560
-22:34:18.614795 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:19.614591 ticks=570
-22:34:19.614837 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:20.614709 ticks=580
-22:34:20.614956 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:21.614565 ticks=590
-22:34:21.614830 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:22.614513 ticks=600
-22:34:22.614749 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:23.614562 ticks=610
-22:34:23.614785 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:24.614509 ticks=620
-22:34:24.614724 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:25.614515 ticks=630
-22:34:25.614773 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:26.614486 ticks=640
-22:34:26.614696 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:27.614518 ticks=650
-22:34:27.614768 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:28.614483 ticks=660
-22:34:28.614704 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:29.614452 ticks=670
-22:34:29.614617 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:30.614491 ticks=680
-22:34:30.614678 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:31.614527 ticks=690
-22:34:31.614744 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:32.614580 ticks=700
-22:34:32.614780 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:33.614546 ticks=710
-22:34:33.614789 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:34.614429 ticks=720
-22:34:34.614678 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:35.614414 ticks=730
-22:34:35.614634 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:36.614399 ticks=740
-22:34:36.614656 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:37.614406 ticks=750
-22:34:37.614642 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:38.614385 ticks=760
-22:34:38.614601 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:39.614394 ticks=770
-22:34:39.614656 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:40.614342 ticks=780
-22:34:40.614558 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:41.614349 ticks=790
-22:34:41.614573 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:42.614354 ticks=800
-22:34:42.614612 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:43.614342 ticks=810
-22:34:43.614582 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:44.614313 ticks=820
-22:34:44.614498 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:45.614286 ticks=830
-22:34:45.614477 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:46.614309 ticks=840
-22:34:46.614537 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:47.614283 ticks=850
-22:34:47.614477 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:48.614315 ticks=860
-22:34:48.614606 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:49.614336 ticks=870
-22:34:49.614612 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:50.614268 ticks=880
-22:34:50.614488 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:51.614279 ticks=890
-22:34:51.614469 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:52.614267 ticks=900
-22:34:52.614477 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:53.614274 ticks=910
-22:34:53.614555 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:54.614243 ticks=920
-22:34:54.614475 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:55.614223 ticks=930
-22:34:55.614406 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:56.614291 ticks=940
-22:34:56.614523 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:57.614235 ticks=950
-22:34:57.614452 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:58.614270 ticks=960
-22:34:58.614473 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:34:59.614191 ticks=970
-22:34:59.614446 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:00.614170 ticks=980
-22:35:00.614379 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:01.614191 ticks=990
-22:35:01.614393 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:02.614227 ticks=1000
-22:35:02.614474 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:03.614430 ticks=1010
-22:35:03.614684 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:04.614253 ticks=1020
-22:35:04.614513 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:05.614207 ticks=1030
-22:35:05.614395 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:06.614191 ticks=1040
-22:35:06.614388 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:07.614177 ticks=1050
-22:35:07.614384 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:08.614151 ticks=1060
-22:35:08.614384 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:09.614163 ticks=1070
-22:35:09.614362 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:10.614187 ticks=1080
-22:35:10.614428 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:11.614143 ticks=1090
-22:35:11.614360 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:12.614168 ticks=1100
-22:35:12.614363 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:13.614144 ticks=1110
-22:35:13.614388 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:14.614115 ticks=1120
-22:35:14.614392 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:15.614107 ticks=1130
-22:35:15.614308 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:16.614096 ticks=1140
-22:35:16.614322 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:17.614189 ticks=1150
-22:35:17.614412 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:18.614092 ticks=1160
-22:35:18.614323 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:19.614048 ticks=1170
-22:35:19.614229 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:20.614059 ticks=1180
-22:35:20.614320 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:21.614076 ticks=1190
-22:35:21.614288 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:22.614095 ticks=1200
-22:35:22.614317 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:23.614078 ticks=1210
-22:35:23.614344 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:24.614033 ticks=1220
-22:35:24.614246 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:25.614053 ticks=1230
-22:35:25.614270 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:26.614050 ticks=1240
-22:35:26.614339 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:27.614010 ticks=1250
-22:35:27.614330 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:28.613992 ticks=1260
-22:35:28.614262 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:29.613951 ticks=1270
-22:35:29.614188 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:30.614015 ticks=1280
-22:35:30.614381 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:31.614178 ticks=1290
-22:35:31.614470 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:32.613956 ticks=1300
-22:35:32.614218 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:33.613961 ticks=1310
-22:35:33.614251 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:34.613921 ticks=1320
-22:35:34.614213 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:35.613952 ticks=1330
-22:35:35.614376 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:36.613927 ticks=1340
-22:35:36.614188 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:37.613923 ticks=1350
-22:35:37.614206 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:38.613966 ticks=1360
-22:35:38.614600 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:39.620064 ticks=1370
-22:35:39.620351 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:40.613871 ticks=1380
-22:35:40.614234 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:41.613855 ticks=1390
-22:35:41.614138 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:42.614338 ticks=1400
-22:35:42.614623 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:43.613842 ticks=1410
-22:35:43.614078 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:44.613812 ticks=1420
-22:35:44.614067 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:45.613825 ticks=1430
-22:35:45.614125 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:46.613821 ticks=1440
-22:35:46.614146 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:47.613772 ticks=1450
-22:35:47.613983 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:48.613815 ticks=1460
-22:35:48.614161 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:49.613772 ticks=1470
-22:35:49.613988 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:50.613736 ticks=1480
-22:35:50.613959 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:51.613734 ticks=1490
-22:35:51.613977 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:52.613730 ticks=1500
-22:35:52.613965 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:53.613703 ticks=1510
-22:35:53.613928 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:54.613717 ticks=1520
-22:35:54.613938 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:55.613738 ticks=1530
-22:35:55.614042 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:56.613722 ticks=1540
-22:35:56.613996 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:57.613685 ticks=1550
-22:35:57.613898 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:58.614083 ticks=1560
-22:35:58.614355 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:35:59.613662 ticks=1570
-22:35:59.613870 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:00.613654 ticks=1580
-22:36:00.613858 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:01.613671 ticks=1590
-22:36:01.613947 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:02.613652 ticks=1600
-22:36:02.613920 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:03.613622 ticks=1610
-22:36:03.613874 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:04.613621 ticks=1620
-22:36:04.613826 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:05.613620 ticks=1630
-22:36:05.613833 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:06.613623 ticks=1640
-22:36:06.613850 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:07.613560 ticks=1650
-22:36:07.613792 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:08.613585 ticks=1660
-22:36:08.613821 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:09.613590 ticks=1670
-22:36:09.613811 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:10.613539 ticks=1680
-22:36:10.613780 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:11.613556 ticks=1690
-22:36:11.613854 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:12.613572 ticks=1700
-22:36:12.613857 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:13.613560 ticks=1710
-22:36:13.613838 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:14.613509 ticks=1720
-22:36:14.613766 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:15.613489 ticks=1730
-22:36:15.613804 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:16.614184 ticks=1740
-22:36:16.614396 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:17.613462 ticks=1750
-22:36:17.613715 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:18.613468 ticks=1760
-22:36:18.613719 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:19.613454 ticks=1770
-22:36:19.613691 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:20.613490 ticks=1780
-22:36:20.613789 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:21.613422 ticks=1790
-22:36:21.613660 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:22.613465 ticks=1800
-22:36:22.613780 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:23.613449 ticks=1810
-22:36:23.613684 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:24.613483 ticks=1820
-22:36:24.613763 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:25.613444 ticks=1830
-22:36:25.613767 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:26.613424 ticks=1840
-22:36:26.613796 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:27.613376 ticks=1850
-22:36:27.613613 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:28.613364 ticks=1860
-22:36:28.613661 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:29.613397 ticks=1870
-22:36:29.613613 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:30.613323 ticks=1880
-22:36:30.613572 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:31.613390 ticks=1890
-22:36:31.613682 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:32.613358 ticks=1900
-22:36:32.613638 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:33.613354 ticks=1910
-22:36:33.613584 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:34.613326 ticks=1920
-22:36:34.613531 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:35.613319 ticks=1930
-22:36:35.613533 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:36.613346 ticks=1940
-22:36:36.613609 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:37.613315 ticks=1950
-22:36:37.613540 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:38.613345 ticks=1960
-22:36:38.613586 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:39.613216 ticks=1970
-22:36:39.613434 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:40.613313 ticks=1980
-22:36:40.613595 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:41.613218 ticks=1990
-22:36:41.613491 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:42.613272 ticks=2000
-22:36:42.613482 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:43.613178 ticks=2010
-22:36:43.613396 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:44.613225 ticks=2020
-22:36:44.613518 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:45.613202 ticks=2030
-22:36:45.613573 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:46.613263 ticks=2040
-22:36:46.613459 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:47.613216 ticks=2050
-22:36:47.613480 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:48.613210 ticks=2060
-22:36:48.613515 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:49.613170 ticks=2070
-22:36:49.613440 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:50.613179 ticks=2080
-22:36:50.613484 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:51.613134 ticks=2090
-22:36:51.613394 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:52.613134 ticks=2100
-22:36:52.613501 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:53.613124 ticks=2110
-22:36:53.613428 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:54.613134 ticks=2120
-22:36:54.613397 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:55.613093 ticks=2130
-22:36:55.613379 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:56.613078 ticks=2140
-22:36:56.613346 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:57.613080 ticks=2150
-22:36:57.613353 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:58.613074 ticks=2160
-22:36:58.613286 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:36:59.613104 ticks=2170
-22:36:59.613356 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:00.613047 ticks=2180
-22:37:00.613338 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:01.613018 ticks=2190
-22:37:01.613243 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:02.612980 ticks=2200
-22:37:02.613225 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:03.612968 ticks=2210
-22:37:03.613290 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:04.612948 ticks=2220
-22:37:04.613214 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:05.612962 ticks=2230
-22:37:05.613175 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:06.612978 ticks=2240
-22:37:06.613269 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:07.612984 ticks=2250
-22:37:07.613283 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:08.612999 ticks=2260
-22:37:08.613268 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:09.612978 ticks=2270
-22:37:09.613213 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:10.612939 ticks=2280
-22:37:10.613176 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:11.612894 ticks=2290
-22:37:11.613167 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:12.612932 ticks=2300
-22:37:12.613181 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:13.612904 ticks=2310
-22:37:13.613199 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:14.612877 ticks=2320
-22:37:14.613105 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:15.612878 ticks=2330
-22:37:15.613108 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:16.612864 ticks=2340
-22:37:16.613120 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:17.612833 ticks=2350
-22:37:17.613083 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:18.612815 ticks=2360
-22:37:18.613054 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:19.612854 ticks=2370
-22:37:19.613165 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:20.612803 ticks=2380
-22:37:20.613014 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:21.612834 ticks=2390
-22:37:21.613119 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:22.612759 ticks=2400
-22:37:22.612991 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:23.612807 ticks=2410
-22:37:23.613078 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:24.612769 ticks=2420
-22:37:24.612980 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:25.612762 ticks=2430
-22:37:25.612990 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:26.612793 ticks=2440
-22:37:26.613089 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:27.612711 ticks=2450
-22:37:27.612937 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:28.612718 ticks=2460
-22:37:28.612927 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:29.612691 ticks=2470
-22:37:29.612974 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:30.612753 ticks=2480
-22:37:30.612999 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:31.612689 ticks=2490
-22:37:31.612943 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:32.612688 ticks=2500
-22:37:32.612919 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:33.612704 ticks=2510
-22:37:33.613139 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:34.612736 ticks=2520
-22:37:34.613059 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:35.612732 ticks=2530
-22:37:35.613147 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:36.612698 ticks=2540
-22:37:36.612962 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:37.612741 ticks=2550
-22:37:37.613094 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:38.612702 ticks=2560
-22:37:38.612904 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:39.612674 ticks=2570
-22:37:39.612917 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:40.612624 ticks=2580
-22:37:40.612847 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:41.612588 ticks=2590
-22:37:41.612891 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:42.612568 ticks=2600
-22:37:42.612786 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:43.612542 ticks=2610
-22:37:43.612738 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:44.612527 ticks=2620
-22:37:44.612820 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:45.612548 ticks=2630
-22:37:45.612750 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:46.612539 ticks=2640
-22:37:46.612738 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:47.612531 ticks=2650
-22:37:47.612774 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:48.612535 ticks=2660
-22:37:48.612809 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:49.612500 ticks=2670
-22:37:49.612740 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:50.612490 ticks=2680
-22:37:50.612786 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:51.612486 ticks=2690
-22:37:51.612720 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:52.612479 ticks=2700
-22:37:52.612754 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:53.612459 ticks=2710
-22:37:53.612670 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:54.612448 ticks=2720
-22:37:54.612724 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:55.612420 ticks=2730
-22:37:55.612668 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:56.612439 ticks=2740
-22:37:56.612709 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:57.612428 ticks=2750
-22:37:57.612636 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:58.612483 ticks=2760
-22:37:58.612661 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:37:59.612379 ticks=2770
-22:37:59.612626 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:00.612427 ticks=2780
-22:38:00.612662 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:01.612488 ticks=2790
-22:38:01.612942 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:02.612354 ticks=2800
-22:38:02.612568 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:03.612369 ticks=2810
-22:38:03.612639 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:04.612398 ticks=2820
-22:38:04.612792 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:05.612335 ticks=2830
-22:38:05.612564 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:06.612395 ticks=2840
-22:38:06.612600 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:07.612345 ticks=2850
-22:38:07.612546 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:08.612276 ticks=2860
-22:38:08.612516 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:09.612272 ticks=2870
-22:38:09.612507 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:10.612286 ticks=2880
-22:38:10.612574 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:11.612271 ticks=2890
-22:38:11.612572 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:12.612238 ticks=2900
-22:38:12.612499 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:13.612227 ticks=2910
-22:38:13.612464 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:14.612218 ticks=2920
-22:38:14.612480 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:15.612313 ticks=2930
-22:38:15.612589 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:16.612232 ticks=2940
-22:38:16.612467 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:17.612176 ticks=2950
-22:38:17.612372 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:18.612181 ticks=2960
-22:38:18.612405 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:19.612202 ticks=2970
-22:38:19.612431 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:20.612176 ticks=2980
-22:38:20.612445 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:21.612123 ticks=2990
-22:38:21.612343 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:22.612162 ticks=3000
-22:38:22.612407 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:23.612200 ticks=3010
-22:38:23.612459 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:24.612087 ticks=3020
-22:38:24.612306 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:25.612154 ticks=3030
-22:38:25.612353 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:26.612098 ticks=3040
-22:38:26.612334 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:27.612056 ticks=3050
-22:38:27.612247 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:28.612131 ticks=3060
-22:38:28.612312 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:29.612044 ticks=3070
-22:38:29.612254 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:30.612065 ticks=3080
-22:38:30.612263 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:31.612039 ticks=3090
-22:38:31.612243 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:32.612006 ticks=3100
-22:38:32.612256 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:33.612038 ticks=3110
-22:38:33.612257 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:34.612049 ticks=3120
-22:38:34.612320 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:35.613170 ticks=3130
-22:38:35.613415 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:36.612050 ticks=3140
-22:38:36.612313 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:37.612619 ticks=3150
-22:38:37.612818 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:38.611952 ticks=3160
-22:38:38.612240 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:39.611943 ticks=3170
-22:38:39.612167 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:40.612002 ticks=3180
-22:38:40.612224 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:41.611920 ticks=3190
-22:38:41.612153 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:42.611923 ticks=3200
-22:38:42.612211 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:43.611936 ticks=3210
-22:38:43.612186 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:44.611901 ticks=3220
-22:38:44.612222 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:45.611868 ticks=3230
-22:38:45.612079 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:46.611842 ticks=3240
-22:38:46.612076 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:47.611880 ticks=3250
-22:38:47.612149 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:48.611836 ticks=3260
-22:38:48.612053 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:49.611816 ticks=3270
-22:38:49.612083 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:50.611829 ticks=3280
-22:38:50.612050 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:51.611797 ticks=3290
-22:38:51.611994 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:52.611863 ticks=3300
-22:38:52.612080 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:53.611783 ticks=3310
-22:38:53.612102 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:54.611803 ticks=3320
-22:38:54.612243 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:55.611802 ticks=3330
-22:38:55.612018 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:56.611774 ticks=3340
-22:38:56.612072 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:57.611778 ticks=3350
-22:38:57.611986 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:58.611721 ticks=3360
-22:38:58.611916 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:38:59.611702 ticks=3370
-22:38:59.611931 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:39:00.611710 ticks=3380
-22:39:00.611942 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:39:01.611822 ticks=3390
-22:39:01.612074 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
-22:39:02.611645 ticks=3400
-22:39:02.611831 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
+        [... 2502 heartbeat lines elided ...]
+22:54:14.601288 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11
+22:58:02.345886 �Harbor: hello
+22:58:02.346139 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+22:58:02.346292 build: headless (no bring-up gates) src=16713db2 release
+22:58:02.346507 DTB at 0x2eff1f00
+22:58:02.346679 MMU on  (W^X, guard page at 0x116000, 294912 B of table arena left)
+22:58:02.367820 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+22:58:02.367992 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+22:58:02.368097 smp: core1 alive
+22:58:02.368212 DTB mapped: 61440 bytes at 0x2eff1000
+22:58:02.368339 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+22:58:02.390174 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+22:58:02.390609 discover: cpus 4 (fdt) smp-seen=2 matches
+22:58:02.390813 discover: display compiled=off (claim, not probed)
+22:58:02.391033 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+22:58:02.391202 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+22:58:02.410386 genet: phy=0x600d84a2 (id, not a nic)
+22:58:02.410609 genet: link=down (bmsr, not a nic)
+22:58:02.410803 heap remaining = 67108864 bytes
+22:58:02.410951 frames: 512 free / 512  base=0x4127000  (2048 KiB pool)
+22:58:02.411206 genet: discovery ready base=0xfd580000 rev=6.0 state cmd=0x0 tdma=0x0/0x3ffff rdma=0x0/0x3ffff
+22:58:02.430905 durable-media: boot=10 from=Previous part=0x7f slot=A seq=9 host=emmc2
+22:58:02.566867 rng200: ok word=0x99475b68
+22:58:02.567085 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+22:58:02.567265 genet: service ready base=0xfd580000 rev=0x06000000 queues=1 size=8 ready tx-descriptor=submitted
+22:58:02.567369 irq: sealed with 3 handlers registered
+22:58:02.567443 smp: core1 ipi
+22:58:02.567534 smp: core1 ran
+22:58:02.588943 IRQs enabled (timer + UART RX)
+22:58:02.589214 idle: WFI when no RX/tick work
+22:58:02.589363 heap: Box at 0x127010, Vec of 1024 sums to 523776
+22:58:02.589498 heap: 67100624 bytes free while held, 2 fragments
+22:58:02.589638 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+22:58:02.589757 unmap: page at 0x128000 fault-ready
+22:58:02.610876 unmap: remapped and freed
+22:58:02.611064 split: page at 0x200000 split 1, remapped
+22:58:02.611202 net: transport ready base=0xfd580000 queues=1 size=8
+22:58:02.611283 console-server: up
+22:58:02.611372 console: capability minted
+22:58:02.611465 authority: 0 console ok
+22:58:02.611563 authority: bound console
+22:58:02.611654 blob: service up
+22:58:02.632841 authority: 1 blob ok
+22:58:02.633005 authority: 2 blob-reply ok
+22:58:02.633130 authority: bound blob
+22:58:02.633250 authority: bound blob-reply
+22:58:02.633360 net: endpoints up
+22:58:02.633466 authority: 3 net-tx ok
+22:58:02.633575 authority: 4 net-tx-complete ok
+22:58:02.633676 authority: 5 net-rx ok
+22:58:02.633775 authority: 6 net-rx-return ok
+22:58:02.633877 authority: 0 rng ok
+22:58:02.655862 authority: windows 1 declared
+22:58:02.656037 loader: store n=6 image
+22:58:02.656187 loader: beacon loaded text=1 stack=3 home=0
+22:58:02.656318 loader: chirp loaded text=1 stack=3 home=1
+22:58:02.656452 loader: lookup loaded text=1 stack=3 home=0
+22:58:02.656569 loader: entropy loaded text=1 stack=3 home=0
+22:58:02.679183 loader: blob loaded text=1 stack=3 home=0
+22:58:02.679526 loader: edge-gateway loaded text=1 stack=3 home=0
+22:58:02.679736 arena: 1 splits, 70 tables free
+22:58:02.680192 boot: mmu=21 ms discover=73 ms ready=342 ms
+22:58:02.680359 ?loader: chirp ran sends=1 refusals=0
+22:58:02.680466 net: service up
+22:58:02.680583 genet: tx descriptor complete used_len=124
+22:58:02.699851 genet: umac tsv probe packed=0 linux=1 pok=1 (mib, not a nic)
+22:58:02.700251 loader: lookup ran sends=1 refusals=0
+22:58:02.700464 genet: tx prepared index=1 len=60 prod=1/1 desc=0x7c7fc0 dma=0x0:0x4130000 frame=0xff0xff0x880xb5
+22:58:02.700628 genet: tx doorbell prod=2/2 cmd=0x100006b tdma=0x3f/0x3ffc0
+22:58:02.722122 net: tx accepted slot=0 len=60
+22:58:02.722346 genet: umac tsv tx slot=0 generation=0 packed=0 linux=2 pok=2 (mib, not a nic)
+22:58:02.722476 net: tx complete slot=0 len=60
+22:58:02.722623 H!NRloader: beacon ran sends=2 refusals=0
+22:58:02.722745 loader: entropy ran sends=1 refusals=0
+22:58:02.722845 blob: put ok
+22:58:02.722952 blob: got
+22:58:02.723355 Sloader: blob ran sends=3 refusals=0
+22:58:03.630880 genet: rx frame len=66 src=0xff0xff0x00xe0 ether=0xe0x94 magic=0x80x6
+22:58:03.631173 genet: rx available len=66
+22:58:03.631328 net: rx available slot=8 len=66
+22:58:03.631473 loader: edge-gateway ran sends=2 refusals=0
+22:58:03.631645 net: rx returned slot=8 len=66
+22:58:03.631745 genet: recovery complete
+22:58:03.652845 genet: link acquisition start window_us=5000000
+22:58:03.653050 genet: link acquisition up
+22:58:03.653172 genet: dataplane programmed tdma=0x0/0x3ffff rdma=0x0/0x3ffff txbd=0x7c7fc0 rxbd=0x826040
+22:58:03.653286 genet: dataplane enabled cmd=0x100006b tdma=0x3f/0x3ffc0 rdma=0x3/0x3fffc tx=0/0 rx=0/0
+22:58:03.662142 net: service recycle ok
+22:58:03.662328 ticks=10
+        [... 2 heartbeat lines elided ...]
+22:58:04.653285 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
+22:58:05.619937 genet: rx frame len=66 src=0xff0xff0x00xe0 ether=0xe0x94 magic=0x80x6
+22:58:05.620140 genet: rx available len=66
+22:58:05.620281 net: rx available slot=8 len=66
+22:58:05.653103 ticks=30
+        [... 1498 heartbeat lines elided ...]
+23:10:34.655900 invariants: overwrites=0 abandoned=0 faults=0 blocked=2 frames_free=489 preempts=0 slots=5/11
+23:24:57.224903 �����
+23:24:57.225148 EL1 · W^X map · heap · timer + UART RX IRQ · WFI idle
+23:24:57.225353 build: headless (no bring-up gates) src=b8f06c22 release
+23:24:57.225470 DTB at 0x2eff1f00
+23:24:57.225593 MMU on  (W^X, guard page at 0x116000, 294912 B of table arena left)
+23:24:57.246870 reset: PowerOn partition=0 (PM_RSTS=0x00001000)
+23:24:57.247094 cpu: Cortex-A72 r0p3 asid16 pa44 (MIDR=0x410fd083)
+23:24:57.247192 smp: core1 alive
+23:24:57.247316 DTB mapped: 61440 bytes at 0x2eff1000
+23:24:57.247456 discover: model "Raspberry Pi 4 Model B Rev 1.5" rev=0xc03115 (fdt)
+23:24:57.269925 discover: memory 3956 MiB (2 ranges) beyond compiled map (identity 2048 MiB)
+23:24:57.270103 discover: cpus 4 (fdt) smp-seen=2 matches
+23:24:57.270210 discover: display compiled=off (claim, not probed)
+23:24:57.270333 genet: binding ok base=0xfd580000 len=0x10000 phy=rgmii-rxid (fdt, not probed)
+23:24:57.270450 genet: rev=6.0 patch=0x0 (mmio, not a nic)
+23:24:57.289690 genet: phy=0x600d84a2 (id, not a nic)
+23:24:57.289907 genet: link=down (bmsr, not a nic)
+23:24:57.290075 heap remaining = 67108864 bytes
+23:24:57.290215 frames: 512 free / 512  base=0x4127000  (2048 KiB pool)
+23:24:57.290357 genet: discovery ready base=0xfd580000 rev=6.0 state cmd=0x0 tdma=0x0/0x3ffff rdma=0x0/0x3ffff
+23:24:57.310280 durable-media: boot=11 from=Previous part=0x7f slot=B seq=10 host=emmc2
+23:24:57.445964 rng200: ok word=0x1e1860da
+23:24:57.446162 CNTFRQ=54000000 Hz  timer=10 Hz  PPI=30
+23:24:57.446286 genet: service ready base=0xfd580000 rev=0x06000000 queues=1 size=8 ready tx-descriptor=submitted
+23:24:57.446390 irq: sealed with 3 handlers registered
+23:24:57.446472 smp: core1 ipi
+23:24:57.446547 smp: core1 ran
+23:24:57.468863 IRQs enabled (timer + UART RX)
+23:24:57.469048 idle: WFI when no RX/tick work
+23:24:57.469152 heap: Box at 0x127010, Vec of 1024 sums to 523776
+23:24:57.469263 heap: 67100624 bytes free while held, 2 fragments
+23:24:57.469411 heap: 67108864 bytes free after drop (fully reclaimed), 1 fragments
+23:24:57.469526 unmap: page at 0x128000 fault-ready
+23:24:57.490928 unmap: remapped and freed
+23:24:57.491196 split: page at 0x200000 split 1, remapped
+23:24:57.491361 net: transport ready base=0xfd580000 queues=1 size=8
+23:24:57.491488 console-server: up
+23:24:57.491608 console: capability minted
+23:24:57.491725 authority: 0 console ok
+23:24:57.491839 authority: bound console
+23:24:57.491942 blob: service up
+23:24:57.512912 authority: 1 blob ok
+23:24:57.513159 authority: 2 blob-reply ok
+23:24:57.513327 authority: bound blob
+23:24:57.513450 authority: bound blob-reply
+23:24:57.513557 net: endpoints up
+23:24:57.513674 authority: 3 net-tx ok
+23:24:57.513777 authority: 4 net-tx-complete ok
+23:24:57.513862 authority: 5 net-rx ok
+23:24:57.513935 authority: 6 net-rx-return ok
+23:24:57.514006 authority: 0 rng ok
+23:24:57.534906 authority: windows 1 declared
+23:24:57.535128 loader: store n=6 image
+23:24:57.535279 loader: beacon loaded text=1 stack=3 home=0
+23:24:57.535412 loader: chirp loaded text=1 stack=3 home=1
+23:24:57.535540 loader: lookup loaded text=1 stack=3 home=0
+23:24:57.535645 loader: entropy loaded text=1 stack=3 home=0
+23:24:57.556915 loader: blob loaded text=1 stack=3 home=0
+23:24:57.557134 loader: edge-gateway loaded text=1 stack=3 home=0
+23:24:57.557241 arena: 1 splits, 70 tables free
+23:24:57.557363 boot: mmu=21 ms discover=73 ms ready=342 ms
+23:24:57.557484 ?loader: chirp ran sends=1 refusals=0
+23:24:57.557599 net: service up
+23:24:57.557730 genet: tx descriptor complete used_len=124
+23:24:57.579937 genet: umac tsv probe packed=0 linux=1 pok=1 (mib, not a nic)
+23:24:57.580276 loader: lookup ran sends=1 refusals=0
+23:24:57.580863 genet: tx prepared index=1 len=60 prod=1/1 desc=0x7c7fc0 dma=0x0:0x4130000 frame=0xff0xff0x880xb5
+23:24:57.581325 genet: tx doorbell prod=2/2 cmd=0x100006b tdma=0x3f/0x3ffc0
+23:24:57.601903 net: tx accepted slot=0 len=60
+23:24:57.602482 genet: umac tsv tx slot=0 generation=0 packed=0 linux=2 pok=2 (mib, not a nic)
+23:24:57.602678 net: tx complete slot=0 len=60
+23:24:57.602840 H!NRloader: beacon ran sends=2 refusals=0
+23:24:57.603059 loader: entropy ran sends=1 refusals=0
+23:24:57.603223 blob: put ok
+23:24:57.603385 blob: got
+23:24:57.603585 Sloader: blob ran sends=3 refusals=0
+23:24:58.532837 ticks=10
+        [... 326 heartbeat lines elided ...]
+23:27:41.531131 invariants: overwrites=0 abandoned=0 faults=0 blocked=3 frames_free=472 preempts=0 slots=6/11

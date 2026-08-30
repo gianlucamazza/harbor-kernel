@@ -459,6 +459,20 @@ wire-witness assertion. Serial TX completion/GENET counters are not treated as
 proof of a frame on the cable; P3 remains open pending a positive passive
 capture (or equivalent independent wire witness).
 
+### Product SD provenance recheck (2026-08-31 00:38)
+
+The identified SD card was verified on the host as `/dev/sdb` (30 GiB,
+serial `000000001538`) with image SHA-256
+`50e413d7fe96b563ead146b42670aae1abb6ade7ffdd13c584fb5f9760f5eefa` and
+`src=6606a6dc`. A reversible negative test copied the same image to
+`kernel8-6606a6dc.img` and changed the card's `config.txt` to select that
+name. After power-cycle, the serial transcript still reported
+`src=b8f06c22`. Restoring `kernel=kernel8.img` did not change the observed
+source on the next boot. This proves that the boot observed in the transcript
+cannot be attributed to the verified SD partition/configuration; it is not a
+product-image or SD-copy certificate. The board/serial identity and firmware
+boot source must be identified before another P3 hardware claim is made.
+
 ### Direct-link recheck (2026-08-30 22:33)
 
 The direct Pi-to-host-adapter recheck used the same prepared product image and

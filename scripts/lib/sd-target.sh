@@ -69,8 +69,21 @@ assert_boot_partition() {
 # so no elevated access is needed for the check.
 warn_durable_partition() {
 	local mount="$1"
-	local src disk name ptype
+	local src disk backing name ptype
 	src="$(findmnt -no SOURCE "${mount}" || true)"
+	# util-linux may expose a FAT partition mounted through a loop device
+	# (notably with some USB card readers). Follow the loop backing device before
+	# asking lsblk for the parent disk, otherwise the durable-partition check
+	# silently becomes an unchecked advisory.
+	if [[ "${src}" == /dev/loop* ]]; then
+		backing="$(losetup -no BACK-FILE "${src}" 2>/dev/null || true)"
+		if [[ "${backing}" == /dev/* ]]; then
+			src="${backing}"
+		else
+			echo "note: cannot resolve loop backing device for ${src}; durable partition unchecked" >&2
+			return 0
+		fi
+	fi
 	disk="$(lsblk -no PKNAME "${src}" 2>/dev/null | head -1 || true)"
 	if [[ -z "${disk}" ]]; then
 		echo "note: cannot resolve the card device behind ${mount}; durable partition unchecked" >&2

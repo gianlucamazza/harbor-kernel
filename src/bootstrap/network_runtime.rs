@@ -16,6 +16,12 @@ const SERVICE_TX_DMA_INDEX: usize = RX_DMA_FIRST_INDEX + net_abi::PACKET_SLOTS /
 const DMA_PACKET_COUNT: usize = SERVICE_TX_DMA_INDEX + 1;
 const SCRATCH_COUNT: usize = transport::SCRATCH_PAGES;
 
+// Keep the service TX page outside the RX range. This is intentionally a
+// compile-time invariant: changing either count must not silently alias a
+// live device-owned receive buffer.
+const _: () = assert!(SERVICE_TX_DMA_INDEX > RX_DMA_FIRST_INDEX);
+const _: () = assert!(SERVICE_TX_DMA_INDEX >= RX_DMA_FIRST_INDEX + net_abi::PACKET_SLOTS / 2);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Report {
     pub base: usize,
