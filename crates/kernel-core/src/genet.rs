@@ -2611,6 +2611,9 @@ mod tests {
         assert!(!windows.contains(0x8080, 4));
         assert_eq!(windows.map_cpu(0x1080, 4), Ok(0x1080));
         assert_eq!(windows.map_cpu(0x4080, 4), Ok(0x4080));
+        // Only the declared prefix is active; a valid trailing slot must not
+        // become reachable by changing the loop bound to inclusive.
+        assert_eq!(windows.map_cpu(0x8080, 4), Err(DmaMapError::OutsideWindow));
         assert_eq!(windows.map_cpu(0x80ff, 2), Err(DmaMapError::OutsideWindow));
         assert_eq!(windows.map_cpu(0x4100, 1), Err(DmaMapError::OutsideWindow));
     }
@@ -2623,6 +2626,7 @@ mod tests {
             status: 0,
         };
         assert_eq!(good.validate(DMA), Ok(()));
+        assert_eq!(good.validate_windows(DMA_WINDOWS), Ok(()));
         assert_eq!(
             Descriptor { length: 0, ..good }.validate(DMA),
             Err(DescriptorError::Empty)
@@ -2642,6 +2646,15 @@ mod tests {
                 ..good
             }
             .validate(DMA),
+            Err(DescriptorError::AddressOutsideDma)
+        );
+        assert_eq!(
+            Descriptor {
+                address: 0x8080,
+                length: 2,
+                ..good
+            }
+            .validate_windows(DMA_WINDOWS),
             Err(DescriptorError::AddressOutsideDma)
         );
         assert_eq!(
@@ -2753,6 +2766,7 @@ mod tests {
             Err(RingError::InvalidStatus(DescriptorError::Empty))
         );
         assert_eq!(ring.post(descriptor), Ok(0));
+        assert_eq!(ring.producer(), 1);
         assert_eq!(ring.consumer(), 0);
         let status = DescriptorStatus {
             length: 1500,
@@ -2805,6 +2819,20 @@ mod tests {
         assert_eq!(ring.post(descriptor), Ok(0));
     }
 
+    #[test]
+    fn compact_ring_uses_service_buffer_validation_and_wraps_cursor() {
+        let layout = RingLayout::new(registers::RDMA as u64, 1).unwrap();
+        let mut ring = BoundedRingState::<1>::new(layout, DMA_WINDOWS);
+        let descriptor = Descriptor {
+            address: 0x1000,
+            length: u32::from(RX_BUF_LENGTH),
+            status: 0,
+        };
+        assert_eq!(ring.producer(), 0);
+        assert_eq!(ring.post(descriptor), Ok(0));
+        assert_eq!(ring.producer(), 0);
+    }
+
     /// `RingCursor` used to live here and this test used to pass. It wrapped at
     /// `TOTAL_DESCRIPTORS` (256) while ring 0 carries `V5_Q0_TX_BD_CNT` (128)
     /// BDs, so it modelled a ring the hardware does not have — a second copy of
@@ -2835,10 +2863,13 @@ mod tests {
     fn reset_invalidates_old_generation_until_activation() {
         let mut state = ResetState::new();
         let first = state.generation();
+        assert!(!state.ready());
         assert!(!state.accepts(first));
         state.activate();
+        assert!(state.ready());
         assert!(state.accepts(first));
         state.reset();
+        assert!(!state.ready());
         assert!(!state.accepts(first));
         assert!(!state.accepts(state.generation()));
         state.activate();
@@ -3543,6 +3574,8 @@ mod tests {
         .unwrap();
         assert_eq!(RxReport::from_status(still_owned), RxReport::Timeout);
         assert_eq!(RxReport::from_status(0), RxReport::Timeout);
+        assert_eq!(RxReport::from_poll(1, done), RxReport::Complete(60));
+        assert_eq!(RxReport::from_poll(1, still_owned), RxReport::StillOwned);
         assert_eq!(registers::UMAC_CMD_RX_EN, 2);
     }
 

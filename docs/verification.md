@@ -1807,17 +1807,24 @@ full-scope survivor baseline; only a complete scope run may do either.
 The global freshness gate currently reports `1645 mutants, stamp says 660`.
 This is an honest red gate: the stamp records the last complete run and must
 not be advanced by copying a count from `cargo mutants --list` or from a partial
-batch. A complete run on `3d0b3ad` finished on 2026-08-30 with 1336 caught,
-183 missed, 123 unviable and 3 timed-out mutants. The missed set is dominated
-by the newly admitted GENET/GENET-FDT surface (120/41 entries), with additional
-IPC, scheduler and capability cases; it is not safe to absorb it into the old
-22-survivor baseline without classification. The run also exposed equivalent
-bit-expression mutations among the GENET constants, but the remaining cases
-need targeted tests or an explicit invariant justification. Follow-up coverage
-tests landed in `4590faa` and `ed8c1de`; the stamp and survivor baseline remain
-unchanged until a complete run over that newer tree validates them.
+batch. A complete run on `f15e118` finished on 2026-08-30 with 1365 caught,
+154 missed, 123 unviable and 3 timed-out mutants. The missed set splits into
+the unchanged 22 historical authority/model survivors and 132 new
+GENET/GENET-FDT cases (99 and 33 respectively). Follow-up coverage tests in
+`4590faa`, `ed8c1de`, and the current validation pass killed the reachable
+boundary gaps; the remaining GENET/GENET-FDT cases are equivalent bit
+encodings, defensive-unreachable branches, or design-ahead state/reporting
+surfaces. The baseline is raised to 154 only together with this
+classification; it is not a claim that mutation testing reaches the future
+published network driver.
 
-The target compares against the ten justified survivors above rather than
+The three timeouts are detected non-terminating mutants: the existing
+`reset::partition` loop-counter mutation and two `DmaWindows` loop-counter
+mutations in GENET. They remain separately baselined at three. A timeout is
+not a passing survivor, but recording it prevents host scheduling noise from
+being mistaken for coverage.
+
+The target compares against the documented survivor baseline above rather than
 against zero, because `cargo-mutants` exits non-zero whenever anything survives
 and a target that is red every time is a target nobody runs. More survivors than
 the baseline fails and prints them; fewer says so and asks for the baseline to

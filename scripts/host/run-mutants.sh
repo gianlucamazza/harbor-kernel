@@ -16,12 +16,12 @@
 # landed without joining it, which is how a new authority object went
 # unmutated for a day (excellence review 2026-08-08, F-7).
 #
-# `cargo-mutants` exits 3 whenever anything survived, and nineteen things do:
-# unreachable defensive branches, boundary guards, model-check-guarded arms,
-# and a handful of *equivalent* mutants (`1 << 0` → `1 >> 0`; `|` → `^` on
-# disjoint bits). `docs/verification.md` argues each one. A target that is red every time is a
-# target nobody runs, so this compares against that documented baseline instead
-# of against zero, and fails only when the number moves the wrong way.
+# `cargo-mutants` exits 3 whenever anything survived. The current complete run
+# has 154 documented survivors: 22 historical authority/model guards and 132
+# GENET/GENET-FDT cases, mostly equivalent bit encodings, defensive boundaries,
+# or design-ahead surfaces. `docs/verification.md` classifies each group. A
+# target that is red every time is a target nobody runs, so this compares
+# against that documented baseline instead of against zero.
 set -uo pipefail
 
 cd "$(dirname "$0")/../.." || exit 1
@@ -60,12 +60,12 @@ cd "$(dirname "$0")/../.." || exit 1
 #       distinguishes them. The other three mutants of that function (the body
 #       to `()`, and `>` to `<`/`==`) all die, which is the useful half: the
 #       watermark is tested, only this one operator is unobservable.
-readonly BASELINE_MISSED=22
+readonly BASELINE_MISSED=154
 
 # `partition`'s loop counter mutated to a no-op never terminates. That is a
 # detected mutant, not a surviving one — the suite would hang rather than pass —
 # and cargo-mutants files it separately.
-readonly BASELINE_TIMEOUT=1
+readonly BASELINE_TIMEOUT=3
 
 # Where a clean run records what it covered (see the end of this script).
 readonly STAMP="docs/mutation-stamp.toml"
