@@ -459,6 +459,28 @@ wire-witness assertion. Serial TX completion/GENET counters are not treated as
 proof of a frame on the cable; P3 remains open pending a positive passive
 capture (or equivalent independent wire witness).
 
+### Direct-link recheck (2026-08-30 22:33)
+
+The direct Pi-to-host-adapter recheck used the same prepared product image and
+captured [20260830-223231.log](evidence/20260830-223231.log) together with
+[20260830-223231.pcap](evidence/20260830-223231.pcap). The boot again loaded
+the six-agent store, bound the four network capabilities, and reported
+`genet: tx prepared`, `tx doorbell`, `net: tx accepted`, and `net: tx complete`.
+The same boot also reported `genet: link=down`; the host adapter was physically
+`carrier=1`, 1000/full, but its RX counter stayed at zero. The PCAP contains
+only host-generated ARP and no product `0x88b5` frame. This is therefore a
+negative wire-witness record, not a TX-on-wire certificate. The image provenance
+is `src=11bc6346`, image SHA-256
+`d3c88de3001f9336436f0be58c65030bdf9f108fe57a7115c341a139ea557d4b`; the
+transcript and PCAP SHA-256 values are respectively
+`fd934db5c368b6f68d2f18d94abda80cbe61ccdc3058801c705914fef65431f2` and
+`d4ad7f7882971f1ec951de84c48da60d52fbdb88e55874b7777ba45043bd1dbe`.
+
+The runtime source already gates the service dataplane on PHY link acquisition
+and refuses a TX while the link is down. The next valid certificate must boot a
+fresh image and show `link acquisition up`/`link=up` before correlating the
+network-service TX with a passive host capture.
+
 ## What emulation cannot catch, with the example that proved it
 
 QEMU's TCG implements load/store-exclusive with a global monitor that **ignores

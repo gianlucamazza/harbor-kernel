@@ -181,6 +181,13 @@ The only open H1 gate is the correlated silicon certificate for [ADR-0112](adr/0
 
 The reproducible host gates are `make qemu-virtio-check`, `make model-consumed`, `make hw-store-audit`, and `make hw-check`; the last two must be evaluated against the same image/source/store evidence, and a serial TX completion alone is not a wire witness.
 
+The 2026-08-30 22:33 direct-link recheck is recorded in
+[`verification.md`](verification.md#direct-link-recheck-2026-08-30): the host
+adapter had carrier at 1000/full but RX remained zero, while the Pi transcript
+reported `genet: link=down` and only an internal TX completion. This confirms
+that the P3 certificate still requires a fresh image boot with PHY `link=up`
+and a positive passive `0x88b5` capture.
+
 **H1 entry + depth first slices are paid (HW stamp 2026-08-08).**  
 K7 ASID slice **done (HW)** (stamp 2026-08-09). Resolve-grant + peer transfer
 **done (HW)** (same stamp). K4 EL0 + EL1 preemption **done (HW)** (ADR-0064/0068).
