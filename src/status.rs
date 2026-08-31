@@ -30,6 +30,8 @@ pub const ROWS: usize = 36;
 
 /// Update dynamic lines at most this often (timer ticks @ 10 Hz → 1 Hz).
 const TICK_REFRESH_EVERY: u64 = 10;
+#[cfg(feature = "display-touch")]
+const CALIBRATION_CONFIRM_TIMEOUT: u64 = 300;
 
 /// Grid + rate-limit state (architecture rule 7: no `static mut`).
 ///
@@ -40,6 +42,8 @@ struct StatusState {
     ui: UiState,
     snapshot: Snapshot,
     pending_page: Option<Page>,
+    #[cfg(feature = "display-touch")]
+    calibration_deadline: u64,
     #[cfg(feature = "display-touch")]
     calibration: CalibrationWizard,
     #[cfg(feature = "display-touch")]
@@ -52,6 +56,8 @@ static STATUS: Mutex<StatusState> = Mutex::new(StatusState {
     ui: UiState::new(),
     snapshot: Snapshot::unknown(),
     pending_page: None,
+    #[cfg(feature = "display-touch")]
+    calibration_deadline: 0,
     #[cfg(feature = "display-touch")]
     calibration: CalibrationWizard::new(),
     #[cfg(feature = "display-touch")]
@@ -110,18 +116,29 @@ pub fn on_idle() {
             let action = st.ui.handle_touch(event, ticks);
             match action {
                 UiAction::ConfirmCalibration if st.pending_calibration.is_some() => {
-                    let calibration = st.pending_calibration.take().unwrap();
+                    let calibration = st.pending_calibration.unwrap();
                     if crate::calibration::commit(calibration) {
+                        st.pending_calibration = None;
                         st.calibration = CalibrationWizard::new();
+                        st.calibration_deadline = 0;
                         st.ui.set_mode(UiMode::Ready);
                         refresh(st, timer_frequency());
                     } else {
                         st.ui.set_mode(UiMode::Degraded);
+                        refresh(st, timer_frequency());
                     }
+                }
+                UiAction::RetryCalibration => {
+                    st.pending_calibration = None;
+                    st.calibration = CalibrationWizard::new();
+                    st.calibration_deadline = 0;
+                    st.ui.set_mode(UiMode::Ready);
+                    refresh(st, timer_frequency());
                 }
                 UiAction::CancelCalibration => {
                     st.pending_calibration = None;
                     st.calibration = CalibrationWizard::new();
+                    st.calibration_deadline = 0;
                     st.ui.set_mode(UiMode::Ready);
                     refresh(st, timer_frequency());
                 }
@@ -133,6 +150,8 @@ pub fn on_idle() {
                         st.pending_calibration = st.calibration.finish().ok();
                         if st.pending_calibration.is_some() {
                             st.ui.set_mode(UiMode::Confirm);
+                            st.calibration_deadline =
+                                ticks.saturating_add(CALIBRATION_CONFIRM_TIMEOUT);
                         } else {
                             st.calibration = CalibrationWizard::new();
                         }
@@ -156,6 +175,14 @@ pub fn on_idle() {
         }
     });
     with_status(|st| {
+        #[cfg(feature = "display-touch")]
+        if st.ui.mode() == UiMode::Confirm && ticks >= st.calibration_deadline {
+            st.pending_calibration = None;
+            st.calibration = CalibrationWizard::new();
+            st.calibration_deadline = 0;
+            st.ui.set_mode(UiMode::Ready);
+            refresh(st, timer_frequency());
+        }
         if st.ui.on_tick(ticks) {
             refresh(st, timer_frequency());
         }
@@ -262,6 +289,10 @@ fn render_page(st: &mut StatusState, cntfrq_hz: u64) -> Page {
                 st.grid.set_line(1, b"CALIBRATION READY", FG_OK, BG);
                 st.grid.set_line(2, b"USE SAVE OR CANCEL", FG, BG);
                 st.grid.set_line(3, b"TOUCH BUTTONS BELOW", FG_DIM, BG);
+            } else if st.ui.mode() == UiMode::Degraded {
+                st.grid.set_line(1, b"CALIBRATION ERROR", BG_PANIC, BG);
+                st.grid.set_line(2, b"USE RETRY OR CANCEL", FG, BG);
+                st.grid.set_line(3, b"SAVE WAS NOT ACTIVATED", FG_DIM, BG);
             } else {
                 let mut buf = [0u8; COLS];
                 let n = write_line(
@@ -368,6 +399,9 @@ fn paint_chrome(page: Page, mode: UiMode, calibration_step: usize) -> bool {
                 if mode == UiMode::Confirm {
                     ok &= panel.fill_rect(40, 216, 200, 264, PANEL_DIM).is_ok();
                     ok &= panel.fill_rect(280, 216, 440, 264, FG_OK).is_ok();
+                } else if mode == UiMode::Degraded {
+                    ok &= panel.fill_rect(40, 216, 200, 264, FG_OK).is_ok();
+                    ok &= panel.fill_rect(280, 216, 440, 264, PANEL_DIM).is_ok();
                 } else if calibration_step < CALIBRATION_TARGETS.len() {
                     let (x, y) = CALIBRATION_TARGETS[calibration_step];
                     ok &= panel

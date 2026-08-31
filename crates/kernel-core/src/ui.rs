@@ -220,6 +220,18 @@ impl UiState {
                     }
                     return UiAction::None;
                 }
+                if self.mode == UiMode::Degraded
+                    && self.page == Page::Calibration
+                    && (Rect {
+                        x: 40,
+                        y: 216,
+                        width: 160,
+                        height: 48,
+                    })
+                    .contains(event.x, event.y)
+                {
+                    return UiAction::RetryCalibration;
+                }
                 if event.y < CONTENT_BOTTOM {
                     return UiAction::None;
                 }
