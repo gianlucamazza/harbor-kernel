@@ -18,7 +18,7 @@
 # Without the oracle, demo tasks and subsystem probes become unreachable —
 # that is intentional (rule 9), not rot. The product path **does** create
 # agents: console server + the injected multi-agent store (ADR-0029 beacon,
-# chirp, lookup and entropy). What stays unreachable is scaffolding that only the oracle feature
+# chirp, lookup, entropy and screen). What stays unreachable is scaffolding that only the oracle feature
 # exercises. The unreachable-item count below is that gap as a number.
 #
 # So this gate does not run clippy with `-D warnings` on the product
@@ -30,6 +30,16 @@ cd "$(dirname "$0")/../.."
 
 readonly TARGET=aarch64-unknown-none-softfloat
 readonly OUT="target/${TARGET}/release"
+readonly PRODUCT_FEATURES="${PRODUCT_FEATURES:-board-rpi4}"
+
+case "${PRODUCT_FEATURES}" in
+	"board-rpi4"|"board-rpi4 display-universal"|"board-rpi4 display-spi"|"board-rpi4 display-diagnostic") ;;
+	*)
+		echo "product-builds: FAIL — unsupported PRODUCT_FEATURES='${PRODUCT_FEATURES}'" >&2
+		echo "  allowed: board-rpi4 [display-universal|display-spi|display-diagnostic]" >&2
+		exit 2
+		;;
+esac
 
 command -v llvm-nm >/dev/null || {
 	echo "product-builds: FAIL — llvm-nm is not on the PATH" >&2
@@ -38,12 +48,13 @@ command -v llvm-nm >/dev/null || {
 }
 
 # The oracle image first: the marker set is validated against it.
-cargo build --target "${TARGET}" --release >/dev/null
+cargo build --target "${TARGET}" --release --no-default-features \
+	--features "${PRODUCT_FEATURES} oracle" >/dev/null
 llvm-objcopy -O binary "${OUT}/harbor-kernel" "${OUT}/kernel8.img"
 oracle_size="$(stat -c %s "${OUT}/kernel8.img")"
 
 echo "product-builds: building without the oracle"
-cargo build --target "${TARGET}" --release --no-default-features --features board-rpi4 \
+cargo build --target "${TARGET}" --release --no-default-features --features "${PRODUCT_FEATURES}" \
 	>/dev/null || {
 	echo "product-builds: FAIL — the image does not build without the oracle" >&2
 	exit 1
@@ -218,4 +229,4 @@ fi
 printf 'product-builds: clean (no demo symbols; image %s B without the oracle, %s B with, +%s B)\n' \
 	"${product_size}" "${oracle_size}" "$((oracle_size - product_size))"
 printf '  %s items unreachable without the oracle.\n' "${unreachable}"
-printf '  Product carries console-server + loader; the six-agent store is external (P1/P2/P3/P5).\n'
+printf '  Product carries console-server + loader; the seven-agent store is external (P1/P2/P3/P4/P5).\n'

@@ -89,8 +89,8 @@ assert_product_boot() {
 	# list of them: the same transcript already says whether the RNG200 answered,
 	# and the two lines must agree. One oracle, two boards — the alternative is a
 	# hardware-flavoured copy that disagrees with this one on the day it matters.
-	grep -qa 'authority: windows 1 declared' "${log}" ||
-		fail "the product did not declare its one device window (ADR-0101)"
+	grep -qa 'authority: windows 2 declared' "${log}" ||
+		fail "the product did not declare its RNG and framebuffer windows (ADR-0113)"
 	if grep -qa 'rng200: ok' "${log}"; then
 		grep -qa 'authority: 0 rng ok' "${log}" ||
 			fail "the board has an RNG200 and the window was not provided (ADR-0101)"
@@ -121,6 +121,22 @@ assert_product_boot() {
 	else
 		fail "no rng200 line to derive the window expectation from (ADR-0101)"
 	fi
+	# ADR-0113: HDMI framebuffer is optional at boot. QEMU raspi4b currently
+	# exposes no VideoCore property response, so the safe result is a declared
+	# but vacant window and a refused screen agent. Silicon must provide it and
+	# then the agent must complete its write/readback path.
+	if grep -qa 'authority: 1 framebuffer ok' "${log}"; then
+		grep -qaE 'loader: screen loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" ||
+			fail "the framebuffer was provided but screen was not loaded"
+		grep -qa 'loader: screen ran sends=1 refusals=0' "${log}" ||
+			fail "screen did not complete its framebuffer readback report"
+		grep -qaF 'S' "${log}" || fail "screen readback marker did not reach the console"
+	else
+		grep -qa 'authority: 1 framebuffer absent' "${log}" ||
+			fail "framebuffer absence was not reported honestly"
+		grep -qa 'loader: screen refused — window framebuffer is VACANT' "${log}" ||
+			fail "screen was not refused when the framebuffer was vacant"
+	fi
 	# Either way, 'FAILED' is never right: it means the board should have had the
 	# device and providing it did not work.
 	if grep -qa 'authority: 0 rng FAILED' "${log}"; then
@@ -142,7 +158,7 @@ assert_product_boot() {
 	grep -qa 'authority: 2 blob-reply ok' "${log}" || fail "blob reply capability was not provided (ADR-0103)"
 	grep -qa 'authority: bound blob' "${log}" || fail "product did not bind the blob endpoint (ADR-0103)"
 	grep -qa 'authority: bound blob-reply' "${log}" || fail "product did not bind the blob reply endpoint (ADR-0103)"
-	grep -qa 'loader: store n=6 image' "${log}" || fail "product did not load the injected six-agent store"
+	grep -qa 'loader: store n=7 image' "${log}" || fail "product did not load the injected seven-agent store"
 	# ADR-0088: product composition pins chirp on CPU 1; beacon stays home 0.
 	grep -qaE 'loader: beacon loaded text=[0-9]+ stack=[0-9]+ home=0' "${log}" ||
 		fail "beacon was not loaded on home=0"
