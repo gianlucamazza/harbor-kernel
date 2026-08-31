@@ -18,6 +18,7 @@
 use core::mem::MaybeUninit;
 
 use kernel_core::agentstore::{self, MAX_AGENTS, StoreAgent};
+use kernel_core::display_abi::FramebufferDescriptor;
 use kernel_core::loaderplan;
 use kernel_core::manifest::{AgentEntry, BindError, MAX_SLOTS, ResolvedWindow};
 use kernel_core::prog;
@@ -34,6 +35,17 @@ use crate::ipc;
 use crate::mm::AddressSpace;
 use crate::sched::{self, MAX_TASKS, TaskId};
 use crate::sync::{Mutex, SyncCell};
+
+pub const SCREEN_DESCRIPTOR_VA: u64 = 0x0000_0000_5200_0000;
+
+static DISPLAY_DESCRIPTOR: SyncCell<FramebufferDescriptor> =
+    SyncCell::new(FramebufferDescriptor::new(0, 0, 0));
+
+pub fn install_display_descriptor(info: kernel_core::mailbox::FramebufferInfo) {
+    let descriptor = FramebufferDescriptor::new(info.address, u64::from(info.size), info.pitch);
+    // SAFETY: bootstrap is single-threaded before agents are spawned.
+    unsafe { *DISPLAY_DESCRIPTOR.get() = descriptor };
+}
 
 /// Capacity of the image-resident agent store (ADR-0029).
 ///
@@ -491,11 +503,25 @@ fn run(entry: &AgentEntry, window: Option<ResolvedWindow>) {
     // the plan. `Perms::USER_RW` used to be welded in here, which meant a
     // read-only device could not be expressed even in principle.
     if let Some(w) = window
-        && let Err(e) = aspace.map_device_page(w.va, w.pa, w.perms)
+        && let Err(e) = aspace.map_device_region(w.va, w.pa, w.len, w.perms)
     {
         crate::kprintln!("loader: {name} device grant FAILED {e:?}");
         aspace.destroy();
         return;
+    }
+    if name == "screen" {
+        let descriptor = DISPLAY_DESCRIPTOR.get();
+        let pa = descriptor as usize as u64;
+        if let Err(e) = aspace.map_normal_region(
+            SCREEN_DESCRIPTOR_VA,
+            pa,
+            kernel_core::paging::PAGE_SIZE,
+            kernel_core::paging::Perms::USER_RO,
+        ) {
+            crate::kprintln!("loader: {name} descriptor FAILED {e:?}");
+            aspace.destroy();
+            return;
+        }
     }
     if entry.packet_pool {
         #[cfg(any(feature = "board-qemu-virt", feature = "board-rpi4"))]

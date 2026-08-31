@@ -119,6 +119,8 @@ pub enum BindError {
     /// The entry named a declared window that holds nothing this boot
     /// (ADR-0100) — the device is absent on this board.
     WindowVacant { index: u8 },
+    /// The board supplied an invalid device region.
+    WindowInvalid { index: u8 },
     /// The image does not fit in the text pages the entry declared.
     ImageTooLarge { bytes: usize, capacity: usize },
     /// Zero text pages, or a window with no stack.
@@ -248,7 +250,7 @@ pub fn bind(
     Ok(out)
 }
 
-/// A device page the loader may now map: where the composition asked for it,
+/// A device region the loader may now map: where the composition asked for it,
 /// and what the board says it is (ADR-0100).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedWindow {
@@ -256,6 +258,8 @@ pub struct ResolvedWindow {
     pub va: u64,
     /// From the vocabulary — never from the entry.
     pub pa: u64,
+    /// Length from the vocabulary — never from the entry.
+    pub len: u64,
     /// From the vocabulary, so a read-only device stays read-only.
     pub perms: Perms,
 }
@@ -320,9 +324,15 @@ pub fn bind_window(
             index: grant.window,
         });
     };
+    if !window.is_valid() {
+        return Err(BindError::WindowInvalid {
+            index: grant.window,
+        });
+    }
     Ok(Some(ResolvedWindow {
         va: grant.va,
         pa: window.pa,
+        len: window.len,
         perms: window.perms,
     }))
 }
@@ -499,6 +509,7 @@ mod tests {
         });
         let windows = [Some(Window {
             pa: 0xfe10_4000,
+            len: crate::paging::PAGE_SIZE,
             perms: Perms::USER_RW,
         })];
         assert_eq!(
@@ -557,10 +568,12 @@ mod tests {
         let windows = [
             Some(Window {
                 pa: 0xfe20_1000,
+                len: crate::paging::PAGE_SIZE,
                 perms: Perms::USER_RW,
             }),
             Some(Window {
                 pa: 0xfe10_4000,
+                len: crate::paging::PAGE_SIZE,
                 perms: Perms::USER_RO,
             }),
         ];
@@ -569,6 +582,7 @@ mod tests {
             Some(ResolvedWindow {
                 va: 0x9000,
                 pa: 0xfe10_4000,
+                len: crate::paging::PAGE_SIZE,
                 perms: Perms::USER_RO,
             }),
             "index 1's page and index 1's rights, not index 0's"
@@ -585,6 +599,7 @@ mod tests {
                 &e,
                 &[Some(Window {
                     pa: 0xfe10_4000,
+                    len: crate::paging::PAGE_SIZE,
                     perms: Perms::USER_RW
                 })]
             ),

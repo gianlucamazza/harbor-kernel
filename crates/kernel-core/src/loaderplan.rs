@@ -266,10 +266,12 @@ mod tests {
         let windows = [
             Some(Window {
                 pa: 0xfe20_1000,
+                len: crate::paging::PAGE_SIZE,
                 perms: Perms::USER_RW,
             }),
             Some(Window {
                 pa: 0xfe10_4000,
+                len: crate::paging::PAGE_SIZE,
                 perms: Perms::USER_RO,
             }),
         ];
@@ -285,6 +287,7 @@ mod tests {
                 Some(ResolvedWindow {
                     va: 0x9000,
                     pa: 0xfe10_4000,
+                    len: crate::paging::PAGE_SIZE,
                     perms: Perms::USER_RO,
                 })
             ),

@@ -38,6 +38,7 @@ HELD = {
 #
 WINDOWS = {
     "rng": 0,
+    "framebuffer": 1,
 }
 
 # "No device window" — the value every agent in this product carries today.
@@ -191,6 +192,53 @@ b .
 # chooses this; the board chooses which page appears there (ADR-0100).
 ENTROPY_VA = 0x5100_0000
 
+# Fixed first-slice HDMI framebuffer agent. The kernel validates the firmware
+# descriptor before mapping this VA; the agent only receives the resulting
+# device window. 1024x768 RGB565 = 196608 eight-byte stores.
+SCREEN_VA = 0x5100_0000
+SCREEN_ASM = """\
+movz x0, #0x5200, lsl #16
+ldr w2, [x0]
+movz w3, #0x4d31
+movk w3, #0x4652, lsl #16
+cmp w2, w3
+b.ne screen_fail
+ldr w2, [x0, #32]
+movz w3, #2048
+cmp w2, w3
+b.ne screen_fail
+movz x0, #0x5100, lsl #16
+movz x1, #0x001f
+movk x1, #0x001f, lsl #16
+movk x1, #0x001f, lsl #32
+movk x1, #0x001f, lsl #48
+movz x2, #0xe000
+movk x2, #0x0003, lsl #16
+screen_fill:
+str x1, [x0], #8
+sub x2, x2, #1
+cbnz x2, screen_fill
+movz x0, #0x5100, lsl #16
+ldr w2, [x0]
+movz w3, #0x001f
+movk w3, #0x001f, lsl #16
+cmp w2, w3
+b.ne screen_fail
+movz x0, #1
+movz x1, #0
+movz x2, #83
+svc #3
+b screen_done
+screen_fail:
+movz x0, #1
+movz x1, #0
+movz x2, #70
+svc #3
+screen_done:
+svc #1
+b .
+"""
+
 
 def assemble(asm: str) -> bytes:
     import tempfile
@@ -304,6 +352,7 @@ def main() -> int:
         chirp = assemble(CHIRP_ASM)
         lookup = assemble(LOOKUP_ASM)
         entropy = assemble(ENTROPY_ASM)
+        screen = assemble(SCREEN_ASM)
         blob = assemble(BLOB_ASM)
         edge_gateway = assemble(EDGE_GATEWAY_ASM)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
@@ -329,6 +378,7 @@ def main() -> int:
             ("chirp", 1, 3, console_slots, chirp, 1, False, False, WINDOW_NONE, 0),
             ("lookup", 1, 3, [SLOT_NONE] * 4, lookup, 0, True, False, WINDOW_NONE, 0),
             ("entropy", 1, 3, console_slots, entropy, 0, False, False, WINDOWS["rng"], ENTROPY_VA),
+            ("screen", 1, 3, console_slots, screen, 0, False, False, WINDOWS["framebuffer"], SCREEN_VA),
             ("blob", 1, 3, blob_slots, blob, 0, False, False, WINDOW_NONE, 0),
             (
                 "edge-gateway",

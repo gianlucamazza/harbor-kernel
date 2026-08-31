@@ -53,6 +53,8 @@ pub const NAME_NET_RX_RETURN: &str = "net-rx-return";
 /// window rather than being welded into the mapping site.
 pub const WINDOW_RNG: u8 = 0;
 pub const WINDOW_NAME_RNG: &str = "rng";
+pub const WINDOW_FRAMEBUFFER: u8 = 1;
+pub const WINDOW_NAME_FRAMEBUFFER: &str = "framebuffer";
 
 /// Both vocabularies a composition may name, assembled for this boot.
 ///
@@ -78,7 +80,7 @@ pub struct Authority {
 /// empty and the agents that named it are refused by the loader — the kernel
 /// coming up short is a different fact from a composition asking for too much,
 /// and both are printed.
-pub fn assemble(rng_present: bool) -> Authority {
+pub fn assemble(rng_present: bool, framebuffer: Option<kernel_core::held::Window>) -> Authority {
     let mut set = Held::new();
 
     let console = declare_or_report(&mut set, NAME_CONSOLE, HELD_CONSOLE);
@@ -142,6 +144,17 @@ pub fn assemble(rng_present: bool) -> Authority {
     let mut windows = Windows::new();
     if let Some(index) = declare_window(&mut windows, WINDOW_NAME_RNG, WINDOW_RNG) {
         provide_window(&mut windows, index, WINDOW_NAME_RNG, rng_present);
+    }
+    if let Some(index) = declare_window(&mut windows, WINDOW_NAME_FRAMEBUFFER, WINDOW_FRAMEBUFFER) {
+        match framebuffer {
+            Some(window) => match windows.provide_window(index, window) {
+                Ok(()) => crate::kprintln!("authority: {index} {WINDOW_NAME_FRAMEBUFFER} ok"),
+                Err(error) => crate::kprintln!(
+                    "authority: {index} {WINDOW_NAME_FRAMEBUFFER} FAILED {error:?}"
+                ),
+            },
+            None => crate::kprintln!("authority: {index} {WINDOW_NAME_FRAMEBUFFER} absent"),
+        }
     }
     crate::kprintln!("authority: windows {} declared", windows.len());
 
@@ -321,11 +334,11 @@ fn provide_window(set: &mut Windows, index: u8, name: &str, present: bool) {
         crate::kprintln!("authority: {index} {name} absent");
         return;
     }
-    let window = Window {
-        pa: crate::bsp::board::memmap::RNG200_BASE as u64,
-        perms: Perms::USER_RO,
-    };
-    match set.provide(index, window) {
+    let window = Window::page(
+        crate::bsp::board::memmap::RNG200_BASE as u64,
+        Perms::USER_RO,
+    );
+    match set.provide_window(index, window) {
         Ok(()) => crate::kprintln!("authority: {index} {name} ok"),
         Err(e) => crate::kprintln!("authority: {index} {name} FAILED {e:?}"),
     }

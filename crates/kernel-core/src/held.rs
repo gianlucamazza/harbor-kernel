@@ -60,7 +60,7 @@ pub const MAX_WINDOWS: usize = 4;
 const _: () = assert!(MAX_HELD < SLOT_NONE as usize);
 const _: () = assert!(MAX_WINDOWS < WINDOW_NONE as usize);
 
-/// A page of device memory the board is willing to hand to an agent (ADR-0100).
+/// A page-aligned region of device memory the board is willing to hand to an agent (ADR-0100).
 ///
 /// The physical address is here and **never on the wire**: a composition names
 /// the position, not the page. That is the whole security argument — a store
@@ -68,15 +68,53 @@ const _: () = assert!(MAX_WINDOWS < WINDOW_NONE as usize);
 /// `USER_RW`, which is a mint, and this project removed that shape for
 /// capabilities in ADR-0021 rather than guarding it with a range check.
 ///
-/// `perms` travels with the page because a device is not always writable, and
+/// `perms` travels with the region because a device is not always writable, and
 /// the mapping site had `Perms::USER_RW` welded into it before this ADR.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Window {
-    /// Physical address of the device page. Comes from the BSP, via
+    /// Physical address of the first device page. Comes from the BSP, via
     /// `bootstrap::authority` — rule 1 of `architecture.md` keeps it there.
     pub pa: u64,
-    /// Rights the page is mapped with in the agent's window.
+    /// Length of the region in bytes.
+    pub len: u64,
+    /// Rights the region is mapped with in the agent's window.
     pub perms: Perms,
+}
+
+impl Window {
+    /// Construct a single-page window for legacy MMIO devices.
+    pub const fn page(pa: u64, perms: Perms) -> Self {
+        Self {
+            pa,
+            len: crate::paging::PAGE_SIZE,
+            perms,
+        }
+    }
+
+    /// Whether the region is non-empty, page-aligned, and non-wrapping.
+    pub const fn is_valid(self) -> bool {
+        self.pa.is_multiple_of(crate::paging::PAGE_SIZE)
+            && self.len.is_multiple_of(crate::paging::PAGE_SIZE)
+            && self.len != 0
+            && self.pa.checked_add(self.len).is_some()
+    }
+
+    /// Exclusive end of a valid region.
+    pub const fn end(self) -> Option<u64> {
+        if self.is_valid() {
+            self.pa.checked_add(self.len)
+        } else {
+            None
+        }
+    }
+
+    /// Whether two valid regions overlap.
+    pub const fn overlaps(self, other: Self) -> bool {
+        match (self.end(), other.end()) {
+            (Some(a), Some(b)) => self.pa < b && other.pa < a,
+            _ => false,
+        }
+    }
 }
 
 /// The product's capability vocabulary (ADR-0099).
@@ -110,6 +148,17 @@ pub enum ProvideError {
     /// believe they mint the same authority, and whichever ran last would win
     /// silently.
     AlreadyProvided { index: u8, name: &'static str },
+}
+
+/// Why a device region could not be published in the window vocabulary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WindowProvideError {
+    /// The region is empty, unaligned, or wraps its address range.
+    Invalid,
+    /// The region overlaps an already provided region.
+    Overlap { index: u8, name: &'static str },
+    /// The generic vocabulary rejected the position.
+    Provide(ProvideError),
 }
 
 /// The declared vocabulary, and whatever has been provided into it.
@@ -233,6 +282,27 @@ impl<T: Copy, const N: usize> Set<T, N> {
     pub fn get(&self, index: u8) -> Option<T> {
         let i = index as usize;
         if i < self.len { self.items[i] } else { None }
+    }
+}
+
+impl<const N: usize> Set<Window, N> {
+    /// Publish a validated device region without allowing physical overlap.
+    pub fn provide_window(&mut self, index: u8, window: Window) -> Result<(), WindowProvideError> {
+        if !window.is_valid() {
+            return Err(WindowProvideError::Invalid);
+        }
+        for (other_index, other) in self.as_slice().iter().enumerate() {
+            if let Some(other) = other
+                && other.overlaps(window)
+            {
+                return Err(WindowProvideError::Overlap {
+                    index: other_index as u8,
+                    name: self.names[other_index],
+                });
+            }
+        }
+        self.provide(index, window)
+            .map_err(WindowProvideError::Provide)
     }
 }
 
@@ -374,6 +444,7 @@ mod tests {
     fn window(pa: u64) -> Window {
         Window {
             pa,
+            len: crate::paging::PAGE_SIZE,
             perms: Perms::USER_RW,
         }
     }
@@ -426,11 +497,59 @@ mod tests {
             counter,
             Window {
                 pa: 0xfe00_3000,
+                len: crate::paging::PAGE_SIZE,
                 perms: Perms::USER_RO,
             },
         )
         .unwrap();
         assert_eq!(set.get(counter).map(|w| w.perms), Some(Perms::USER_RO));
+    }
+
+    #[test]
+    fn a_window_rejects_invalid_regions() {
+        let mut set = Windows::new();
+        let index = set.declare("framebuffer").unwrap();
+        assert_eq!(
+            set.provide_window(
+                index,
+                Window {
+                    pa: 0x1000,
+                    len: 0,
+                    perms: Perms::USER_RW,
+                },
+            ),
+            Err(WindowProvideError::Invalid)
+        );
+    }
+
+    #[test]
+    fn overlapping_windows_are_rejected_before_publication() {
+        let mut set = Windows::new();
+        let first = set.declare("first").unwrap();
+        let second = set.declare("second").unwrap();
+        set.provide_window(
+            first,
+            Window {
+                pa: 0x1000,
+                len: 0x2000,
+                perms: Perms::USER_RW,
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            set.provide_window(
+                second,
+                Window {
+                    pa: 0x2000,
+                    len: 0x1000,
+                    perms: Perms::USER_RW,
+                },
+            ),
+            Err(WindowProvideError::Overlap {
+                index: 0,
+                name: "first"
+            })
+        ));
     }
 
     #[test]

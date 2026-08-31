@@ -280,6 +280,7 @@ impl AddressSpace {
     ///
     /// Call after [`prepare_for_el0`] so the user root already holds kernel
     /// coverage; `va` must not collide with an existing leaf.
+    #[cfg(feature = "oracle")]
     pub fn map_device_page(&mut self, va: u64, pa: u64, perms: Perms) -> Result<(), AsError> {
         if !self.prepared {
             return Err(AsError::BadTable);
@@ -293,6 +294,64 @@ impl AddressSpace {
         // is *not* checked: nothing says this agent was granted this device.
         // That is ADR-0016's missing capability ABI, not a gap in this call.
         unsafe { self.map_l3_page(va, pa, MemKind::Device, perms) }
+    }
+
+    /// Map a page-aligned device region into this prepared address space.
+    pub fn map_device_region(
+        &mut self,
+        va: u64,
+        pa: u64,
+        len: u64,
+        perms: Perms,
+    ) -> Result<(), AsError> {
+        if !self.prepared {
+            return Err(AsError::BadTable);
+        }
+        if len == 0
+            || !va.is_multiple_of(PAGE_SIZE)
+            || !pa.is_multiple_of(PAGE_SIZE)
+            || !len.is_multiple_of(PAGE_SIZE)
+            || pa.checked_add(len).is_none()
+            || va.checked_add(len).is_none()
+        {
+            return Err(AsError::Unaligned);
+        }
+        for offset in (0..len).step_by(PAGE_SIZE as usize) {
+            // SAFETY: the address space is prepared but not live, and the
+            // validated region cannot wrap or contain an unaligned page.
+            unsafe {
+                self.map_l3_page(va + offset, pa + offset, MemKind::Device, perms)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Map a read-only normal-memory descriptor into a prepared agent.
+    pub fn map_normal_region(
+        &mut self,
+        va: u64,
+        pa: u64,
+        len: u64,
+        perms: Perms,
+    ) -> Result<(), AsError> {
+        if !self.prepared
+            || len == 0
+            || !va.is_multiple_of(PAGE_SIZE)
+            || !pa.is_multiple_of(PAGE_SIZE)
+            || !len.is_multiple_of(PAGE_SIZE)
+            || pa.checked_add(len).is_none()
+            || va.checked_add(len).is_none()
+        {
+            return Err(AsError::Unaligned);
+        }
+        for offset in (0..len).step_by(PAGE_SIZE as usize) {
+            // SAFETY: the prepared AS is not live; the descriptor page is
+            // immutable after bootstrap publication and mapped read-only.
+            unsafe {
+                self.map_l3_page(va + offset, pa + offset, MemKind::NormalWb, perms)?;
+            }
+        }
+        Ok(())
     }
 
     /// Map the EL1-owned packet pool into the explicitly granted agent.
