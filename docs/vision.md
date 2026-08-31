@@ -94,7 +94,9 @@ and K5-B **code** deferred); **K7** residual policy
 switch-cost lab; TTBR1 only if a named trigger fires); optional **K8** agent
 steal + TLB IPI; product network/display only with a composition target; P3
 now has an accepted edge-gateway target
-([ADR-0104](adr/0104-p3-edge-network-composition.md)) and P4 remains deferred.
+([ADR-0104](adr/0104-p3-edge-network-composition.md)); P4 now has an accepted
+composition and an implementation slice under ADR-0113, with remaining display
+evidence tracked separately.
 Closed on HW for fairness and multi-core depth:
 **K4** EL0+EL1 preemption; **K7** ASID first; **K8** unpark through steal
 (ADR-0070…0083); F-R1-P1 shared-state (+ loader 2026-08-11). Product

@@ -1,8 +1,9 @@
 ---
 id: 0113
 title: P4 — a framebuffer agent on a device window
-status: proposed
+status: accepted
 date: 2026-08-17
+accepted: 2026-08-31
 related: [0026, 0049, 0094, 0100, 0101, 0111]
 ---
 
@@ -10,18 +11,21 @@ related: [0026, 0049, 0094, 0100, 0101, 0111]
 
 ## Status
 
-**Proposed** (2026-08-17), on delegated authority: the owner asked for the
-analysis, the decision and the plan in one pass on 2026-08-17 and the decision
-was recorded in issue #80 the same day. This ADR is the design that decision
-requires before any code.
+**Accepted; first implementation slice landed** (2026-08-31). The EL1 mailbox
+contract, validated framebuffer window, read-only descriptor page, and `screen`
+agent composition are implemented. The SPI status path was visually verified on
+the connected Pi on 2026-08-31 using the diagnostic image. HDMI framebuffer/
+pixel evidence and a serial certificate for the composed `screen` agent remain
+open and are intentionally not claimed by this ADR update.
 
 ## Context
 
 P4 — the product display/input path — has been `open` without a composition
-target since 2026-08. [ADR-0094](0094-retire-debug-display.md) retired the lab
-SPI panel on the grounds that a driver stack with no composition asking for it
-is coverage theatre, and said the panel _"comes back when a composition names
-it"_. Nothing named one.
+target since 2026-08. The named composition is now the `screen` agent; the
+optional SPI panel is a separate status surface and is not the authority path
+for the product framebuffer. The universal image may probe that status surface
+after HDMI discovery fails, but it never grants SPI state to the `screen`
+agent.
 
 Issue #80 offered two exits — scope, or permanent non-goal — and both were
 refused:
@@ -128,7 +132,8 @@ before the hardware column can be read as sufficient — not after.
 ### Positive
 
 - ADR-0026's last open item gets a target, a design and a gate.
-- 729 lines kept in reserve since ADR-0094 acquire a consumer, which is what
+- The pure display primitives kept in reserve since ADR-0094 acquire consumers,
+  which is what
   [ADR-0110](0110-a-model-is-consumed-or-declared.md) asks of any model.
 - The device-window vocabulary gets a second member, which is the first
   evidence that ADR-0100's index scheme generalises past one device.
@@ -151,7 +156,7 @@ before the hardware column can be read as sufficient — not after.
 
 | Alternative                                | Why not                                                                                                          |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| Bring back the SPI panel                   | ADR-0094 retired it precisely to stop starting from a driver, and the binding would have to be rewritten anyway  |
+| Make the SPI panel the product display authority | Rejected: HDMI firmware discovery and the SPI status surface have different contracts; neither should silently replace the other |
 | Grant the mailbox itself as a window       | A request channel that can allocate memory is not a window; it would let a store mint pages through the firmware |
 | Render from EL1 and call it a display path | Then P4 is TCB growth with no claimant, which is what ADR-0094 removed                                           |
 | Take the hardware photograph as the gate   | Not machine-checkable, and it would be the only track in the project whose evidence a person has to eyeball      |

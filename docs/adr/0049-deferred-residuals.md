@@ -5,7 +5,7 @@ status: accepted
 date: 2026-08-08
 accepted: 2026-08-08
 related: [0026, 0039, 0041, 0060, 0063, 0092]
-amended: 2026-08-17
+amended: 2026-08-31
 ---
 
 # ADR-0049: Explicit deferrals (policy)
@@ -21,7 +21,7 @@ does not invent product or ambient authority.
 | --- | --- | --- |
 | **Peer transfer residuals** | First slice **done (QEMU)** ([ADR-0054](0054-k3-peer-transfer-first-slice.md)); auto-mint on spawn / control rights open | Product need |
 | **P3 network** | No named composition target this cycle | Edge-gateway composition + virtio/net ADR |
-| **P4 product display** | No product UI composition. The lab panel that stood in for one is **retired** ([ADR-0094](0094-retire-debug-display.md), 2026-08-11) | A product UI ADR, starting from a composition rather than from that driver |
+| ~~**P4 product display**~~ | **Delivered as an accepted composition and first implementation slice** by [ADR-0113](0113-p4-framebuffer-agent.md) (2026-08-31); the optional SPI status path was visually verified on the Pi, while HDMI framebuffer evidence remains separately gated | — |
 | ~~**#14 SpiDevice**~~ | **Closed 2026-08-11**: ADR-0020 superseded by [ADR-0094](0094-retire-debug-display.md) — the trait went with the panel. A permanent watch was a retirement nobody had scheduled | — |
 | ~~**Panic-path oracle**~~ | **Delivered** by [ADR-0093](0093-panic-path-positive-evidence.md) (2026-08-11): a `panic-probe` image faults on a real stack guard page, and `make panic-check` asserts the whole chain — including that the printed `FAR` is the address the probe announced | — |
 | ~~**Task-cap spawn epoch**~~ | **Delivered** by [ADR-0062](0062-taskid-epoch.md) (2026-08-09): the epoch lives in `TaskId` itself and the task-cap entry stores it (`taskcap.rs` raw id), so the exit→revoke window is closed structurally | — |

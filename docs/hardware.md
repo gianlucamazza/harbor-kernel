@@ -74,6 +74,26 @@ make serial SERIAL_DEV=/dev/ttyUSB0
 # or: picocom -b 115200 /dev/ttyUSB0
 ```
 
+## Display status
+
+The current product image probes the VideoCore property mailbox in EL1 and
+declares a `framebuffer` device window only when firmware returns a validated
+1024×768 RGB565 buffer. The product `screen` agent then fills that window and
+reports a first-pixel readback. QEMU `raspi4b` currently reports the mailbox
+framebuffer as unavailable, so the agent is refused as `VACANT`; this is an
+honest absence result, not pixel evidence. HDMI visual proof still requires a
+Pi boot with the serial capture performed separately.
+
+The Waveshare 3.5″ ILI9486 SPI panel is available in the universal image with
+`display-universal` (or as the explicit `debug-display` build). Runtime policy
+is HDMI first, then a bounded strict SPI ID probe, then headless. A panel that
+does not support reliable ID reads must use the explicit SPI image. HDMI and
+SPI are independent surfaces and are never silently substituted for one
+another. `make display-product-builds` builds the universal image;
+`make display-spi-product-builds` builds the explicit image, and
+`make display-diagnostic-builds` adds immediate colour bars after init.
+Hardware behavior still requires a Pi 4B plus the HAT.
+
 A second, identical dongle on the Pi’s USB port (or two dongles null-modemed
 to each other) does **not** replace the GPIO path above. That second device is
 only useful under an OS with USB host drivers (e.g. Raspberry Pi OS), not under
@@ -225,19 +245,19 @@ if=sd` card to the legacy Arasan SDHCI instead, so the board bind probes
 EMMC2 first and falls back, printing which host answered (`host=` on the
 `durable-media:` line).
 
-## Retired: the SPI TFT status surface
+## Optional: the SPI TFT status surface
 
 A Waveshare-class 3.5″ ILI9486 HAT was brought up on this board and closed on
 silicon in August 2026 — SPI0 pinmux, polled transfers, regwidth-16 wire
 framing, panel init and a status grid, all behind a `debug-display` feature.
-[ADR-0094](adr/0094-retire-debug-display.md) **retired it** on 2026-08-11: it
-compiled in every `make check` and was executed by nothing, and no product
-composition named a panel.
+[ADR-0094](adr/0094-retire-debug-display.md) retired the old unconditional
+binding on 2026-08-11. The successor is an explicit optional backend: the
+universal image probes it safely, the panel is initialized by the BSP only
+after a positive response, status text is painted through the resident SPI
+handle, and the default product remains headless. The replacement SPI path was
+visually verified on the connected Pi with the diagnostic image on 2026-08-31.
 
-Nothing in this tree drives a display today. The board still has the pins; the
-kernel no longer knows about them.
-
-Where the detail went, if a panel ever comes back:
+Where the implementation and evidence live:
 
 - the decisions and what they cost — [ADR-0009](adr/0009-optional-spi-tft-debug-console.md)
   and [ADR-0010](adr/0010-spi-transaction-and-dbi-panel.md) (both **superseded**),
@@ -246,9 +266,9 @@ Where the detail went, if a panel ever comes back:
   [`verification.md`](verification.md), in the dated 2026-08-05 evidence
   sections, which are records and stay as they are;
 - the reusable half — `kernel_core::{display, textgrid, font8x8, spi}` — is
-  still in the tree, pure and host-tested. What went is the binding to one HAT,
-  which would have to be rewritten against the SPI and DMA facts of the day
-  anyway.
+  still pure and host-tested; the board binding is isolated behind the
+  explicit feature. The diagnostic image is a lab tool; the normal SPI image
+  paints the status grid.
 
 ## Safety
 

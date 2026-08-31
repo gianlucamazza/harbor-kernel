@@ -78,15 +78,15 @@ not every symbol.
 
 ```
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
-  a64, agentstore, asid, blob, budget, bump, cap, capslots, cpuid, delay, density, display, durable, durable_media, fault, fdt, font8x8, genet, genet_fdt, frame, gic,
+  a64, agentstore, asid, blob, budget, bump, cap, capslots, cpuid, delay, density, display, display_abi, durable, durable_media, fault, fdt, font8x8, genet, genet_fdt, frame, gic,
   heap, held, hwdesc, ipc, irqcap, irqtable, irqwait, layout, lifecycle, loaderplan, manifest, mbr, naming, paging, parktime, poll, preempt, prog, reply, reset, ring, rng,
-  net, runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, virtio, wake
+  mailbox, net, runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, virtio, wake
   tests/ public_api, model_sched, model_ipc
 src/
   main.rs         kernel_main — product vs lab dispatch only
   arch/           ISA axis (aarch64 product + x86_64 lab roles)
   bsp/            board axis (rpi4 product + qemu_q35 lab + qemu_virt P3)
-  drivers/        protocol axis (PL011, GICv2, …; uart16550 lab)
+  drivers/        protocol axis (PL011, GICv2, optional SPI/ILI9486, …; uart16550 lab)
   lab/            lab maturity path (x86 L0 entry + panic; ADR-0071)
   irq/            IRQ ownership, masking, counters, wait port, notification caps
   bootstrap/      product boot sequence, authority vocabularies, loader (Mutex side tables), console server, demos
@@ -99,6 +99,7 @@ src/
   durable/        durable section store (ADR-0045; Mutex window)
   mm/             heap, address spaces, frames, layout and task stacks
   console.rs      kernel TX/RX policy (product; TX under Mutex)
+  status.rs       optional SPI TFT status surface (`debug-display`)
   panic.rs        panic path (product)
   sync.rs         Mutex + SyncCell residual (ADR-0077, ADR-0091)
   time.rs         tick policy (global advance on CPU 0)
