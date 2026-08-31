@@ -39,6 +39,8 @@ mod naming;
 mod panic;
 #[cfg(target_arch = "aarch64")]
 mod sched;
+#[cfg(all(target_arch = "aarch64", feature = "debug-display"))]
+mod status;
 #[cfg(target_arch = "aarch64")]
 mod storage;
 #[cfg(target_arch = "aarch64")]

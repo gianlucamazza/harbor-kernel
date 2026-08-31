@@ -806,6 +806,77 @@ pub fn run() -> ! {
     // RNG page only on a board that has the block (ADR-0101).
     let rng_present = probe_rng(&mut uart);
 
+    #[cfg(feature = "board-rpi4")]
+    let framebuffer = match board::display::probe() {
+        Ok(display) => {
+            println!(
+                uart,
+                "display: framebuffer {}x{} pitch={} pa={:#x} bytes={}",
+                display.info.width,
+                display.info.height,
+                display.info.pitch,
+                display.window.pa,
+                display.window.len
+            );
+            loader::install_display_descriptor(display.info);
+            Some(display.window)
+        }
+        Err(error) => {
+            println!(uart, "display: framebuffer unavailable ({error:?})");
+            None
+        }
+    };
+    #[cfg(not(feature = "board-rpi4"))]
+    let framebuffer = None;
+
+    #[cfg(all(
+        feature = "board-rpi4",
+        feature = "debug-display",
+        not(feature = "display-universal")
+    ))]
+    {
+        // SAFETY: explicit SPI image owns the GPIO and SPI0 MMIO blocks
+        // exclusively during early bootstrap. HDMI discovery is independent
+        // and must not suppress this explicitly requested backend.
+        match unsafe { board::spi_display::init_and_panel() } {
+            Ok(display) => {
+                let cdiv = display.cdiv();
+                let bit_hz = display.bit_hz();
+                println!(
+                    uart,
+                    "display: backend=spi-explicit cdiv={cdiv} bit_hz={bit_hz}"
+                );
+                board::spi_display::install(display);
+                crate::status::show_boot_after_display(cdiv, bit_hz, timer::frequency_hz());
+            }
+            Err(error) => println!(uart, "display: backend=none spi-init={error:?}"),
+        }
+    }
+
+    #[cfg(all(feature = "board-rpi4", feature = "display-universal"))]
+    if framebuffer.is_none() {
+        // SAFETY: early bootstrap owns the GPIO and SPI0 MMIO blocks
+        // exclusively; no agent has been admitted yet.
+        match unsafe { board::spi_display::probe() } {
+            Ok(true) => {
+                // SAFETY: the successful probe still runs before any agent is
+                // admitted and retains exclusive GPIO/SPI0 ownership.
+                match unsafe { board::spi_display::init_and_panel() } {
+                    Ok(display) => {
+                        let cdiv = display.cdiv();
+                        let bit_hz = display.bit_hz();
+                        println!(uart, "display: backend=spi cdiv={cdiv} bit_hz={bit_hz}");
+                        board::spi_display::install(display);
+                        crate::status::show_boot_after_display(cdiv, bit_hz, timer::frequency_hz());
+                    }
+                    Err(error) => println!(uart, "display: backend=none spi-init={error:?}"),
+                }
+            }
+            Ok(false) => println!(uart, "display: backend=none spi-probe=rejected"),
+            Err(error) => println!(uart, "display: backend=none spi-probe={error:?}"),
+        }
+    }
+
     // Deliberate fault (ADR-0093), before IRQs are bound: the panic path is
     // then reporting one fault on one core with nothing else in flight, which
     // is what makes `FAR` comparable with the address the probe announced.
@@ -894,7 +965,7 @@ pub fn run() -> ! {
     // vocabulary is refused by arithmetic rather than by a check.
     //
     // Product path carries the beacon agent; oracle adds mute. See loader.
-    let authority = authority::assemble(rng_present);
+    let authority = authority::assemble(rng_present, framebuffer);
     loader::load_all(&authority);
 
     // Everything the boot oracle needs, and nothing the product does — and

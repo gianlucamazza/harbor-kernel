@@ -50,6 +50,20 @@ bringup = []
 # oracle would fail on the banner, so it has its own runner.
 panic-probe = []
 
+# Optional Waveshare/ILI9486 SPI status surface. Kept out of the default
+# headless product image; select an explicit display product target when a
+# panel is connected.
+debug-display = []
+# Universal Pi image: compile HDMI and the optional SPI status backend, then
+# choose the first backend whose bounded runtime probe succeeds.
+display-universal = ["debug-display"]
+# Explicit SPI image for ILI9486 panels whose controller does not support a
+# reliable identification readback.
+display-spi = ["debug-display"]
+# Diagnostic SPI image: draw deterministic colour bars immediately after the
+# ILI9486 init so panel transport can be checked without the status grid.
+display-diagnostic = ["display-spi"]
+
 [dependencies]
 # Pure register/allocator arithmetic, unit-tested on the host.
 kernel-core = { path = "crates/kernel-core" }

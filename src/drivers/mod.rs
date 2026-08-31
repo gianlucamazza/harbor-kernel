@@ -2,6 +2,8 @@
 //!
 //! Drivers are board-agnostic. The BSP supplies addresses, clocks, and pinmux.
 
+#[cfg(feature = "debug-display")]
+pub mod delay;
 #[cfg(target_arch = "aarch64")]
 #[cfg_attr(
     feature = "board-rpi4",
@@ -20,6 +22,12 @@
 pub mod genet;
 #[cfg(target_arch = "aarch64")]
 pub mod gicv2;
+#[cfg(feature = "debug-display")]
+pub mod ili9486;
+#[cfg(target_arch = "aarch64")]
+pub mod mailbox;
+#[cfg(feature = "debug-display")]
+pub mod pin;
 #[cfg(target_arch = "aarch64")]
 pub mod pl011;
 #[cfg(target_arch = "aarch64")]
@@ -49,6 +57,8 @@ pub mod rng200;
     )
 )]
 pub mod sdhci;
+#[cfg(feature = "debug-display")]
+pub mod spi;
 #[cfg(all(target_arch = "aarch64", feature = "board-qemu-virt"))]
 pub mod virtio_mmio;
 

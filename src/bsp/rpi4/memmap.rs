@@ -32,6 +32,17 @@ pub const GPIO_BASE: usize = PERIPHERAL_BASE + 0x0020_0000;
 /// PL011 UART0.
 pub const UART0_BASE: usize = PERIPHERAL_BASE + 0x0020_1000;
 
+/// VideoCore property mailbox (channel 8).
+pub const MAILBOX_BASE: usize = PERIPHERAL_BASE + 0x0000_B880;
+
+/// SPI0 controller and the conservative clock target for the optional panel.
+#[cfg(feature = "debug-display")]
+pub const SPI0_BASE: usize = PERIPHERAL_BASE + 0x0020_4000;
+#[cfg(feature = "debug-display")]
+pub const SPI0_CORE_CLOCK_HZ: u32 = 500_000_000;
+#[cfg(feature = "debug-display")]
+pub const SPI0_TARGET_HZ: u32 = 8_000_000;
+
 /// PL011 register block size for **agent** Stage-1 maps (ADR-0013).
 ///
 /// The hardware block is smaller; one 4 KiB page is the Stage-1 granule. Kernel

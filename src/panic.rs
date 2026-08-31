@@ -91,6 +91,8 @@ fn panic(info: &PanicInfo) -> ! {
     let _ = writeln!(uart, "\n*** KERNEL PANIC ***");
     let _ = writeln!(uart, "{info}");
     report_faulting_address(&mut uart);
+    #[cfg(feature = "debug-display")]
+    crate::status::show_panic("see serial for diagnostic");
     let _ = writeln!(uart, "*** halt ***");
 
     cpu::halt()

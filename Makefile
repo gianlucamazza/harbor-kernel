@@ -99,7 +99,7 @@ ifneq ($(strip $(FEATURES)),)
 endif
 
 .PHONY: all debug img elf check test miri bringup-builds \
-	debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
+	display-product-builds display-spi-product-builds display-diagnostic-builds debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
 	boot-check panic-check hw-check hw-store-audit hw-evidence model-consumed mutation-freshness mutation-scope layers-table clippy-kernel clippy-host x86-elf x86-boot-check doc-claims layering fmt fmt-check \
 	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy deploy-absent-nic deploy-oracle \
@@ -331,6 +331,20 @@ irq-scope:
 product-builds:
 	./scripts/boot/product-image.sh
 
+# Universal hardware image: HDMI first, then a bounded ILI9486 probe. This is
+# deliberately separate from `product-builds`, whose headless image is the
+# reproducible default used by QEMU and CI.
+display-product-builds:
+	PRODUCT_FEATURES="board-rpi4 display-universal" ./scripts/boot/product-image.sh
+
+# Explicit ILI9486 image for panels without reliable ID readback.
+display-spi-product-builds:
+	PRODUCT_FEATURES="board-rpi4 display-spi" ./scripts/boot/product-image.sh
+
+# Diagnostic ILI9486 image: colour bars immediately after panel init.
+display-diagnostic-builds:
+	PRODUCT_FEATURES="board-rpi4 display-diagnostic" ./scripts/boot/product-image.sh
+
 # M8: product image (no oracle) must actually run beacon + console server.
 # Composition-minimum QEMU smoke (excellence F-R5-2): not a second oracle.
 product-boot-check: product-builds
@@ -459,6 +473,13 @@ debug-builds:
 	cargo build --target $(TARGET)
 	cargo clippy --target $(TARGET) -- -D warnings
 	@echo "debug-builds: clean"
+
+# Optional physical Waveshare/ILI9486 path. It is not part of the headless
+# product image and cannot be certified by QEMU.
+display-builds:
+	cargo build --target $(TARGET) --no-default-features --features "board-rpi4 debug-display"
+	cargo clippy --target $(TARGET) --no-default-features --features "board-rpi4 debug-display" -- -D warnings
+	@echo "display-builds: clean (compile-only; hardware proof requires a panel)"
 
 # ADR-0015 puts board selection behind a feature and backs it with a
 # `compile_error!`. An error message is a claim like any other: this asserts the
