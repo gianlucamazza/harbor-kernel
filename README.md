@@ -128,7 +128,7 @@ density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                        |
 | ------------ | ------------------------------------------------------------ |
-| Verification | 645 host tests, model checks, Miri, QEMU and hardware stamps |
+| Verification | 646 host tests, model checks, Miri, QEMU and hardware stamps |
 
 Evidence index: [`docs/verification.md`](docs/verification.md).
 

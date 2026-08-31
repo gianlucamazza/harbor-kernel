@@ -10,6 +10,8 @@ pub const SCREEN_WIDTH: u16 = 480;
 pub const SCREEN_HEIGHT: u16 = 320;
 /// Number of navigation tabs.
 pub const TAB_COUNT: usize = 6;
+pub const FOOTER_HEIGHT: u16 = 48;
+pub const CONTENT_BOTTOM: u16 = SCREEN_HEIGHT - FOOTER_HEIGHT;
 
 /// Top-level dashboard pages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,7 +93,23 @@ pub enum UiAction {
     Navigate(Page),
     ConfirmCalibration,
     CancelCalibration,
+    RetryCalibration,
     RequestRecovery,
+}
+
+/// Stable calibration target positions in panel coordinates.
+pub const CALIBRATION_TARGETS: [(u16, u16); 4] = [(48, 48), (432, 48), (432, 200), (48, 200)];
+
+/// Return whether a touch is inside the target for a calibration step.
+pub const fn calibration_target_contains(step: usize, x: u16, y: u16) -> bool {
+    if step >= CALIBRATION_TARGETS.len() {
+        return false;
+    }
+    let (tx, ty) = CALIBRATION_TARGETS[step];
+    x >= tx.saturating_sub(28)
+        && x <= tx.saturating_add(28)
+        && y >= ty.saturating_sub(28)
+        && y <= ty.saturating_add(28)
 }
 
 /// A normalized touch event in panel coordinates.
@@ -180,12 +198,29 @@ impl UiState {
                     return UiAction::None;
                 }
                 if self.mode == UiMode::Confirm {
-                    if event.y < SCREEN_HEIGHT - 48 {
+                    if (Rect {
+                        x: 280,
+                        y: 216,
+                        width: 160,
+                        height: 48,
+                    })
+                    .contains(event.x, event.y)
+                    {
                         return UiAction::ConfirmCalibration;
                     }
-                    return UiAction::CancelCalibration;
+                    if (Rect {
+                        x: 40,
+                        y: 216,
+                        width: 160,
+                        height: 48,
+                    })
+                    .contains(event.x, event.y)
+                    {
+                        return UiAction::CancelCalibration;
+                    }
+                    return UiAction::None;
                 }
-                if event.y < SCREEN_HEIGHT - 48 {
+                if event.y < CONTENT_BOTTOM {
                     return UiAction::None;
                 }
                 let tab = usize::from(event.x) / (usize::from(SCREEN_WIDTH) / TAB_COUNT);
@@ -433,8 +468,8 @@ mod tests {
             ui.handle_touch(
                 TouchEvent {
                     kind: TouchKind::Down,
-                    x: 240,
-                    y: 120
+                    x: 320,
+                    y: 240
                 },
                 1
             ),
@@ -444,8 +479,8 @@ mod tests {
             ui.handle_touch(
                 TouchEvent {
                     kind: TouchKind::Up,
-                    x: 240,
-                    y: 120
+                    x: 320,
+                    y: 240
                 },
                 2
             ),
@@ -455,8 +490,8 @@ mod tests {
             ui.handle_touch(
                 TouchEvent {
                     kind: TouchKind::Down,
-                    x: 240,
-                    y: 300
+                    x: 120,
+                    y: 240
                 },
                 3
             ),
@@ -466,12 +501,20 @@ mod tests {
             ui.handle_touch(
                 TouchEvent {
                     kind: TouchKind::Up,
-                    x: 240,
-                    y: 300
+                    x: 120,
+                    y: 240
                 },
                 4
             ),
             UiAction::CancelCalibration
         );
+    }
+
+    #[test]
+    fn calibration_points_have_bounded_target_hitboxes() {
+        assert!(calibration_target_contains(0, 48, 48));
+        assert!(calibration_target_contains(3, 70, 220));
+        assert!(!calibration_target_contains(0, 200, 120));
+        assert!(!calibration_target_contains(4, 48, 48));
     }
 }

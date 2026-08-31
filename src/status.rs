@@ -15,7 +15,9 @@ use kernel_core::textgrid::TextGrid;
 use kernel_core::touch::{Calibration, CalibrationWizard};
 #[cfg(feature = "display-touch")]
 use kernel_core::ui::UiAction;
-use kernel_core::ui::{Page, SCREEN_HEIGHT, SCREEN_WIDTH, UiMode, UiState};
+#[cfg(feature = "display-touch")]
+use kernel_core::ui::calibration_target_contains;
+use kernel_core::ui::{CALIBRATION_TARGETS, Page, SCREEN_HEIGHT, SCREEN_WIDTH, UiMode, UiState};
 
 use crate::bsp::board::spi_display as display;
 use crate::mm;
@@ -124,7 +126,8 @@ pub fn on_idle() {
                     refresh(st, timer_frequency());
                 }
                 _ if st.ui.page() == Page::Calibration
-                    && event.kind == kernel_core::ui::TouchKind::Down =>
+                    && event.kind == kernel_core::ui::TouchKind::Down
+                    && calibration_target_contains(st.calibration.count(), event.x, event.y) =>
                 {
                     if st.calibration.push(raw) && st.calibration.is_complete() {
                         st.pending_calibration = st.calibration.finish().ok();
@@ -217,13 +220,13 @@ fn render_page(st: &mut StatusState, cntfrq_hz: u64) -> Page {
         Page::Agents => {
             st.grid.set_line(0, b"HARBOR  AGENTS", FG, BG);
             st.grid
-                .set_line(1, b"agent facts    NOT PROBED", FG_DIM, BG);
+                .set_line(1, b"agent facts    UNAVAILABLE", FG_DIM, BG);
             st.grid
                 .set_line(2, b"screen agent   WINDOW CONTRACT", FG_DIM, BG);
             st.grid
                 .set_line(3, b"authority      KERNEL CONTROLLED", FG_DIM, BG);
             st.grid
-                .set_line(4, b"runtime        SNAPSHOT REQUIRED", FG_DIM, BG);
+                .set_line(4, b"runtime        UNAVAILABLE", FG_DIM, BG);
         }
         Page::Resources => {
             st.grid.set_line(0, b"HARBOR  RESOURCES", FG, BG);
@@ -231,8 +234,7 @@ fn render_page(st: &mut StatusState, cntfrq_hz: u64) -> Page {
             st.grid.set_line(2, b"frame pool   BOUNDED", FG_DIM, BG);
             st.grid.set_line(3, b"page tables  GUARDED", FG_DIM, BG);
             st.grid.set_line(4, b"authority    EXPLICIT", FG_DIM, BG);
-            st.grid
-                .set_line(5, b"scheduler    SNAPSHOT REQUIRED", FG_DIM, BG);
+            st.grid.set_line(5, b"scheduler    UNAVAILABLE", FG_DIM, BG);
         }
         Page::Network => {
             st.grid.set_line(0, b"HARBOR  NETWORK", FG, BG);
@@ -251,29 +253,40 @@ fn render_page(st: &mut StatusState, cntfrq_hz: u64) -> Page {
                 snapshot.peripherals.storage,
                 FG,
             );
-            st.grid.set_line(4, b"store        NOT PROBED", FG_DIM, BG);
+            st.grid.set_line(4, b"store        UNAVAILABLE", FG_DIM, BG);
             st.grid.set_line(5, b"transport    FAIL-CLOSED", FG_DIM, BG);
         }
         Page::Calibration => {
             st.grid.set_line(0, b"HARBOR  CALIBRATION", FG, BG);
             if st.ui.mode() == UiMode::Confirm {
                 st.grid.set_line(1, b"CALIBRATION READY", FG_OK, BG);
-                st.grid.set_line(2, b"TAP CENTER TO SAVE", FG, BG);
-                st.grid.set_line(3, b"NO SAVE BEFORE CONFIRM", FG_DIM, BG);
+                st.grid.set_line(2, b"USE SAVE OR CANCEL", FG, BG);
+                st.grid.set_line(3, b"TOUCH BUTTONS BELOW", FG_DIM, BG);
             } else {
                 let mut buf = [0u8; COLS];
                 let n = write_line(
                     &mut buf,
-                    format_args!("TAP CORNERS  {}/4", st.calibration.count()),
+                    format_args!("TAP TARGETS  {}/4", calibration_count(st)),
                 );
                 st.grid.set_line(1, &buf[..n], FG, BG);
-                st.grid.set_line(2, b"USE FOUR STABLE POINTS", FG_DIM, BG);
-                st.grid.set_line(3, b"PRESSURE FILTERED", FG_DIM, BG);
+                st.grid.set_line(2, b"TOUCH THE MARKED TARGET", FG_DIM, BG);
+                st.grid.set_line(3, b"TARGETS ARE ORDERED 1-4", FG_DIM, BG);
             }
         }
         Page::Fault => {
             st.grid.set_line(0, b"HARBOR  FAULT MONITOR", FG, BG);
-            st.grid.set_line(1, b"no active fault", FG_OK, BG);
+            let fault =
+                snapshot.display.health == Health::Error || snapshot.touch.health == Health::Error;
+            st.grid.set_line(
+                1,
+                if fault {
+                    b"FAULT ACTIVE"
+                } else {
+                    b"NO ACTIVE FAULT"
+                },
+                if fault { BG_PANIC } else { FG_OK },
+                BG,
+            );
             st.grid.set_line(2, b"panic view reserved", FG_DIM, BG);
             st.grid.set_line(3, b"serial remains primary", FG_DIM, BG);
         }
@@ -314,7 +327,17 @@ fn set_status_line<const R: usize>(
     grid.set_line(row, &buf[..n], fg, BG);
 }
 
-fn paint_chrome(page: Page) -> bool {
+#[cfg(feature = "display-touch")]
+fn calibration_count(st: &StatusState) -> usize {
+    st.calibration.count()
+}
+
+#[cfg(not(feature = "display-touch"))]
+const fn calibration_count(_st: &StatusState) -> usize {
+    0
+}
+
+fn paint_chrome(page: Page, mode: UiMode, calibration_step: usize) -> bool {
     display::with_display(|disp| {
         disp.with_panel(|panel| {
             let mut ok = panel.fill_rect(0, 0, SCREEN_WIDTH - 1, 31, PANEL).is_ok();
@@ -340,6 +363,32 @@ fn paint_chrome(page: Page) -> bool {
                 .is_ok();
             for x in [0, 159, 319] {
                 ok &= panel.fill_rect(x, 45, x + 1, 258, PANEL_DIM).is_ok();
+            }
+            if page == Page::Calibration {
+                if mode == UiMode::Confirm {
+                    ok &= panel.fill_rect(40, 216, 200, 264, PANEL_DIM).is_ok();
+                    ok &= panel.fill_rect(280, 216, 440, 264, FG_OK).is_ok();
+                } else if calibration_step < CALIBRATION_TARGETS.len() {
+                    let (x, y) = CALIBRATION_TARGETS[calibration_step];
+                    ok &= panel
+                        .fill_rect(
+                            x.saturating_sub(12),
+                            y.saturating_sub(2),
+                            x + 12,
+                            y + 2,
+                            FG_OK,
+                        )
+                        .is_ok();
+                    ok &= panel
+                        .fill_rect(
+                            x.saturating_sub(2),
+                            y.saturating_sub(12),
+                            x + 2,
+                            y + 12,
+                            FG_OK,
+                        )
+                        .is_ok();
+                }
             }
             ok
         })
@@ -416,13 +465,17 @@ fn record_flush(st: &mut StatusState, result: Result<FlushReport, ()>) {
 }
 
 fn flush_pending_frame() {
-    let Some((page, mut snapshot)) = STATUS.with(|st| {
+    let Some((page, mode, calibration_step, mut snapshot)) = STATUS.with(|st| {
         let page = st.pending_page.take()?;
-        Some((page, st.grid.clone()))
+        #[cfg(feature = "display-touch")]
+        let calibration_step = st.calibration.count();
+        #[cfg(not(feature = "display-touch"))]
+        let calibration_step = 0;
+        Some((page, st.ui.mode(), calibration_step, st.grid.clone()))
     }) else {
         return;
     };
-    let painted = paint_chrome(page);
+    let painted = paint_chrome(page, mode, calibration_step);
     let flushed = flush_dirty(&mut snapshot);
     let ok = painted && flushed.is_ok();
     STATUS.with(|st| {

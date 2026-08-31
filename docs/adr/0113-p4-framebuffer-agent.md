@@ -44,6 +44,11 @@ the renderer now uses descriptor pitch and paints deterministic framebuffer
 bands with boundary readback. These are artifact-level guarantees, not claims
 of hardware certification.
 
+The UI follow-up adds bounded visual calibration targets, explicit save/cancel
+hitboxes, target-gated sample collection, and truthful unavailable/fault labels
+on the status pages. A touch outside a declared target is ignored rather than
+silently becoming a calibration point or privileged action.
+
 ## Context
 
 P4 — the product display/input path — has been `open` without a composition
