@@ -36,6 +36,12 @@ four-point wizard derives and validates calibration data without allocation;
 the runtime UI confirms and persists the result. Controller identity and
 display-agent extraction remain hardware/product gates.
 
+The architecture hardening tranche adds explicit calibration commit/cancel
+intents, rejects unaligned or overflowing framebuffer ranges, and avoids idle
+touch SPI transactions while the pen IRQ is inactive. The next boundary is a
+frame-plan/I-O split for the SPI renderer and a pitch-aware HDMI dashboard;
+these are implementation work, not claims of hardware certification.
+
 ## Context
 
 P4 — the product display/input path — has been `open` without a composition

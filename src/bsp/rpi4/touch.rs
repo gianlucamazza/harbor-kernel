@@ -90,6 +90,13 @@ pub fn poll_with_sample() -> Option<(TouchEvent, touch::RawSample)> {
             let touch = slot.as_mut()?;
             touch.last_irq_low = !touch.irq.is_high();
             let now = crate::time::ticks();
+            // An idle controller keeps IRQ high. Avoiding a SPI transaction in
+            // that state leaves the bus available to the panel and makes the
+            // sampling rate proportional to actual input activity. Continue
+            // sampling while pressed so the high transition can emit `Up`.
+            if !touch.last_irq_low && !touch.pressed {
+                return None;
+            }
             // `on_idle` can run much faster than the panel's useful sample
             // rate. One bounded transaction per timer tick prevents the
             // controller and the UI from seeing duplicate noisy samples.

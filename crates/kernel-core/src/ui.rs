@@ -89,6 +89,8 @@ pub enum UiMode {
 pub enum UiAction {
     None,
     Navigate(Page),
+    ConfirmCalibration,
+    CancelCalibration,
     RequestRecovery,
 }
 
@@ -176,6 +178,12 @@ impl UiState {
                 let dy = y.abs_diff(event.y);
                 if dx > 24 || dy > 24 || now.saturating_sub(started) > 20 {
                     return UiAction::None;
+                }
+                if self.mode == UiMode::Confirm {
+                    if event.y < SCREEN_HEIGHT - 48 {
+                        return UiAction::ConfirmCalibration;
+                    }
+                    return UiAction::CancelCalibration;
                 }
                 if event.y < SCREEN_HEIGHT - 48 {
                     return UiAction::None;
@@ -415,5 +423,55 @@ mod tests {
         assert_eq!(Page::from_index(4), Some(Page::Calibration));
         assert_eq!(Page::Calibration.next(), Page::Fault);
         assert_eq!(Page::Fault.next(), Page::Overview);
+    }
+
+    #[test]
+    fn confirmation_mode_emits_explicit_commit_or_cancel_intents() {
+        let mut ui = UiState::new();
+        ui.set_mode(UiMode::Confirm);
+        assert_eq!(
+            ui.handle_touch(
+                TouchEvent {
+                    kind: TouchKind::Down,
+                    x: 240,
+                    y: 120
+                },
+                1
+            ),
+            UiAction::None
+        );
+        assert_eq!(
+            ui.handle_touch(
+                TouchEvent {
+                    kind: TouchKind::Up,
+                    x: 240,
+                    y: 120
+                },
+                2
+            ),
+            UiAction::ConfirmCalibration
+        );
+        assert_eq!(
+            ui.handle_touch(
+                TouchEvent {
+                    kind: TouchKind::Down,
+                    x: 240,
+                    y: 300
+                },
+                3
+            ),
+            UiAction::None
+        );
+        assert_eq!(
+            ui.handle_touch(
+                TouchEvent {
+                    kind: TouchKind::Up,
+                    x: 240,
+                    y: 300
+                },
+                4
+            ),
+            UiAction::CancelCalibration
+        );
     }
 }

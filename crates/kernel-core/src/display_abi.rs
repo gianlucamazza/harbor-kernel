@@ -44,9 +44,12 @@ impl FramebufferDescriptor {
             reserved_zero &= self.reserved[i] == 0;
             i += 1;
         }
+        let end = self.address.checked_add(self.size);
         self.magic == MAGIC
             && self.version == VERSION
             && self.address != 0
+            && self.address.is_multiple_of(crate::paging::PAGE_SIZE)
+            && end.is_some()
             && self.width == WIDTH
             && self.height == HEIGHT
             && self.depth == DEPTH
@@ -72,5 +75,13 @@ mod tests {
         let mut d = FramebufferDescriptor::new(0x1000, 2 * 1024 * 1024, WIDTH * 2);
         d.pitch = WIDTH;
         assert!(!d.validate());
+    }
+
+    #[test]
+    fn descriptor_rejects_unaligned_or_overflowing_ranges() {
+        let mut unaligned = FramebufferDescriptor::new(0x1001, 2 * 1024 * 1024, WIDTH * 2);
+        assert!(!unaligned.validate());
+        unaligned.address = u64::MAX - 0x1000;
+        assert!(!unaligned.validate());
     }
 }

@@ -436,6 +436,21 @@ the side-track it was — and it is now **retired**
 ([ADR-0094](adr/0094-retire-debug-display.md)): it compiled without ever being
 executed, and the pure half survives in `kernel_core`.
 
+### Display/input architecture (P4)
+
+The display path has two owned surfaces: the EL0 `screen` agent owns the HDMI
+framebuffer window, while the kernel-owned SPI path provides the TFT status and
+touch input surface. They share only pure contracts (RGB565 geometry,
+framebuffer descriptor validation, UI intents and telemetry); neither surface
+is silently substituted for the other. Touch sampling is IRQ-gated while idle
+and serialized with panel SPI transactions. UI confirmation emits typed
+commit/cancel intents; durable persistence and BSP activation remain kernel
+policy operations.
+
+Remaining architectural work is the frame-plan/I-O split so `STATUS` is not
+held across panel transactions, followed by a pitch-aware HDMI dashboard
+renderer and pixel-level hardware evidence.
+
 <a id="completeness-roadmap"></a>
 
 ## Completeness roadmap

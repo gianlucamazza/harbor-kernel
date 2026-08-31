@@ -104,33 +104,38 @@ pub fn on_idle() {
                 st.ui.set_mode(UiMode::Degraded);
             }
             let action = st.ui.handle_touch(event, ticks);
-            if st.ui.mode() == UiMode::Confirm
-                && event.kind == kernel_core::ui::TouchKind::Up
-                && event.y < SCREEN_HEIGHT - 48
-                && st.pending_calibration.is_some()
-            {
-                let calibration = st.pending_calibration.take().unwrap();
-                if crate::calibration::commit(calibration) {
+            match action {
+                UiAction::ConfirmCalibration if st.pending_calibration.is_some() => {
+                    let calibration = st.pending_calibration.take().unwrap();
+                    if crate::calibration::commit(calibration) {
+                        st.calibration = CalibrationWizard::new();
+                        st.ui.set_mode(UiMode::Ready);
+                        refresh(st, timer_frequency());
+                    } else {
+                        st.ui.set_mode(UiMode::Degraded);
+                    }
+                }
+                UiAction::CancelCalibration => {
+                    st.pending_calibration = None;
                     st.calibration = CalibrationWizard::new();
                     st.ui.set_mode(UiMode::Ready);
                     refresh(st, timer_frequency());
-                } else {
-                    st.ui.set_mode(UiMode::Degraded);
                 }
-            } else if st.ui.page() == Page::Calibration
-                && event.kind == kernel_core::ui::TouchKind::Down
-            {
-                if st.calibration.push(raw) && st.calibration.is_complete() {
-                    st.pending_calibration = st.calibration.finish().ok();
-                    if st.pending_calibration.is_some() {
-                        st.ui.set_mode(UiMode::Confirm);
-                    } else {
-                        st.calibration = CalibrationWizard::new();
+                _ if st.ui.page() == Page::Calibration
+                    && event.kind == kernel_core::ui::TouchKind::Down =>
+                {
+                    if st.calibration.push(raw) && st.calibration.is_complete() {
+                        st.pending_calibration = st.calibration.finish().ok();
+                        if st.pending_calibration.is_some() {
+                            st.ui.set_mode(UiMode::Confirm);
+                        } else {
+                            st.calibration = CalibrationWizard::new();
+                        }
+                        refresh(st, timer_frequency());
                     }
-                    refresh(st, timer_frequency());
                 }
-            } else if matches!(action, UiAction::Navigate(_)) {
-                refresh(st, timer_frequency());
+                UiAction::Navigate(_) => refresh(st, timer_frequency()),
+                _ => {}
             }
         });
     }
