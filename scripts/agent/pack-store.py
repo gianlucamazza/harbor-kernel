@@ -225,8 +225,8 @@ movz w3, #1
 cmp w2, w3
 b.ne screen_fail
 ldr x2, [x0, #16]
-movz x3, #0
-movk x3, #0x18, lsl #16
+movz x4, #768
+mul x3, x7, x4
 cmp x2, x3
 b.lo screen_fail
 movz x0, #0x5100, lsl #16
@@ -274,8 +274,11 @@ movk x1, #0x001f, lsl #16
 movk x1, #0x001f, lsl #32
 movk x1, #0x001f, lsl #48
 movz x0, #0x5100, lsl #16
-movz x4, #0x7ff8
-movk x4, #0x17, lsl #16
+movz x4, #767
+mul x4, x7, x4
+movz x6, #2048
+add x4, x4, x6
+sub x4, x4, #8
 add x0, x0, x4
 ldr x2, [x0]
 movz x1, #0x07e0

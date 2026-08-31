@@ -17,7 +17,10 @@ use kernel_core::touch::{Calibration, CalibrationWizard};
 use kernel_core::ui::UiAction;
 #[cfg(feature = "display-touch")]
 use kernel_core::ui::calibration_target_contains;
-use kernel_core::ui::{CALIBRATION_TARGETS, Page, SCREEN_HEIGHT, SCREEN_WIDTH, UiMode, UiState};
+use kernel_core::ui::{
+    CALIBRATION_CANCEL_RECT, CALIBRATION_CONFIRM_RECT, CALIBRATION_TARGETS, CONTENT_BOTTOM,
+    HEADER_HEIGHT, Page, SCREEN_HEIGHT, SCREEN_WIDTH, UiMode, UiState,
+};
 
 use crate::bsp::board::spi_display as display;
 use crate::mm;
@@ -371,11 +374,13 @@ const fn calibration_count(_st: &StatusState) -> usize {
 fn paint_chrome(page: Page, mode: UiMode, calibration_step: usize) -> bool {
     display::with_display(|disp| {
         disp.with_panel(|panel| {
-            let mut ok = panel.fill_rect(0, 0, SCREEN_WIDTH - 1, 31, PANEL).is_ok();
+            let mut ok = panel
+                .fill_rect(0, 0, SCREEN_WIDTH - 1, HEADER_HEIGHT - 1, PANEL)
+                .is_ok();
             ok &= panel
                 .fill_rect(
                     0,
-                    SCREEN_HEIGHT - 40,
+                    CONTENT_BOTTOM,
                     SCREEN_WIDTH - 1,
                     SCREEN_HEIGHT - 1,
                     PANEL_DIM,
@@ -386,7 +391,7 @@ fn paint_chrome(page: Page, mode: UiMode, calibration_step: usize) -> bool {
             ok &= panel
                 .fill_rect(
                     tab_x,
-                    SCREEN_HEIGHT - 40,
+                    CONTENT_BOTTOM,
                     tab_x + tab_width.saturating_sub(2),
                     SCREEN_HEIGHT - 38,
                     FG_OK,
@@ -397,11 +402,43 @@ fn paint_chrome(page: Page, mode: UiMode, calibration_step: usize) -> bool {
             }
             if page == Page::Calibration {
                 if mode == UiMode::Confirm {
-                    ok &= panel.fill_rect(40, 216, 200, 264, PANEL_DIM).is_ok();
-                    ok &= panel.fill_rect(280, 216, 440, 264, FG_OK).is_ok();
+                    ok &= panel
+                        .fill_rect(
+                            CALIBRATION_CANCEL_RECT.x,
+                            CALIBRATION_CANCEL_RECT.y,
+                            CALIBRATION_CANCEL_RECT.x + CALIBRATION_CANCEL_RECT.width - 1,
+                            CALIBRATION_CANCEL_RECT.y + CALIBRATION_CANCEL_RECT.height - 1,
+                            PANEL_DIM,
+                        )
+                        .is_ok();
+                    ok &= panel
+                        .fill_rect(
+                            CALIBRATION_CONFIRM_RECT.x,
+                            CALIBRATION_CONFIRM_RECT.y,
+                            CALIBRATION_CONFIRM_RECT.x + CALIBRATION_CONFIRM_RECT.width - 1,
+                            CALIBRATION_CONFIRM_RECT.y + CALIBRATION_CONFIRM_RECT.height - 1,
+                            FG_OK,
+                        )
+                        .is_ok();
                 } else if mode == UiMode::Degraded {
-                    ok &= panel.fill_rect(40, 216, 200, 264, FG_OK).is_ok();
-                    ok &= panel.fill_rect(280, 216, 440, 264, PANEL_DIM).is_ok();
+                    ok &= panel
+                        .fill_rect(
+                            CALIBRATION_CANCEL_RECT.x,
+                            CALIBRATION_CANCEL_RECT.y,
+                            CALIBRATION_CANCEL_RECT.x + CALIBRATION_CANCEL_RECT.width - 1,
+                            CALIBRATION_CANCEL_RECT.y + CALIBRATION_CANCEL_RECT.height - 1,
+                            FG_OK,
+                        )
+                        .is_ok();
+                    ok &= panel
+                        .fill_rect(
+                            CALIBRATION_CONFIRM_RECT.x,
+                            CALIBRATION_CONFIRM_RECT.y,
+                            CALIBRATION_CONFIRM_RECT.x + CALIBRATION_CONFIRM_RECT.width - 1,
+                            CALIBRATION_CONFIRM_RECT.y + CALIBRATION_CONFIRM_RECT.height - 1,
+                            PANEL_DIM,
+                        )
+                        .is_ok();
                 } else if calibration_step < CALIBRATION_TARGETS.len() {
                     let (x, y) = CALIBRATION_TARGETS[calibration_step];
                     ok &= panel

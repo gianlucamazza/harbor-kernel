@@ -231,8 +231,11 @@ pub const fn event_oriented(
         }
         Orientation::SwapAxes => {
             let old_x = x;
-            x = clamp(y, SCREEN_WIDTH - 1);
-            y = clamp(old_x, SCREEN_HEIGHT - 1);
+            // A 480×320 surface is not square: swapping axes also needs an
+            // extent conversion, otherwise the x range is truncated to 320
+            // and the y range saturates at 319.
+            x = remap_extent(y, SCREEN_HEIGHT - 1, SCREEN_WIDTH - 1);
+            y = remap_extent(old_x, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1);
         }
         Orientation::MirrorX => x = SCREEN_WIDTH - 1 - x,
         Orientation::MirrorY => y = SCREEN_HEIGHT - 1 - y,
@@ -264,8 +267,11 @@ pub const fn pressure_from_z(z1: u16, z2: u16, x: u16) -> u16 {
     }
 }
 
-const fn clamp(value: u16, max: u16) -> u16 {
-    if value > max { max } else { value }
+const fn remap_extent(value: u16, from_max: u16, to_max: u16) -> u16 {
+    if value >= from_max {
+        return to_max;
+    }
+    ((value as u32 * to_max as u32) / from_max as u32) as u16
 }
 
 const fn scale(value: u16, min: u16, max: u16, extent: u16) -> u16 {
@@ -376,6 +382,17 @@ mod tests {
             .y,
             319
         );
+        let swapped = event_oriented(
+            TouchKind::Down,
+            RawSample {
+                x: 3900,
+                y: 3900,
+                pressure: 1,
+            },
+            Calibration::DEFAULT,
+            Orientation::SwapAxes,
+        );
+        assert_eq!((swapped.x, swapped.y), (479, 319));
     }
 
     #[test]

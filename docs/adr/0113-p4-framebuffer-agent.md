@@ -44,6 +44,14 @@ the renderer now uses descriptor pitch and paints deterministic framebuffer
 bands with boundary readback. These are artifact-level guarantees, not claims
 of hardware certification.
 
+The geometry follow-up keeps the TFT header, content, footer, text grid, tab
+hitboxes, and calibration targets in one 480×320 coordinate contract. Targets
+are kept away from the header and action buttons, and the non-square
+`SwapAxes` transform rescales both extents instead of truncating one axis.
+The HDMI boundary readback is derived from the descriptor pitch rather than a
+minimum-pitch constant. Host and artifact checks still do not replace real
+panel/touch UAT.
+
 The UI follow-up adds bounded visual calibration targets, explicit save/cancel
 hitboxes, target-gated sample collection, and truthful unavailable/fault labels
 on the status pages. A touch outside a declared target is ignored rather than

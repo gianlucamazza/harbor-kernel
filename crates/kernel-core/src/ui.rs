@@ -10,8 +10,11 @@ pub const SCREEN_WIDTH: u16 = 480;
 pub const SCREEN_HEIGHT: u16 = 320;
 /// Number of navigation tabs.
 pub const TAB_COUNT: usize = 6;
+pub const HEADER_HEIGHT: u16 = 32;
 pub const FOOTER_HEIGHT: u16 = 48;
+pub const CONTENT_TOP: u16 = HEADER_HEIGHT;
 pub const CONTENT_BOTTOM: u16 = SCREEN_HEIGHT - FOOTER_HEIGHT;
+pub const CALIBRATION_TARGET_RADIUS: u16 = 24;
 
 /// Top-level dashboard pages.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,7 +101,7 @@ pub enum UiAction {
 }
 
 /// Stable calibration target positions in panel coordinates.
-pub const CALIBRATION_TARGETS: [(u16, u16); 4] = [(48, 48), (432, 48), (432, 200), (48, 200)];
+pub const CALIBRATION_TARGETS: [(u16, u16); 4] = [(56, 64), (424, 64), (424, 208), (56, 208)];
 
 /// Return whether a touch is inside the target for a calibration step.
 pub const fn calibration_target_contains(step: usize, x: u16, y: u16) -> bool {
@@ -106,10 +109,10 @@ pub const fn calibration_target_contains(step: usize, x: u16, y: u16) -> bool {
         return false;
     }
     let (tx, ty) = CALIBRATION_TARGETS[step];
-    x >= tx.saturating_sub(28)
-        && x <= tx.saturating_add(28)
-        && y >= ty.saturating_sub(28)
-        && y <= ty.saturating_add(28)
+    x >= tx.saturating_sub(CALIBRATION_TARGET_RADIUS)
+        && x <= tx.saturating_add(CALIBRATION_TARGET_RADIUS)
+        && y >= ty.saturating_sub(CALIBRATION_TARGET_RADIUS)
+        && y <= ty.saturating_add(CALIBRATION_TARGET_RADIUS)
 }
 
 /// A normalized touch event in panel coordinates.
@@ -138,6 +141,19 @@ impl Rect {
             && y < self.y.saturating_add(self.height)
     }
 }
+
+pub const CALIBRATION_CANCEL_RECT: Rect = Rect {
+    x: 40,
+    y: 216,
+    width: 160,
+    height: 48,
+};
+pub const CALIBRATION_CONFIRM_RECT: Rect = Rect {
+    x: 280,
+    y: 216,
+    width: 160,
+    height: 48,
+};
 
 /// Fixed UI state, with no heap or device references.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -175,9 +191,7 @@ impl UiState {
 
     pub fn set_mode(&mut self, mode: UiMode) {
         self.mode = mode;
-        if matches!(mode, UiMode::Fault | UiMode::Confirm) {
-            self.auto_rotate = false;
-        }
+        self.auto_rotate = matches!(mode, UiMode::Ready);
     }
 
     /// Handle one normalized event and emit only a bounded UI intent.
@@ -185,6 +199,7 @@ impl UiState {
         match event.kind {
             TouchKind::Down => {
                 self.pressed_at = Some((event.x, event.y, now));
+                self.last_input_tick = now;
                 UiAction::None
             }
             TouchKind::Move => UiAction::None,
@@ -198,37 +213,17 @@ impl UiState {
                     return UiAction::None;
                 }
                 if self.mode == UiMode::Confirm {
-                    if (Rect {
-                        x: 280,
-                        y: 216,
-                        width: 160,
-                        height: 48,
-                    })
-                    .contains(event.x, event.y)
-                    {
+                    if CALIBRATION_CONFIRM_RECT.contains(event.x, event.y) {
                         return UiAction::ConfirmCalibration;
                     }
-                    if (Rect {
-                        x: 40,
-                        y: 216,
-                        width: 160,
-                        height: 48,
-                    })
-                    .contains(event.x, event.y)
-                    {
+                    if CALIBRATION_CANCEL_RECT.contains(event.x, event.y) {
                         return UiAction::CancelCalibration;
                     }
                     return UiAction::None;
                 }
                 if self.mode == UiMode::Degraded
                     && self.page == Page::Calibration
-                    && (Rect {
-                        x: 40,
-                        y: 216,
-                        width: 160,
-                        height: 48,
-                    })
-                    .contains(event.x, event.y)
+                    && CALIBRATION_CANCEL_RECT.contains(event.x, event.y)
                 {
                     return UiAction::RetryCalibration;
                 }
@@ -240,7 +235,7 @@ impl UiState {
                     return UiAction::None;
                 };
                 self.last_input_tick = now;
-                self.auto_rotate = !matches!(self.mode, UiMode::Fault | UiMode::Confirm);
+                self.auto_rotate = matches!(self.mode, UiMode::Ready);
                 if self.page == page {
                     UiAction::None
                 } else {
@@ -254,7 +249,11 @@ impl UiState {
     /// Rotate after five seconds of inactivity (10 Hz timer => 50 ticks).
     pub fn on_tick(&mut self, now: u64) -> bool {
         if !self.auto_rotate
-            || matches!(self.mode, UiMode::Boot | UiMode::Fault | UiMode::Confirm)
+            || matches!(
+                self.mode,
+                UiMode::Boot | UiMode::Degraded | UiMode::Fault | UiMode::Confirm
+            )
+            || self.page == Page::Calibration
             || now.saturating_sub(self.last_input_tick) < 50
         {
             return false;
@@ -524,9 +523,24 @@ mod tests {
 
     #[test]
     fn calibration_points_have_bounded_target_hitboxes() {
-        assert!(calibration_target_contains(0, 48, 48));
+        assert!(calibration_target_contains(0, 56, 64));
         assert!(calibration_target_contains(3, 70, 220));
         assert!(!calibration_target_contains(0, 200, 120));
-        assert!(!calibration_target_contains(4, 48, 48));
+        assert!(!calibration_target_contains(4, 56, 64));
+        assert!(CALIBRATION_TARGETS.iter().all(
+            |&(_, y)| y.saturating_sub(CALIBRATION_TARGET_RADIUS) >= CONTENT_TOP
+                && y.saturating_add(CALIBRATION_TARGET_RADIUS) < CONTENT_BOTTOM
+        ));
+    }
+
+    #[test]
+    fn ready_reenables_rotation_and_calibration_freezes_it() {
+        let mut ui = UiState::new();
+        ui.set_mode(UiMode::Fault);
+        assert!(!ui.auto_rotate());
+        ui.set_mode(UiMode::Ready);
+        assert!(ui.auto_rotate());
+        ui.set_mode(UiMode::Confirm);
+        assert!(!ui.auto_rotate());
     }
 }
