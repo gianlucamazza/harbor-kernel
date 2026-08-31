@@ -7,6 +7,7 @@
 use kernel_core::mailbox::{self, FramebufferInfo};
 
 use crate::arch::{cache, mmio::Mmio};
+use crate::sync::Mutex;
 
 const PROPERTY_CHANNEL: u32 = 8;
 const READ: usize = 0x00;
@@ -21,9 +22,9 @@ struct PropertyBuffer {
     words: [u32; mailbox::MAX_WORDS],
 }
 
-static mut PROPERTY_BUFFER: PropertyBuffer = PropertyBuffer {
+static PROPERTY_BUFFER: Mutex<PropertyBuffer> = Mutex::new(PropertyBuffer {
     words: [0; mailbox::MAX_WORDS],
-};
+});
 
 /// Why a property-mailbox framebuffer request failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,30 +63,29 @@ impl PropertyMailbox {
 
     /// Ask firmware to allocate and configure the product framebuffer.
     pub fn framebuffer(&self) -> Result<FramebufferInfo, Error> {
-        let buffer = core::ptr::addr_of_mut!(PROPERTY_BUFFER);
-        let address = buffer as usize;
-        let address32 = u32::try_from(address).map_err(|_| Error::AddressOutOfRange)?;
-        // SAFETY: this is the one static request buffer owned by this EL1
-        // client; the request is not shared with any agent or other core.
-        let words = unsafe { &mut (*buffer).words };
-        let length = mailbox::build_request(words)?;
-        // SAFETY: PROPERTY_BUFFER is Normal memory and the firmware reads it
-        // through the mailbox bus after this clean-to-PoC operation.
-        unsafe {
-            cache::clean_dcache_poc(address, length * core::mem::size_of::<u32>());
-        }
+        PROPERTY_BUFFER.with(|buffer| {
+            let address = buffer as *mut PropertyBuffer as usize;
+            let address32 = u32::try_from(address).map_err(|_| Error::AddressOutOfRange)?;
+            let words = &mut buffer.words;
+            let length = mailbox::build_request(words)?;
+            // SAFETY: PROPERTY_BUFFER is Normal memory and the firmware reads
+            // it through the mailbox bus after this clean-to-PoC operation.
+            unsafe {
+                cache::clean_dcache_poc(address, length * core::mem::size_of::<u32>());
+            }
 
-        self.write(address32)?;
-        let response_channel = self.read_channel()?;
-        if response_channel != PROPERTY_CHANNEL {
-            return Err(Error::WrongChannel(response_channel));
-        }
-        // SAFETY: firmware has written the response into the Normal buffer;
-        // invalidate before EL1 reads it.
-        unsafe {
-            cache::invalidate_dcache_poc(address, length * core::mem::size_of::<u32>());
-        }
-        mailbox::parse_response(words).map_err(Error::from)
+            self.write(address32)?;
+            let response_channel = self.read_channel()?;
+            if response_channel != PROPERTY_CHANNEL {
+                return Err(Error::WrongChannel(response_channel));
+            }
+            // SAFETY: firmware has written the response into the Normal buffer;
+            // invalidate before EL1 reads it.
+            unsafe {
+                cache::invalidate_dcache_poc(address, length * core::mem::size_of::<u32>());
+            }
+            mailbox::parse_response(words).map_err(Error::from)
+        })
     }
 
     fn write(&self, address: u32) -> Result<(), Error> {

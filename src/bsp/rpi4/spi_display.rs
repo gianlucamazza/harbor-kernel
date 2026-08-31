@@ -25,7 +25,7 @@ pub const LCD_DC_PIN: u8 = 24;
 pub const LCD_RST_PIN: u8 = 25;
 
 type Dev = ExclusiveDevice<BcmSpi, gpio::Output, ArchTimerDelay>;
-type PanelErr = Ili9486Error<
+pub(crate) type PanelErr = Ili9486Error<
     ExclusiveDeviceError<BcmSpiError, core::convert::Infallible>,
     core::convert::Infallible,
 >;
@@ -175,6 +175,18 @@ impl DisplaySpi {
 /// Resident handle after a successful [`init_and_panel`].
 static DISPLAY: Mutex<Option<DisplaySpi>> = Mutex::new(None);
 
+/// Shared SPI0 transaction gate for every resident slave (panel and touch).
+///
+/// The devices still own independent CS pins, but the BCM SPI0 controller is
+/// one piece of hardware. Keeping this gate at the BSP boundary prevents a
+/// future display/input agent from interleaving FIFO operations.
+static SPI0_GATE: Mutex<()> = Mutex::new(());
+
+/// Execute one SPI0-owned operation with IRQs masked and SMP exclusion.
+pub fn with_spi0<R>(f: impl FnOnce() -> R) -> R {
+    SPI0_GATE.with(|_| f())
+}
+
 /// Pinmux SPI0, claim pins, program ILI9486, fill status background (HARBOR).
 ///
 /// Product boot path (ADR-0009): PiScreen init + full navy fill. Colour-bar
@@ -252,5 +264,5 @@ pub fn install(spi: DisplaySpi) {
 
 /// Run `f` with the installed display stack, IRQs masked for the duration.
 pub fn with_display<R>(f: impl FnOnce(&mut DisplaySpi) -> R) -> Option<R> {
-    DISPLAY.with(|slot| slot.as_mut().map(f))
+    with_spi0(|| DISPLAY.with(|slot| slot.as_mut().map(f)))
 }

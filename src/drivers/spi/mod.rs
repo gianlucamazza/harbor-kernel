@@ -39,12 +39,10 @@ pub trait SpiBus {
 /// afterwards. This is the embedded-hal 1.0 split that [ADR-0009] adopts and
 /// [ADR-0010] builds on.
 ///
-/// **Nothing calls through it today, in any configuration.** `ExclusiveDevice`
-/// implements it and the ILI9486 driver reaches that type directly through
-/// `with_bus`, because ADR-0010's whole subject is that a DBI panel needs one
-/// CS held across *many* writes and this trait's methods are one CS each. So
-/// the trait is the contract a second slave (XPT2046 touch) would be written
-/// against, and until one exists it has an implementation and no caller.
+/// `ExclusiveDevice` implements it and both the panel and XPT2046 paths use
+/// the same contract. The ILI9486 driver reaches the device through
+/// `with_bus` when a DBI command stream needs one CS held across many writes;
+/// short touch samples use the bounded methods below.
 ///
 /// ADR-0010 carries a sentence saying short register ops keep using
 /// `SpiDevice::write`. They do not — they go through `with_bus` like everything
@@ -65,7 +63,7 @@ pub trait SpiBus {
 /// `allow` that states its reason — so the reason travels with the attribute.
 #[allow(
     dead_code,
-    reason = "ADR-0009 contract surface; implemented by ExclusiveDevice, no caller until a second slave (XPT2046) exists"
+    reason = "contract surface includes unused operations per slave"
 )]
 pub trait SpiDevice {
     /// Failure mode of this device implementation.

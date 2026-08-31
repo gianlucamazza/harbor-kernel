@@ -9,8 +9,13 @@ use core::fmt::Write;
 
 use kernel_core::display::Rgb565;
 use kernel_core::font8x8::{GLYPH_H, GLYPH_W};
+use kernel_core::telemetry::{Health, Snapshot};
 use kernel_core::textgrid::TextGrid;
-use kernel_core::ui::{Page, SCREEN_HEIGHT, SCREEN_WIDTH, UiState};
+#[cfg(feature = "display-touch")]
+use kernel_core::touch::{Calibration, CalibrationWizard};
+#[cfg(feature = "display-touch")]
+use kernel_core::ui::UiAction;
+use kernel_core::ui::{Page, SCREEN_HEIGHT, SCREEN_WIDTH, UiMode, UiState};
 
 use crate::bsp::board::spi_display as display;
 use crate::mm;
@@ -31,12 +36,22 @@ struct StatusState {
     grid: TextGrid<COLS, ROWS>,
     last_tick_paint: u64,
     ui: UiState,
+    snapshot: Snapshot,
+    #[cfg(feature = "display-touch")]
+    calibration: CalibrationWizard,
+    #[cfg(feature = "display-touch")]
+    pending_calibration: Option<Calibration>,
 }
 
 static STATUS: Mutex<StatusState> = Mutex::new(StatusState {
     grid: TextGrid::new(Rgb565::HARBOR),
     last_tick_paint: 0,
     ui: UiState::new(),
+    snapshot: Snapshot::unknown(),
+    #[cfg(feature = "display-touch")]
+    calibration: CalibrationWizard::new(),
+    #[cfg(feature = "display-touch")]
+    pending_calibration: None,
 });
 
 /// Colours for the status surface.
@@ -52,10 +67,25 @@ const PANEL_DIM: Rgb565 = Rgb565::from_rgb8(0x10, 0x24, 0x3C);
 /// Populate boot-time slots after panel + SPI are up, then paint dirty cells.
 pub fn show_boot_after_display(cdiv: u32, bit_hz: u32, cntfrq_hz: u64) {
     with_status(|st| {
+        st.snapshot.display.health = Health::Ready;
+        st.snapshot.display.clock_divisor = cdiv;
+        st.snapshot.display.bit_hz = bit_hz;
+        st.ui.set_mode(UiMode::Ready);
         st.grid.clear(BG);
-        render_page(st, cdiv, bit_hz, cntfrq_hz);
-        flush_dirty(&mut st.grid);
+        refresh(st, cntfrq_hz);
         st.last_tick_paint = 0;
+    });
+}
+
+/// Publish the result of the optional touch probe without claiming more than
+/// the probe established.  The input agent owns subsequent counters.
+#[cfg(feature = "display-touch")]
+pub fn record_touch_health(health: Health) {
+    with_status(|st| {
+        st.snapshot.touch.health = health;
+        if health != Health::Ready {
+            st.ui.set_mode(UiMode::Degraded);
+        }
     });
 }
 
@@ -63,18 +93,61 @@ pub fn show_boot_after_display(cdiv: u32, bit_hz: u32, cntfrq_hz: u64) {
 pub fn on_idle() {
     let ticks = time::ticks();
     #[cfg(feature = "display-touch")]
-    if let Some(event) = crate::bsp::board::touch::poll() {
+    if let Some((event, raw)) = crate::bsp::board::touch::poll_with_sample() {
         with_status(|st| {
-            if st.ui.on_touch(event, ticks) {
-                render_page(st, 64, 7_812_500, timer_frequency());
-                flush_dirty(&mut st.grid);
+            let (samples, errors, irq_low) = crate::bsp::board::touch::metrics();
+            st.snapshot.touch.samples = samples;
+            st.snapshot.touch.errors = errors;
+            st.snapshot.touch.irq_low = irq_low;
+            if errors != 0 {
+                st.snapshot.touch.health = Health::Error;
+                st.ui.set_mode(UiMode::Degraded);
+            }
+            let action = st.ui.handle_touch(event, ticks);
+            if st.ui.mode() == UiMode::Confirm
+                && event.kind == kernel_core::ui::TouchKind::Up
+                && event.y < SCREEN_HEIGHT - 48
+                && st.pending_calibration.is_some()
+            {
+                let calibration = st.pending_calibration.take().unwrap();
+                if crate::calibration::commit(calibration) {
+                    st.calibration = CalibrationWizard::new();
+                    st.ui.set_mode(UiMode::Ready);
+                    refresh(st, timer_frequency());
+                } else {
+                    st.ui.set_mode(UiMode::Degraded);
+                }
+            } else if st.ui.page() == Page::Calibration
+                && event.kind == kernel_core::ui::TouchKind::Down
+            {
+                if st.calibration.push(raw) && st.calibration.is_complete() {
+                    st.pending_calibration = st.calibration.finish().ok();
+                    if st.pending_calibration.is_some() {
+                        st.ui.set_mode(UiMode::Confirm);
+                    } else {
+                        st.calibration = CalibrationWizard::new();
+                    }
+                    refresh(st, timer_frequency());
+                }
+            } else if matches!(action, UiAction::Navigate(_)) {
+                refresh(st, timer_frequency());
             }
         });
     }
+    #[cfg(feature = "display-touch")]
+    with_status(|st| {
+        let (samples, errors, irq_low) = crate::bsp::board::touch::metrics();
+        st.snapshot.touch.samples = samples;
+        st.snapshot.touch.errors = errors;
+        st.snapshot.touch.irq_low = irq_low;
+        if errors != 0 {
+            st.snapshot.touch.health = Health::Error;
+            st.ui.set_mode(UiMode::Degraded);
+        }
+    });
     with_status(|st| {
         if st.ui.on_tick(ticks) {
-            render_page(st, 64, 7_812_500, timer_frequency());
-            flush_dirty(&mut st.grid);
+            refresh(st, timer_frequency());
         }
         if ticks.saturating_sub(st.last_tick_paint) < TICK_REFRESH_EVERY {
             return;
@@ -85,7 +158,13 @@ pub fn on_idle() {
         let heap = mm::heap_remaining();
         let n = write_line(&mut buf, format_args!("ticks={ticks}  heap={heap}"));
         st.grid.set_line(5, &buf[..n], FG, BG);
-        flush_dirty(&mut st.grid);
+        let flushed = flush_dirty(&mut st.grid);
+        let flush_failed = flushed.is_err();
+        record_flush(st, flushed);
+        if flush_failed {
+            st.snapshot.display.health = Health::Error;
+            st.ui.set_mode(UiMode::Degraded);
+        }
     });
 }
 
@@ -93,46 +172,114 @@ fn timer_frequency() -> u64 {
     crate::arch::timer::frequency_hz()
 }
 
-fn render_page(st: &mut StatusState, cdiv: u32, bit_hz: u32, cntfrq_hz: u64) {
+fn refresh(st: &mut StatusState, cntfrq_hz: u64) {
+    st.snapshot.display.frames = st.snapshot.display.frames.saturating_add(1);
+    let painted = render_page(st, cntfrq_hz);
+    let flushed = flush_dirty(&mut st.grid);
+    let flush_failed = flushed.is_err();
+    record_flush(st, flushed);
+    if !painted || flush_failed {
+        // The chrome is sent directly to the panel, while text is tracked by
+        // the grid. Re-dirty the grid when either phase fails so the next
+        // bounded refresh retries a coherent frame rather than only a suffix.
+        st.grid.mark_all_dirty();
+        st.snapshot.display.health = Health::Error;
+        st.ui.set_mode(UiMode::Degraded);
+    }
+}
+
+fn render_page(st: &mut StatusState, cntfrq_hz: u64) -> bool {
+    let snapshot = st.snapshot;
     st.grid.clear(BG);
     match st.ui.page() {
         Page::Overview => {
             st.grid.set_line(0, b"HARBOR  OVERVIEW", FG, BG);
-            st.grid.set_line(1, b"kernel healthy   EL1 W^X", FG_OK, BG);
-            st.grid.set_line(2, b"display SPI      ONLINE", FG, BG);
-            st.grid
-                .set_line(3, b"touch XPT2046    OPTIONAL", FG_DIM, BG);
+            st.grid.set_line(1, b"kernel           EL1 W^X", FG, BG);
+            set_status_line(
+                &mut st.grid,
+                2,
+                b"display SPI      ",
+                snapshot.display.health,
+                FG,
+            );
+            set_status_line(
+                &mut st.grid,
+                3,
+                b"touch XPT2046    ",
+                snapshot.touch.health,
+                FG,
+            );
             let mut buf = [0u8; COLS];
             let n = write_line(
                 &mut buf,
-                format_args!("SPI {bit_hz} Hz  CNTFRQ {cntfrq_hz}"),
+                format_args!("SPI {} Hz  CNTFRQ {cntfrq_hz}", snapshot.display.bit_hz),
             );
             st.grid.set_line(4, &buf[..n], FG_DIM, BG);
-            st.grid.set_line(5, b"tap a tab for details", FG, BG);
+            let n = write_line(
+                &mut buf,
+                format_args!(
+                    "touch samples={} errors={}",
+                    snapshot.touch.samples, snapshot.touch.errors
+                ),
+            );
+            st.grid.set_line(5, &buf[..n], FG_DIM, BG);
         }
         Page::Agents => {
             st.grid.set_line(0, b"HARBOR  AGENTS", FG, BG);
-            st.grid.set_line(1, b"beacon       RUNNING", FG_OK, BG);
-            st.grid.set_line(2, b"chirp        RUNNING", FG_OK, BG);
-            st.grid.set_line(3, b"lookup       READY", FG_OK, BG);
-            st.grid.set_line(4, b"entropy      WINDOW 0", FG_DIM, BG);
-            st.grid.set_line(5, b"screen       WINDOW 1", FG_DIM, BG);
+            st.grid
+                .set_line(1, b"agent facts    NOT PROBED", FG_DIM, BG);
+            st.grid
+                .set_line(2, b"screen agent   WINDOW CONTRACT", FG_DIM, BG);
+            st.grid
+                .set_line(3, b"authority      KERNEL CONTROLLED", FG_DIM, BG);
+            st.grid
+                .set_line(4, b"runtime        SNAPSHOT REQUIRED", FG_DIM, BG);
         }
         Page::Resources => {
             st.grid.set_line(0, b"HARBOR  RESOURCES", FG, BG);
-            st.grid.set_line(1, b"heap         LIVE", FG_OK, BG);
-            st.grid.set_line(2, b"frame pool   BOUNDED", FG_OK, BG);
-            st.grid.set_line(3, b"page tables  GUARDED", FG_OK, BG);
+            st.grid.set_line(1, b"heap         SNAPSHOT", FG_DIM, BG);
+            st.grid.set_line(2, b"frame pool   BOUNDED", FG_DIM, BG);
+            st.grid.set_line(3, b"page tables  GUARDED", FG_DIM, BG);
             st.grid.set_line(4, b"authority    EXPLICIT", FG_DIM, BG);
-            st.grid.set_line(5, b"scheduler    DUAL CORE", FG_DIM, BG);
+            st.grid
+                .set_line(5, b"scheduler    SNAPSHOT REQUIRED", FG_DIM, BG);
         }
         Page::Network => {
             st.grid.set_line(0, b"HARBOR  NETWORK", FG, BG);
-            st.grid.set_line(1, b"GENET        PROBED", FG_OK, BG);
+            set_status_line(
+                &mut st.grid,
+                1,
+                b"GENET        ",
+                snapshot.peripherals.genet,
+                FG,
+            );
             st.grid.set_line(2, b"RX/TX        CAPABILITY", FG_DIM, BG);
-            st.grid.set_line(3, b"storage      SD READY", FG_OK, BG);
-            st.grid.set_line(4, b"store        7 AGENTS", FG_DIM, BG);
+            set_status_line(
+                &mut st.grid,
+                3,
+                b"storage      ",
+                snapshot.peripherals.storage,
+                FG,
+            );
+            st.grid.set_line(4, b"store        NOT PROBED", FG_DIM, BG);
             st.grid.set_line(5, b"transport    FAIL-CLOSED", FG_DIM, BG);
+        }
+        Page::Calibration => {
+            st.grid.set_line(0, b"HARBOR  CALIBRATION", FG, BG);
+            if st.ui.mode() == UiMode::Confirm {
+                st.grid.set_line(1, b"CALIBRATION READY", FG_OK, BG);
+                st.grid.set_line(2, b"TAP CENTER TO SAVE", FG, BG);
+                st.grid.set_line(3, b"NO SAVE BEFORE CONFIRM", FG_DIM, BG);
+            } else {
+                let mut buf = [0u8; COLS];
+                let n = write_line(
+                    &mut buf,
+                    format_args!("TAP CORNERS  {}/4", st.calibration.count()),
+                );
+                st.grid.set_line(1, &buf[..n], FG, BG);
+                st.grid.set_line(2, b"USE FOUR STABLE POINTS", FG_DIM, BG);
+                st.grid.set_line(3, b"PRESSURE FILTERED", FG_DIM, BG);
+            }
         }
         Page::Fault => {
             st.grid.set_line(0, b"HARBOR  FAULT MONITOR", FG, BG);
@@ -142,37 +289,72 @@ fn render_page(st: &mut StatusState, cdiv: u32, bit_hz: u32, cntfrq_hz: u64) {
         }
     }
     let mut buf = [0u8; COLS];
-    let n = write_line(&mut buf, format_args!("ticks=--  heap=--  cdiv={cdiv}"));
+    let n = write_line(
+        &mut buf,
+        format_args!(
+            "cdiv={} frames={} flusherr={}",
+            snapshot.display.clock_divisor, snapshot.display.frames, snapshot.display.flush_errors
+        ),
+    );
     st.grid.set_line(6, &buf[..n], FG_DIM, BG);
     st.grid
-        .set_line(34, b"OVERV AGENT RESRC NET   FAULT", FG_DIM, PANEL_DIM);
-    paint_chrome(st.ui.page());
+        .set_line(34, b"OVERV AGENT RESRC NET CALIB FAULT", FG_DIM, PANEL_DIM);
+    paint_chrome(st.ui.page())
 }
 
-fn paint_chrome(page: Page) {
+fn set_status_line<const R: usize>(
+    grid: &mut TextGrid<COLS, R>,
+    row: usize,
+    prefix: &[u8],
+    health: Health,
+    fg: Rgb565,
+) {
+    let mut buf = [b' '; COLS];
+    let mut n = prefix.len().min(COLS);
+    buf[..n].copy_from_slice(&prefix[..n]);
+    let value = match health {
+        Health::Ready => b"READY".as_slice(),
+        Health::Unavailable => b"UNAVAILABLE".as_slice(),
+        Health::Error => b"ERROR".as_slice(),
+        Health::Unknown => b"UNKNOWN".as_slice(),
+    };
+    let take = value.len().min(COLS.saturating_sub(n));
+    buf[n..n + take].copy_from_slice(&value[..take]);
+    n += take;
+    grid.set_line(row, &buf[..n], fg, BG);
+}
+
+fn paint_chrome(page: Page) -> bool {
     display::with_display(|disp| {
         disp.with_panel(|panel| {
-            let _ = panel.fill_rect(0, 0, SCREEN_WIDTH - 1, 31, PANEL);
-            let _ = panel.fill_rect(
-                0,
-                SCREEN_HEIGHT - 40,
-                SCREEN_WIDTH - 1,
-                SCREEN_HEIGHT - 1,
-                PANEL_DIM,
-            );
-            let tab_x = page.index() as u16 * (SCREEN_WIDTH / 5);
-            let _ = panel.fill_rect(
-                tab_x,
-                SCREEN_HEIGHT - 40,
-                tab_x + 94,
-                SCREEN_HEIGHT - 38,
-                FG_OK,
-            );
+            let mut ok = panel.fill_rect(0, 0, SCREEN_WIDTH - 1, 31, PANEL).is_ok();
+            ok &= panel
+                .fill_rect(
+                    0,
+                    SCREEN_HEIGHT - 40,
+                    SCREEN_WIDTH - 1,
+                    SCREEN_HEIGHT - 1,
+                    PANEL_DIM,
+                )
+                .is_ok();
+            let tab_width = SCREEN_WIDTH / kernel_core::ui::TAB_COUNT as u16;
+            let tab_x = page.index() as u16 * tab_width;
+            ok &= panel
+                .fill_rect(
+                    tab_x,
+                    SCREEN_HEIGHT - 40,
+                    tab_x + tab_width.saturating_sub(2),
+                    SCREEN_HEIGHT - 38,
+                    FG_OK,
+                )
+                .is_ok();
             for x in [0, 159, 319] {
-                let _ = panel.fill_rect(x, 45, x + 1, 258, PANEL_DIM);
+                ok &= panel.fill_rect(x, 45, x + 1, 258, PANEL_DIM).is_ok();
             }
-        });
-    });
+            ok
+        })
+    })
+    .unwrap_or(false)
 }
 
 /// Panic banner on the glass (IRQs already masked).
@@ -189,7 +371,8 @@ pub fn show_panic(msg: &str) {
         st.grid
             .set_line(4, b"serial has full diagnostic", FG_PANIC, BG_PANIC);
         st.grid.set_line(5, b"*** halt ***", FG_PANIC, BG_PANIC);
-        flush_dirty(&mut st.grid);
+        let flushed = flush_dirty(&mut st.grid);
+        record_flush(st, flushed);
     });
 }
 
@@ -222,15 +405,49 @@ impl Write for SliceWriter<'_> {
     }
 }
 
-fn flush_dirty(grid: &mut TextGrid<COLS, ROWS>) {
+struct FlushReport {
+    bytes: u64,
+}
+
+fn record_flush(st: &mut StatusState, result: Result<FlushReport, ()>) {
+    match result {
+        Ok(report) => {
+            st.snapshot.display.flushes = st.snapshot.display.flushes.saturating_add(1);
+            st.snapshot.display.bytes = st.snapshot.display.bytes.saturating_add(report.bytes);
+        }
+        Err(()) => {
+            st.snapshot.display.flush_errors = st.snapshot.display.flush_errors.saturating_add(1);
+        }
+    }
+}
+
+fn flush_dirty(grid: &mut TextGrid<COLS, ROWS>) -> Result<FlushReport, ()> {
     display::with_display(|disp| {
         disp.with_panel(|panel| {
-            let mut raster = [0u8; (GLYPH_W * GLYPH_H * 2) as usize];
-            grid.drain_dirty(|row, col, cell| {
-                TextGrid::<COLS, ROWS>::raster_cell(cell, &mut raster);
-                let (x, y) = TextGrid::<COLS, ROWS>::cell_origin(col, row);
-                let _ = panel.blit_rgb565(x, y, GLYPH_W, GLYPH_H, &raster);
-            });
-        });
-    });
+            const MAX_RUN: usize = 4;
+            let cell_bytes = (GLYPH_W * GLYPH_H * 2) as usize;
+            let mut raster = [0u8; MAX_RUN * (GLYPH_W * GLYPH_H * 2) as usize];
+            let mut bytes_sent = 0u64;
+            let result: Result<(), crate::bsp::board::spi_display::PanelErr> = grid
+                .drain_dirty_runs(MAX_RUN, |row, col, cells| {
+                    for (index, cell) in cells.iter().copied().enumerate() {
+                        let start = index * cell_bytes;
+                        TextGrid::<COLS, ROWS>::raster_cell(
+                            cell,
+                            &mut raster[start..start + cell_bytes],
+                        );
+                    }
+                    let (x, y) = TextGrid::<COLS, ROWS>::cell_origin(col, row);
+                    let width = GLYPH_W.saturating_mul(cells.len() as u16);
+                    let bytes = cells.len() * cell_bytes;
+                    panel.blit_rgb565(x, y, width, GLYPH_H, &raster[..bytes])?;
+                    bytes_sent = bytes_sent.saturating_add(bytes as u64);
+                    Ok(())
+                });
+            result
+                .map(|_| FlushReport { bytes: bytes_sent })
+                .map_err(|_| ())
+        })
+    })
+    .unwrap_or(Err(()))
 }

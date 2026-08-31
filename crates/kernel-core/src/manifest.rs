@@ -288,7 +288,7 @@ pub struct ResolvedWindow {
 ///     packet_pool: false,
 ///     home_cpu: 0,
 /// };
-/// let windows = [Some(Window { pa: 0xfe10_4000, perms: Perms::USER_RW })];
+/// let windows = [Some(Window { pa: 0xfe10_4000, len: 0x1000, perms: Perms::USER_RW })];
 /// let got = bind_window(&entry, &windows).unwrap().unwrap();
 /// assert_eq!((got.va, got.pa), (0x2000, 0xfe10_4000));
 ///
@@ -301,7 +301,7 @@ pub struct ResolvedWindow {
 ///
 /// // Declared, absent on this board.
 /// assert_eq!(
-///     bind_window(&entry, &[Some(Window { pa: 0, perms: Perms::USER_RW }), None]),
+///     bind_window(&entry, &[Some(Window { pa: 0, len: 0x1000, perms: Perms::USER_RW }), None]),
 ///     Err(BindError::WindowVacant { index: 1 })
 /// );
 /// ```

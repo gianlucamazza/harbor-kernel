@@ -79,7 +79,7 @@ make serial SERIAL_DEV=/dev/ttyUSB0
 The current product image probes the VideoCore property mailbox in EL1 and
 declares a `framebuffer` device window only when firmware returns a validated
 1024×768 RGB565 buffer. The product `screen` agent then fills that window and
-reports a first-pixel readback. QEMU `raspi4b` currently reports the mailbox
+reports first-and-edge readback. QEMU `raspi4b` currently reports the mailbox
 framebuffer as unavailable, so the agent is refused as `VACANT`; this is an
 honest absence result, not pixel evidence. HDMI visual proof still requires a
 Pi boot with the serial capture performed separately.

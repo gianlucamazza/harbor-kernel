@@ -56,6 +56,7 @@ allowed_for() {
 	taskcap*) echo "arch" ;;
 	# ADR-0036 / P2: keyed blob store (trusted EL1).
 	storage*) echo "arch" ;;
+	calibration*) echo "arch bsp durable" ;;
 	# ADR-0045 / P2 durable region (trusted EL1).
 	durable*) echo "arch" ;;
 	# The board binds protocols together; that is its job (rule 2).
@@ -74,7 +75,7 @@ allowed_for() {
 	# ADR-0039: SYS_RESOLVE reaches the name registry (no CapId to EL0).
 	agent*) echo "arch console ipc irq mm naming sched" ;;
 	# TFT status surface: policy only; paints via BSP display handle.
-	status*) echo "arch bsp drivers mm time" ;;
+	status*) echo "arch bsp calibration drivers mm time" ;;
 	*) echo "" ;;
 	esac
 }

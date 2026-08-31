@@ -23,6 +23,8 @@ mod drivers;
 mod agent;
 #[cfg(target_arch = "aarch64")]
 mod bootstrap;
+#[cfg(all(target_arch = "aarch64", feature = "display-touch"))]
+mod calibration;
 #[cfg(target_arch = "aarch64")]
 mod console;
 #[cfg(target_arch = "aarch64")]

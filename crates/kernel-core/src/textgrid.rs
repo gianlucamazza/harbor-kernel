@@ -109,6 +109,37 @@ impl<const COLS: usize, const ROWS: usize> TextGrid<COLS, ROWS> {
         }
     }
 
+    /// Drain dirty cells as bounded contiguous runs, up to `max_run` cells.
+    /// The cap keeps the renderer's scratch buffer fixed on bare metal.
+    pub fn drain_dirty_runs<E>(
+        &mut self,
+        max_run: usize,
+        mut f: impl FnMut(usize, usize, &[Cell]) -> Result<(), E>,
+    ) -> Result<(), E> {
+        if max_run == 0 {
+            return Ok(());
+        }
+        for row in 0..ROWS {
+            let mut bits = self.dirty[row];
+            while bits != 0 {
+                let start = bits.trailing_zeros() as usize;
+                let mut count = 0;
+                while count < max_run
+                    && start + count < COLS
+                    && (bits & (1u64 << (start + count))) != 0
+                {
+                    count += 1;
+                }
+                f(row, start, &self.cells[row][start..start + count])?;
+                for col in start..start + count {
+                    bits &= !(1u64 << col);
+                }
+                self.dirty[row] = bits;
+            }
+        }
+        Ok(())
+    }
+
     /// Pixel origin of cell `(col, row)`.
     pub const fn cell_origin(col: usize, row: usize) -> (u16, u16) {
         (
@@ -168,5 +199,35 @@ mod tests {
     #[test]
     fn grid_pixel_size_matches_font() {
         assert_eq!(grid_pixel_size(60, 8), (480, 64));
+    }
+
+    #[test]
+    fn dirty_runs_are_coalesced_and_bounded() {
+        let mut g = TextGrid::<8, 1>::new(Rgb565::BLACK);
+        g.set_line(0, b"abcd", Rgb565::WHITE, Rgb565::BLACK);
+        let mut runs = [(0usize, 0usize, 0usize); 2];
+        let mut n = 0;
+        g.drain_dirty_runs(2, |row, col, cells| {
+            runs[n] = (row, col, cells.len());
+            n += 1;
+            Ok::<(), ()>(())
+        })
+        .unwrap();
+        assert_eq!(n, 2);
+        assert_eq!(runs, [(0, 0, 2), (0, 2, 2)]);
+    }
+
+    #[test]
+    fn failed_run_stays_dirty_for_a_retry() {
+        let mut g = TextGrid::<4, 1>::new(Rgb565::BLACK);
+        g.set_line(0, b"abcd", Rgb565::WHITE, Rgb565::BLACK);
+        assert!(g.drain_dirty_runs(4, |_, _, _| Err::<(), _>(())).is_err());
+        let mut runs = 0;
+        g.drain_dirty_runs(4, |_, _, cells| {
+            runs += cells.len();
+            Ok::<(), ()>(())
+        })
+        .unwrap();
+        assert_eq!(runs, 4);
     }
 }

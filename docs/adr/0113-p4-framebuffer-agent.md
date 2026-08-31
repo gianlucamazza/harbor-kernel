@@ -20,6 +20,22 @@ controller is absent. HDMI framebuffer/
 pixel evidence and a serial certificate for the composed `screen` agent remain
 open and are intentionally not claimed by this ADR update.
 
+The SPI status slice also publishes conservative typed health facts: a missing
+probe is shown as `UNKNOWN` or `UNAVAILABLE`, not as a positive claim, and
+display/touch operations share one BSP SPI0 transaction gate. This is a
+hardening step, not evidence that the status surface has become the product
+`screen` agent; that extraction remains a follow-up implementation task.
+The touch path decodes `Z1/Z2`, applies a bounded median filter and rate limit,
+requires stable samples before `Down`, and supports explicit orientation
+transforms. The pure UI contract now has explicit ready/degraded/fault/confirm
+modes, stable tap handling and bounded navigation intents; the text renderer
+coalesces dirty cells into fixed-size SPI runs and records refresh failures.
+Calibration records are versioned, CRC-protected and bounded to the 12-bit ADC
+domain, and are loaded from the durable store when present. A fixed-capacity
+four-point wizard derives and validates calibration data without allocation;
+the runtime UI confirms and persists the result. Controller identity and
+display-agent extraction remain hardware/product gates.
+
 ## Context
 
 P4 — the product display/input path — has been `open` without a composition
@@ -96,7 +112,8 @@ it was handed.
 ### 4. The agent reads before it writes
 
 ADR-0101's rule, applied to a surface instead of a register: the agent reads
-the window's first pixel row back after writing it, and reports what it read.
+the window's first pixel row and final aligned qword back after writing it, and
+reports what it read.
 An agent that renders into an ungranted mapping faults; one that renders into a
 granted-but-wrong mapping reports a readback that does not match, instead of
 silently painting nothing anyone will look at.

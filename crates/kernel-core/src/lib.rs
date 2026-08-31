@@ -87,6 +87,7 @@ pub mod storage;
 pub mod syscall;
 pub mod taskcap;
 pub mod tasks;
+pub mod telemetry;
 pub mod textgrid;
 pub mod timer;
 pub mod touch;

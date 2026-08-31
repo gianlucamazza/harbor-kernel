@@ -22,11 +22,24 @@ mod panic_probe;
 mod selftest;
 mod witness;
 
+#[cfg(feature = "display-touch")]
+fn load_touch_calibration() -> Calibration {
+    let mut record = [0u8; kernel_core::touch::CALIBRATION_RECORD_LEN];
+    match crate::durable::get(b"touch-cal", &mut record) {
+        Ok(len) if len == record.len() => {
+            Calibration::decode(&record).unwrap_or(Calibration::DEFAULT)
+        }
+        _ => Calibration::DEFAULT,
+    }
+}
+
 use crate::arch::{bootinfo, cpu, exception, mmu, smp, timer};
 use kernel_core::asid::ASID_BITS;
 use kernel_core::cpuid;
 use kernel_core::layout::Region;
 use kernel_core::paging::{MemKind, Perms};
+#[cfg(feature = "display-touch")]
+use kernel_core::touch::Calibration;
 
 use crate::bsp::board;
 use crate::console;
@@ -850,9 +863,17 @@ pub fn run() -> ! {
                 #[cfg(feature = "display-touch")]
                 // SAFETY: touch is initialized immediately after the SPI
                 // display while bootstrap still owns GPIO and SPI0.
-                match unsafe { board::touch::init() } {
-                    Ok(()) => println!(uart, "touch: xpt2046 ready"),
-                    Err(error) => println!(uart, "touch: unavailable ({error:?})"),
+                match unsafe { board::touch::init_with_calibration(load_touch_calibration()) } {
+                    Ok(()) => {
+                        println!(uart, "touch: xpt2046 ready");
+                        crate::status::record_touch_health(kernel_core::telemetry::Health::Ready);
+                    }
+                    Err(error) => {
+                        println!(uart, "touch: unavailable ({error:?})");
+                        crate::status::record_touch_health(
+                            kernel_core::telemetry::Health::Unavailable,
+                        );
+                    }
                 }
                 crate::status::show_boot_after_display(cdiv, bit_hz, timer::frequency_hz());
             }
@@ -877,9 +898,21 @@ pub fn run() -> ! {
                         #[cfg(feature = "display-touch")]
                         // SAFETY: touch is initialized before any agent can
                         // access the shared GPIO/SPI resources.
-                        match unsafe { board::touch::init() } {
-                            Ok(()) => println!(uart, "touch: xpt2046 ready"),
-                            Err(error) => println!(uart, "touch: unavailable ({error:?})"),
+                        match unsafe {
+                            board::touch::init_with_calibration(load_touch_calibration())
+                        } {
+                            Ok(()) => {
+                                println!(uart, "touch: xpt2046 ready");
+                                crate::status::record_touch_health(
+                                    kernel_core::telemetry::Health::Ready,
+                                );
+                            }
+                            Err(error) => {
+                                println!(uart, "touch: unavailable ({error:?})");
+                                crate::status::record_touch_health(
+                                    kernel_core::telemetry::Health::Unavailable,
+                                );
+                            }
                         }
                         crate::status::show_boot_after_display(cdiv, bit_hz, timer::frequency_hz());
                     }
