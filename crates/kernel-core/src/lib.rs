@@ -89,6 +89,8 @@ pub mod taskcap;
 pub mod tasks;
 pub mod textgrid;
 pub mod timer;
+pub mod touch;
 pub mod uart;
+pub mod ui;
 pub mod virtio;
 pub mod wake;

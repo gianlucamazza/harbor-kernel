@@ -99,7 +99,7 @@ ifneq ($(strip $(FEATURES)),)
 endif
 
 .PHONY: all debug img elf check test miri bringup-builds \
-	display-product-builds display-spi-product-builds display-diagnostic-builds debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
+	display-product-builds display-spi-product-builds display-touch-product-builds display-diagnostic-builds debug-builds board-guard product-builds shellcheck xrefs doc-symbols no-simd \
 	no-early-exclusives no-static-mut irq-scope \
 	boot-check panic-check hw-check hw-store-audit hw-evidence model-consumed mutation-freshness mutation-scope layers-table clippy-kernel clippy-host x86-elf x86-boot-check doc-claims layering fmt fmt-check \
 	qemu qemu-gdb qemu-virtio-check qemu-x86 blobs deploy deploy-absent-nic deploy-oracle \
@@ -340,6 +340,10 @@ display-product-builds:
 # Explicit ILI9486 image for panels without reliable ID readback.
 display-spi-product-builds:
 	PRODUCT_FEATURES="board-rpi4 display-spi" ./scripts/boot/product-image.sh
+
+# Explicit ILI9486 image with optional XPT2046/ADS7846 touch input.
+display-touch-product-builds:
+	PRODUCT_FEATURES="board-rpi4 display-touch" ./scripts/boot/product-image.sh
 
 # Diagnostic ILI9486 image: colour bars immediately after panel init.
 display-diagnostic-builds:

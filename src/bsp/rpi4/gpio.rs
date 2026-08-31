@@ -16,6 +16,8 @@ const GPFSEL0: usize = 0x00;
 const GPSET0: usize = 0x1C;
 #[cfg(feature = "debug-display")]
 const GPCLR0: usize = 0x28;
+#[cfg(feature = "display-touch")]
+const GPLEV0: usize = 0x34;
 const GPPUPPDN0: usize = 0xE4;
 
 /// Pin function select (3-bit field in GPFSELn).
@@ -24,6 +26,9 @@ const GPPUPPDN0: usize = 0xE4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Function {
+    /// High-impedance input (touch controller IRQ).
+    #[cfg(feature = "display-touch")]
+    Input = 0b000,
     /// Push-pull output (CS, DC, RST, ...).
     #[cfg(feature = "debug-display")]
     Output = 0b001,
@@ -36,6 +41,9 @@ pub enum Function {
 #[repr(u8)]
 pub enum Pull {
     None = 0b00,
+    /// Internal pull-up for the active-low touch pen IRQ.
+    #[cfg(feature = "display-touch")]
+    Up = 0b01,
 }
 
 /// Why a GPIO operation was refused.
@@ -107,16 +115,51 @@ impl Gpio {
         })
     }
 
+    /// Configure a pin as a high-impedance input and return a level handle.
+    #[cfg(feature = "display-touch")]
+    pub fn claim_input(&self, pin: u8, pull: Pull) -> Result<Input, GpioError> {
+        self.set_function(pin, Function::Input)?;
+        self.set_pull(pin, pull)?;
+        Ok(Input {
+            regs: self.regs,
+            pin,
+        })
+    }
+
     /// Configure `pin` for an alternate function (SPI, UART, …).
     pub fn configure_alt(&self, pin: u8, function: Function, pull: Pull) -> Result<(), GpioError> {
         match function {
             Function::Alt0 => {}
+            #[cfg(feature = "display-touch")]
+            Function::Input => return Err(GpioError::InvalidPin),
             #[cfg(feature = "debug-display")]
             Function::Output => return Err(GpioError::InvalidPin),
         }
         self.set_function(pin, function)?;
         self.set_pull(pin, pull)?;
         Ok(())
+    }
+}
+
+/// One GPIO line sampled as an input.
+#[cfg(feature = "display-touch")]
+#[derive(Clone, Copy)]
+pub struct Input {
+    regs: Mmio,
+    pin: u8,
+}
+
+#[cfg(feature = "display-touch")]
+impl Input {
+    /// Read the current digital level.
+    pub fn is_high(self) -> bool {
+        let reg = if self.pin < 32 { GPLEV0 } else { GPLEV0 + 4 };
+        let bit = if self.pin < 32 {
+            self.pin
+        } else {
+            self.pin - 32
+        };
+        self.regs.read32(reg) & (1u32 << bit) != 0
     }
 }
 

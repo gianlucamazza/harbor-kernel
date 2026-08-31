@@ -59,6 +59,8 @@ pub mod rng200;
 pub mod sdhci;
 #[cfg(feature = "debug-display")]
 pub mod spi;
+#[cfg(feature = "display-touch")]
+pub mod touch;
 #[cfg(all(target_arch = "aarch64", feature = "board-qemu-virt"))]
 pub mod virtio_mmio;
 

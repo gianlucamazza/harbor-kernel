@@ -63,6 +63,8 @@ display-spi = ["debug-display"]
 # Diagnostic SPI image: draw deterministic colour bars immediately after the
 # ILI9486 init so panel transport can be checked without the status grid.
 display-diagnostic = ["display-spi"]
+# Optional XPT2046/ADS7846 resistive touch input for the SPI panel.
+display-touch = ["display-spi"]
 
 [dependencies]
 # Pure register/allocator arithmetic, unit-tested on the host.

@@ -14,7 +14,9 @@ related: [0026, 0049, 0094, 0100, 0101, 0111]
 **Accepted; first implementation slice landed** (2026-08-31). The EL1 mailbox
 contract, validated framebuffer window, read-only descriptor page, and `screen`
 agent composition are implemented. The SPI status path was visually verified on
-the connected Pi on 2026-08-31 using the diagnostic image. HDMI framebuffer/
+the connected Pi on 2026-08-31 using the diagnostic image. The optional
+XPT2046/ADS7846 touch path is implemented with a bounded fallback when the
+controller is absent. HDMI framebuffer/
 pixel evidence and a serial certificate for the composed `screen` agent remain
 open and are intentionally not claimed by this ADR update.
 

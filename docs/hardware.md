@@ -90,8 +90,10 @@ is HDMI first, then a bounded strict SPI ID probe, then headless. A panel that
 does not support reliable ID reads must use the explicit SPI image. HDMI and
 SPI are independent surfaces and are never silently substituted for one
 another. `make display-product-builds` builds the universal image;
-`make display-spi-product-builds` builds the explicit image, and
-`make display-diagnostic-builds` adds immediate colour bars after init.
+`make display-spi-product-builds` builds the explicit image;
+`make display-touch-product-builds` adds the optional XPT2046/ADS7846 touch
+sampler; and `make display-diagnostic-builds` adds immediate colour bars after
+init. Touch failure is non-fatal and leaves the display operational.
 Hardware behavior still requires a Pi 4B plus the HAT.
 
 A second, identical dongle on the Pi’s USB port (or two dongles null-modemed

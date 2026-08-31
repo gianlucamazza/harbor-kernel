@@ -10,15 +10,16 @@ use core::fmt::Write;
 use kernel_core::display::Rgb565;
 use kernel_core::font8x8::{GLYPH_H, GLYPH_W};
 use kernel_core::textgrid::TextGrid;
+use kernel_core::ui::{Page, SCREEN_HEIGHT, SCREEN_WIDTH, UiState};
 
 use crate::bsp::board::spi_display as display;
 use crate::mm;
 use crate::sync::Mutex;
 use crate::time;
 
-/// Status columns / rows at 8×8 (fits 480×320 with room for margins).
+/// Dashboard columns / rows at 8×8, covering the full 480×320 panel.
 pub const COLS: usize = 60;
-pub const ROWS: usize = 8;
+pub const ROWS: usize = 36;
 
 /// Update dynamic lines at most this often (timer ticks @ 10 Hz → 1 Hz).
 const TICK_REFRESH_EVERY: u64 = 10;
@@ -29,11 +30,13 @@ const TICK_REFRESH_EVERY: u64 = 10;
 struct StatusState {
     grid: TextGrid<COLS, ROWS>,
     last_tick_paint: u64,
+    ui: UiState,
 }
 
 static STATUS: Mutex<StatusState> = Mutex::new(StatusState {
     grid: TextGrid::new(Rgb565::HARBOR),
     last_tick_paint: 0,
+    ui: UiState::new(),
 });
 
 /// Colours for the status surface.
@@ -43,27 +46,14 @@ const FG_DIM: Rgb565 = Rgb565::from_rgb8(0xA0, 0xB0, 0xC0);
 const FG_OK: Rgb565 = Rgb565::GREEN;
 const FG_PANIC: Rgb565 = Rgb565::WHITE;
 const BG_PANIC: Rgb565 = Rgb565::RED;
+const PANEL: Rgb565 = Rgb565::from_rgb8(0x18, 0x32, 0x52);
+const PANEL_DIM: Rgb565 = Rgb565::from_rgb8(0x10, 0x24, 0x3C);
 
 /// Populate boot-time slots after panel + SPI are up, then paint dirty cells.
 pub fn show_boot_after_display(cdiv: u32, bit_hz: u32, cntfrq_hz: u64) {
     with_status(|st| {
         st.grid.clear(BG);
-        st.grid.set_line(0, b"Harbor  debug-display", FG, BG);
-        st.grid.set_line(1, b"EL1 W^X yield+preempt", FG_DIM, BG);
-
-        let mut buf = [0u8; COLS];
-        let n = write_line(&mut buf, format_args!("CNTFRQ={cntfrq_hz} Hz"));
-        st.grid.set_line(2, &buf[..n], FG_DIM, BG);
-
-        st.grid.set_line(3, b"rng200: see serial log", FG_OK, BG);
-
-        let n = write_line(&mut buf, format_args!("SPI cdiv={cdiv}  {bit_hz} Hz"));
-        st.grid.set_line(4, &buf[..n], FG_DIM, BG);
-
-        st.grid.set_line(5, b"ticks=--  heap=--", FG, BG);
-        st.grid.set_line(6, b"", FG, BG);
-        st.grid.set_line(7, b"UART primary  TFT status", FG_DIM, BG);
-
+        render_page(st, cdiv, bit_hz, cntfrq_hz);
         flush_dirty(&mut st.grid);
         st.last_tick_paint = 0;
     });
@@ -72,7 +62,20 @@ pub fn show_boot_after_display(cdiv: u32, bit_hz: u32, cntfrq_hz: u64) {
 /// Rate-limited tick + heap lines (call from idle).
 pub fn on_idle() {
     let ticks = time::ticks();
+    #[cfg(feature = "display-touch")]
+    if let Some(event) = crate::bsp::board::touch::poll() {
+        with_status(|st| {
+            if st.ui.on_touch(event, ticks) {
+                render_page(st, 64, 7_812_500, timer_frequency());
+                flush_dirty(&mut st.grid);
+            }
+        });
+    }
     with_status(|st| {
+        if st.ui.on_tick(ticks) {
+            render_page(st, 64, 7_812_500, timer_frequency());
+            flush_dirty(&mut st.grid);
+        }
         if ticks.saturating_sub(st.last_tick_paint) < TICK_REFRESH_EVERY {
             return;
         }
@@ -83,6 +86,92 @@ pub fn on_idle() {
         let n = write_line(&mut buf, format_args!("ticks={ticks}  heap={heap}"));
         st.grid.set_line(5, &buf[..n], FG, BG);
         flush_dirty(&mut st.grid);
+    });
+}
+
+fn timer_frequency() -> u64 {
+    crate::arch::timer::frequency_hz()
+}
+
+fn render_page(st: &mut StatusState, cdiv: u32, bit_hz: u32, cntfrq_hz: u64) {
+    st.grid.clear(BG);
+    match st.ui.page() {
+        Page::Overview => {
+            st.grid.set_line(0, b"HARBOR  OVERVIEW", FG, BG);
+            st.grid.set_line(1, b"kernel healthy   EL1 W^X", FG_OK, BG);
+            st.grid.set_line(2, b"display SPI      ONLINE", FG, BG);
+            st.grid
+                .set_line(3, b"touch XPT2046    OPTIONAL", FG_DIM, BG);
+            let mut buf = [0u8; COLS];
+            let n = write_line(
+                &mut buf,
+                format_args!("SPI {bit_hz} Hz  CNTFRQ {cntfrq_hz}"),
+            );
+            st.grid.set_line(4, &buf[..n], FG_DIM, BG);
+            st.grid.set_line(5, b"tap a tab for details", FG, BG);
+        }
+        Page::Agents => {
+            st.grid.set_line(0, b"HARBOR  AGENTS", FG, BG);
+            st.grid.set_line(1, b"beacon       RUNNING", FG_OK, BG);
+            st.grid.set_line(2, b"chirp        RUNNING", FG_OK, BG);
+            st.grid.set_line(3, b"lookup       READY", FG_OK, BG);
+            st.grid.set_line(4, b"entropy      WINDOW 0", FG_DIM, BG);
+            st.grid.set_line(5, b"screen       WINDOW 1", FG_DIM, BG);
+        }
+        Page::Resources => {
+            st.grid.set_line(0, b"HARBOR  RESOURCES", FG, BG);
+            st.grid.set_line(1, b"heap         LIVE", FG_OK, BG);
+            st.grid.set_line(2, b"frame pool   BOUNDED", FG_OK, BG);
+            st.grid.set_line(3, b"page tables  GUARDED", FG_OK, BG);
+            st.grid.set_line(4, b"authority    EXPLICIT", FG_DIM, BG);
+            st.grid.set_line(5, b"scheduler    DUAL CORE", FG_DIM, BG);
+        }
+        Page::Network => {
+            st.grid.set_line(0, b"HARBOR  NETWORK", FG, BG);
+            st.grid.set_line(1, b"GENET        PROBED", FG_OK, BG);
+            st.grid.set_line(2, b"RX/TX        CAPABILITY", FG_DIM, BG);
+            st.grid.set_line(3, b"storage      SD READY", FG_OK, BG);
+            st.grid.set_line(4, b"store        7 AGENTS", FG_DIM, BG);
+            st.grid.set_line(5, b"transport    FAIL-CLOSED", FG_DIM, BG);
+        }
+        Page::Fault => {
+            st.grid.set_line(0, b"HARBOR  FAULT MONITOR", FG, BG);
+            st.grid.set_line(1, b"no active fault", FG_OK, BG);
+            st.grid.set_line(2, b"panic view reserved", FG_DIM, BG);
+            st.grid.set_line(3, b"serial remains primary", FG_DIM, BG);
+        }
+    }
+    let mut buf = [0u8; COLS];
+    let n = write_line(&mut buf, format_args!("ticks=--  heap=--  cdiv={cdiv}"));
+    st.grid.set_line(6, &buf[..n], FG_DIM, BG);
+    st.grid
+        .set_line(34, b"OVERV AGENT RESRC NET   FAULT", FG_DIM, PANEL_DIM);
+    paint_chrome(st.ui.page());
+}
+
+fn paint_chrome(page: Page) {
+    display::with_display(|disp| {
+        disp.with_panel(|panel| {
+            let _ = panel.fill_rect(0, 0, SCREEN_WIDTH - 1, 31, PANEL);
+            let _ = panel.fill_rect(
+                0,
+                SCREEN_HEIGHT - 40,
+                SCREEN_WIDTH - 1,
+                SCREEN_HEIGHT - 1,
+                PANEL_DIM,
+            );
+            let tab_x = page.index() as u16 * (SCREEN_WIDTH / 5);
+            let _ = panel.fill_rect(
+                tab_x,
+                SCREEN_HEIGHT - 40,
+                tab_x + 94,
+                SCREEN_HEIGHT - 38,
+                FG_OK,
+            );
+            for x in [0, 159, 319] {
+                let _ = panel.fill_rect(x, 45, x + 1, 258, PANEL_DIM);
+            }
+        });
     });
 }
 

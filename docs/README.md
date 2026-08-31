@@ -80,7 +80,7 @@ not every symbol.
 crates/kernel-core/  pure logic, host-tested — no MMIO, no assembly:
   a64, agentstore, asid, blob, budget, bump, cap, capslots, cpuid, delay, density, display, display_abi, durable, durable_media, fault, fdt, font8x8, genet, genet_fdt, frame, gic,
   heap, held, hwdesc, ipc, irqcap, irqtable, irqwait, layout, lifecycle, loaderplan, manifest, mbr, naming, paging, parktime, poll, preempt, prog, reply, reset, ring, rng,
-  mailbox, net, runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, uart, virtio, wake
+  mailbox, net, runqueue, rxline, sdcard, sdhci, spi, storage, syscall, taskcap, tasks, textgrid, timer, touch, ui, uart, virtio, wake
   tests/ public_api, model_sched, model_ipc
 src/
   main.rs         kernel_main — product vs lab dispatch only
@@ -99,7 +99,7 @@ src/
   durable/        durable section store (ADR-0045; Mutex window)
   mm/             heap, address spaces, frames, layout and task stacks
   console.rs      kernel TX/RX policy (product; TX under Mutex)
-  status.rs       optional SPI TFT status surface (`debug-display`)
+  status.rs       optional SPI TFT dashboard (`debug-display`, touch-aware)
   panic.rs        panic path (product)
   sync.rs         Mutex + SyncCell residual (ADR-0077, ADR-0091)
   time.rs         tick policy (global advance on CPU 0)

@@ -11,3 +11,5 @@ pub mod rng;
 pub mod sdhci;
 #[cfg(feature = "debug-display")]
 pub mod spi_display;
+#[cfg(feature = "display-touch")]
+pub mod touch;

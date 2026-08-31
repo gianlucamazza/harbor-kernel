@@ -847,6 +847,13 @@ pub fn run() -> ! {
                     "display: backend=spi-explicit cdiv={cdiv} bit_hz={bit_hz}"
                 );
                 board::spi_display::install(display);
+                #[cfg(feature = "display-touch")]
+                // SAFETY: touch is initialized immediately after the SPI
+                // display while bootstrap still owns GPIO and SPI0.
+                match unsafe { board::touch::init() } {
+                    Ok(()) => println!(uart, "touch: xpt2046 ready"),
+                    Err(error) => println!(uart, "touch: unavailable ({error:?})"),
+                }
                 crate::status::show_boot_after_display(cdiv, bit_hz, timer::frequency_hz());
             }
             Err(error) => println!(uart, "display: backend=none spi-init={error:?}"),
@@ -867,6 +874,13 @@ pub fn run() -> ! {
                         let bit_hz = display.bit_hz();
                         println!(uart, "display: backend=spi cdiv={cdiv} bit_hz={bit_hz}");
                         board::spi_display::install(display);
+                        #[cfg(feature = "display-touch")]
+                        // SAFETY: touch is initialized before any agent can
+                        // access the shared GPIO/SPI resources.
+                        match unsafe { board::touch::init() } {
+                            Ok(()) => println!(uart, "touch: xpt2046 ready"),
+                            Err(error) => println!(uart, "touch: unavailable ({error:?})"),
+                        }
                         crate::status::show_boot_after_display(cdiv, bit_hz, timer::frequency_hz());
                     }
                     Err(error) => println!(uart, "display: backend=none spi-init={error:?}"),

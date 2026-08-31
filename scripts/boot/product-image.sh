@@ -33,10 +33,10 @@ readonly OUT="target/${TARGET}/release"
 readonly PRODUCT_FEATURES="${PRODUCT_FEATURES:-board-rpi4}"
 
 case "${PRODUCT_FEATURES}" in
-	"board-rpi4"|"board-rpi4 display-universal"|"board-rpi4 display-spi"|"board-rpi4 display-diagnostic") ;;
+	"board-rpi4"|"board-rpi4 display-universal"|"board-rpi4 display-spi"|"board-rpi4 display-touch"|"board-rpi4 display-diagnostic") ;;
 	*)
 		echo "product-builds: FAIL — unsupported PRODUCT_FEATURES='${PRODUCT_FEATURES}'" >&2
-		echo "  allowed: board-rpi4 [display-universal|display-spi|display-diagnostic]" >&2
+		echo "  allowed: board-rpi4 [display-universal|display-spi|display-touch|display-diagnostic]" >&2
 		exit 2
 		;;
 esac
