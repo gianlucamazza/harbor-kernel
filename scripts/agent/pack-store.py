@@ -192,9 +192,10 @@ b .
 # chooses this; the board chooses which page appears there (ADR-0100).
 ENTROPY_VA = 0x5100_0000
 
-# Fixed first-slice HDMI framebuffer agent. The kernel validates the firmware
-# descriptor before mapping this VA; the agent only receives the resulting
-# device window. 1024x768 RGB565 = 196608 eight-byte stores.
+# HDMI framebuffer agent. The kernel validates the firmware descriptor before
+# mapping this VA; the agent only receives the resulting device window. The
+# renderer uses the descriptor pitch for row traversal and paints deterministic
+# header/body/footer bands that can be checked without a font or heap.
 SCREEN_VA = 0x5100_0000
 SCREEN_ASM = """\
 movz x0, #0x5200, lsl #16
@@ -203,10 +204,10 @@ movz w3, #0x4d31
 movk w3, #0x4652, lsl #16
 cmp w2, w3
 b.ne screen_fail
-ldr w2, [x0, #32]
+ldr w7, [x0, #32]
 movz w3, #2048
-cmp w2, w3
-b.ne screen_fail
+cmp w7, w3
+b.lo screen_fail
 ldr w2, [x0, #24]
 movz w3, #1024
 cmp w2, w3
@@ -229,27 +230,58 @@ movk x3, #0x18, lsl #16
 cmp x2, x3
 b.lo screen_fail
 movz x0, #0x5100, lsl #16
+movz x5, #0
+screen_row:
+cmp x5, #64
+b.lo screen_header
+cmp x5, #704
+b.hs screen_footer
+movz x1, #0x1082
+movk x1, #0x1082, lsl #16
+movk x1, #0x1082, lsl #32
+movk x1, #0x1082, lsl #48
+b screen_band_ready
+screen_header:
 movz x1, #0x001f
 movk x1, #0x001f, lsl #16
 movk x1, #0x001f, lsl #32
 movk x1, #0x001f, lsl #48
-movz x2, #0
-movk x2, #0x0003, lsl #16
-screen_fill:
-str x1, [x0], #8
+b screen_band_ready
+screen_footer:
+movz x1, #0x07e0
+movk x1, #0x07e0, lsl #16
+movk x1, #0x07e0, lsl #32
+movk x1, #0x07e0, lsl #48
+screen_band_ready:
+mov x6, x0
+movz x2, #128
+screen_pixels:
+str x1, [x6], #8
 sub x2, x2, #1
-cbnz x2, screen_fill
+cbnz x2, screen_pixels
+add x0, x0, x7
+add x5, x5, #1
+cmp x5, #768
+b.lo screen_row
 movz x0, #0x5100, lsl #16
 ldr w2, [x0]
 movz w3, #0x001f
 movk w3, #0x001f, lsl #16
 cmp w2, w3
 b.ne screen_fail
+movz x1, #0x001f
+movk x1, #0x001f, lsl #16
+movk x1, #0x001f, lsl #32
+movk x1, #0x001f, lsl #48
 movz x0, #0x5100, lsl #16
 movz x4, #0x7ff8
 movk x4, #0x17, lsl #16
 add x0, x0, x4
 ldr x2, [x0]
+movz x1, #0x07e0
+movk x1, #0x07e0, lsl #16
+movk x1, #0x07e0, lsl #32
+movk x1, #0x07e0, lsl #48
 cmp x2, x1
 b.ne screen_fail
 movz x0, #1

@@ -40,7 +40,9 @@ The architecture hardening tranche adds explicit calibration commit/cancel
 intents, rejects unaligned or overflowing framebuffer ranges, and avoids idle
 touch SPI transactions while the pen IRQ is inactive. The next boundary is a
 frame-plan/I-O split for the SPI renderer and a pitch-aware HDMI dashboard;
-these are implementation work, not claims of hardware certification.
+the renderer now uses descriptor pitch and paints deterministic framebuffer
+bands with boundary readback. These are artifact-level guarantees, not claims
+of hardware certification.
 
 ## Context
 

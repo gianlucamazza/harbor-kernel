@@ -30,6 +30,7 @@ pub const fn grid_pixel_size(cols: u16, rows: u16) -> (u16, u16) {
 }
 
 /// Status grid: fixed columns and rows of 8×8 cells.
+#[derive(Clone)]
 pub struct TextGrid<const COLS: usize, const ROWS: usize> {
     cells: [[Cell; COLS]; ROWS],
     /// Bit i of `dirty[row]` is set when `cells[row][i]` must be painted.
@@ -140,6 +141,24 @@ impl<const COLS: usize, const ROWS: usize> TextGrid<COLS, ROWS> {
         Ok(())
     }
 
+    /// Acknowledge cells sent from a snapshot without clearing newer writes.
+    ///
+    /// The snapshot may be flushed after the owner releases its state lock.
+    /// Only cells whose current value still equals the sent value are safe to
+    /// clear; a concurrent write remains dirty for the next frame.
+    pub fn acknowledge_snapshot(&mut self, sent: &Self) {
+        for row in 0..ROWS {
+            let mut bits = sent.dirty[row];
+            while bits != 0 {
+                let col = bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                if col < COLS && self.cells[row][col] == sent.cells[row][col] {
+                    self.dirty[row] &= !(1u64 << col);
+                }
+            }
+        }
+    }
+
     /// Pixel origin of cell `(col, row)`.
     pub const fn cell_origin(col: usize, row: usize) -> (u16, u16) {
         (
@@ -229,5 +248,17 @@ mod tests {
         })
         .unwrap();
         assert_eq!(runs, 4);
+    }
+
+    #[test]
+    fn snapshot_ack_preserves_a_newer_cell_write() {
+        let mut current = TextGrid::<4, 1>::new(Rgb565::BLACK);
+        current.set_line(0, b"old", Rgb565::WHITE, Rgb565::BLACK);
+        let snapshot = current.clone();
+        current.set_line(0, b"new", Rgb565::WHITE, Rgb565::BLACK);
+        current.acknowledge_snapshot(&snapshot);
+        let mut dirty = 0;
+        current.drain_dirty(|_, _, _| dirty += 1);
+        assert_eq!(dirty, 3);
     }
 }

@@ -447,9 +447,10 @@ and serialized with panel SPI transactions. UI confirmation emits typed
 commit/cancel intents; durable persistence and BSP activation remain kernel
 policy operations.
 
-Remaining architectural work is the frame-plan/I-O split so `STATUS` is not
-held across panel transactions, followed by a pitch-aware HDMI dashboard
-renderer and pixel-level hardware evidence.
+The frame snapshot/I-O split now releases `STATUS` before chrome and SPI work;
+dirty acknowledgment compares sent cells so newer writes survive a flush.
+The HDMI agent traverses descriptor pitch and paints deterministic bands. The
+remaining gates are pixel-level proof and framebuffer-agent silicon evidence.
 
 <a id="completeness-roadmap"></a>
 

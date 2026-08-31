@@ -37,6 +37,7 @@ struct StatusState {
     last_tick_paint: u64,
     ui: UiState,
     snapshot: Snapshot,
+    pending_page: Option<Page>,
     #[cfg(feature = "display-touch")]
     calibration: CalibrationWizard,
     #[cfg(feature = "display-touch")]
@@ -48,6 +49,7 @@ static STATUS: Mutex<StatusState> = Mutex::new(StatusState {
     last_tick_paint: 0,
     ui: UiState::new(),
     snapshot: Snapshot::unknown(),
+    pending_page: None,
     #[cfg(feature = "display-touch")]
     calibration: CalibrationWizard::new(),
     #[cfg(feature = "display-touch")]
@@ -163,13 +165,7 @@ pub fn on_idle() {
         let heap = mm::heap_remaining();
         let n = write_line(&mut buf, format_args!("ticks={ticks}  heap={heap}"));
         st.grid.set_line(5, &buf[..n], FG, BG);
-        let flushed = flush_dirty(&mut st.grid);
-        let flush_failed = flushed.is_err();
-        record_flush(st, flushed);
-        if flush_failed {
-            st.snapshot.display.health = Health::Error;
-            st.ui.set_mode(UiMode::Degraded);
-        }
+        st.pending_page = Some(st.ui.page());
     });
 }
 
@@ -179,21 +175,10 @@ fn timer_frequency() -> u64 {
 
 fn refresh(st: &mut StatusState, cntfrq_hz: u64) {
     st.snapshot.display.frames = st.snapshot.display.frames.saturating_add(1);
-    let painted = render_page(st, cntfrq_hz);
-    let flushed = flush_dirty(&mut st.grid);
-    let flush_failed = flushed.is_err();
-    record_flush(st, flushed);
-    if !painted || flush_failed {
-        // The chrome is sent directly to the panel, while text is tracked by
-        // the grid. Re-dirty the grid when either phase fails so the next
-        // bounded refresh retries a coherent frame rather than only a suffix.
-        st.grid.mark_all_dirty();
-        st.snapshot.display.health = Health::Error;
-        st.ui.set_mode(UiMode::Degraded);
-    }
+    st.pending_page = Some(render_page(st, cntfrq_hz));
 }
 
-fn render_page(st: &mut StatusState, cntfrq_hz: u64) -> bool {
+fn render_page(st: &mut StatusState, cntfrq_hz: u64) -> Page {
     let snapshot = st.snapshot;
     st.grid.clear(BG);
     match st.ui.page() {
@@ -304,7 +289,7 @@ fn render_page(st: &mut StatusState, cntfrq_hz: u64) -> bool {
     st.grid.set_line(6, &buf[..n], FG_DIM, BG);
     st.grid
         .set_line(34, b"OVERV AGENT RESRC NET CALIB FAULT", FG_DIM, PANEL_DIM);
-    paint_chrome(st.ui.page())
+    st.ui.page()
 }
 
 fn set_status_line<const R: usize>(
@@ -376,13 +361,17 @@ pub fn show_panic(msg: &str) {
         st.grid
             .set_line(4, b"serial has full diagnostic", FG_PANIC, BG_PANIC);
         st.grid.set_line(5, b"*** halt ***", FG_PANIC, BG_PANIC);
-        let flushed = flush_dirty(&mut st.grid);
-        record_flush(st, flushed);
+        // Defer panel I/O until the status lock is released, even on the
+        // panic path. The caller already has IRQs masked, so the bounded
+        // snapshot flush remains safe without extending the state critical
+        // section across SPI.
+        st.pending_page = Some(Page::Fault);
     });
 }
 
 fn with_status(f: impl FnOnce(&mut StatusState)) {
     STATUS.with(f);
+    flush_pending_frame();
 }
 
 fn write_line(buf: &mut [u8], args: core::fmt::Arguments<'_>) -> usize {
@@ -424,6 +413,28 @@ fn record_flush(st: &mut StatusState, result: Result<FlushReport, ()>) {
             st.snapshot.display.flush_errors = st.snapshot.display.flush_errors.saturating_add(1);
         }
     }
+}
+
+fn flush_pending_frame() {
+    let Some((page, mut snapshot)) = STATUS.with(|st| {
+        let page = st.pending_page.take()?;
+        Some((page, st.grid.clone()))
+    }) else {
+        return;
+    };
+    let painted = paint_chrome(page);
+    let flushed = flush_dirty(&mut snapshot);
+    let ok = painted && flushed.is_ok();
+    STATUS.with(|st| {
+        if ok {
+            st.grid.acknowledge_snapshot(&snapshot);
+        } else {
+            st.grid.mark_all_dirty();
+            st.snapshot.display.health = Health::Error;
+            st.ui.set_mode(UiMode::Degraded);
+        }
+        record_flush(st, flushed);
+    });
 }
 
 fn flush_dirty(grid: &mut TextGrid<COLS, ROWS>) -> Result<FlushReport, ()> {
