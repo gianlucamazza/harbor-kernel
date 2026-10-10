@@ -665,5 +665,47 @@ mod tests {
         assert_eq!(translate(0x110, 4, &map, 2), Ok(0x1010));
         assert_eq!(translate(0x1fff, 2, &map, 2), Err(Error::InvalidRange));
         assert_eq!(translate(u64::MAX, 2, &map, 2), Err(Error::InvalidRange));
+
+        let mut unused = 0;
+        assert_eq!(
+            ranges(&[], 1, 0, 1, &mut out, &mut unused),
+            Err(Error::UnsupportedCells)
+        );
+        assert_eq!(
+            ranges(&[], 1, 1, 0, &mut out, &mut unused),
+            Err(Error::UnsupportedCells)
+        );
+        assert_eq!(
+            ranges(&[], 1, 3, 1, &mut out, &mut unused),
+            Err(Error::UnsupportedCells)
+        );
+        assert_eq!(
+            ranges(&[], 1, 1, 3, &mut out, &mut unused),
+            Err(Error::UnsupportedCells)
+        );
+    }
+
+    #[test]
+    fn extract_header_bounds_are_not_vacuous() {
+        assert_eq!(extract(&[]), Err(Error::Truncated));
+        assert_eq!(extract(&[0; 39]), Err(Error::Truncated));
+
+        let mut bad_magic = [0u8; 40];
+        bad_magic[0..4].copy_from_slice(&0xdead_beefu32.to_be_bytes());
+        assert_eq!(extract(&bad_magic), Err(Error::BadMagic));
+
+        let mut header = [0u8; 40];
+        header[0..4].copy_from_slice(&crate::fdt::FDT_MAGIC.to_be_bytes());
+        header[4..8].copy_from_slice(&0x1000u32.to_be_bytes());
+        assert_eq!(extract(&header), Err(Error::Truncated));
+
+        let mut equal_total = [0u8; 64];
+        equal_total[0..4].copy_from_slice(&crate::fdt::FDT_MAGIC.to_be_bytes());
+        equal_total[4..8].copy_from_slice(&64u32.to_be_bytes());
+        equal_total[8..12].copy_from_slice(&40u32.to_be_bytes());
+        equal_total[12..16].copy_from_slice(&56u32.to_be_bytes());
+        equal_total[32..36].copy_from_slice(&8u32.to_be_bytes());
+        equal_total[36..40].copy_from_slice(&40u32.to_be_bytes());
+        assert_eq!(extract(&equal_total), Err(Error::Truncated));
     }
 }

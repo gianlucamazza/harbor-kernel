@@ -97,13 +97,13 @@ pub mod registers {
     /// `BIT(1)` of [`SYS_RBUF_FLUSH_CTRL`]: UniMAC software reset.
     pub const SYS_UMAC_SW_RESET: u32 = 1 << 1;
     /// `BIT(0)` of [`SYS_RBUF_FLUSH_CTRL`]: the RX flush `init_dma` pulses.
-    pub const SYS_RBUF_FLUSH: u32 = 1 << 0;
+    pub const SYS_RBUF_FLUSH: u32 = 1; // BIT(0)
     pub const RBUF_CTRL: u32 = RBUF;
-    pub const RBUF_64B_EN: u32 = 1 << 0;
+    pub const RBUF_64B_EN: u32 = 1; // BIT(0)
     pub const RBUF_ALIGN_2B: u32 = 1 << 1;
     /// Linux `RBUF_CHK_CTRL`. Offset from the RBUF block.
     pub const RBUF_CHK_CTRL: u32 = RBUF + 0x14;
-    pub const RBUF_RXCHK_EN: u32 = 1 << 0;
+    pub const RBUF_RXCHK_EN: u32 = 1; // BIT(0)
     pub const RBUF_SKIP_FCS: u32 = 1 << 4;
     pub const RBUF_L3_PARSE_DIS: u32 = 1 << 5;
     /// Linux `RBUF_TBUF_SIZE_CTRL`. v3+ `init_umac` writes `1`.
@@ -114,7 +114,7 @@ pub mod registers {
     /// MAC is held and `umac_enable_set` refuses to write this register at
     /// all (`bcmgenet.c:2540-2545`).
     pub const UMAC_CMD_SW_RESET: u32 = 1 << 13;
-    pub const UMAC_CMD_TX_EN: u32 = 1 << 0;
+    pub const UMAC_CMD_TX_EN: u32 = 1; // BIT(0)
     pub const UMAC_CMD_RX_EN: u32 = 1 << 1;
     /// UniMAC `CMD_SPEED_*` occupy bits 3:2 (`unimac.h`).
     pub const UMAC_CMD_SPEED_SHIFT: u32 = 2;
@@ -134,7 +134,7 @@ pub mod registers {
     /// Linux `tx_good_pkts` (`pok`).
     pub const UMAC_TX_POK: u32 = UMAC + 0x4ec;
     pub const UMAC_MIB_CTRL: u32 = UMAC + 0x580;
-    pub const MIB_RESET_RX: u32 = 1 << 0;
+    pub const MIB_RESET_RX: u32 = 1; // BIT(0)
     pub const MIB_RESET_RUNT: u32 = 1 << 1;
     pub const MIB_RESET_TX: u32 = 1 << 2;
     pub const UMAC_TX_FLUSH: u32 = UMAC + 0x334;
@@ -150,11 +150,11 @@ pub mod registers {
     /// Linux `HFB_FLT_LEN_V3PLUS`: four filter lengths packed per word.
     pub const HFB_FLT_LEN: u32 = HFB_REG + 0x1c;
     /// Linux `RBUF_HFB_EN` in `HFB_CTRL`.
-    pub const HFB_EN: u32 = 1 << 0;
+    pub const HFB_EN: u32 = 1; // BIT(0)
     /// v2+ TBUF block (`bcmgenet_hw_params.tbuf_offset`).
     pub const TBUF: u32 = 0x0600;
     pub const TBUF_CTRL: u32 = TBUF;
-    pub const TBUF_64B_EN: u32 = 1 << 0;
+    pub const TBUF_64B_EN: u32 = 1; // BIT(0)
     pub const SYS_TBUF_FLUSH_CTRL: u32 = 0x0c;
 }
 
@@ -185,14 +185,14 @@ pub mod phy {
     pub const LPA: u8 = 5;
     pub const CTRL1000: u8 = 9;
     pub const STAT1000: u8 = 10;
-    /// IEEE 802.3 clause-22 ANLPAR 10 Mb/s half|full.
-    pub const LPA_10: u16 = (1 << 5) | (1 << 6);
-    /// IEEE 802.3 clause-22 ANLPAR 100 Mb/s half|full.
-    pub const LPA_100: u16 = (1 << 7) | (1 << 8);
+    /// IEEE 802.3 clause-22 ANLPAR 10 Mb/s half|full (bits 5 and 6).
+    pub const LPA_10: u16 = 0x0060;
+    /// IEEE 802.3 clause-22 ANLPAR 100 Mb/s half|full (bits 7 and 8).
+    pub const LPA_100: u16 = 0x0180;
     /// Local 1000BASE-T advertise (CTRL1000 bits 8..=9).
-    pub const CTRL1000_1000: u16 = (1 << 8) | (1 << 9);
+    pub const CTRL1000_1000: u16 = 0x0300;
     /// Link-partner 1000BASE-T (STAT1000 bits 10..=11).
-    pub const STAT1000_1000: u16 = (1 << 10) | (1 << 11);
+    pub const STAT1000_1000: u16 = 0x0c00;
 }
 
 /// Resolved copper speed after autoneg. Unknown encodings are a refusal.
@@ -549,7 +549,11 @@ pub const fn hfb_filter_ram_offset(index: u32, word: u32) -> Option<u32> {
 
 /// Linux sets `ENET_MAX_MTU << 16` on TDMA `FLOW_PERIOD` when the ring is not 0.
 pub const fn tdma_flow_period(queue: u8) -> u32 {
-    if queue == 0 { 0 } else { MAX_FRAME_BYTES << 16 }
+    if queue == 0 {
+        0
+    } else {
+        MAX_FRAME_BYTES << 16
+    }
 }
 
 /// Linux `DMA_FC_THRESH_HI`: `TOTAL_DESC >> 4`.
@@ -601,7 +605,7 @@ pub mod dma_registers {
     pub const INDEX2RING_0: u32 = COMMON_BASE + 0x70;
     pub const INDEX2RING_COUNT: u32 = 8;
     pub const RING0: u32 = RING_BASE;
-    pub const DMA_ENABLE: u32 = 1 << 0;
+    pub const DMA_ENABLE: u32 = 1; // BIT(0)
     pub const RING_BUF_EN_SHIFT: u32 = 1;
 
     /// Per-ring offsets for the v4+ 40-bit pointer layout.
@@ -720,8 +724,8 @@ impl Display for MmioProbe {
 
 /// GENET interrupt bits from the two INTRL2 instances.
 pub mod interrupt {
-    pub const LINK_EVENT: u32 = (1 << 4) | (1 << 5);
-    pub const MDIO_EVENT: u32 = (1 << 23) | (1 << 24);
+    pub const LINK_EVENT: u32 = 0x0030; // bits 4 and 5
+    pub const MDIO_EVENT: u32 = 0x0180_0000; // bits 23 and 24
     pub const RX_DONE: u32 = 1 << 13;
     pub const TX_DONE: u32 = 1 << 16;
     pub const QUEUE_RX_SHIFT: u32 = 16;
@@ -936,7 +940,7 @@ impl DescriptorStatus {
         if self.length == 0 {
             return Err(DescriptorError::Empty);
         }
-        if self.length as u32 > MAX_FRAME_BYTES || self.length as u32 > DMA_LENGTH_MASK {
+        if self.length as u32 > MAX_FRAME_BYTES {
             return Err(DescriptorError::TooLarge);
         }
         let mut word = (self.length as u32) << DMA_LENGTH_SHIFT;
@@ -2340,6 +2344,9 @@ mod tests {
         assert_eq!(word & registers::UMAC_CMD_SW_RESET, 0);
         assert_ne!(word & registers::UMAC_CMD_TX_EN, 0);
         assert_ne!(word & registers::UMAC_CMD_RX_EN, 0);
+        assert_ne!(word & registers::UMAC_CMD_PAD_EN, 0);
+        assert_ne!(word & registers::UMAC_CMD_CRC_FWD, 0);
+        assert_ne!(word & registers::UMAC_CMD_NO_LEN_CHK, 0);
         assert_eq!(
             word & registers::UMAC_CMD_SPEED_MASK,
             umac_speed_bits(LinkSpeed::Thousand)
@@ -3320,11 +3327,9 @@ mod tests {
         let mut probe = [0x5au8; TX_DMA_BYTES as usize];
         write_tsb_probe(&mut probe);
         assert!(probe[..TSB_BYTES as usize].iter().all(|&b| b == 0));
-        assert!(
-            probe[TSB_BYTES as usize..TSB_BYTES as usize + 6]
-                .iter()
-                .all(|&b| b == 0xff)
-        );
+        assert!(probe[TSB_BYTES as usize..TSB_BYTES as usize + 6]
+            .iter()
+            .all(|&b| b == 0xff));
         assert_eq!(
             &probe[TSB_BYTES as usize + 6..TSB_BYTES as usize + 12],
             &STATION_ADDR
@@ -3446,6 +3451,12 @@ mod tests {
         );
         assert_eq!(
             classify_aneg_speed(phy::BMSR_LINK, 0, 0, 0),
+            Err(SpeedError::Unknown)
+        );
+        // Aneg-not-done must refuse even when LPA already names a speed.
+        // `bmsr & ANEG_DONE` mutated to `|` or `^` would take this as Hundred.
+        assert_eq!(
+            classify_aneg_speed(phy::BMSR_LINK, phy::LPA_100, 0, 0),
             Err(SpeedError::Unknown)
         );
         assert_eq!(
@@ -3611,5 +3622,208 @@ mod tests {
             ResetReport::NotEnabled.to_string(),
             "genet: reset unavailable (not enabled)"
         );
+    }
+
+    #[test]
+    fn reachable_mutation_survivors_die() {
+        assert_eq!(
+            rgmii_oob_mode(registers::RGMII_MODE_EN),
+            registers::RGMII_MODE_EN
+        );
+        assert_eq!(
+            rgmii_oob_with_link(registers::RGMII_MODE_EN | registers::RGMII_LINK),
+            registers::RGMII_MODE_EN | registers::RGMII_LINK
+        );
+        assert_eq!(
+            tbuf_with_tsb(registers::TBUF_64B_EN),
+            registers::TBUF_64B_EN
+        );
+        assert_eq!(
+            rbuf_ctrl_with_64b_align(registers::RBUF_ALIGN_2B | registers::RBUF_64B_EN),
+            registers::RBUF_ALIGN_2B | registers::RBUF_64B_EN
+        );
+        assert_eq!(
+            rbuf_chk_ctrl(
+                registers::RBUF_RXCHK_EN | registers::RBUF_L3_PARSE_DIS | registers::RBUF_SKIP_FCS,
+                true
+            ),
+            registers::RBUF_RXCHK_EN | registers::RBUF_L3_PARSE_DIS | registers::RBUF_SKIP_FCS
+        );
+        assert_eq!(
+            TxReport::with_tx_append_crc(DMA_TX_APPEND_CRC),
+            DMA_TX_APPEND_CRC
+        );
+
+        let mut short = [0x5au8; TSB_BYTES as usize + 13];
+        write_tsb_probe(&mut short);
+        assert_eq!(short[TSB_BYTES as usize], 0);
+
+        assert_eq!(hfb_filter_enable_bit(1), 1 << 1);
+        assert_eq!(hfb_filter_enable_bit(32), 1);
+
+        let desc = TxRingSet::new(DESC_RING).unwrap();
+        let shift = dma_registers::RING_BUF_EN_SHIFT + u32::from(DESC_RING);
+        assert_eq!(desc.rdma_ctrl(), dma_registers::DMA_ENABLE | (1 << shift));
+
+        assert_eq!(
+            InterruptWork::classify(0, 0),
+            InterruptWork {
+                link: false,
+                mdio: false,
+                rx: false,
+                tx: false
+            }
+        );
+
+        let word = (MIN_FRAME_BYTES as u32) << DMA_LENGTH_SHIFT;
+        let st = DescriptorStatus::decode(word).unwrap();
+        assert!(!st.start && !st.end && !st.wrap);
+        assert_eq!(st.ownership, Ownership::Driver);
+
+        let max = DescriptorStatus {
+            length: MAX_FRAME_BYTES as u16,
+            ownership: Ownership::Driver,
+            start: true,
+            end: true,
+            wrap: false,
+        };
+        assert!(max.encode().is_ok());
+        assert_eq!(
+            DescriptorStatus {
+                length: MAX_FRAME_BYTES as u16 + 1,
+                ..max
+            }
+            .encode(),
+            Err(DescriptorError::TooLarge)
+        );
+        assert!(DescriptorStatus::decode(MAX_FRAME_BYTES << DMA_LENGTH_SHIFT).is_ok());
+        assert_eq!(
+            DescriptorStatus::decode((MAX_FRAME_BYTES + 1) << DMA_LENGTH_SHIFT),
+            Err(DescriptorError::TooLarge)
+        );
+
+        let ok = Descriptor {
+            address: 0x1000,
+            length: MAX_FRAME_BYTES,
+            status: 0,
+        };
+        assert!(ok
+            .service_words(Ownership::Driver, true, true, false)
+            .is_ok());
+        assert_eq!(
+            Descriptor {
+                address: 0x1000,
+                length: 0,
+                status: 0,
+            }
+            .service_words(Ownership::Driver, true, true, false),
+            Err(DescriptorError::Empty)
+        );
+        assert_eq!(
+            Descriptor {
+                address: 0x1000,
+                length: u32::from(RX_BUF_LENGTH) + 1,
+                status: 0,
+            }
+            .service_words(Ownership::Driver, true, true, false),
+            Err(DescriptorError::TooLarge)
+        );
+        assert!(Descriptor {
+            address: 0x1000,
+            length: MAX_FRAME_BYTES,
+            status: 0,
+        }
+        .words(Ownership::Driver, true, true, false)
+        .is_ok());
+        assert_eq!(
+            Descriptor {
+                address: 0x1000,
+                length: MAX_FRAME_BYTES + 1,
+                status: 0,
+            }
+            .words(Ownership::Driver, true, true, false),
+            Err(DescriptorError::TooLarge)
+        );
+
+        assert_eq!(DmaWindow::mapped(u64::MAX, 0, 1), None);
+        assert_eq!(DmaWindow::mapped(0, u64::MAX, 1), None);
+        assert_eq!(DmaWindow::new(0, 0), None);
+
+        let mut reset = ResetState::new();
+        let first = reset.generation();
+        reset.reset();
+        assert_eq!(reset.generation(), first + 1);
+
+        assert!(classify_phy_id(0, 1).is_ok());
+        assert!(classify_phy_id(1, 0).is_ok());
+        assert!(classify_phy_id(0xffff, 0).is_ok());
+        assert!(classify_phy_id(0, 0xffff).is_ok());
+
+        assert_eq!(
+            MdioTxn {
+                phy: mdio::PHY_MASK as u8 + 1,
+                reg: 0,
+                write: None,
+            }
+            .encode(),
+            Err(MdioError::PhyOutOfRange)
+        );
+        assert_eq!(
+            MdioTxn {
+                phy: 0,
+                reg: mdio::REG_MASK as u8 + 1,
+                write: None,
+            }
+            .encode(),
+            Err(MdioError::RegisterOutOfRange)
+        );
+        assert!(MdioTxn {
+            phy: mdio::PHY_MASK as u8,
+            reg: mdio::REG_MASK as u8,
+            write: None,
+        }
+        .encode()
+        .is_ok());
+
+        assert_eq!(
+            HfbReport::Cleared.to_string(),
+            "genet: hfb cleared (flow0, not a nic)"
+        );
+        let dump = StateDump {
+            sys_rbuf_flush: 0,
+            sys_port_ctrl: 0,
+            rgmii_oob: 0,
+            umac_cmd: 0,
+            rbuf_ctrl: 0,
+            tbuf_ctrl: 0,
+            tdma_ctrl: 0,
+            tdma_status: 0,
+            rdma_ctrl: 0,
+            rdma_status: 0,
+            tx_desc_status: 0,
+        };
+        let rendered = dump.to_string();
+        assert!(rendered.starts_with("genet: state "));
+        assert!(rendered.contains("(read, not a nic)"));
+
+        let layout = RingLayout::new(registers::RDMA as u64, 1).unwrap();
+        let mut ring = BoundedRingState::<1>::new(layout, DMA_WINDOWS);
+        assert!(ring
+            .post(Descriptor {
+                address: 0x1000,
+                length: u32::from(RX_BUF_LENGTH) + 1,
+                status: 0,
+            })
+            .is_err());
+
+        let full = RingLayout::new(registers::RDMA as u64, TOTAL_DESCRIPTORS).unwrap();
+        let mut full_ring = RingState::new(full, DMA_WINDOWS);
+        assert!(full_ring
+            .post(Descriptor {
+                address: 0x1000,
+                length: u32::from(RX_BUF_LENGTH) - 1,
+                status: 0,
+            })
+            .is_err());
     }
 }
