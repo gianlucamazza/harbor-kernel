@@ -26,7 +26,7 @@ the code that follows.
 | [0004](0004-gic-group0-firmware-pin.md)                      | GIC Group 0 with IAR/EOIR, and the firmware pin                                              | accepted   |
 | [0005](0005-static-page-table-arena.md)                      | Static page-table arena instead of a frame allocator                                         | accepted   |
 | [0006](0006-cooperative-execution-model.md)                  | Cooperative execution model (M3 tasks) — IRQ-epilogue rule superseded by 0064/0068 (amended) | accepted   |
-| [0007](0007-project-identity-harbor-kernel.md)               | Project identity — Harbor and `harbor-kernel`                                                | accepted   |
+| [0007](0007-project-identity-harbor-kernel.md)               | Project identity — Harbor and `harbor-kernel` (subtitle scoped 2026-10-10)                   | accepted   |
 | [0008](0008-irq-handler-policy.md)                           | IRQ handler policy for cooperative wakes (F13/M4)                                            | accepted   |
 | [0009](0009-optional-spi-tft-debug-console.md)               | Optional SPI TFT status surface (ILI9486 HAT)                                                | superseded |
 | [0010](0010-spi-transaction-and-dbi-panel.md)                | SPI transactions and DBI panel streaming                                                     | superseded |
@@ -88,7 +88,7 @@ the code that follows.
 | [0066](0066-sd-media-durable-store.md)                       | P2 — SD media persistence for the durable store (EMMC2 PIO)                                  | accepted   |
 | [0067](0067-host-lab-second-isa-intent.md)                   | Host/lab second ISA — QEMU x86_64 intent and non-goals                                       | accepted   |
 | [0068](0068-k4-el1-preemption-second-slice.md)               | K4 second code slice — same-EL (EL1) IRQ preemption                                          | accepted   |
-| [0069](0069-harbor-host-class-north-star.md)                 | Harbor host-class north star — native primary OS intent                                      | accepted   |
+| [0069](0069-harbor-host-class-north-star.md)                 | Harbor host-class north star — native primary OS intent (wording scoped 2026-10-10)          | accepted   |
 | [0070](0070-k8-smp-first-slice.md)                           | K8 first slice — unpark core 1, idle only                                                    | accepted   |
 | [0071](0071-h3-l0-x86-qemu-first-slice.md)                   | H3 L0 — x86_64 QEMU first slice (boot, console, cpu identity)                                | accepted   |
 | [0072](0072-hardware-self-discovery-design.md)               | Hardware self-discovery as boot evidence — verify, don't select (first code: 0073)           | accepted   |

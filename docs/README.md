@@ -54,7 +54,7 @@ Depth after that: [`architecture.md`](architecture.md) (normative model),
 | [`docs/foundation-history.md`](foundation-history.md)   | M0–M8 milestone record, closed slices, foundation findings               | Live planning, current status                              |
 | [ADR-0026](adr/0026-kernel-and-product-completeness.md) | Completeness as goal                                                     | Per-track design                                           |
 | `SECURITY.md`                                           | Threat model, authority surface, residuals                               | Roadmap ordering                                           |
-| `docs/verification.md`                                  | Gates, transcripts, blind spots                                          | Normative design                                           |
+| `docs/verification.md`                                  | Gates, transcripts, blind spots — **not** formal proofs                  | Normative design                                           |
 | `docs/adr/*.md`                                         | Immutable structural decisions (`amended:` reconciliations per ADR-0058) | Live dashboard                                             |
 | `docs/reviews/*.md`                                     | Dated findings                                                           | Current truth after later fixes                            |
 | `docs/design/*.md`                                      | Design contracts                                                         | Completion claims without evidence                         |

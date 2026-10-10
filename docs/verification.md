@@ -4,6 +4,17 @@ What is checked, by what, and — the part that matters — what each check cann
 see. A gate whose blind spots are undocumented gets trusted for things it never
 covered.
 
+## Formal verification
+
+**There is none.** This file is an index of host tests, QEMU oracles, mutation
+runs, and Pi 4B serial stamps. The tree has no Kani, Prusti, Creusot, or Verus
+harnesses, no TLA+ or other model-checker specs, and no proof CI jobs. The
+"bounded model checks" in `kernel-core` (`tests/model_sched.rs`,
+`tests/model_ipc.rs`) are exhaustive Rust host tests over a small instance to a
+stated depth — already labelled **not a proof** in [that section](#bounded-exhaustive-model-checking-2026-08-07).
+"Verified" in this repository means a gate or a transcript recorded the
+observation, not that a theorem was discharged.
+
 ## How to read this file
 
 It is an **index of evidence**, not onboarding, and it is long because

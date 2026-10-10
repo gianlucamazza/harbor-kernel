@@ -2,7 +2,7 @@
 name = "kernel-core"
 version = "0.1.0"
 edition = "2024"
-description = "Pure, host-testable logic shared by the kernel: register encodings and allocator math"
+description = "Pure, host-testable kernel logic (register encodings, allocator math); not formally verified"
 license = "MIT OR Apache-2.0"
 publish = false
 

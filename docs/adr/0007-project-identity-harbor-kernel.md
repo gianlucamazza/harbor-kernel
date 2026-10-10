@@ -4,9 +4,16 @@ title: Project identity — Harbor and harbor-kernel
 status: accepted
 date: 2026-08-04
 accepted: 2026-08-04
+amended: 2026-10-10
 ---
 
 # ADR-0007: Project identity — Harbor and `harbor-kernel`
+
+> **Amendment (2026-10-10, claims honesty).** The public subtitle used to say
+> "verified". That word reads as formal verification. The tree has host tests,
+> QEMU oracles, and Pi 4B stamps — not Kani/Prusti/Creusot/Verus/TLA+ proofs.
+> The **name** decision is unchanged; only the subtitle is scoped to the
+> evidence that exists.
 
 ## Acceptance status
 
@@ -34,7 +41,7 @@ verification on both QEMU and Raspberry Pi 4 hardware. Its mission is to grow
 that foundation into a system where isolated tasks and agents operate inside
 explicit boundaries and communicate through controlled channels.
 
-The name must therefore be useful both for the current verified kernel and for
+The name must therefore be useful both for the current tested kernel and for
 the future task, IPC, capability, and driver-as-agent milestones. It must not
 claim that those future capabilities already exist.
 
@@ -47,7 +54,7 @@ The standard presentation is:
 
 ```text
 Harbor
-A verified Rust kernel for Raspberry Pi 4
+A Rust kernel for Raspberry Pi 4, tested in QEMU and on Pi 4B
 ```
 
 The name expresses a protected place in which independently bounded components

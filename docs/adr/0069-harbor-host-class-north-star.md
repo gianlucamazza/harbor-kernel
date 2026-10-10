@@ -4,10 +4,15 @@ title: Harbor host-class north star — native primary OS on host hardware
 status: accepted
 date: 2026-08-09
 accepted: 2026-08-09
+amended: 2026-10-10
 related: [0007, 0015, 0026, 0067]
 ---
 
 # ADR-0069: Harbor host-class north star
+
+> **Amendment (2026-10-10, claims honesty).** Context prose said "verified
+> agent-based microkernel". That is scoped to tests and stamps, not formal
+> verification. The north-star **decision** is unchanged.
 
 ## Acceptance status
 
@@ -22,7 +27,8 @@ and product name remains **Harbor**; the kernel/repo remains
 
 ## Context
 
-Harbor is a verified agent-based microkernel and product OS whose **mission**
+Harbor is an agent-based microkernel and product OS, tested in QEMU and on
+Pi 4B, whose **mission**
 is agents, grants, evidence, and finishing the OS under that model
 ([ADR-0026](0026-kernel-and-product-completeness.md), vision). Completeness
 tracks (K/P) and horizons H0–H2 are oriented around the Raspberry Pi 4B

@@ -26,6 +26,10 @@
 //!   `docs/verification.md`; a bounded result is not a proof and that document
 //!   says which is which.
 //!
+//! This crate is **not formally verified**. There are no Kani, Prusti, Creusot,
+//! or Verus harnesses here. The third item is an exhaustive Rust host test, not
+//! a model-checker or theorem-prover artefact.
+//!
 //! Only the second and third can catch a regression nobody predicted, and only
 //! the third can catch a *specification* that says less than it claims — which
 //! is what it found first.
