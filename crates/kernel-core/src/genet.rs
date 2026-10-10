@@ -3673,7 +3673,7 @@ mod tests {
             }
         );
 
-        let word = (MIN_FRAME_BYTES as u32) << DMA_LENGTH_SHIFT;
+        let word = MIN_FRAME_BYTES << DMA_LENGTH_SHIFT;
         let st = DescriptorStatus::decode(word).unwrap();
         assert!(!st.start && !st.end && !st.wrap);
         assert_eq!(st.ownership, Ownership::Driver);
