@@ -17,11 +17,11 @@
 # unmutated for a day (excellence review 2026-08-08, F-7).
 #
 # `cargo-mutants` exits 3 whenever anything survived. The current complete run
-# has 154 documented survivors: 22 historical authority/model guards and 132
-# GENET/GENET-FDT cases, mostly equivalent bit encodings, defensive boundaries,
-# or design-ahead surfaces. `docs/verification.md` classifies each group. A
-# target that is red every time is a target nobody runs, so this compares
-# against that documented baseline instead of against zero.
+# has 73 documented survivors: 21 historical authority/model guards and 52
+# GENET/GENET-FDT cases (disjoint-bit `|` vs `^`, encode-dominated length
+# bounds, and fixture-limited FDT edges). `docs/verification.md` classifies
+# the historical set. A target that is red every time is a target nobody
+# runs, so this compares against that documented baseline instead of against zero.
 set -uo pipefail
 
 cd "$(dirname "$0")/../.." || exit 1
@@ -41,7 +41,6 @@ cd "$(dirname "$0")/../.." || exit 1
 #       locals are disjoint bits; the const assert in taskcap.rs pins that)
 #   1 × irqcap mint's generation-0 skip — reachable only at u16 wrap, and
 #       irqcap has no revoke, so the generation never advances past first mint
-#   1 × `CapRights::SEND = 1 << 0` → `1 >> 0` in cap — equivalent, not untested
 # Sixth run (2026-08-09, ADR-0062 scope gains runqueue.rs and irqwait.rs):
 #   1 × `epoch << 16 | slot` → `^` in runqueue's to_raw — equivalent (the two
 #       halves are disjoint bits; same class as the band mints above)
@@ -60,7 +59,12 @@ cd "$(dirname "$0")/../.." || exit 1
 #       distinguishes them. The other three mutants of that function (the body
 #       to `()`, and `>` to `<`/`==`) all die, which is the useful half: the
 #       watermark is tested, only this one operator is unobservable.
-readonly BASELINE_MISSED=154
+# 2026-10-10 (genet/genet_fdt in scope, stamp refresh):
+#   29 × genet — `|` vs `^` on disjoint bitfields, plus `service_words`
+#       `>` vs `==`/`>=` (encode already refuses above MAX_FRAME_BYTES)
+#   23 × genet_fdt — equivalent cell packing, unused NOP arm, and header
+#       bounds the Pi 4 fixture never exercises
+readonly BASELINE_MISSED=73
 
 # `partition`'s loop counter mutated to a no-op never terminates. That is a
 # detected mutant, not a surviving one — the suite would hang rather than pass —
