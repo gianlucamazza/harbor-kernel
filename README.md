@@ -70,7 +70,7 @@ Full contrast:
 | Target   | `aarch64-unknown-none-softfloat` (pinned toolchain, `panic = "abort"`)                |
 | Platform | Raspberry Pi 4B / BCM2711, AArch64, **dual-current** (product home CPU 0)             |
 | Build    | `make` over `cargo`; `kernel8.img` at `0x80000`, EL2 → EL1h                           |
-| Model    | Cooperative tasks · slot-indexed capabilities · agent = EL1 driver task + EL0 program |
+| Model    | Preemptible tasks (voluntary yield + timer-quantum preemption) · slot-indexed capabilities · agent = EL1 driver task + EL0 program |
 | Evidence | Host tests · Miri · QEMU oracles in `make check`; Pi 4B serial stamps by hand — not formal proofs |
 
 Full stack, including what is deliberately **not** in it:
