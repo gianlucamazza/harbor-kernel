@@ -13,6 +13,9 @@
 #                         be starved by its host; silicon cannot)
 # before calling `assert_boot_oracle`.
 
+# shellcheck source=scripts/lib/window-vocab.sh
+source "$(dirname "${BASH_SOURCE[0]}")/window-vocab.sh"
+
 assert_boot_oracle() {
 	# The caller's side of the contract, enforced: a missing log or a missing
 	# verdict function is a wiring bug, not an empty pass.
@@ -474,17 +477,20 @@ assert_boot_oracle() {
 	grep -qaE 'H!.*loader: beacon ran' "${log}" ||
 		fail "the manifest agent's bytes did not reach the console before its report"
 
-	# ADR-0100: the same claim for the *device* vocabulary. `nowindow` is
-	# `beacon`'s bytes with a device grant naming window 0, and this product
-	# declares no window — so the refusal is `index >= 0`, arithmetic, and it is
-	# seen on every good boot rather than argued for in a document.
+	# ADR-0100: the same claim for the *device* vocabulary. `nowindow` names
+	# an index past the end (loader.rs), so the refusal is arithmetic — seen
+	# on every good boot rather than argued for in a document. The count is
+	# derived from authority.rs (rng + framebuffer: ADR-0101/0113), not copied
+	# from a log; product-oracle.sh uses the same helper.
 	#
 	# The negative that matters is below it: a refused entry must not have been
 	# spawned, because an agent composed to drive a page it cannot have is not an
 	# agent anyone asked to run without one.
-	grep -qa 'authority: windows 1 declared' "${log}" ||
-		fail "the window vocabulary was not declared (ADR-0100/0101)"
-	grep -qa 'loader: nowindow refused — names window 3 of 1' "${log}" ||
+	[[ -n "${NOWINDOW_INDEX:-}" ]] ||
+		fail "nowindow's window index could not be read from src/bootstrap/loader.rs"
+	grep -qa "authority: windows ${WINDOW_VOCAB_LEN} declared" "${log}" ||
+		fail "the window vocabulary was not declared (ADR-0100/0101/0113): expected windows ${WINDOW_VOCAB_LEN}"
+	grep -qa "loader: nowindow refused — names window ${NOWINDOW_INDEX} of ${WINDOW_VOCAB_LEN}" "${log}" ||
 		fail "an entry naming a window past the vocabulary was not refused"
 	if grep -qa 'loader: nowindow loaded' "${log}"; then
 		fail "an entry refused a device window was spawned anyway"
@@ -523,13 +529,17 @@ assert_boot_oracle() {
 	# then a transcript cited by an ADR cannot be tied to a commit at all.
 	[[ "${build_line}" == *" src="* ]] ||
 		fail "the image did not declare its source id: ${build_line}"
-	# The panel is gone (ADR-0094), so the pair of claims this used to check
-	# against each other is down to one half: no image may bring a panel up.
-	# Kept rather than deleted, because the failure it guards against is a
-	# driver coming back without a composition, which is exactly what ADR-0094
-	# says must not happen quietly.
-	if grep -qa '^display: ' "${log}"; then
-		fail "a panel came up, and no image should have one since ADR-0094: ${build_line}"
+	# ADR-0113: the rpi4 boot always probes the firmware framebuffer and
+	# prints one line. QEMU raspi4b has no property mailbox, so the line is
+	# `unavailable`; silicon that allocated one prints geometry. Either shape
+	# is a successful probe. Silence would mean the probe never ran.
+	grep -qaE '^display: framebuffer (([0-9]+x[0-9]+ pitch=[0-9]+ pa=0x[0-9a-f]+ bytes=[0-9]+)|unavailable \()' "${log}" ||
+		fail "framebuffer probe line missing (expected geometry or unavailable): $(grep -a '^display:' "${log}" || echo '(no display line)')"
+	# ADR-0094: the SPI/HAT panel is still retired on the default oracle
+	# image. A `backend=` or `init ` line means that driver came back without
+	# a composition. The framebuffer probe above is a different claim.
+	if grep -qaE '^display: (backend=|init )' "${log}"; then
+		fail "a SPI/HAT panel came up, and the default image should not have one since ADR-0094: ${build_line}"
 	fi
 
 	# ADR-0017 §3: the console is a capability, and one agent is deliberately

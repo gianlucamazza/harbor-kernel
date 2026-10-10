@@ -86,7 +86,7 @@ jobs:
           FROM ${QEMU_IMAGE}
           RUN apt-get update \
             && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-              qemu-system-arm=1:10.0.11+ds-0+deb13u1 \
+              qemu-system-arm=1:10.0.13+ds-0+deb13u1 \
             && rm -rf /var/lib/apt/lists/*
           ENTRYPOINT ["qemu-system-aarch64"]
           Dockerfile
