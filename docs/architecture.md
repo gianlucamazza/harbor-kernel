@@ -450,7 +450,7 @@ policy operations.
 The frame snapshot/I-O split now releases `STATUS` before chrome and SPI work;
 dirty acknowledgment compares sent cells so newer writes survive a flush.
 The HDMI agent traverses descriptor pitch and paints deterministic bands. The
-remaining gates are pixel-level proof and framebuffer-agent silicon evidence.
+remaining gates are pixel-level evidence and framebuffer-agent silicon evidence.
 
 <a id="completeness-roadmap"></a>
 

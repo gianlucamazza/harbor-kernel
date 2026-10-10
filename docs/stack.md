@@ -22,7 +22,7 @@ Short version in the [root README](../README.md#technology-stack).
 | Build driver    | `make` over `cargo` (+ `llvm-objcopy`)                                                                          | [`Makefile`](../Makefile)                                                                                                                                                                                                                     |
 | Execution model | Voluntary yield + quantum preemption on the IRQ epilogue (EL0+EL1); agent = EL1 driver task + EL0 program       | [ADR-0006](adr/0006-cooperative-execution-model.md) (amended), [ADR-0064](adr/0064-k4-el0-preemption-first-slice.md)/[0068](adr/0068-k4-el1-preemption-second-slice.md), [ADR-0023](adr/0023-an-agent-is-an-el1-driver-and-an-el0-program.md) |
 | Authority model | Slot-indexed capabilities; manifest grants                                                                      | [ADR-0017](adr/0017-el0-capability-abi.md), [ADR-0021](adr/0021-agents-as-data-and-the-manifest.md)                                                                                                                                           |
-| Verification    | host tests · Miri · QEMU oracles · Pi 4B serial stamps                                                          | [`verification.md`](verification.md)                                                                                                                                                                                                          |
+| Verification    | host tests · Miri · QEMU oracles · Pi 4B serial stamps — **not** formal proofs                                  | [`verification.md`](verification.md)                                                                                                                                                                                                          |
 
 ---
 
@@ -113,7 +113,9 @@ treats as a bug: optional tools skip _with a message_, never silently.
 ## Verification stack
 
 Four levels, in increasing cost and increasing authority
-([`verification.md`](verification.md) is the index):
+([`verification.md`](verification.md) is the index). These are tests and
+hardware stamps, not formal verification: no Kani, Prusti, Creusot, Verus,
+TLA+, or proof CI.
 
 | Level           | Mechanism                                                      | Claims it can settle                                                                                                                                     |
 | --------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -145,6 +147,7 @@ vocabulary: [`docs/README.md`](README.md).
 | A device tree parser                  | Board truth is compiled-in BSP constants; the DTB is mapped read-only for a future parser ([ADR-0011](adr/0011-dtb-mapped-board-constants-risk-accept.md))         |
 | A filesystem, network or window stack | They belong **above** the kernel as agents, when a composition needs them (P2–P5)                                                                                  |
 | An LLM / agent framework              | "Agent" here is the isolation unit — [`glossary.md`](glossary.md)                                                                                                  |
+| Formal verification                   | No Kani, Prusti, Creusot, Verus, TLA+, or proof CI. Evidence is host tests (including bounded exhaustive walks), QEMU oracles, and Pi 4B stamps                    |
 
 ## Where the stack is decided
 

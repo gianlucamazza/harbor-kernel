@@ -1,6 +1,6 @@
 //! BCM2711 GENET v5 control-plane, unpublished queue-0 program, PHY bring-up, bounded TX/RX, and reset.
 //!
-//! The verified FDT binding supplies the translated MMIO window and DMA
+//! The host-tested FDT binding supplies the translated MMIO window and DMA
 //! apertures. Packet ownership, ring arithmetic, and MDIO words stay in
 //! `kernel_core::genet`. This layer writes those contracts into the
 //! controller. Network-service publication is a later BSP composition step.

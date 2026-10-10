@@ -2,7 +2,7 @@
 //!
 //! This module deliberately stops at arithmetic and ownership. It does not
 //! select a board address, touch MMIO, or expose a descriptor to EL0. The
-//! eventual Pi 4 binding must supply a verified device-tree translation and
+//! eventual Pi 4 binding must supply a host-tested device-tree translation and
 //! use these checks before programming the controller.
 
 use core::fmt::{self, Display, Formatter};

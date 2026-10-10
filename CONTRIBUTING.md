@@ -26,8 +26,8 @@ successor ADR, not a patch.
 4. **`make check` predicts CI.** Local green must mean remote green.
    Doc drift is a failed gate (`doc-claims`, `xrefs`, `doc-symbols`).
 5. **Ship path ≠ lab path.** The oracle image (`make boot-check`) proves
-   subsystem demos. The **product** image is proven by
-   `make product-boot-check` (composition minimum on lines the shipped path
+   subsystem demos.    The **product** image is checked by
+   `make product-boot-check` (composition minimum on lines the shipped path)
    already prints) and kept free of demo strings by `make product-builds`.
    Prefer strengthening the product gate over growing the oracle fleet
    ([ADR-0085](docs/adr/0085-k5-density-residual-design.md)).

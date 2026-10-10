@@ -1,7 +1,7 @@
 # Harbor
 
-**A verified Rust agent-based microkernel and product OS for Raspberry Pi 4**
-(`harbor-kernel`).
+**A Rust agent-based microkernel and product OS for Raspberry Pi 4, tested in
+QEMU and on Pi 4B** (`harbor-kernel`). Not formally verified.
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![CI](https://github.com/gianlucamazza/harbor-kernel/actions/workflows/ci.yml/badge.svg)](https://github.com/gianlucamazza/harbor-kernel/actions)
@@ -71,7 +71,7 @@ Full contrast:
 | Platform | Raspberry Pi 4B / BCM2711, AArch64, **dual-current** (product home CPU 0)             |
 | Build    | `make` over `cargo`; `kernel8.img` at `0x80000`, EL2 → EL1h                           |
 | Model    | Cooperative tasks · slot-indexed capabilities · agent = EL1 driver task + EL0 program |
-| Evidence | Host tests · Miri · QEMU oracles in `make check`; Pi 4B serial stamps by hand         |
+| Evidence | Host tests · Miri · QEMU oracles in `make check`; Pi 4B serial stamps by hand — not formal proofs |
 
 Full stack, including what is deliberately **not** in it:
 [`docs/stack.md`](docs/stack.md).
@@ -126,11 +126,24 @@ a product-bound `console` name and an EL0 durable blob endpoint;
 a `genet:` FDT report that does not bind a network service;
 density stack classes Full / Thin / **Mini** stamped on hardware.
 
-| Evidence     | Today                                                        |
-| ------------ | ------------------------------------------------------------ |
-| Verification | 647 host tests, model checks, Miri, QEMU and hardware stamps |
+| Feature                         | Evidence                                                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Cooperative / preemptible tasks | Implemented; tested in QEMU and on Pi 4B                                                         |
+| EL0 agents + slot capabilities  | Implemented; tested in QEMU and on Pi 4B                                                         |
+| Message IPC                     | Implemented; tested in QEMU and on Pi 4B                                                         |
+| W^X MMU                         | Implemented; tested in QEMU and on Pi 4B                                                         |
+| Dual-current SMP                | Implemented; tested in QEMU and on Pi 4B                                                         |
+| Network (P3 product path)       | QEMU `virt` only; Pi 4 GENET backend has silicon stamps, product publication not yet `done (HW)` |
+| Display / input (P4)            | In implementation; SPI status visually checked on Pi; HDMI pixel evidence open                   |
+| Formal verification             | **None** — no Kani / Prusti / Creusot / Verus / TLA+ / proof CI                                  |
 
-Evidence index: [`docs/verification.md`](docs/verification.md).
+| Evidence     | Today                                                                                                          |
+| ------------ | -------------------------------------------------------------------------------------------------------------- |
+| Verification | 647 host tests, bounded exhaustive host walks, Miri, QEMU and Pi 4B stamps — not formal proofs |
+
+Evidence index: [`docs/verification.md`](docs/verification.md). Those walks
+(`tests/model_sched.rs`, `tests/model_ipc.rs`) exhaust a small instance to a
+stated depth; they are host tests, not model-checker proofs.
 
 ## Who this is for
 
@@ -186,7 +199,7 @@ make serial SERIAL_DEV=/dev/ttyUSB0
 | Architecture and layering         | [`docs/architecture.md`](docs/architecture.md)             |
 | Product vision and use cases      | [`docs/vision.md`](docs/vision.md)                         |
 | Threat model and authority        | [`SECURITY.md`](SECURITY.md)                               |
-| What is actually proven           | [`docs/verification.md`](docs/verification.md)             |
+| What tests and stamps actually show | [`docs/verification.md`](docs/verification.md)             |
 | How the foundation was closed     | [`docs/foundation-history.md`](docs/foundation-history.md) |
 | How to contribute                 | [`CONTRIBUTING.md`](CONTRIBUTING.md)                       |
 

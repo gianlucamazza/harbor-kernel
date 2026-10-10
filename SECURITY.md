@@ -17,7 +17,8 @@ describing a shape.
 
 It is **not** a claim that Harbor is production-hardened or multi-tenant ready.
 It states what is in scope to defend, what is trusted by construction, what is
-verified, and what is still open surface.
+tested (host, QEMU, or Pi 4B), and what is still open surface. It is not a
+formal-verification claim.
 
 ---
 
