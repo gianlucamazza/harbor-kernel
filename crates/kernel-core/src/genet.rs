@@ -549,11 +549,7 @@ pub const fn hfb_filter_ram_offset(index: u32, word: u32) -> Option<u32> {
 
 /// Linux sets `ENET_MAX_MTU << 16` on TDMA `FLOW_PERIOD` when the ring is not 0.
 pub const fn tdma_flow_period(queue: u8) -> u32 {
-    if queue == 0 {
-        0
-    } else {
-        MAX_FRAME_BYTES << 16
-    }
+    if queue == 0 { 0 } else { MAX_FRAME_BYTES << 16 }
 }
 
 /// Linux `DMA_FC_THRESH_HI`: `TOTAL_DESC >> 4`.
@@ -3327,9 +3323,11 @@ mod tests {
         let mut probe = [0x5au8; TX_DMA_BYTES as usize];
         write_tsb_probe(&mut probe);
         assert!(probe[..TSB_BYTES as usize].iter().all(|&b| b == 0));
-        assert!(probe[TSB_BYTES as usize..TSB_BYTES as usize + 6]
-            .iter()
-            .all(|&b| b == 0xff));
+        assert!(
+            probe[TSB_BYTES as usize..TSB_BYTES as usize + 6]
+                .iter()
+                .all(|&b| b == 0xff)
+        );
         assert_eq!(
             &probe[TSB_BYTES as usize + 6..TSB_BYTES as usize + 12],
             &STATION_ADDR
@@ -3707,9 +3705,10 @@ mod tests {
             length: MAX_FRAME_BYTES,
             status: 0,
         };
-        assert!(ok
-            .service_words(Ownership::Driver, true, true, false)
-            .is_ok());
+        assert!(
+            ok.service_words(Ownership::Driver, true, true, false)
+                .is_ok()
+        );
         assert_eq!(
             Descriptor {
                 address: 0x1000,
@@ -3728,13 +3727,15 @@ mod tests {
             .service_words(Ownership::Driver, true, true, false),
             Err(DescriptorError::TooLarge)
         );
-        assert!(Descriptor {
-            address: 0x1000,
-            length: MAX_FRAME_BYTES,
-            status: 0,
-        }
-        .words(Ownership::Driver, true, true, false)
-        .is_ok());
+        assert!(
+            Descriptor {
+                address: 0x1000,
+                length: MAX_FRAME_BYTES,
+                status: 0,
+            }
+            .words(Ownership::Driver, true, true, false)
+            .is_ok()
+        );
         assert_eq!(
             Descriptor {
                 address: 0x1000,
@@ -3777,13 +3778,15 @@ mod tests {
             .encode(),
             Err(MdioError::RegisterOutOfRange)
         );
-        assert!(MdioTxn {
-            phy: mdio::PHY_MASK as u8,
-            reg: mdio::REG_MASK as u8,
-            write: None,
-        }
-        .encode()
-        .is_ok());
+        assert!(
+            MdioTxn {
+                phy: mdio::PHY_MASK as u8,
+                reg: mdio::REG_MASK as u8,
+                write: None,
+            }
+            .encode()
+            .is_ok()
+        );
 
         assert_eq!(
             HfbReport::Cleared.to_string(),
@@ -3808,22 +3811,25 @@ mod tests {
 
         let layout = RingLayout::new(registers::RDMA as u64, 1).unwrap();
         let mut ring = BoundedRingState::<1>::new(layout, DMA_WINDOWS);
-        assert!(ring
-            .post(Descriptor {
+        assert!(
+            ring.post(Descriptor {
                 address: 0x1000,
                 length: u32::from(RX_BUF_LENGTH) + 1,
                 status: 0,
             })
-            .is_err());
+            .is_err()
+        );
 
         let full = RingLayout::new(registers::RDMA as u64, TOTAL_DESCRIPTORS).unwrap();
         let mut full_ring = RingState::new(full, DMA_WINDOWS);
-        assert!(full_ring
-            .post(Descriptor {
-                address: 0x1000,
-                length: u32::from(RX_BUF_LENGTH) - 1,
-                status: 0,
-            })
-            .is_err());
+        assert!(
+            full_ring
+                .post(Descriptor {
+                    address: 0x1000,
+                    length: u32::from(RX_BUF_LENGTH) - 1,
+                    status: 0,
+                })
+                .is_err()
+        );
     }
 }
