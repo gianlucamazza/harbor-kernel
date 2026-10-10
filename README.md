@@ -139,7 +139,7 @@ density stack classes Full / Thin / **Mini** stamped on hardware.
 
 | Evidence     | Today                                                                                                          |
 | ------------ | -------------------------------------------------------------------------------------------------------------- |
-| Verification | 647 host tests, bounded exhaustive host walks, Miri, QEMU and Pi 4B stamps — not formal proofs |
+| Verification | 649 host tests, bounded exhaustive host walks, Miri, QEMU and Pi 4B stamps — not formal proofs |
 
 Evidence index: [`docs/verification.md`](docs/verification.md). Those walks
 (`tests/model_sched.rs`, `tests/model_ipc.rs`) exhaust a small instance to a

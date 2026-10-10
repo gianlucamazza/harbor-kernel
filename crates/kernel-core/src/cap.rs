@@ -134,7 +134,7 @@ pub enum CapClass {
 pub struct CapRights(u8);
 
 impl CapRights {
-    pub const SEND: Self = Self(1 << 0);
+    pub const SEND: Self = Self(1); // BIT(0)
     pub const RECV: Self = Self(1 << 1);
     /// Wait on an IRQ notification cookie (ADR-0030). Not SEND/RECV.
     pub const IRQ: Self = Self(1 << 2);

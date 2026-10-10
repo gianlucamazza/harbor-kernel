@@ -1886,6 +1886,27 @@ The modules added since the first run — `irqtable` and `rxline` — produced *
 survivors at all**, which is the useful measure of tests written with the
 mutants in mind rather than found by them afterwards.
 
+### Eleventh run, 2026-10-10: 1609 mutants, 73 survivors, the stamp is current
+
+A complete `make mutants` after the reachable GENET tests rewrote
+`docs/mutation-stamp.toml` to **1609 / 73 / 73**. `make mutation-freshness`
+reads only the `mutants` count; `baseline` is the script threshold the run
+recorded, and it matches `survivors` the way the 22/22 stamp did. The 21
+historical authority/model survivors are unchanged (the `CapRights::SEND`
+`1 << 0` equivalent is gone — the constant is now `1`). The other 52 are
+the GENET surface that had never been classified site-by-site:
+
+| File | Count | Class |
+| --- | --- | --- |
+| `genet.rs` | 27 | Equivalent: `\|` vs `^` on disjoint bitfields (MAC packing, datapath OR-chains, MDIO word, MIB reset, ring-buf size, TX status). After a field is cleared or the operands occupy distinct bits, both operators write the same word. |
+| `genet.rs` | 2 | Equivalent: `Descriptor::service_words` `>` vs `==` / `>=` on `RX_BUF_LENGTH`. `encode` already refuses anything above `MAX_FRAME_BYTES` (1536 < 2048), so those two operators are not observable. |
+| `genet_fdt.rs` | 1 | Equivalent: `cells` `(v << 32) \| lo` vs `^` — the halves are disjoint. |
+| `genet_fdt.rs` | 1 | Unused `NOP` match arm. The Pi 4 fixture contains no `FDT_NOP` tokens, so deleting the arm changes nothing the suite sees. |
+| `genet_fdt.rs` | 21 | **Test gap, not equivalent.** Header/`absorb` bounds (`total`/`struct_end`/`strings_end`/`value_end`/`MAX_RANGE_BYTES`), the token budget (`struct_len / 4 + 1`), depth predicates, `genet_count == 0` vs `!=` (Missing vs Ambiguous), and the missing-field / interrupt `\|\|` chains. A crafted DTB would kill them; the fixture never offers those shapes. |
+
+The three timeouts are unchanged: `reset::partition` and the two `DmaWindows`
+loop counters.
+
 ### Third run, after the loader and the park: 274 caught, 10 missed, 1 timeout
 
 `manifest` joined the file list — it is the code that decides whether an agent
