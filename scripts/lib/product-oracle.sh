@@ -19,6 +19,9 @@
 
 # `log` and `fail` come from the caller — see the contract above.
 # shellcheck disable=SC2154
+# shellcheck source=scripts/lib/window-vocab.sh
+source "$(dirname "${BASH_SOURCE[0]}")/window-vocab.sh"
+
 assert_product_boot() {
 	# ---------------------------------------------------------------------------
 	# 1. Boot identity (same lines product and oracle share — not demo scaffolding)
@@ -84,13 +87,14 @@ assert_product_boot() {
 	# for `VACANT` is in §5, because a hole is not a boot the product should pass.
 	grep -qaE 'authority: 0 console ok' "${log}" ||
 		fail "the console position was not declared and provided (ADR-0099)"
-	# ADR-0100/0101: the device vocabulary, and the one window this product
-	# declares. The expectation is **derived from the board**, not chosen from a
-	# list of them: the same transcript already says whether the RNG200 answered,
-	# and the two lines must agree. One oracle, two boards — the alternative is a
-	# hardware-flavoured copy that disagrees with this one on the day it matters.
-	grep -qa 'authority: windows 2 declared' "${log}" ||
-		fail "the product did not declare its RNG and framebuffer windows (ADR-0113)"
+	# ADR-0100/0101/0113: the device vocabulary. Count comes from the WINDOW_*
+	# index constants (rng + framebuffer), shared with boot-oracle.sh. Whether
+	# a declared window is *provided* is derived from the board: the same
+	# transcript already says whether the RNG200 answered, and the two lines
+	# must agree. One oracle, two boards — the alternative is a hardware-
+	# flavoured copy that disagrees with this one on the day it matters.
+	grep -qa "authority: windows ${WINDOW_VOCAB_LEN} declared" "${log}" ||
+		fail "the product did not declare its RNG and framebuffer windows (ADR-0113): expected windows ${WINDOW_VOCAB_LEN}"
 	if grep -qa 'rng200: ok' "${log}"; then
 		grep -qa 'authority: 0 rng ok' "${log}" ||
 			fail "the board has an RNG200 and the window was not provided (ADR-0101)"
